@@ -415,7 +415,7 @@ CALL jules_print('jules_soil', lineBuffer)
 WRITE(lineBuffer, *) '  dzdeep = ', dzdeep
 CALL jules_print('jules_soil', lineBuffer)
 
-WRITE(lineBuffer, *) '  dzsoil_io = ', dzsoil_io
+WRITE(lineBuffer, *) '  dzsoil_io = ', dzsoil_io(1:sm_levels)
 CALL jules_print('jules_soil', lineBuffer)
 
 WRITE(lineBuffer, *) '  dzsoil_elev = ', dzsoil_elev
@@ -468,7 +468,7 @@ INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 3
 INTEGER, PARAMETER :: n_real = 8 + sm_levels_max
-INTEGER, PARAMETER :: n_log = 6
+INTEGER, PARAMETER :: n_log = 7 + sm_levels_max ! + l_bound_soil_wp and l_ds_correction_io(sm_levels_max)
 
 TYPE :: my_namelist
   SEQUENCE

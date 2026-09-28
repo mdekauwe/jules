@@ -46,6 +46,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 
 INTEGER ::                                                                     &
   c3_io(npft_max) = imdi,                                                      &
+  irrig_pft_io(npft_max) = imdi,                                               &
   orient_io(npft_max) = imdi,                                                  &
   pft_conductance_model_io(npft_max) = imdi                                      ! JBaguley
 
@@ -218,6 +219,7 @@ NAMELIST  / jules_pftparm/                                                     &
   g1_stomata_io,   g_leaf_0_io,      glmin_io,                                 &
   gpp_st_io,       sug_grec_io,      gsoil_f_io,                               &
   hw_sw_io,        ief_io,           infil_f_io,                               &
+  irrig_pft_io,                                                                &
   jv25_ratio_io,   kcrit_fractional_loss_io,                                   & ! JBaguley
   kext_io,         kmax_pft_io,                                                & ! JBaguley
   kn_io,                                    &
@@ -240,282 +242,9 @@ NAMELIST  / jules_pftparm/                                                     &
   z0hm_classic_pft_io,               z0v_io,                                   &
   sox_a_io,        sox_p50_io,       sox_rp_min_io
 
-
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM_IO'
 
 CONTAINS
-
-SUBROUTINE print_nlist_jules_pftparm()
-USE jules_print_mgr, ONLY: jules_print
-IMPLICIT NONE
-CHARACTER(LEN=50000) :: lineBuffer
-
-CALL jules_print('pftparm_io',                                                 &
-    'Contents of namelist jules_pftparm')
-
-#if !defined(UM_JULES)
-WRITE(lineBuffer,*)' calc_rz_psi_io = ',calc_rz_psi_io ! JBaguley
-CALL jules_print('pftparm_io',lineBuffer) ! JBaguley
-WRITE(lineBuffer,*)' canht_ft_io = ',canht_ft_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' lai_io = ',lai_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fsmc_mod_io = ',fsmc_mod_io
-CALL jules_print('pftparm_io',lineBuffer) ! JBaguley
-WRITE(lineBuffer,*)' min_gl_pft_io = ',min_gl_pft_io ! JBaguley
-CALL jules_print('pftparm_io',lineBuffer) ! JBaguley
-WRITE(lineBuffer,*)' min_rootc_pft_io = ',min_rootc_pft_io ! JBaguley
-CALL jules_print('pftparm_io',lineBuffer) ! JBaguley
-WRITE(lineBuffer, *)' root_psi_crit_io = ',root_psi_crit_io ! JBaguley
-CALL jules_print('pftparm_io',lineBuffer) ! JBaguley
-WRITE(lineBuffer,*)' root_radi_pft_io = ',root_radi_pft_io ! JBaguley
-CALL jules_print('pftparm_io',lineBuffer) ! JBaguley
-WRITE(lineBuffer,*)' rootc_density_pft_io = ',rootc_density_pft_io ! JBaguley
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' psi_close_io = ',psi_close_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' psi_open_io = ',psi_open_io
-CALL jules_print('pftparm_io',lineBuffer)
-#endif
-
-
-WRITE(lineBuffer,*)' a_wl_io = ',a_wl_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' a_ws_io = ',a_ws_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' act_jmax_io = ',act_jmax_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' act_vcmax_io = ',act_vcmax_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' aef_io = ',aef_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' albsnc_max_io = ',albsnc_max_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' albsnc_min_io = ',albsnc_min_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' albsnf_max_io = ',albsnf_max_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' alpha_io = ',alpha_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' alpha_elec_io = ',alpha_elec_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' alnir_io = ',alnir_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' alpar_io = ',alpar_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' avg_ba_io = ',avg_ba_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' b_wl_io = ',b_wl_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' c3_io = ',c3_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' can_struct_a_io = ',can_struct_a_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' catch0_io = ',catch0_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' ccleaf_max_io = ',ccleaf_max_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' ccleaf_min_io = ',ccleaf_min_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' ccwood_max_io = ',ccwood_max_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' ccwood_min_io = ',ccwood_min_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' ci_st_io = ',ci_st_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' pft_conductance_model_io = ',pft_conductance_model_io ! JBaguley
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' dcatch_dlai_io = ',dcatch_dlai_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' deact_vcmax_io = ',deact_jmax_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' deact_vcmax_io = ',deact_vcmax_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' dfp_dcuo_io = ',dfp_dcuo_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' dgl_dm_io = ',dgl_dm_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' dgl_dt_io = ',dgl_dt_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' dqcrit_io = ',dqcrit_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' ds_jmax_io = ',ds_jmax_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' ds_vcmax_io = ',ds_vcmax_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' dust_veg_scj_io = ',dust_veg_scj_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' dz0v_dh_io = ',dz0v_dh_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' emis_pft_io = ',emis_pft_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' eta_sl_io = ',eta_sl_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' f0_io = ',f0_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fd_io = ',fd_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_bc_io = ',fef_bc_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_ch4_io = ',fef_ch4_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_co_io = ',fef_co_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_co2_io = ',fef_co2_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_nox_io = ',fef_nox_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_oc_io = ',fef_oc_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_so2_io = ',fef_so2_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_c2h4_io = ',fef_c2h4_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_c2h6_io = ',fef_c2h6_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_c3h8_io = ',fef_c3h8_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_hcho_io = ',fef_hcho_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_mecho_io = ',fef_mecho_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_nh3_io = ',fef_nh3_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fef_dms_io = ',fef_dms_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fire_mort_io = ',fire_mort_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fl_o3_ct_io = ',fl_o3_ct_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fsmc_of_io = ',fsmc_of_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' fsmc_p0_io = ',fsmc_p0_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' sug_g0_io = ',sug_g0_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' g1_stomata_io = ',g1_stomata_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' g_leaf_0_io = ',g_leaf_0_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' glmin_io = ',glmin_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' gpp_st_io = ',gpp_st_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' sug_grec_io = ',sug_grec_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' gsoil_f_io = ',gsoil_f_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' hw_sw_io = ',hw_sw_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' ief_io = ',ief_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' infil_f_io = ',infil_f_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' jv25_ratio_io = ',jv25_ratio_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' kcrit_fractional_loss_io = ',kcrit_fractional_loss_io ! JBaguley
-CALL jules_print('pftparm_io',lineBuffer) ! JBaguley
-WRITE(lineBuffer,*)' kext_io = ',kext_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' kmax_pft_io = ', kmax_pft_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' kn_io = ',kn_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' knl_io = ',knl_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' kpar_io = ',kpar_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' lai_alb_lim_io = ',lai_alb_lim_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' lma_io = ',lma_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' mef_io = ',mef_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' neff_io = ',neff_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' nl0_io = ',nl0_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' nmass_io = ',nmass_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' nr_nl_io = ',nr_nl_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' ns_nl_io = ',ns_nl_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' nsw_io = ',nsw_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' nr_io = ',nr_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' omega_io = ',omega_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' omnir_io = ',omnir_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' orient_io = ',orient_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' p50_io = ',p50_io ! JBaguley
-CALL jules_print('pftparm_io',lineBuffer) ! JBaguley
-WRITE(lineBuffer,*)' p88_io = ',p88_io ! JBaguley
-CALL jules_print('pftparm_io',lineBuffer) ! JBaguley
-WRITE(lineBuffer,*)' gcut_io = ',gcut_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' seg_frac_root_io = ',seg_frac_root_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' seg_frac_stem_io = ',seg_frac_stem_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' seg_frac_leaf_io = ',seg_frac_leaf_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' p50_root_io = ',p50_root_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' p50_stem_io = ',p50_stem_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' p50_leaf_io = ',p50_leaf_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' p88_root_io = ',p88_root_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' p88_stem_io = ',p88_stem_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' p88_leaf_io = ',p88_leaf_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' q10_leaf_io = ',q10_leaf_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' r_grow_io = ',r_grow_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' rmass_io = ',rmass_io ! JBaguley
-CALL jules_print('ptfparm_io',lineBuffer) ! JBaguley
-WRITE(lineBuffer,*)' rootd_ft_io = ',rootd_ft_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' sigl_io = ',sigl_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' tef_io = ',tef_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' tleaf_of_io = ',tleaf_of_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' tlow_io = ',tlow_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' tupp_io = ',tupp_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' vint_io = ',vint_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' vsl_io = ',vsl_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' sug_yg_io = ',sug_yg_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' leaf_crit_io = ',leaf_crit_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' z0hm_pft_io = ',z0hm_pft_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' z0v_io = ',z0v_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' sox_a_io = ',sox_a_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' sox_p50_io = ',sox_p50_io
-CALL jules_print('pftparm_io',lineBuffer)
-WRITE(lineBuffer,*)' sox_rp_min_io = ',sox_rp_min_io
-CALL jules_print('pftparm_io',lineBuffer)
-
-CALL jules_print('pftparm_io',                                                 &
-    '- - - - - - end of namelist - - - - - -')
-
-END SUBROUTINE print_nlist_jules_pftparm
 
 #if defined(UM_JULES)
 SUBROUTINE read_nml_jules_pftparm (unitnumber)
@@ -546,16 +275,13 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
-INTEGER, PARAMETER :: n_int = 3 * npft_max ! JBaguley was 2
-INTEGER, PARAMETER :: n_real = 124 * npft_max ! = the REAL arrays in
-                                             ! my_namelist: trunk vn7.9 108 +
-                                             ! 16 for the stomatal
-                                             ! optimisation (the pre-merge
-                                             ! value 113 was one short)
+INTEGER, PARAMETER :: n_int = 4 * npft_max ! = the INTEGER arrays in my_namelist
+INTEGER, PARAMETER :: n_real = 124 * npft_max ! = the REAL arrays in my_namelist
 
 TYPE :: my_namelist
   SEQUENCE
   INTEGER :: c3_io(npft_max)
+  INTEGER :: irrig_pft_io(npft_max)
   INTEGER :: orient_io(npft_max)
   INTEGER :: pft_conductance_model_io(npft_max) ! JBaguley
   REAL(KIND=real_jlslsm) :: a_wl_io(npft_max)
@@ -772,6 +498,7 @@ IF (mype == 0) THEN
   my_nml % hw_sw_io       = hw_sw_io
   my_nml % ief_io         = ief_io
   my_nml % infil_f_io     = infil_f_io
+  my_nml % irrig_pft_io   = irrig_pft_io
   my_nml % jv25_ratio_io  = jv25_ratio_io
   my_nml % kcrit_fractional_loss_io = kcrit_fractional_loss_io ! JBaguley
   my_nml % kext_io        = kext_io
@@ -905,6 +632,7 @@ IF (mype /= 0) THEN
   hw_sw_io        = my_nml % hw_sw_io
   ief_io          = my_nml % ief_io
   infil_f_io      = my_nml % infil_f_io
+  irrig_pft_io    = my_nml % irrig_pft_io
   jv25_ratio_io   = my_nml % jv25_ratio_io
   kcrit_fractional_loss_io = my_nml % kcrit_fractional_loss_io ! JBaguley
   kext_io         = my_nml % kext_io
@@ -1032,7 +760,8 @@ USE pftparm, ONLY:                                                             &
 
 
 
-USE c_z0h_z0m, ONLY: z0h_z0m,  z0h_z0m_classic
+USE c_irrigation_mod, ONLY: irrig_tile
+USE c_z0h_z0m,    ONLY: z0h_z0m,  z0h_z0m_classic
 
 USE jules_surface_types_mod, ONLY: npft
 
@@ -1151,6 +880,7 @@ fsmc_p0(:)      = fsmc_p0_io(1:npft)
 glmin(:)        = glmin_io(1:npft)
 gsoil_f(:)      = gsoil_f_io(1:npft)
 infil_f(:)      = infil_f_io(1:npft)
+irrig_tile(1:npft)      = irrig_pft_io(1:npft)
 rootd_ft(:)     = rootd_ft_io(1:npft)
 z0v(:)          = z0v_io(1:npft)
 z0h_z0m(1:npft) = z0hm_pft_io(1:npft)

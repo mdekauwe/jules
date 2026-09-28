@@ -9354,9 +9354,22 @@ DATA metadata(722) / var_metadata(                                             &
     "kg s-1"                                                                   &
   ) /
 !-----------------------------------------------------------------------------
-! Metadata for soil_wp
+! Metadata for inland_outflow_rp
 !-----------------------------------------------------------------------------
 DATA metadata(723) / var_metadata(                                             &
+! String identifier
+    'inland_outflow_rp',                                                       &
+! Variable type
+    var_type_rp,                                                               &
+! Long name
+    "Inland basin flow on river routing grid",                                 &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for soil_wp
+!-----------------------------------------------------------------------------
+DATA metadata(724) / var_metadata(                                             &
 ! String identifier
     'soil_wp',                                                                 &
 ! Variable type
@@ -9369,7 +9382,7 @@ DATA metadata(723) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for soil_k
 !-----------------------------------------------------------------------------
-DATA metadata(724) / var_metadata(                                             &
+DATA metadata(725) / var_metadata(                                             &
 ! String identifier
     'soil_k',                                                                  &
 ! Variable type
@@ -9382,7 +9395,7 @@ DATA metadata(724) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for soil_root_k
 !-----------------------------------------------------------------------------
-DATA metadata(725) / var_metadata(                                             &
+DATA metadata(726) / var_metadata(                                             &
 ! String identifier
     'soil_root_k',                                                             &
 ! Variable type
@@ -9395,7 +9408,7 @@ DATA metadata(725) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for psi_root_zone_pft
 !-----------------------------------------------------------------------------
-DATA metadata(726) / var_metadata(                                             &
+DATA metadata(727) / var_metadata(                                             &
 ! String identifier
     'psi_root_zone_pft',                                                       &
 ! Variable type
@@ -9408,7 +9421,7 @@ DATA metadata(726) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for psi_leaf_pft
 !-----------------------------------------------------------------------------
-DATA metadata(727) / var_metadata(                                             &
+DATA metadata(728) / var_metadata(                                             &
 ! String identifier
     'psi_leaf_pft',                                                            &
 ! Variable type
@@ -9421,7 +9434,7 @@ DATA metadata(727) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for som_transpiration_pft
 !-----------------------------------------------------------------------------
-DATA metadata(728) / var_metadata(                                             &
+DATA metadata(729) / var_metadata(                                             &
 ! String identifier
     'som_transpiration_pft',                                                   &
 ! Variable type
@@ -9434,7 +9447,7 @@ DATA metadata(728) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for cica_ratio_pft
 !-----------------------------------------------------------------------------
-DATA metadata(729) / var_metadata(                                             &
+DATA metadata(730) / var_metadata(                                             &
 ! String identifier
     'cica_ratio_pft',                                                          &
 ! Variable type
@@ -9448,7 +9461,7 @@ DATA metadata(729) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for carbon_gain_pft
 !-----------------------------------------------------------------------------
-DATA metadata(730) / var_metadata(                                             &
+DATA metadata(731) / var_metadata(                                             &
 ! String identifier
     'carbon_gain_pft',                                                         &
 ! Variable type
@@ -9461,7 +9474,7 @@ DATA metadata(730) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for hydraulic_cost_pft
 !-----------------------------------------------------------------------------
-DATA metadata(731) / var_metadata(                                             &
+DATA metadata(732) / var_metadata(                                             &
 ! String identifier
     'hydraulic_cost_pft',                                                      &
 ! Variable type
@@ -9474,7 +9487,7 @@ DATA metadata(731) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for PLC_pft
 !-----------------------------------------------------------------------------
-DATA metadata(732) / var_metadata(                                             &
+DATA metadata(733) / var_metadata(                                             &
 ! String identifier
     'PLC_pft',                                                                 &
 ! Variable type
