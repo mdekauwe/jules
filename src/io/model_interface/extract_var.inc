@@ -3623,11 +3623,67 @@ CASE ('hydraulic_cost_pft')
   ! maximum conductance JBaguley
 CASE ('PLC_pft')
 
+  ! Convert the leaf conductance to a percentage loss of conductance
   DO i = 1, npft
     workspace_pft(:,i) = 100.0 * (1 - psparms%leaf_k_pft(:,i)/kmax_pft(i))
   END DO
 
   cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+  ! Maximum hydraulic conducance for each plant following hydraulic impairment
+  ! JBaguley
+CASE ('impaired_kmax_pft')
+  cube_land = cube_from_array(psparms%kmax_impaired_pft)
+  cube = map_from_land(cube_land)
+
+  ! Hydraulic conductance b parameter for each plant functional type following
+  ! hydraulic impairment JBaguley
+CASE ('conductance_b_impaired_pft')
+  cube_land = cube_from_array(psparms%conductance_b_impaired_pft)
+  cube = map_from_land(cube_land)
+
+  ! Hydraulic conductance c parameter for each plant functional type following
+  ! hydraulic impairment JBaguley
+CASE ('conductance_c_impaired_pft')
+  cube_land = cube_from_array(psparms%conductance_c_impaired_pft)
+  cube = map_from_land(cube_land)
+
+  ! Canopy water potential for each plant functional type JBaguley
+  ! This is calculated from the transpiration rate after JULES
+  ! corrects for imperfect atmosphere-leaf coupling.
+  ! The 1.0e-6 is to convert from Pa to MPa
+CASE ( 'psi_canopy_pft' )
+
+  DO i = 1, npft
+    DO j = 1, ainfo%surft_pts(i)
+      l = ainfo%surft_index(j,i)
+      IF ( psparms%psi_canopy_pft(l,i) > 0.0 ) THEN
+        WRITE(*,*) "----------------------------------------------------------------"
+        WRITE(*,*) "Warning: positive canopy water potential for plant functional type ", &
+                   i, " at land point ", l
+        WRITE(*,*) "----------------------------------------------------------------"
+      END IF
+    END DO
+  END DO
+
+  cube_land = cube_from_array(psparms%psi_canopy_pft(:,:)*1.0e-6)
+  cube = map_from_land(cube_land)
+
+  ! Percentage loss of conductance in the canopy for each plant JBaguley
+  ! functional type. This is calculated from the transpiration
+  ! rate after JULES corrects for imperfect atmosphere-leaf
+  ! coupling.
+CASE ( 'PLC_canopy_pft' )
+  ! Convert the canopy water potential to a percentage loss of conductance
+  DO i = 1, npft
+    workspace_pft(:,i) = 100.0 * (1 - psparms%k_canopy_pft(:,i)/kmax_pft(i))
+  END DO
+
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+CASE ( 'gc_som_pft' )
+  cube_land = cube_from_array(psparms%gc_som_pft)
   cube = map_from_land(cube_land)
 
 CASE DEFAULT

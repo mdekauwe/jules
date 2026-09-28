@@ -14,7 +14,7 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='SF_STOM_MOD'
 
-PRIVATE
+!PRIVATE
 PUBLIC sf_stom
 
 CONTAINS
@@ -51,10 +51,12 @@ SUBROUTINE sf_stom  (land_pts,land_index                                       &
 ,                    leaf_k                                                    &
 ,                    isoprene,terpene,methanol,acetone                         &
 ,                    open_index,open_pts                                       &
-,                    carbon_gain,hydraulic_cost                                &
-                    !New arguments replacing USE statements
-                    !crop_vars_mod (IN)
-,                   dvi_cpft,rootc_cpft)
+,                    carbon_gain,hydraulic_cost,gc_som                         &
+,                    k_max,conductance_b,conductance_c                         &
+,                    psi_leaf_extreme, psi_root_extreme                        &
+                     !New arguments replacing USE statements
+                     !crop_vars_mod (IN)
+,                    dvi_cpft,rootc_cpft)
 
 USE leaf_mod, ONLY: leaf
 USE leaf_limits_mod, ONLY: leaf_limits
@@ -67,7 +69,7 @@ USE theta_field_sizes, ONLY: t_i_length
 USE jules_surface_types_mod, ONLY: nnpft, ncpft
 
 USE pftparm, ONLY:                                                             &
-        kmax_pft, conductance_b, conductance_c, kcrit, gcut
+        kmax_pft, conductance_b_pft, conductance_c_pft, kcrit, gcut
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported model ids. JBaguley
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
@@ -122,11 +124,18 @@ USE sugar_mod, ONLY: sugar
 
 USE stom_opt_jls_mod, ONLY: stom_opt_mod
 
+USE xylem_impairment_mod, ONLY: update_xylem_impairment
+USE xylem_impairment_memory_mod, ONLY: ximpair_store_npp
+USE jules_vegetation_mod, ONLY: l_ximpair_rec_growth
+
+USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
+
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
 
 USE planet_constants_mod, ONLY: repsilon
 
 
+USE water_constants_mod, ONLY: Water_kg_per_mol
 
 IMPLICIT NONE
 
@@ -267,9 +276,21 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
  gc(land_pts)                                                                  &
                             ! INOUT Canopy resistance to H2O (m/s).
                             ! The input value is only used if can_rad_mod=1.
-,f_nsc(land_pts)
+,f_nsc(land_pts)                                                               &
                             ! INOUT Non-structural carbohydrate mass fraction
                             !      (kgC/kgC)
+,k_max(land_pts)                                                               &
+                            ! INOUT Maximum stomatal conductance (m/s).
+,conductance_b(land_pts)                                                       &
+                            ! INOUT Conductance curve parameter b for each land
+                            ! point (Pa)
+,conductance_c(land_pts)                                                       &
+                            ! INOUT Conductance curve parameter c for each land
+                            ! point (Pa)
+,psi_leaf_extreme(land_pts)                                                    &
+                            ! INOUT Extreme leaf water potential (Pa)
+,psi_root_extreme(land_pts)
+                            ! INOUT Extreme root water potential (Pa)
 
 ! BVOC variables
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
@@ -289,12 +310,18 @@ open_index(land_pts)                                                           &
 ,open_pts                   ! OUT Number of land points
 !                                 !      with open stomata.
 
-! TEMPORARY: output variables for testing
 REAL(KIND=real_jlslsm) ::                                                      &
+ root_zone_k(land_pts)
+                            ! Root zone conductance (m/s).
+
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
  carbon_gain(land_pts)                                                         &
                             ! Carbon gain for each leaf state
-,hydraulic_cost(land_pts)
+,hydraulic_cost(land_pts)                                                      &
                             ! Hydraulic cost for each leaf state
+,gc_som(land_pts)
+                            ! Canopy resistance to H2O (m/s) for the stomatal
+                            ! optimisation model.
 
 !New arguments replacing USE statements
 !crop_vars_mod (IN)
@@ -688,6 +715,30 @@ REAL(KIND=real_jlslsm) :: kmax_canopy(land_pts), kcrit_canopy(land_pts)
                             ! the psi_guess_new calculation. kcrit_canopy
                             ! preserves the same kcrit/kmax fraction as
                             ! kcrit_per_lyr does per layer.
+REAL(KIND=real_jlslsm) :: b_pft_pts(land_pts), c_pft_pts(land_pts)
+                            ! conductance_b_pft(ft)/conductance_c_pft(ft)
+                            ! broadcast onto land_pts arrays, for the
+                            ! multilayer stomatal optimisation, which does
+                            ! not apply xylem impairment.
+REAL(KIND=real_jlslsm) :: kmax_ref_bigleaf(land_pts)
+REAL(KIND=real_jlslsm) :: kmax_ref_sun_2l(land_pts), kmax_ref_shd_2l(land_pts)
+                            ! Two-leaf: each class's share of the unimpaired
+                            ! canopy kmax (reference for the hydraulic cost
+                            ! under xylem impairment, as kmax_ref_bigleaf).
+                            ! Unimpaired kmax_pft(ft) * LAI for the big-leaf
+                            ! stomatal optimisation with xylem impairment.
+REAL(KIND=real_jlslsm) :: kmax_leaf_basis(land_pts), kcrit_leaf_basis(land_pts)
+                            ! kmax_pft(ft)/kcrit(ft) broadcast onto land_pts
+                            ! arrays, for the (leaf-basis) root zone
+                            ! conductance passed to the impairment update.
+INTEGER :: open_land_index(land_pts)
+                            ! Land point of each open point (i.e.
+                            ! veg_index(open_index(:))), for the impairment
+                            ! update.
+REAL(KIND=real_jlslsm) :: leaf_k_leaf_basis(land_pts)
+                            ! leaf_k from the big-leaf stomatal optimisation
+                            ! (canopy scale, see kmax_bigleaf) divided back
+                            ! by LAI, for the impairment update.
 REAL(KIND=real_jlslsm) :: kmax_bigleaf(land_pts), kcrit_bigleaf(land_pts)
 REAL(KIND=real_jlslsm) :: gl_max_eff(land_pts), share_sup(land_pts)
 REAL(KIND=real_jlslsm) :: gl_cut(land_pts), gl_cut_eff(land_pts),              &
@@ -1009,6 +1060,9 @@ DO m = 1,veg_pts
   dq(l) = MAX(dq_min,(qs(l) - q1(l)))
 END DO
 !$OMP END DO NOWAIT
+
+! NOTE JBaguley: dq correction (sf_flux_mod.F90 line 261) should be added here?
+!                Or in the stomopt loop as it needs resistance.
 
 !-----------------------------------------------------------------------------
 ! Calculate the PAR absorption factor
@@ -1419,6 +1473,11 @@ CASE ( 5, 6 )
     ! the root zone water potential
     psi_guess(:) = psi_root_zone(:)
 
+    ! Unimpaired PFT vulnerability curve parameters: the multilayer stomatal
+    ! optimisation does not apply the xylem impairment model.
+    b_pft_pts(:) = conductance_b_pft(ft)
+    c_pft_pts(:) = conductance_c_pft(ft)
+
     ! Initial bracket for the psi_guess root-find (see the psi_brk_lo
     ! declaration). lo end: far enough below psi_root_zone (5 |b|, the same
     ! floor leaf_psi_CW_jls applies) that xylem conductance is ~0, so every
@@ -1426,7 +1485,7 @@ CASE ( 5, 6 )
     ! psi_guess_new = psi_root_zone - known analytically, no evaluation
     ! needed: r = psi_root_zone - psi_brk_lo > 0. hi end: psi_root_zone
     ! itself, where r <= 0 always (el >= 0); its r comes from iteration 1.
-    psi_brk_lo(:) = psi_root_zone(:) - 5.0 * ABS(conductance_b(ft))
+    psi_brk_lo(:) = psi_root_zone(:) - 5.0 * ABS(conductance_b_pft(ft))
     r_brk_lo(:)   = psi_root_zone(:) - psi_brk_lo(:)
     psi_brk_hi(:) = psi_root_zone(:)
     r_brk_hi(:)   = 0.0
@@ -1761,6 +1820,8 @@ CASE ( 5, 6 )
                     km, dqc, qs, je, tstar, je_sun_ratio, fapar_sun(:,n),      &
                     kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,           &
                     l_multilayer,                                              &
+                    kmax_leaf_lyr, b_pft_pts, c_pft_pts,                       &
+                    psi_leaf_extreme, psi_root_extreme, .FALSE.,               &
                     ! IN OUT
                     rd_sun,                                                    &
                     ! OUT
@@ -1777,6 +1838,8 @@ CASE ( 5, 6 )
                     km, dqc, qs, je, tstar,  je_shd_ratio, fapar_shd(:,n),     &
                     kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,           &
                     l_multilayer,                                              &
+                    kmax_leaf_lyr, b_pft_pts, c_pft_pts,                       &
+                    psi_leaf_extreme, psi_root_extreme, .FALSE.,               &
                     ! IN OUT
                     rd_shd,                                                    &
                     ! OUT
@@ -1935,7 +1998,7 @@ CASE ( 5, 6 )
         CALL leaf_psi_jls( ft, 1, land_pts, veg_pts, veg_index,               &
                            veg_pts_index, e_leaf_equiv, psi_root_zone,        &
                            MAX(kmax_canopy(:), TINY(1.0_real_jlslsm)),        &
-                           kcrit_canopy,                                      &
+                           kcrit_canopy, b_pft_pts, c_pft_pts,                &
                          ! OUT
                            psi_equiv, k_equiv )
 
@@ -2386,6 +2449,14 @@ CASE ( 1 )
                                 share_sup, dqc, tstar, pstar,                  &
                                 gl_max_bigleaf, gl_max_eff )
 
+       ! Xylem impairment (JBaguley): k_max/conductance_b/conductance_c hold
+       ! the (leaf-basis) impaired vulnerability curve for each point, so
+       ! scale the impaired k_max by LAI in exactly the same way as
+       ! kmax_pft above, keeping kmax_pft(ft) * LAI as the unimpaired
+       ! reference for the hydraulic cost.
+       kmax_ref_bigleaf(:) = kmax_bigleaf(:)
+       kmax_bigleaf(:) = k_max(:) * lai(:)
+
        CALL stom_opt_mod (                                                  &
               ! IN
                 land_pts, som_base_parm, ft, open_pts, open_index,           &
@@ -2394,12 +2465,93 @@ CASE ( 1 )
                 km, dqc, qs, je, tstar, je_dummy, fapar_dummy,               &
                 kmax_bigleaf, kcrit_bigleaf, gl_max_eff, ipar,               &
                 l_multilayer,                                                &
+                kmax_ref_bigleaf, conductance_b, conductance_c,              &
+                psi_leaf_extreme, psi_root_extreme, .TRUE.,                  &
               ! IN OUT
                 rdc,                                                           &
               ! OUT
                 ci, anetc, el, flux_o3, fo3, gc, psi_leaf,                     &
                 carbon_gain, hydraulic_cost, leaf_k                            &
         )
+
+        ! Convert transpiration to kg H2O m-2 s-1 to match other transpiration
+        ! outputs by JULES. JBaguley
+        ! NOTE: only done for the big-leaf path (as on the xylem impairment
+        !       branch, where this was TEMPORARY and done at the end of
+        !       stom_opt_mod_ci); the multilayer path above still returns el
+        !       in mol H2O m-2 s-1, as its psi_guess solve needs.
+        el(:) = el(:) * Water_kg_per_mol
+
+        ! Pass the stomatal optimisation out
+        gc_som = gc
+
+        ! leaf_k from stom_opt_mod is canopy scale (see kmax_bigleaf). Return
+        ! it per unit leaf area, as the multilayer path does, so that it is
+        ! comparable with kmax_pft (e.g. the PLC_pft diagnostic) and with the
+        ! (leaf-basis) impairment model state.
+        leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
+
+        ! Update the impairment state only once per timestep, on the final
+        ! pass of the humidity-deficit iteration (DO k = 1,iter): earlier
+        ! passes use an unconverged dqc, and the kmax model's weighted update
+        ! would otherwise be applied iter times per timestep. JBaguley
+        IF (k == iter) THEN
+
+          ! The impairment model state (k_max, and the kcrit it is floored at)
+          ! is leaf-basis, whereas leaf_k above is canopy scale (see
+          ! kmax_bigleaf), so pass leaf-basis conductances to the update.
+          kmax_leaf_basis(:) = kmax_pft(ft)
+          kcrit_leaf_basis(:) = kcrit(ft)
+          leaf_k_leaf_basis(:) = leaf_k(:)
+
+          ! calculate the root zone conductance to pass to imparment calculation.
+          CALL leaf_conductance_impaired_jls(                                    &
+                ft,                                                              &
+                land_pts,                                                        &
+                psi_root_zone,                                                   &
+                kmax_leaf_basis,                                                 &
+                k_max,                                                           &
+                kcrit_leaf_basis,                                                &
+                conductance_b,                                                   &
+                conductance_c,                                                   &
+                psi_root_extreme,                                                &
+                ! INTENT OUT
+                root_zone_k                                                      &
+          )
+
+          ! Apply xylem imapairment to the vulnerability curve.
+          ! NOTE: open_index indexes veg_index, while update_xylem_impairment
+          !       indexes the land arrays with it directly, so pass it the
+          !       land points of the open stomata.
+          DO m = 1, open_pts
+            open_land_index(m) = veg_index(open_index(m))
+          END DO
+
+          CALL update_xylem_impairment(                                          &
+                ! IN
+                  land_pts,                                                      &
+                  open_pts,                                                      &
+                  open_land_index,                                               &
+                  ft,                                                            &
+                  psi_leaf,                                                      &
+                  psi_root_zone,                                                 &
+                  leaf_k_leaf_basis,                                             &
+                  root_zone_k,                                                   &
+                ! IN OUT
+                  k_max,                                                         &
+                ! OUT
+                  conductance_b,                                                 &
+                  conductance_c,                                                 &
+                ! IN OUT
+                  psi_leaf_extreme,                                              &
+                  psi_root_extreme,                                              &
+                ! IN (recovery)
+                  lai,                                                           &
+                  canht,                                                         &
+                  anetc                                                          &
+          )
+
+        END IF ! k == iter
 
       CASE DEFAULT
         errcode = 101  !  a hard error
@@ -2522,12 +2674,20 @@ CASE ( 7 )
     ! shade leaves without changing the canopy total (cf. the multilayer
     ! leaf-segment profile). CABLE itself uses kmax_pft * scalex, which
     ! lowers the canopy total by fpar/LAI.
-    kmax_sun_2l(l) = kmax_pft(ft) * lai(l) * nw_sun_2l(l)                      &
+    ! Xylem impairment: both classes draw on the one (impaired) plant, so
+    ! the impaired leaf-basis k_max (= kmax_pft when unimpaired) is shared
+    ! the same way, and the unimpaired kmax_pft share is the reference for
+    ! the hydraulic cost; kcrit stays on the unimpaired curve, as big-leaf.
+    kmax_ref_sun_2l(l) = kmax_pft(ft) * lai(l) * nw_sun_2l(l)                  &
+                         / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
+    kmax_ref_shd_2l(l) = kmax_pft(ft) * lai(l) * nw_shd_2l(l)                  &
+                         / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
+    kmax_sun_2l(l) = k_max(l) * lai(l) * nw_sun_2l(l)                          &
                      / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
-    kmax_shd_2l(l) = kmax_pft(ft) * lai(l) * nw_shd_2l(l)                      &
+    kmax_shd_2l(l) = k_max(l) * lai(l) * nw_shd_2l(l)                          &
                      / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
-    kcrit_sun_2l(l) = kmax_sun_2l(l) * (kcrit(ft) / kmax_pft(ft))
-    kcrit_shd_2l(l) = kmax_shd_2l(l) * (kcrit(ft) / kmax_pft(ft))
+    kcrit_sun_2l(l) = kmax_ref_sun_2l(l) * (kcrit(ft) / kmax_pft(ft))
+    kcrit_shd_2l(l) = kmax_ref_shd_2l(l) * (kcrit(ft) / kmax_pft(ft))
     gl_max_sun_2l(l) = som_gl_max * nw_sun_2l(l)
     gl_max_shd_2l(l) = som_gl_max * nw_shd_2l(l)
 
@@ -2599,6 +2759,8 @@ CASE ( 7 )
               km, dqc, qs, je_sun, tstar, je_dummy, fapar_dummy,               &
               kmax_sun_2l, kcrit_sun_2l, gl_max_eff, ipar,                     &
               l_multilayer,                                                    &
+              kmax_ref_sun_2l, conductance_b, conductance_c,                   &
+              psi_leaf_extreme, psi_root_extreme, .TRUE.,                      &
             ! IN OUT
               rd_sun,                                                          &
             ! OUT
@@ -2653,6 +2815,8 @@ CASE ( 7 )
               km, dqc, qs, je_shd, tstar, je_dummy, fapar_dummy,               &
               kmax_shd_2l, kcrit_shd_2l, gl_max_eff, ipar,                     &
               l_multilayer,                                                    &
+              kmax_ref_shd_2l, conductance_b, conductance_c,                   &
+              psi_leaf_extreme, psi_root_extreme, .TRUE.,                      &
             ! IN OUT
               rd_shd,                                                          &
             ! OUT
@@ -2716,6 +2880,45 @@ CASE ( 7 )
     END IF
   END DO
 
+  ! As the big-leaf path: transpiration in kg H2O m-2 s-1, leaf_k per unit
+  ! leaf area, and the stomatal optimisation conductance passed out.
+  el(:) = el(:) * Water_kg_per_mol
+  leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
+  gc_som = gc
+
+  ! Xylem impairment state update, once per timestep (after the humidity
+  ! iteration, cf. k == iter in the big-leaf path), driven by the canopy
+  ! (leaf-area-weighted) psi_leaf: both classes share the one plant, so
+  ! there is a single damage state per point, as for the big leaf.
+  kmax_leaf_basis(:) = kmax_pft(ft)
+  kcrit_leaf_basis(:) = kcrit(ft)
+  leaf_k_leaf_basis(:) = leaf_k(:)
+  CALL leaf_conductance_impaired_jls(                                          &
+        ft, land_pts, psi_root_zone, kmax_leaf_basis, k_max,                   &
+        kcrit_leaf_basis, conductance_b, conductance_c, psi_root_extreme,      &
+        ! INTENT OUT
+        root_zone_k )
+  open_pts = 0
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( apar_sun_2l(l) > 0.0 .OR. apar_shd_2l(l) > 0.0 ) THEN
+      open_pts = open_pts + 1
+      open_land_index(open_pts) = l
+    END IF
+  END DO
+  CALL update_xylem_impairment(                                                &
+        ! IN
+          land_pts, open_pts, open_land_index, ft, psi_leaf, psi_root_zone,    &
+          leaf_k_leaf_basis, root_zone_k,                                      &
+        ! IN OUT
+          k_max,                                                               &
+        ! OUT
+          conductance_b, conductance_c,                                        &
+        ! IN OUT
+          psi_leaf_extreme, psi_root_extreme,                                  &
+        ! IN (recovery)
+          lai, canht, anetc )
+
 CASE DEFAULT
   errcode = 101  !  a hard error
   CALL ereport(RoutineName, errcode,                                           &
@@ -2748,7 +2951,7 @@ IF ( l_som_cuticular_floor .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
   ! drought once the soil is near root_psi_crit.
   DO m = 1,veg_pts
     l = veg_index(m)
-    kmax_cut(l)  = MAX(kmax_pft(ft) * lai(l), TINY(1.0_real_jlslsm))
+    kmax_cut(l)  = MAX(k_max(l) * lai(l), TINY(1.0_real_jlslsm))
     kcrit_cut(l) = kcrit(ft) * lai(l)
     l_cut(l) = gl_cut(l) > 0.0 .AND. gc(l) < gl_cut_eff(l)
     ! Canopy transpiration (mol H2O m-2 s-1) at the floor, as in
@@ -2763,7 +2966,7 @@ IF ( l_som_cuticular_floor .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
   IF ( ANY(l_cut(veg_index(1:veg_pts))) ) THEN
     CALL leaf_psi_jls( ft, n_cut, land_pts, veg_pts, veg_index,                &
                        veg_pts_index, e_cut, psi_root_zone,                    &
-                       kmax_cut, kcrit_cut,                                    &
+                       kmax_cut, kcrit_cut, conductance_b, conductance_c,      &
                      ! OUT
                        psi_cut, k_cut )
     DO m = 1,veg_pts
@@ -2777,9 +2980,11 @@ IF ( l_som_cuticular_floor .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
       IF ( i_cut >= 1 ) THEN
         IF ( gl_cut_eff(l) * REAL(i_cut) / REAL(n_cut) > gc(l) ) THEN
           gc(l)       = gl_cut_eff(l) * REAL(i_cut) / REAL(n_cut)
-          el(l)       = e_cut(i_cut,m)
+          gc_som(l)   = gc(l)
+          ! el is kg H2O m-2 s-1 and leaf_k per unit leaf area here.
+          el(l)       = e_cut(i_cut,m) * Water_kg_per_mol
           psi_leaf(l) = psi_cut(i_cut,m)
-          leaf_k(l)   = k_cut(i_cut,m)
+          leaf_k(l)   = k_cut(i_cut,m) / MAX(lai(l), TINY(1.0_real_jlslsm))
         END IF
       END IF
     END DO
@@ -2993,6 +3198,9 @@ IF ( l_bvoc_emis ) THEN
                       !crop_vars_mod (IN)
                       dvi_cpft)
 END IF
+
+! Keep NPP for the growth recovery of the memory xylem impairment models.
+IF (l_ximpair_rec_growth) CALL ximpair_store_npp(land_pts, ft, npp)
 
 !-----------------------------------------------------------------------------
 ! If this functional type is a crop that has not emerged in a particular grid

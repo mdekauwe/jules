@@ -9485,4 +9485,82 @@ DATA metadata(732) / var_metadata(                                             &
 ! Units
     "1"                                                                        &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for impaired_kmax_pft
+!-----------------------------------------------------------------------------
+DATA metadata(733) / var_metadata(                                             &
+! String identifier
+    'impaired_kmax_pft',                                                       &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Maximum conductance impaired by hydraulic failure",                       &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for conductance_b_impaired_pft
+!-----------------------------------------------------------------------------
+DATA metadata(734) / var_metadata(                                             &
+! String identifier
+    'conductance_b_impaired_pft',                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Conductance b parameter impaired by hydraulic failure",                   &
+! Units
+    "MPa"                                                                      &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for conductance_c_impaired_pft
+!-----------------------------------------------------------------------------
+DATA metadata(735) / var_metadata(                                             &
+! String identifier
+    'conductance_c_impaired_pft',                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Conductance c parameter impaired by hydraulic failure",                   &
+! Units
+    "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for psi_canopy_pft
+!-----------------------------------------------------------------------------
+DATA metadata(736) / var_metadata(                                             &
+! String identifier
+    'psi_canopy_pft',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Canopy water potential",                                                  &
+! Units
+    "MPa"                                                                      &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for PLC_canopy_pft
+!-----------------------------------------------------------------------------
+DATA metadata(737) / var_metadata(                                             &
+! String identifier
+    'PLC_canopy_pft',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Percentage loss of conductance in the canopy",                            &
+! Units
+    "%"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for gc_som_pft
+!-----------------------------------------------------------------------------
+DATA metadata(738) / var_metadata(                                             &
+! String identifier
+    'gc_som_pft',                                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Stomatal conductance from stomatal optimisation calculation",             &
+! Units
+    "m s-1"                                                                    &
+  ) /
 #endif

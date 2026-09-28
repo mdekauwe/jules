@@ -172,7 +172,7 @@ hw_sw(:)                                                                       &
                  ! Stem nitrogen concentration (kg N/kg C)
 ,q10_leaf(:)                                                                   &
                  ! Factor for leaf respiration.
-,rmass(:)                                                                      &
+,r_Cmass_frac(:)                                                               &
                  ! Root carbon dry weight (kg C/kg root) JBaguley
 ,vint(:)                                                                       &
                  ! Y intercept of the Narea to Vcmax relationship
@@ -259,10 +259,10 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Soil evaporation enhancement factor (no units).
 ,infil_f(:)                                                                    &
                  ! Infiltration enhancement factor.
-,min_gl_pft(:)                                                                 & ! JBaguley
+,min_glw_pft(:)                                                                 & ! JBaguley
                  ! Minimum leaf conductance to H2O (m/s)
 ,min_rootc_pft(:)                                                              & ! JBaguley
-                 ! Minimum root mass per unit area (kg m-2) for each pft.
+                 ! Minimum root C mass per unit area (kg m-2) for each pft.
                  ! Used when calculating water stress using root resistivity
                  ! and water potential (fsmc_mod(i) == 2).
 ,psi_close(:)                                                                  &
@@ -285,9 +285,18 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! and water potential (fsmc_mod(i) == 2).
 ,rootd_ft(:)                                                                   &
                  ! e-folding depth (m) of the root density.
-,z0v(:)
+,z0v(:)                                                                        &
                  ! Specified vegetation roughness length.
 !                    used with l_spec_veg_z0 = .true.
+,pft_big_leaf_corection_nitrogen_reduction_factor(:)                           &
+                 ! Determins shape of nitrogen reduction when moving from the
+                 ! top of the canopy to the bottom as a function of leaf area
+                 ! index abovethe current height.
+,pft_big_leaf_corection_light_atenuation_factor(:)
+                 ! Determines the shape of the light attenuation as a
+                 ! function of leaf area index above the current height.
+                 ! Used to correct the big leaf model for the effect of
+                 ! nitrogen reduction on light attenuation.
 
 
 
@@ -412,13 +421,37 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Plant minimum hydraulic resistance. (m2 s MPa/mol)
 
 INTEGER, ALLOCATABLE ::                                                        &
-pft_conductance_model(:)
+pft_conductance_model(:),                                                      &
                  ! Flag for the xylem conductance model used by the stomatal
                  !  optimisation model.
                  !      1: Cumulative Weibul distribution
                  !           k(psi) = kmax * exp((psi/b)^c)
                  !      2: SOX model
                  !           k(psi) = kmax / (1 + (psi/b)^c)
+pft_xylem_impairment_model(:),                                                 &
+                 ! Flag for the xylem impairment model used by the stomatal
+                 !  optimisation model.
+                 !       0: No xylem impairment
+                 !       1: Reduce kmax
+                 !       2: Whole trunk (historic minimum water potentials)
+                 !       3: Embolism memory with recovery
+ximpair_psi_driver(:),                                                         &
+                 ! Water potential driving embolism in the memory impairment
+                 !  model (pft_xylem_impairment_model = 3).
+                 !       1: Leaf water potential
+                 !       2: Mean of leaf and root zone water potentials
+ximpair_reset_mmdd(:),                                                         &
+                 ! Month and day (month*100 + day, e.g. 401 = 1 April) on
+                 !  which the memory impairment model's embolism is reset
+                 !  (e.g. new earlywood in ring-porous species). 0 disables.
+ximpair_growth_basis(:)
+                 ! Carbon supply for the growth recovery term
+                 !  (l_ximpair_rec_growth) of the memory impairment models:
+                 !       1: ximpair_wood_alloc * canopy net photosynthesis
+                 !       2: ximpair_wood_alloc * NPP (previous timestep)
+                 !       3: TRIFFID gross wood production, from the change in
+                 !          allometric wood carbon with canopy height plus
+                 !          wood turnover (g_wood); needs l_triffid
 
 REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
  kmax_pft(:)                                                                   &
@@ -429,13 +462,13 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,P88(:)                                                                        &
                  ! Water potential at which 88% of the xylem conductance is
                  ! lost (Pa).
-,conductance_b(:)                                                              &
+,conductance_b_pft(:)                                                              &
                  ! Sensetivity parameter, b, in the xylem conductance model
                  !  (Pa).
                  ! NOTE: This value is not directly input by the user, instead
                  !        it is calculated from the P50 and P88 values in
                  !        ptftparm_io_mod.F90.
-,conductance_c(:)                                                              &
+,conductance_c_pft(:)                                                              &
                  ! Shape parameter, c, in the xylem conductance model.
                  ! NOTE: This value is not directly input by the user, instead
                  !        it is calculated from the P50 and P88 values in
@@ -455,12 +488,44 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! the canopy conductance when l_som_cuticular_floor.
 ,kcrit_fractional_loss(:)                                                      &
                  ! Critical fractional loss of xylem conductance.
-,kcrit(:)
+,kcrit(:)                                                                      &
                  ! Critical xylem conductance (mmol m-2 s-1 MPa-1).
                  ! NOTE: This value is not directly input by the user, instead
                  !        it is calculated from kmax_pft and
                  !        kcrit_fractional_loss in ptftparm_io_mod.F90.
                  !         kcrit = kmax_pft * (1-kcrit_fractional_loss)
+,psi_crit(:)                                                                  &
+                 ! Critical water potential (Pa).
+                 ! NOTE: This value is not directly input by the user, instead
+                 !        it is calculated from the kcrit and the conductance
+                 !        model in ptftparm_io_mod.F90.
+,ximpair_leaf_weight(:)                                                        &
+                 ! Weighting factor for the leaf conductance compaired to the
+                 ! root conductance when calculating the new xyelem impairment.
+,ximpair_new_kmax_weight(:)                                                    &
+                 ! Weighting factor for the new impaired kmax compaired to the
+                 ! current kmax when updating xyelem impairment.
+,ximpair_threshold(:)                                                          &
+                 ! Minimum change in kamx before the xylem impairment is
+                 ! updated.
+                 ! NOTE: This value is not directly input by the user, instead
+                 !        it is calculated from kmax and a fractional user
+                 !        input in ptftparm_io_mod.F90.
+,ximpair_tau_rec(:)                                                            &
+                 ! Recovery timescale of embolism in the memory impairment
+                 !  model (days). <= 0 disables recovery.
+,ximpair_psi_refill(:)                                                         &
+                 ! Water potential of the damage driver above which embolism
+                 !  recovers in the memory impairment model (Pa).
+,ximpair_wood_alloc(:)                                                          &
+                 ! Fraction of canopy net assimilation that goes into new
+                 !  conducting xylem, for recovery from xylem impairment with
+                 !  l_ximpair_rec_growth.
+,ximpair_leaf_sens(:)
+                 ! Sensitivity of the canopy to lasting xylem damage
+                 !  (l_ximpair_leaf_loss): the phenological state is capped
+                 !  at 1 - ximpair_leaf_sens * (1 - k_cap/kmax). 1 keeps leaf
+                 !  area in proportion to the conducting capacity, 0 disables.
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -592,7 +657,7 @@ ALLOCATE( nmass(npft))
 ALLOCATE( nr(npft))
 ALLOCATE( nsw(npft))
 ALLOCATE( q10_leaf(npft))
-ALLOCATE( rmass(npft))
+ALLOCATE( r_Cmass_frac(npft))
 ALLOCATE( vint(npft))
 ALLOCATE( vsl(npft))
 
@@ -602,7 +667,7 @@ nmass(:)        = 0.0
 nr(:)           = 0.0
 nsw(:)          = 0.0
 q10_leaf(:)     = 0.0
-rmass(:)        = 0.49 !JBaguley
+r_Cmass_frac(:) = 0.49 !JBaguley
 vint(:)         = 0.0
 vsl(:)          = 0.0
 
@@ -645,7 +710,7 @@ ALLOCATE( glmin(npft))
 ALLOCATE( gsoil_f(npft))
 ALLOCATE( infil_f(npft))
 ALLOCATE( min_rootc_pft(npft)) ! JBaguley
-ALLOCATE( min_gl_pft(npft)) ! JBaguley
+ALLOCATE( min_glw_pft(npft)) ! JBaguley
 ALLOCATE( psi_close(npft))
 ALLOCATE( psi_open(npft))
 ALLOCATE( root_psi_crit(npft))  ! JBaguley
@@ -653,6 +718,7 @@ ALLOCATE( root_radi_pft(npft))  ! JBaguley
 ALLOCATE( rootc_density_pft(npft))  ! JBaguley
 ALLOCATE( rootd_ft(npft))
 ALLOCATE( z0v(npft))
+ALLOCATE( pft_big_leaf_corection_nitrogen_reduction_factor(npft))
 
 calc_rz_psi(:)       = .FALSE. ! JBaguley
 catch0(:)            = 0.0
@@ -665,7 +731,7 @@ fsmc_p0(:)           = 0.0
 glmin(:)             = 0.0
 gsoil_f(:)           = 0.0
 infil_f(:)           = 0.0
-min_gl_pft(:)        = 0.0 ! JBaguley
+min_glw_pft(:)        = 0.0 ! JBaguley
 min_rootc_pft(:)     = 1.0 ! JBaguley M.Williams etal 2001
 psi_close(:)         = 0.0
 psi_open(:)          = 0.0
@@ -674,6 +740,7 @@ root_radi_pft(:)     = 0.0005 ! JBaguley M.Williams etal 2001
 rootc_density_pft(:) = 0.5e3 ! JBaguley M.Williams etal 2001
 rootd_ft(:)          = 0.0
 z0v(:)               = 0.0
+pft_big_leaf_corection_nitrogen_reduction_factor(:) = 1.0
 
 ! Ozone damage parameters
 ALLOCATE( dfp_dcuo(npft))
@@ -755,35 +822,60 @@ sug_yg(:)   = 0.0
 ! SOM parameters
 ALLOCATE( leaf_crit(npft))
 ALLOCATE( pft_conductance_model(npft))
+ALLOCATE( pft_xylem_impairment_model(npft))
 ALLOCATE( kcrit_fractional_loss(npft))
 ALLOCATE( kcrit(npft))
+ALLOCATE( psi_crit(npft))
 ALLOCATE( kmax_pft(npft))
 ALLOCATE( P50(npft))
 ALLOCATE( P88(npft))
-ALLOCATE( conductance_b(npft))
-ALLOCATE( conductance_c(npft))
+ALLOCATE( conductance_b_pft(npft))
+ALLOCATE( conductance_c_pft(npft))
+ALLOCATE( ximpair_leaf_weight(npft))
+ALLOCATE( ximpair_new_kmax_weight(npft))
+ALLOCATE( ximpair_threshold(npft))
+ALLOCATE( ximpair_psi_driver(npft))
 ALLOCATE( seg_kfac(npft,3))
 ALLOCATE( gcut(npft))
 ALLOCATE( conductance_b_seg(npft,3))
 ALLOCATE( conductance_c_seg(npft,3))
+ALLOCATE( ximpair_reset_mmdd(npft))
+ALLOCATE( ximpair_growth_basis(npft))
+ALLOCATE( ximpair_tau_rec(npft))
+ALLOCATE( ximpair_psi_refill(npft))
+ALLOCATE( ximpair_wood_alloc(npft))
+ALLOCATE( ximpair_leaf_sens(npft))
 
 leaf_crit(:) = 0.0
 pft_conductance_model(:) = 0
+pft_xylem_impairment_model(:) = 0
 kcrit_fractional_loss(:) = 0.95
-! NOTE: This is calculated in ptftparm_io_mod.F90 using
+! NOTE: kcrit is calculated in ptftparm_io_mod.F90 using
 !        kmax_pft * kcrit_fractional_loss.
 kcrit(:) = 0.0
+! NOTE: psi_crit is calculated in ptftparm_io_mod.F90
+psi_crit(:) = 0.0
 kmax_pft(:) = 0.0
 P50(:) = 0.0
 P88(:) = 0.0
-! NOTE: conductance_b and conductance_c are calculated in ptftparm_io_mod.F90
+! NOTE: conductance_b_pft and conductance_c_pft are calculated in ptftparm_io_mod.F90
 !        using the P50 and P88 values and the choice of conductance model.
-conductance_b(:) = 1.0
-conductance_c(:) = 1.0
+conductance_b_pft(:) = 1.0
+conductance_c_pft(:) = 1.0
+ximpair_leaf_weight(:) = 1.0
+ximpair_new_kmax_weight(:) = 1.0
+ximpair_threshold(:) = 0.0
+ximpair_psi_driver(:) = 1
 seg_kfac(:,:) = 1.0
 gcut(:) = 3.0
 conductance_b_seg(:,:) = 1.0
 conductance_c_seg(:,:) = 1.0
+ximpair_reset_mmdd(:) = 0
+ximpair_growth_basis(:) = 1
+ximpair_tau_rec(:) = 0.0
+ximpair_psi_refill(:) = -0.5e6
+ximpair_wood_alloc(:) = 0.25
+ximpair_leaf_sens(:) = 0.0
 
 ! SOX parameters
 ALLOCATE( sox_a(npft))

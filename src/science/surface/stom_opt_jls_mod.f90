@@ -35,6 +35,8 @@ SUBROUTINE stom_opt_mod (                                                      &
         ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,           &
         km, dq, qs, je, t_leaf, je_ratio, fapar_lf, kmax, kcrit,               &
         gl_max, ipar, l_multilayer,                                            &
+        kmax_ref, conductance_b, conductance_c,                                &
+        psi_leaf_extreme, psi_root_extreme, l_xylem_impairment_in,             &
 ! IN OUT
         rd,                                                                    &
 ! OUT
@@ -54,11 +56,32 @@ USE jules_vegetation_mod, ONLY:                                                &
         l_som_skip_search_wellwatered, som_hc_negligible_tol
 
 USE pftparm, ONLY:                                                             &
-        min_gl_pft, kcrit_fractional_loss
+        min_glw_pft, kcrit_fractional_loss
 
-USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls
+USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls, leaf_conductance_jls
+USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
+
+USE pftparm, ONLY: conductance_b_pft, conductance_c_pft,                        &
+                   pft_xylem_impairment_model
+USE jules_vegetation_mod, ONLY: xylem_impairment_none
+USE model_time_mod, ONLY: is_spinup
 
 LOGICAL, INTENT(IN) :: l_multilayer
+
+LOGICAL, INTENT(IN) :: l_xylem_impairment_in
+                            ! .TRUE. to apply the xylem impairment model
+                            ! (pft_xylem_impairment_model) to the
+                            ! vulnerability curve: leaf water potential,
+                            ! xylem conductance and the kl > kcrit
+                            ! feasibility test then use the impaired curve
+                            ! (kmax, conductance_b, conductance_c and the
+                            ! historic psi extremes), while the hydraulic
+                            ! cost is measured against the unimpaired PFT
+                            ! curve (kmax_ref, conductance_b_pft,
+                            ! conductance_c_pft). JBaguley
+                            ! .FALSE. uses kmax/conductance_b/conductance_c
+                            ! directly, with no impairment - kmax_ref and
+                            ! the psi extremes are then not used.
 
 !-----------------------------------------------------------------------------
 ! IN integer variables.
@@ -132,7 +155,20 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! basis as gl: per leaf area for multilayer,
                             ! canopy for big-leaf). Samples with gl above it
                             ! are infeasible. <= 0 disables the cap.
-,ipar(land_pts)
+,ipar(land_pts)                                                                &
+,kmax_ref(land_pts)                                                            &
+                            ! Unimpaired maximum xylem conductance (m/s),
+                            ! with the same scaling as kmax (kmax is the
+                            ! impaired value when l_xylem_impairment).
+,conductance_b(land_pts)                                                       &
+                            ! Conductance parameter b for each land point
+                            ! (Pa).
+,conductance_c(land_pts)                                                       &
+                            ! Conductance parameter c for each land point.
+,psi_leaf_extreme(land_pts)                                                    &
+                            ! Historic minimum leaf water potential (Pa).
+,psi_root_extreme(land_pts)
+                            ! Historic minimum root zone water potential (Pa).
 
 !-----------------------------------------------------------------------------
 ! IN OUT real variables
@@ -228,6 +264,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Leaf conductance for H2O (m/s).
 ,kl_sample(0:som_n_sample, open_pts)                                           &
                             ! Xylem conductance at leaf (m/s).
+,kl_hc_sample(0:som_n_sample, open_pts)                                        &
+                            ! Xylem conductance at leaf used for the
+                            ! hydraulic cost (m/s) - see stom_opt_mod_ci.
 ,kl_SOX(0:som_n_sample, open_pts)                                              &
                             ! Xylem conductance for SOX profit model.
                             !  Calculated from the average of the leaf and
@@ -252,9 +291,21 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,kmax_open(open_pts)                                                          &
                             ! kmax gathered onto the open-point index, for
                             ! the SOX xylem_conductance_jls call.
-,kcrit_open(open_pts)
+,kcrit_open(open_pts)                                                          &
                             ! kcrit gathered onto the open-point index, for
                             ! the SOX xylem_conductance_jls call.
+,b_open(open_pts)                                                              &
+,c_open(open_pts)                                                              &
+                            ! conductance_b/c gathered onto the open-point
+                            ! index, for the SOX xylem_conductance_jls call.
+,kl_hc_max(land_pts)                                                           &
+                            ! Reference (maximum) xylem conductance for the
+                            ! hydraulic cost with l_xylem_impairment: the
+                            ! unimpaired conductance at the root zone water
+                            ! potential. JBaguley
+,b_ref(land_pts)                                                               &
+,c_ref(land_pts)
+                            ! Unimpaired PFT conductance_b/c.
 
 ! -- ci_search_golden outputs (scalar per open point) --
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -277,6 +328,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,al_e_fp(0:1, open_pts)                                                       &
 ,gl_e_fp(0:1, open_pts)                                                       &
 ,kl_e_fp(0:1, open_pts)                                                       &
+,kl_hc_e_fp(0:1, open_pts)                                                    &
 ,psi_e_fp(0:1, open_pts)                                                      &
 ,el_e_fp(0:1, open_pts)                                                       &
 ,hc_at_maxstress(open_pts)
@@ -301,6 +353,11 @@ INTEGER ::                                                                     &
                             ! Compressed subset of open_index for the flat
                             ! search (same convention as open_index_search).
 
+REAL(KIND=real_jlslsm) :: hc_ref(open_pts)
+                            ! Reference conductance for the fast path's
+                            ! hydraulic cost: kmax, or kl_hc_max with
+                            ! l_xylem_impairment.
+
 LOGICAL :: l_golden_fallback(open_pts)
                             ! Points stom_opt_golden_search could not
                             ! resolve - see that routine.
@@ -308,9 +365,21 @@ LOGICAL :: l_golden_fallback(open_pts)
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
+LOGICAL :: l_xylem_impairment
+                            ! l_xylem_impairment_in, but only where an
+                            ! impairment model is actually in use (not
+                            ! pft_xylem_impairment_model = none, not in
+                            ! spin-up), so that model 0 takes exactly the
+                            ! unimpaired code path, including with
+                            ! l_som_plant_segments (whose hydraulic cost
+                            ! uses the segments' whole-plant conductance).
+
 CHARACTER(LEN=*), PARAMETER :: RoutineName='STOM_OPT_MOD'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+l_xylem_impairment = l_xylem_impairment_in .AND. .NOT. is_spinup .AND.     &
+                     pft_xylem_impairment_model(pft) /= xylem_impairment_none
 
 ! ----------------------------------------------------------------------------
 !  Parameter setup
@@ -322,7 +391,7 @@ al(:)      = -rd(:)
 el(:)      = 0.0
 flux_o3(:) = 0.0
 fo3(:)     = 0.0
-gl(:)      = min_gl_pft(pft)
+gl(:)      = min_glw_pft(pft)
 psi_leaf(:)= psi_root_zone(:)
 leaf_k(:)  = kmax
 
@@ -331,10 +400,29 @@ hydraulic_cost(:,:) = 0.0
 profit(:,:) = 0.0
 kl_SOX(:,:) = 0.0
 
-! If there are no land points with open stomata then no calculation is needed.
+! If there are no land points with open stomata then no calculation is
+! needed, other than (with xylem impairment) the leaf xylem conductance.
 IF(0 == open_pts) THEN
+  IF (l_xylem_impairment) THEN
+    ! Calculate the xylem conductance at the leaf water potential.
+    CALL leaf_conductance_impaired_jls( pft, land_pts, psi_leaf, kmax_ref,     &
+                                        kmax, kcrit, conductance_b,            &
+                                        conductance_c, psi_leaf_extreme,       &
+                                        leaf_k )
+  END IF
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
   return
+END IF
+
+! With xylem impairment the hydraulic cost is measured against the
+! unimpaired PFT vulnerability curve, relative to its conductance at the
+! current root zone water potential. JBaguley
+b_ref(:) = conductance_b_pft(pft)
+c_ref(:) = conductance_c_pft(pft)
+kl_hc_max(:) = kmax_ref(:)
+IF (l_xylem_impairment) THEN
+  CALL leaf_conductance_jls( pft, land_pts, psi_root_zone, kmax_ref, kcrit,    &
+                             b_ref, c_ref, kl_hc_max )
 END IF
 
 ! ----------------------------------------------------------------------------
@@ -382,8 +470,10 @@ SELECT CASE ( som_base_parm )
             rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,   &
             km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,     &
             l_multilayer,                                                     &
+            kmax_ref, conductance_b, conductance_c,                           &
+            psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,           &
         ! OUT
-            ci_e_fp, al_e_fp, gl_e_fp, kl_e_fp, psi_e_fp, el_e_fp              &
+            ci_e_fp, al_e_fp, gl_e_fp, kl_e_fp, psi_e_fp, el_e_fp, kl_hc_e_fp  &
                 )
       END IF
 
@@ -391,12 +481,17 @@ SELECT CASE ( som_base_parm )
       DO j = 1, open_pts
         l = veg_index(open_index(j))
         l_fastpath(j) = .FALSE.
+        IF (l_xylem_impairment) THEN
+          hc_ref(j) = kl_hc_max(l)
+        ELSE
+          hc_ref(j) = kmax(l)
+        END IF
         IF (l_som_skip_search_wellwatered .AND.                                &
             psi_e_fp(1,j) <= psi_root_zone(l) + TINY(psi_root_zone(l)) .AND.   &
             kl_e_fp(1,j) > kcrit(l) .AND.                                      &
             (gl_max(l) <= 0.0 .OR. gl_e_fp(1,j) <= gl_max(l))) THEN
-          hc_at_maxstress(j) = (kmax(l) - kl_e_fp(1,j)) /                      &
-                                (kmax(l) - kcrit(l))
+          hc_at_maxstress(j) = (hc_ref(j) - kl_hc_e_fp(1,j)) /                 &
+                                MAX(hc_ref(j) - kcrit(l), TINY(1.0_real_jlslsm))
           l_fastpath(j) = hc_at_maxstress(j) < som_hc_negligible_tol
         END IF
 
@@ -450,6 +545,9 @@ SELECT CASE ( som_base_parm )
               km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,  &
               gl_max,                                                         &
               l_multilayer, som_n_ci_prescan, som_n_ci_golden_iter,           &
+              kmax_ref, conductance_b, conductance_c,                         &
+              psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,         &
+              kl_hc_max,                                                      &
           ! OUT
               ci_golden, al_golden, gl_golden, kl_golden, psi_golden,         &
               el_golden, carbon_gain_golden, hydraulic_cost_golden,           &
@@ -499,8 +597,11 @@ SELECT CASE ( som_base_parm )
             rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,  &
             km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,    &
             l_multilayer,                                                     &
+            kmax_ref, conductance_b, conductance_c,                           &
+            psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,           &
         ! OUT
-            ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample &
+            ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample,&
+            kl_hc_sample                                                      &
                 )
 
         CALL stom_opt_profit_max_select(                                      &
@@ -508,6 +609,7 @@ SELECT CASE ( som_base_parm )
             som_n_sample,                                                     &
             al_sample, kl_sample, psi_sample, gl_sample, psi_root_zone, kcrit,&
             gl_max, rd,                                                       &
+            kl_hc_sample, kl_hc_max, l_xylem_impairment,                      &
         ! OUT
             l_good_sample_flat, carbon_gain, hydraulic_cost, profit,          &
             optimal_index_flat                                               &
@@ -548,8 +650,11 @@ SELECT CASE ( som_base_parm )
           rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,     &
           km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,       &
           l_multilayer,                                                       &
+          kmax_ref, conductance_b, conductance_c,                             &
+          psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,             &
       ! OUT
-          ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample    &
+          ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample,   &
+          kl_hc_sample                                                         &
               )
 
       ! ------------------------------------------------------------------
@@ -571,27 +676,40 @@ SELECT CASE ( som_base_parm )
                              .AND. gl_sample(1:,j) <= gl_max(l)
       END DO
 
-      ! Sox uses the xylem conductance for the average of the
-      !  leaf and root zone water potentials.
-      DO j = 1, open_pts
-        l = veg_index(open_index(j))
+      IF (l_xylem_impairment) THEN
+        ! With xylem impairment the SOX hydraulic cost uses the unimpaired
+        ! conductance at the leaf water potential, relative to the
+        ! unimpaired maximum conductance kmax_ref. JBaguley
+        kl_SOX(:,:) = kl_hc_sample(:,:)
+        DO j = 1, open_pts
+          l = veg_index(open_index(j))
+          max_kl(j) = kmax_ref(l)
+        END DO
+      ELSE
+        ! Sox uses the xylem conductance for the average of the
+        !  leaf and root zone water potentials.
+        DO j = 1, open_pts
+          l = veg_index(open_index(j))
 
-        SOX_mean_psi(:,j) = 0.5 * (psi_sample(:,j) + psi_root_zone(l))
-        kmax_open(j) = kmax(l)
-        kcrit_open(j) = kcrit(l)
-      END DO
+          SOX_mean_psi(:,j) = 0.5 * (psi_sample(:,j) + psi_root_zone(l))
+          kmax_open(j) = kmax(l)
+          kcrit_open(j) = kcrit(l)
+          b_open(j) = conductance_b(l)
+          c_open(j) = conductance_c(l)
+        END DO
 
-      ! See the note above the leaf_psi_jls call in stom_opt_mod_ci: pass the
-      ! (1:som_n_sample,:) sections so the actual/dummy shapes match exactly
-      ! and avoid the same sequence-association misalignment. Entry 0 of
-      ! kl_SOX is left at the 0.0 it was initialised to above.
-      CALL xylem_conductance_jls(pft, som_n_sample, open_pts,                  &
-                                 SOX_mean_psi(1:som_n_sample,:),               &
-                                 kmax_open, kcrit_open,                        &
-                                 kl_SOX(1:som_n_sample,:))
+        ! See the note above the leaf_psi_jls call in stom_opt_mod_ci: pass
+        ! the (1:som_n_sample,:) sections so the actual/dummy shapes match
+        ! exactly and avoid the same sequence-association misalignment. Entry
+        ! 0 of kl_SOX is left at the 0.0 it was initialised to above.
+        CALL xylem_conductance_jls(pft, som_n_sample, open_pts,                &
+                                   SOX_mean_psi(1:som_n_sample,:),             &
+                                   kmax_open, kcrit_open, b_open, c_open,      &
+                                   kl_SOX(1:som_n_sample,:))
 
-      ! Get the maximum xylem conductance for each land point.
-      max_kl = MAXVAL(kl_SOX(1:,:), MASK = l_good_sample, DIM = 1)
+        ! Get the maximum xylem conductance for each land point.
+        max_kl = MAXVAL(kl_SOX(1:,:), MASK = l_good_sample, DIM = 1)
+      END IF
 
       ! CG = An
       carbon_gain(:,:) = al_sample(:,:)
@@ -648,6 +766,16 @@ SELECT CASE ( som_base_parm )
                'som_base_parm should be 1 or 2')
 END SELECT
 
+IF (l_xylem_impairment) THEN
+  ! Calculate the xylem conductance at the leaf water potential, for all
+  ! points (open and closed), on the impaired vulnerability curve.
+  ! JBaguley
+  CALL leaf_conductance_impaired_jls( pft, land_pts, psi_leaf, kmax_ref,       &
+                                      kmax, kcrit, conductance_b,              &
+                                      conductance_c, psi_leaf_extreme,         &
+                                      leaf_k )
+END IF
+
 !TODO: Redetermine if stomata are open or closed?
 
 !TODO: Calculate ozone exposure here. Create subroutine using code in
@@ -667,11 +795,15 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
         rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp,              &
         pstar, km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax,         &
         kcrit, l_multilayer,                                                  &
+        kmax_ref, conductance_b, conductance_c,                               &
+        psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,               &
 ! OUT
-        ci_sample, al_sample, gl_sample, kl_sample, psi_sample,el_sample       &
+        ci_sample, al_sample, gl_sample, kl_sample, psi_sample,el_sample,      &
+        kl_hc_sample                                                           &
 )
 
-USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
+USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls, xylem_conductance_jls
+USE xylem_impairment_mod, ONLY: leaf_psi_impaired_jls
 
 USE jules_vegetation_mod, ONLY:                                                &
         photo_collatz, photo_farquhar, CW_conductance,                         &
@@ -679,7 +811,7 @@ USE jules_vegetation_mod, ONLY:                                                &
 
 USE pftparm, ONLY:                                                             &
         leaf_crit, c3, alpha, pft_conductance_model,                           &
-        conductance_b, conductance_c
+        conductance_b_pft, conductance_c_pft
 
 USE jules_surface_mod, ONLY: fwe_c3, fwe_c4
 USE jules_surface_mod, ONLY: beta1, beta2, ratio, ratio_o3
@@ -693,6 +825,8 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 LOGICAL, INTENT(IN) :: l_multilayer
+LOGICAL, INTENT(IN) :: l_xylem_impairment
+                            ! See stom_opt_mod.
 
 !-----------------------------------------------------------------------------
 ! IN integer variables
@@ -767,7 +901,13 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 ,fapar_lf(land_pts)                                                            &
 ,ipar (land_pts)                                                               &
 ,kmax(land_pts)                                                                &
-,kcrit(land_pts)
+,kcrit(land_pts)                                                               &
+,kmax_ref(land_pts)                                                            &
+,conductance_b(land_pts)                                                       &
+,conductance_c(land_pts)                                                       &
+,psi_leaf_extreme(land_pts)                                                    &
+,psi_root_extreme(land_pts)
+                            ! See stom_opt_mod.
 !-----------------------------------------------------------------------------
 ! OUT real variables
 !-----------------------------------------------------------------------------
@@ -782,8 +922,13 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
                             ! Xylem conductance at leaf (m/s).
 ,psi_sample(0:n_sample, open_pts)                                            &
                             ! Water potential at leaf (Pa)
-,el_sample(0:n_sample, open_pts)
+,el_sample(0:n_sample, open_pts)                                             &
                             ! Transpiration rate (mol H2O/m2/s)
+,kl_hc_sample(0:n_sample, open_pts)
+                            ! Xylem conductance at leaf used for the
+                            ! hydraulic cost (m/s): kl_sample, or with
+                            ! l_xylem_impairment the conductance at
+                            ! psi_sample on the unimpaired PFT curve.
 
 !-----------------------------------------------------------------------------
 ! Local integer variables.
@@ -828,10 +973,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Leaf conductance for CO2 (m/s)
 ,conv(land_pts)                                                                &
                             ! Factor for converting mol/m3 into Pa (J/m3)
-,conductance_conversion_limit
+,conductance_conversion_limit                                                  &
                             ! Limit for the change in conductance when
                             ! estimating leaf water potential from
                             ! transpiration rate.
+,kmax_open(open_pts), kcrit_open(open_pts), b_open(open_pts), c_open(open_pts)
+                            ! Unimpaired PFT curve gathered onto the
+                            ! open-point index, for kl_hc_sample.
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -852,6 +1000,7 @@ al_sample(:,:)      = 0.0
 gl_sample(:,:)      = 0.0
 kl_sample(:,:)      = 0.0
 el_sample(:,:)      = 0.0
+kl_hc_sample(:,:)   = 0.0
 
 ! Entry 0 of the sample arrays represents the closed-stomata state used as
 ! the fallback in stom_opt_mod (ci = ca, psi = psi_root_zone; see the note
@@ -1075,20 +1224,63 @@ el_sample(:,:) = MAX(0.0, el_sample(:,:))
 !       the (1:n_sample,:) sections instead makes the actual and dummy
 !       argument shapes match exactly, so entry 0 is left untouched and
 !       entries 1:n_sample line up correctly.
-CALL leaf_psi_jls( pft,                                                        &
-                   n_sample,                                               &
-                   land_pts,                                                   &
-                   open_pts,                                                   &
-                   veg_index,                                                  &
-                   open_index,                                                 &
-                   el_sample(1:n_sample,:),                                &
-                   psi_root_zone,                                              &
-                   kmax,                                                       &
-                   kcrit,                                                      &
-                 ! INTENT OUT
-                   psi_sample(1:n_sample,:),                               &
-                   kl_sample(1:n_sample,:)                                 &
-  )
+IF (l_xylem_impairment) THEN
+  ! Leaf water potential and conductance on the impaired vulnerability
+  ! curve. JBaguley
+  CALL leaf_psi_impaired_jls( pft,                                             &
+                              n_sample,                                        &
+                              land_pts,                                        &
+                              open_pts,                                        &
+                              veg_index,                                       &
+                              open_index,                                      &
+                              el_sample(1:n_sample,:),                         &
+                              psi_root_zone,                                   &
+                              kmax_ref,                                        &
+                              kmax,                                            &
+                              kcrit,                                           &
+                              conductance_b,                                   &
+                              conductance_c,                                   &
+                              psi_leaf_extreme,                                &
+                              psi_root_extreme,                                &
+                            ! INTENT OUT
+                              psi_sample(1:n_sample,:),                        &
+                              kl_sample(1:n_sample,:)                          &
+    )
+
+  ! The hydraulic cost uses the unimpaired conductance at the (impaired)
+  ! leaf water potential. JBaguley
+  DO j = 1, open_pts
+    l = veg_index(open_index(j))
+    kmax_open(j)  = kmax_ref(l)
+    kcrit_open(j) = kcrit(l)
+  END DO
+  b_open(:) = conductance_b_pft(pft)
+  c_open(:) = conductance_c_pft(pft)
+
+  CALL xylem_conductance_jls( pft, n_sample, open_pts,                         &
+                              psi_sample(1:n_sample,:),                        &
+                              kmax_open, kcrit_open, b_open, c_open,           &
+                              kl_hc_sample(1:n_sample,:) )
+ELSE
+  CALL leaf_psi_jls( pft,                                                      &
+                     n_sample,                                                 &
+                     land_pts,                                                 &
+                     open_pts,                                                 &
+                     veg_index,                                                &
+                     open_index,                                               &
+                     el_sample(1:n_sample,:),                                  &
+                     psi_root_zone,                                            &
+                     kmax,                                                     &
+                     kcrit,                                                    &
+                     conductance_b,                                            &
+                     conductance_c,                                            &
+                   ! INTENT OUT
+                     psi_sample(1:n_sample,:),                                 &
+                     kl_sample(1:n_sample,:)                                   &
+    )
+
+  kl_hc_sample(:,:) = kl_sample(:,:)
+END IF
 
 ! Reset entry 0 to the closed-stomata state. The whole-column (:,j)
 ! photosynthesis/conductance calculations above also evaluated entry 0 at
@@ -1107,6 +1299,7 @@ DO j = 1, open_pts
   gl_sample(0,j)  = 0.0
   el_sample(0,j)  = 0.0
   kl_sample(0,j)  = 0.0
+  kl_hc_sample(0,j) = 0.0
   psi_sample(0,j) = psi_root_zone(l)
 END DO
 
@@ -1132,6 +1325,7 @@ SUBROUTINE stom_opt_profit_max_select(                                        &
         land_pts, open_pts, open_index, veg_index, n_sample,                  &
         al_sample, kl_sample, psi_sample, gl_sample, psi_root_zone, kcrit,    &
         gl_max, rd,                                                           &
+        kl_hc_sample, kl_hc_max, l_xylem_impairment,                          &
 ! OUT
         l_good_sample, carbon_gain, hydraulic_cost, profit, optimal_index     &
 )
@@ -1155,9 +1349,17 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
 , psi_root_zone(land_pts)                                                     &
 , kcrit(land_pts)                                                             &
 , gl_max(land_pts)                                                            &
+, kl_hc_sample(0:n_sample, open_pts)                                          &
+                            ! Conductance used for the hydraulic cost - see
+                            ! stom_opt_mod_ci.
+, kl_hc_max(land_pts)                                                          &
+                            ! Reference conductance for the hydraulic cost
+                            ! with l_xylem_impairment - see stom_opt_mod.
 , rd(land_pts)
                             ! Dark respiration; added back to An for the
                             ! gross-A gain (l_som_gain_gross).
+
+LOGICAL, INTENT(IN) :: l_xylem_impairment
 
 LOGICAL, INTENT(OUT) :: l_good_sample(n_sample, open_pts)
 
@@ -1212,7 +1414,15 @@ DO j = 1, open_pts
   gain_off(j) = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
   max_al(j) = MAXVAL(al_sample(1:,j) + gain_off(j), MASK = l_good_sample(:,j))
 END DO
-max_kl = MAXVAL(kl_sample(1:,:), MASK = l_good_sample, DIM = 1)
+IF (l_xylem_impairment) THEN
+  ! Set the maximum conductance as equal to the current (unimpaired) root
+  ! zone conductance. JBaguley
+  DO j = 1, open_pts
+    max_kl(j) = kl_hc_max(veg_index(open_index(j)))
+  END DO
+ELSE
+  max_kl = MAXVAL(kl_hc_sample(1:,:), MASK = l_good_sample, DIM = 1)
+END IF
 
 carbon_gain(:,:)    = 0.0
 hydraulic_cost(:,:) = 0.0
@@ -1236,8 +1446,8 @@ DO j = 1, open_pts
     ! guaranteed here because l_good_sample already required
     ! kl_sample > kcrit(l) for at least the sample max_kl was taken from,
     ! so this denominator can be small under severe stress but never zero.
-    hydraulic_cost(:,j) =   (max_kl(j) - kl_sample(:,j))                     &
-                          / (max_kl(j) - kcrit(l))
+    hydraulic_cost(:,j) =   (max_kl(j) - kl_hc_sample(:,j))                  &
+                          / MAX(max_kl(j) - kcrit(l), TINY(1.0_real_jlslsm))
 
     ! Profit = CG-HC
     profit(:,j) = carbon_gain(:,j) - hydraulic_cost(:,j)
@@ -1281,6 +1491,8 @@ SUBROUTINE stom_opt_golden_search(                                            &
         rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,       &
         km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,         &
         gl_max, l_multilayer, n_prescan, n_iter,                              &
+        kmax_ref, conductance_b, conductance_c,                               &
+        psi_leaf_extreme, psi_root_extreme, l_xylem_impairment, kl_hc_max,    &
 ! OUT
         ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g, &
         l_fallback                                                            &
@@ -1300,9 +1512,12 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
   apar(land_pts), oi(land_pts), vcmax(land_pts), kc(land_pts), ko(land_pts), &
   ccp(land_pts), pstar(land_pts), km(land_pts), dq(land_pts), qs(land_pts),  &
   je(land_pts), t_leaf(land_pts), je_ratio(land_pts), fapar_lf(land_pts),    &
-  ipar(land_pts), kmax(land_pts), kcrit(land_pts), gl_max(land_pts)
+  ipar(land_pts), kmax(land_pts), kcrit(land_pts), gl_max(land_pts),        &
+  kmax_ref(land_pts), conductance_b(land_pts), conductance_c(land_pts),      &
+  psi_leaf_extreme(land_pts), psi_root_extreme(land_pts), kl_hc_max(land_pts)
+                            ! See stom_opt_mod.
 
-LOGICAL, INTENT(IN) :: l_multilayer
+LOGICAL, INTENT(IN) :: l_multilayer, l_xylem_impairment
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                        &
   ci_g(open_pts), al_g(open_pts), gl_g(open_pts), kl_g(open_pts),            &
@@ -1333,7 +1548,8 @@ REAL(KIND=real_jlslsm) :: ci_lo(land_pts), ci_hi(land_pts)
 REAL(KIND=real_jlslsm) ::                                                     &
   ci_p(0:n_prescan, open_pts), al_p(0:n_prescan, open_pts),                  &
   gl_p(0:n_prescan, open_pts), kl_p(0:n_prescan, open_pts),                  &
-  psi_p(0:n_prescan, open_pts), el_p(0:n_prescan, open_pts)
+  psi_p(0:n_prescan, open_pts), el_p(0:n_prescan, open_pts),                &
+  kl_hc_p(0:n_prescan, open_pts)
 LOGICAL :: good_p(n_prescan, open_pts)
 REAL(KIND=real_jlslsm) :: max_al_ref(open_pts), max_kl_ref(open_pts)
 REAL(KIND=real_jlslsm) :: g_off(open_pts)
@@ -1342,7 +1558,8 @@ REAL(KIND=real_jlslsm) :: g_off(open_pts)
 ! -- Single-point evaluation scratch (n_sample=1 each call) --
 REAL(KIND=real_jlslsm) ::                                                     &
   ci_e(0:1, open_pts), al_e(0:1, open_pts), gl_e(0:1, open_pts),             &
-  kl_e(0:1, open_pts), psi_e(0:1, open_pts), el_e(0:1, open_pts)
+  kl_e(0:1, open_pts), psi_e(0:1, open_pts), el_e(0:1, open_pts),          &
+  kl_hc_e(0:1, open_pts)
 
 ! -- Golden-section bracket state, per open point --
 REAL(KIND=real_jlslsm) ::                                                     &
@@ -1356,7 +1573,10 @@ REAL(KIND=real_jlslsm) ::                                                     &
   el_d(open_pts)
 REAL(KIND=real_jlslsm) ::                                                     &
   best_f(open_pts), best_ci(open_pts), best_al(open_pts), best_gl(open_pts), &
-  best_kl(open_pts), best_psi(open_pts), best_el(open_pts)
+  best_kl(open_pts), best_psi(open_pts), best_el(open_pts),                 &
+  best_kl_hc(open_pts)
+                            ! Conductance used for the hydraulic cost (see
+                            ! stom_opt_mod_ci) at the best point seen.
 LOGICAL :: update_c(open_pts), feasible(open_pts)
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -1380,7 +1600,9 @@ CALL stom_opt_mod_ci(                                                          &
     rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,          &
     km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,            &
     l_multilayer,                                                            &
-    ci_p, al_p, gl_p, kl_p, psi_p, el_p                                       &
+    kmax_ref, conductance_b, conductance_c,                                  &
+    psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,                  &
+    ci_p, al_p, gl_p, kl_p, psi_p, el_p, kl_hc_p                              &
         )
 
 good_p(:,:) = .TRUE.
@@ -1398,7 +1620,14 @@ DO j = 1, open_pts
   g_off(j) = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
   max_al_ref(j) = MAXVAL(al_p(1:,j) + g_off(j), MASK = good_p(:,j))
 END DO
-max_kl_ref = MAXVAL(kl_p(1:,:), MASK = good_p, DIM = 1)
+IF (l_xylem_impairment) THEN
+  ! See the matching note in stom_opt_profit_max_select. JBaguley
+  DO j = 1, open_pts
+    max_kl_ref(j) = kl_hc_max(veg_index(open_index(j)))
+  END DO
+ELSE
+  max_kl_ref = MAXVAL(kl_hc_p(1:,:), MASK = good_p, DIM = 1)
+END IF
 
 ! Hand a point back to the flat search when the feasible Ci region is too
 ! narrow for the prescan to resolve (see the l_fallback declaration). Under
@@ -1426,12 +1655,13 @@ DO j = 1, open_pts
     DO i = 1, n_prescan
       IF (good_p(i,j)) THEN
         f_new(j) = (al_p(i,j) + g_off(j))/max_al_ref(j)                      &
-                 - (max_kl_ref(j)-kl_p(i,j))/(max_kl_ref(j)-kcrit(l))
+                 - (max_kl_ref(j)-kl_hc_p(i,j))/(max_kl_ref(j)-kcrit(l))
         IF (f_new(j) > best_f(j)) THEN
           best_f(j) = f_new(j)
           best_ci(j) = ci_p(i,j); best_al(j) = al_p(i,j)
           best_gl(j) = gl_p(i,j); best_kl(j) = kl_p(i,j)
           best_psi(j) = psi_p(i,j); best_el(j) = el_p(i,j)
+          best_kl_hc(j) = kl_hc_p(i,j)
         END IF
       END IF
     END DO
@@ -1460,7 +1690,9 @@ CALL stom_opt_mod_ci(                                                          &
     rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,          &
     km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,            &
     l_multilayer,                                                            &
-    ci_e, al_e, gl_e, kl_e, psi_e, el_e                                       &
+    kmax_ref, conductance_b, conductance_c,                                  &
+    psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,                  &
+    ci_e, al_e, gl_e, kl_e, psi_e, el_e, kl_hc_e                              &
         )
 
 DO j = 1, open_pts
@@ -1472,14 +1704,14 @@ DO j = 1, open_pts
                .AND. (gl_max(l) <= 0.0 .OR. gl_c(j) <= gl_max(l))
   IF (feasible(j) .AND. max_al_ref(j) > 0.0) THEN
     fc(j) = (al_c(j) + g_off(j))/max_al_ref(j)                               &
-           - (max_kl_ref(j)-kl_c(j))/(max_kl_ref(j)-kcrit(l))
+           - (max_kl_ref(j)-kl_hc_e(1,j))/(max_kl_ref(j)-kcrit(l))
   ELSE
     fc(j) = -HUGE(1.0_real_jlslsm)
   END IF
   IF (fc(j) > best_f(j)) THEN
     best_f(j) = fc(j); best_ci(j) = c_pt(j); best_al(j) = al_c(j)
     best_gl(j) = gl_c(j); best_kl(j) = kl_c(j); best_psi(j) = psi_c(j)
-    best_el(j) = el_c(j)
+    best_el(j) = el_c(j); best_kl_hc(j) = kl_hc_e(1,j)
   END IF
   ci_lo(l) = d_pt(j)
 END DO
@@ -1490,7 +1722,9 @@ CALL stom_opt_mod_ci(                                                          &
     rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,          &
     km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,            &
     l_multilayer,                                                            &
-    ci_e, al_e, gl_e, kl_e, psi_e, el_e                                       &
+    kmax_ref, conductance_b, conductance_c,                                  &
+    psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,                  &
+    ci_e, al_e, gl_e, kl_e, psi_e, el_e, kl_hc_e                              &
         )
 
 DO j = 1, open_pts
@@ -1502,14 +1736,14 @@ DO j = 1, open_pts
                .AND. (gl_max(l) <= 0.0 .OR. gl_d(j) <= gl_max(l))
   IF (feasible(j) .AND. max_al_ref(j) > 0.0) THEN
     fd(j) = (al_d(j) + g_off(j))/max_al_ref(j)                               &
-           - (max_kl_ref(j)-kl_d(j))/(max_kl_ref(j)-kcrit(l))
+           - (max_kl_ref(j)-kl_hc_e(1,j))/(max_kl_ref(j)-kcrit(l))
   ELSE
     fd(j) = -HUGE(1.0_real_jlslsm)
   END IF
   IF (fd(j) > best_f(j)) THEN
     best_f(j) = fd(j); best_ci(j) = d_pt(j); best_al(j) = al_d(j)
     best_gl(j) = gl_d(j); best_kl(j) = kl_d(j); best_psi(j) = psi_d(j)
-    best_el(j) = el_d(j)
+    best_el(j) = el_d(j); best_kl_hc(j) = kl_hc_e(1,j)
   END IF
 END DO
 
@@ -1561,7 +1795,9 @@ DO i = 1, n_iter
       rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,        &
       km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,          &
       l_multilayer,                                                          &
-      ci_e, al_e, gl_e, kl_e, psi_e, el_e                                     &
+      kmax_ref, conductance_b, conductance_c,                                &
+      psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,                &
+      ci_e, al_e, gl_e, kl_e, psi_e, el_e, kl_hc_e                            &
           )
 
   DO j = 1, open_pts
@@ -1571,7 +1807,7 @@ DO i = 1, n_iter
                  .AND. (gl_max(l) <= 0.0 .OR. gl_e(1,j) <= gl_max(l))
     IF (feasible(j) .AND. max_al_ref(j) > 0.0) THEN
       f_new(j) = (al_e(1,j) + g_off(j))/max_al_ref(j)                        &
-               - (max_kl_ref(j)-kl_e(1,j))/(max_kl_ref(j)-kcrit(l))
+               - (max_kl_ref(j)-kl_hc_e(1,j))/(max_kl_ref(j)-kcrit(l))
     ELSE
       f_new(j) = -HUGE(1.0_real_jlslsm)
     END IF
@@ -1588,6 +1824,7 @@ DO i = 1, n_iter
       best_f(j) = f_new(j); best_ci(j) = ci_e(1,j); best_al(j) = al_e(1,j)
       best_gl(j) = gl_e(1,j); best_kl(j) = kl_e(1,j)
       best_psi(j) = psi_e(1,j); best_el(j) = el_e(1,j)
+      best_kl_hc(j) = kl_hc_e(1,j)
     END IF
   END DO
 
@@ -1610,7 +1847,7 @@ DO j = 1, open_pts
     el_g(j) = best_el(j)
     kl_g(j) = best_kl(j)
     carbon_gain_g(j) = (best_al(j) + g_off(j)) / max_al_ref(j)
-    hydraulic_cost_g(j) = (max_kl_ref(j) - best_kl(j))                       &
+    hydraulic_cost_g(j) = (max_kl_ref(j) - best_kl_hc(j))                    &
                          / (max_kl_ref(j) - kcrit(l))
   ELSE
     ci_g(j) = ca(l)

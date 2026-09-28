@@ -47,6 +47,7 @@ USE jules_rivers_mod, ONLY: rivers_type
 USE jules_chemvars_mod, ONLY: chemvars_type
 USE water_resources_vars_mod, ONLY: water_resources_type
 USE jules_wtrac_type_mod, ONLY: jls_wtrac_type
+USE um_types, ONLY: real_jlslsm
 
 ! In general CABLE utilizes a required subset of tbe JULES types, however;
 USE progs_cbl_vars_mod, ONLY: progs_cbl_vars_type ! CABLE requires extra progs
@@ -86,7 +87,7 @@ USE jules_soil_mod,           ONLY: sm_levels
 
 USE jules_surface_mod,        ONLY: l_aggregate, l_flake_model, on
 
-USE jules_surface_types_mod,  ONLY: ntype, lake
+USE jules_surface_types_mod,  ONLY: ntype, lake, npft
 
 USE model_time_mod,           ONLY: current_time
 
@@ -111,6 +112,12 @@ USE jules_water_tracers_mod,  ONLY: l_wtrac_jls
 USE jules_deposition_mod,     ONLY: l_deposition
 USE conversions_mod,          ONLY: pi_over_180
 USE model_grid_mod,           ONLY: latitude
+
+! Use for stomatal optimisation scheme
+USE jules_vegetation_mod, ONLY: leaf_flux_mod, leaf_flux_stom_opt
+USE xylem_impairment_mod, ONLY: canopy_impaired_psi_jls
+USE water_constants_mod, ONLY: Water_kg_per_mol
+USE c_rmol, ONLY: rmol
 
 !-------------------------------------------------------------------------------
 
@@ -431,6 +438,13 @@ REAL ::                                                                        &
   twatstor(river_row_length, river_rows),                                      &
   ls_graup_ij(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end),            &
   ls_rainfrac_land(land_pts)
+
+REAL(KIND=real_jlslsm) et_stom_surft_working(land_pts,nsurft)
+  ! WORKING copy of et_stom_surft in mol m-2 s-1, used in stomatal optimisation
+  ! scheme to calculate leaf water potential.
+
+INTEGER :: pft
+
 
 INTEGER :: l      !loop counter
 INTEGER :: point  !loop counter
@@ -910,6 +924,40 @@ CALL surf_couple_extra(                                                        &
   wtrac_jls,                                                                   &
   work_cbl                                                                     &
   )
+
+!-------------------------------------------------------------------------------
+! If using the stomatal optimisation scheme calculate canopy water potnetials
+! using the updated transpiration rates
+!-------------------------------------------------------------------------------
+
+
+
+IF (leaf_flux_mod == leaf_flux_stom_opt) THEN
+
+  DO l = 1, land_pts
+    et_stom_surft_working(l,:) = sf_diag%et_stom_surft(l,:) / Water_kg_per_mol
+  END DO
+
+  CALL canopy_impaired_psi_jls( land_pts                                   &
+,                               ainfo%surft_pts                            &
+,                               ainfo%surft_index                          &
+,                               et_stom_surft_working                      &
+,                               psparms%psi_root_zone_pft                  &
+,                               psparms%conductance_b_impaired_pft         &
+,                               psparms%conductance_c_impaired_pft         &
+,                               psparms%kmax_impaired_pft                  &
+,                               psparms%psi_leaf_extreme_pft               &
+,                               psparms%psi_root_extreme_pft               &
+                              ! INTENT OUT
+,                               psparms%psi_canopy_pft                     &
+,                               psparms%k_canopy_pft                       &
+,                               psparms%psi_leaf_pft                       &
+,                               psparms%som_transpiration_pft              &
+,                               psparms%gc_som_pft                         &
+                              )
+
+END IF
+
 
 END SUBROUTINE control
 #endif

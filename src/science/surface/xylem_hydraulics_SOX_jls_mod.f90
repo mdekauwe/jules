@@ -14,7 +14,11 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_HYDRAULICS_SOX_JLS_MOD'
 
-PUBLIC :: xylem_conductance_SOX_jls, leaf_psi_SOX_jls
+PUBLIC :: leaf_conductance_SOX_jls                                             &
+,         xylem_conductance_SOX_jls                                            &
+,         leaf_psi_SOX_jls                                                     &
+,         SOX_2F1                                                              &
+,         SOX_2F1_multiple_cf
 
 CONTAINS
 
@@ -26,6 +30,68 @@ CONTAINS
 !                  k(psi) = ---------------
 !                            1 + (psi/b)^c
 ! *********************************************************************
+
+! ---------------------------------------------------------------------
+! Function to calculate the leaf conductance using the SOX conductance
+! model, Eller CB et al. 2018 for all land points. JBaguley
+! ---------------------------------------------------------------------
+SUBROUTINE leaf_conductance_SOX_jls( pft,                                      &
+                                     land_pnts,                                &
+                                     water_potential,                          &
+                                     kmax,                                     &
+                                     kcrit,                                    &
+                                     conductance_b,                            &
+                                     conductance_c,                            &
+                                    ! INTENT OUT
+                                     leaf_k                                    &
+  )
+
+USE ereport_mod, ONLY: ereport
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
+INTEGER, INTENT(IN) ::                                                        &
+  pft                                                                         &
+                            ! Plant functional type index
+, land_pnts
+                            ! Number of land points
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
+  water_potential(land_pnts)                                                  &
+                            ! Leaf water potential for each land point (Pa)
+, kmax(land_pnts)                                                             &
+                            ! Maximum xylem conductance for each land point
+                            ! (m/s)
+, kcrit(land_pnts)                                                            &
+                            ! Critical xylem conductance for each land point
+                            ! (m/s)
+, conductance_b(land_pnts)                                                    &
+                            ! Conductance parameter b for each land point
+                            ! (Pa)
+, conductance_c(land_pnts)
+                            ! Conductance parameter c for each land point
+
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                        &
+  leaf_k(land_pnts)
+                            ! Leaf conductance for each land point (m/s)
+
+! Local variables
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_CONDUCTANCE_SOX_JLS'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+! Calculate the leaf conductance for each land point.
+leaf_k = kmax / (1 + (water_potential/conductance_b)**conductance_c)
+
+! Apply minimum conductance limit
+leaf_k = MAX(leaf_k, kcrit)
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
+END SUBROUTINE leaf_conductance_SOX_jls
 
 ! ---------------------------------------------------------------------
 ! Function to calculate xylem conductance using the SOX conductance
@@ -40,12 +106,11 @@ SUBROUTINE xylem_conductance_SOX_jls( pft,                                    &
                                       water_potential,                        &
                                       kmax,                                   &
                                       kcrit,                                  &
+                                      conductance_b,                          &
+                                      conductance_c,                          &
                                    ! INTENT OUT
                                       xylem_conductance                       &
   )
-
-USE pftparm, ONLY:                                                             &
-        conductance_b, conductance_c
 
 USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
@@ -66,10 +131,17 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
                             ! Maximum xylem conductance for each open point
                             ! (m/s). Lets a layer- or PFT-specific maximum
                             ! be used rather than always reading kmax_pft.
-, kcrit(open_pnts)
+, kcrit(open_pnts)                                                            &
                             ! Critical xylem conductance for each open point
                             ! (m/s), scaled to match whatever kmax is being
                             ! used (e.g. kcrit_per_lyr alongside kmax_per_lyr).
+, conductance_b(open_pnts)                                                    &
+                            ! Conductance parameter b for each open point
+                            ! (Pa). Per point rather than per PFT so an
+                            ! impaired vulnerability curve can be used.
+                            ! JBaguley
+, conductance_c(open_pnts)
+                            ! Conductance parameter c for each open point.
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                        &
   xylem_conductance(n_water_potentials, open_pnts)
@@ -87,7 +159,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 
 xylem_conductance = SPREAD(kmax, DIM = 1, NCOPIES = n_water_potentials)        &
-      / (1 + (water_potential/conductance_b(pft))**conductance_c(pft))
+      / (1 + (water_potential                                                  &
+              / SPREAD(conductance_b, DIM = 1, NCOPIES = n_water_potentials))  &
+             **SPREAD(conductance_c, DIM = 1, NCOPIES = n_water_potentials))
 
 
 ! Apply minimum conductance limit
@@ -130,6 +204,8 @@ SUBROUTINE leaf_psi_SOX_jls( pft,                                              &
                              root_zone_psi,                                    &
                              kmax,                                             &
                              kcrit,                                            &
+                             conductance_b,                                    &
+                             conductance_c,                                    &
                           ! INTENT OUT
                              leaf_psi,                                         &
                              leaf_k                                            &
@@ -137,8 +213,6 @@ SUBROUTINE leaf_psi_SOX_jls( pft,                                              &
 
 USE jules_vegetation_mod, ONLY: som_psi_aprox_method, psi_aprox_TE,            &
                                 psi_aprox_NR
-
-USE pftparm, ONLY: conductance_b, conductance_c
 
 USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
@@ -167,10 +241,17 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Maximum xylem conductance for each land point
                             ! (m/s), e.g. kmax_pft(pft) or a layer-scaled
                             ! value such as kmax_per_lyr.
-, kcrit(land_pts)
+, kcrit(land_pts)                                                              &
                             ! Critical xylem conductance for each land point
                             ! (m/s), scaled to match whatever kmax is being
                             ! used (e.g. kcrit_per_lyr alongside kmax_per_lyr).
+, conductance_b(land_pts)                                                      &
+                            ! Conductance parameter b for each land point
+                            ! (Pa). Per point rather than per PFT so an
+                            ! impaired vulnerability curve can be used.
+                            ! JBaguley
+, conductance_c(land_pts)
+                            ! Conductance parameter c for each land point.
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_psi(n_e_leaf, open_pnts)                                                &
@@ -191,6 +272,9 @@ REAL(KIND=real_jlslsm) :: kmax_open(open_pnts)
 REAL(KIND=real_jlslsm) :: kcrit_open(open_pnts)
                             ! kcrit gathered onto the open-point index, for
                             ! passing into xylem_conductance_SOX_jls.
+REAL(KIND=real_jlslsm) :: b_open(open_pnts), c_open(open_pnts)
+                            ! conductance_b/c gathered onto the open-point
+                            ! index, for passing into xylem_conductance_SOX_jls.
 
 ! Newton-Raphson variables
 REAL(KIND=real_jlslsm) :: e_leaf_current(n_e_leaf, open_pnts)
@@ -248,6 +332,8 @@ CASE(psi_aprox_TE)
       l = veg_index(open_index(j))
       kmax_open(j) = kmax(l)
       kcrit_open(j) = kcrit(l)
+      b_open(j) = conductance_b(l)
+      c_open(j) = conductance_c(l)
 
       ! Calculate the conductance conversion limit
       k_conversion_limit = 0.1 * kcrit(l)
@@ -259,7 +345,7 @@ CASE(psi_aprox_TE)
       !  reference water potential (this is equal to the root
       !  zone water potential).
       leaf_k(:,j) = kmax(l)                                                    &
-                 / (1 + (leaf_psi(:,j)/conductance_b(pft))**conductance_c(pft))
+                 / (1 + (leaf_psi(:,j)/conductance_b(l))**conductance_c(l))
 
       !  Iterate over the transpiration for each open point.
       DO i = 1,n_e_leaf
@@ -279,7 +365,7 @@ CASE(psi_aprox_TE)
           ! Calculate the new xylem conductance
           !  k(psi) = kmax * exp(-(psi/b) ** c)
           leaf_k_new = kmax(l)                                                 &
-                 / (1 + (reference_psi/conductance_b(pft))**conductance_c(pft))
+                 / (1 + (reference_psi/conductance_b(l))**conductance_c(l))
 
           ! If the change in xylem conductance is less than
           !  k_conversion_limit then break the loop.
@@ -299,7 +385,8 @@ CASE(psi_aprox_TE)
     ! Calculate conductance at th leaf water potential. The value calculated
     !  above is the conductance at the reference psi.
     CALL xylem_conductance_SOX_jls(pft, n_e_leaf, open_pnts, leaf_psi,        &
-                                   kmax_open, kcrit_open, leaf_k)
+                                   kmax_open, kcrit_open, b_open, c_open,     &
+                                   leaf_k)
 
     leaf_k(:,:) = MAX(leaf_k(:,:),                                            &
                       SPREAD(kcrit_open, DIM = 1, NCOPIES = n_e_leaf))
@@ -332,9 +419,9 @@ CASE(psi_aprox_NR)
 
   ! Calculate the lower 2F1 function for the root zone water
   ! potential, for all land points.
-  root_psi_component = SOX_2F1(land_pts,                                       &
-                               1 + 1/conductance_c(pft),                       &
-                -(root_zone_psi/conductance_b(pft))**conductance_c(pft))
+  root_psi_component = SOX_2F1_multiple_cf(land_pts,                           &
+                               1 + 1/conductance_c,                            &
+                -(root_zone_psi/conductance_b)**conductance_c)
 
   root_psi_component = root_zone_psi * root_psi_component
 
@@ -346,7 +433,7 @@ CASE(psi_aprox_NR)
 
     ! Calculate the xylem conductance at the root zone water potential.
     leaf_k(:,j) = kmax(l)                                                      &
-        / (1 + (root_zone_psi(l)/conductance_b(pft))**conductance_c(pft))
+        / (1 + (root_zone_psi(l)/conductance_b(l))**conductance_c(l))
 
     ! The initial guess for the leaf water potential is that of the root zone
     ! meaning that the transpiration rate is zero. This simplifies the first
@@ -369,13 +456,13 @@ CASE(psi_aprox_NR)
       ! Calculate the xylem conductance for the current leaf water potential.
       leaf_k_prev(:,j) = leaf_k(:,j)
       leaf_k(:,j) = kmax(l)                                                    &
-        / (1 + (leaf_psi(:,j)/conductance_b(pft))**conductance_c(pft))
+        / (1 + (leaf_psi(:,j)/conductance_b(l))**conductance_c(l))
 
       ! Calculate the transpiration rate for the current leaf water potential.
       ! First get the incomplete gamma function for the leaf water potential.
       e_leaf_current(:,j) = SOX_2F1(n_e_leaf,                                  &
-                                    1 + 1/conductance_c(pft),                  &
-                   -(leaf_psi(:,j)/conductance_b(pft))**conductance_c(pft))
+                                    1 + 1/conductance_c(l),                  &
+                   -(leaf_psi(:,j)/conductance_b(l))**conductance_c(l))
 
       e_leaf_current(:,j) = leaf_psi(:,j) * e_leaf_current(:,j)
 
@@ -397,7 +484,7 @@ CASE(psi_aprox_NR)
       ! Guard against runaway steps for an infeasible sample, as in
       ! leaf_psi_CW_jls.
       leaf_psi(:,j) = MAX(leaf_psi(:,j),                                       &
-                          root_zone_psi(l) - 5.0 * ABS(conductance_b(pft)))
+                          root_zone_psi(l) - 5.0 * ABS(conductance_b(l)))
 
       !WRITE(*,*) 'leaf_psi', leaf_psi(400,j)
 
@@ -407,7 +494,7 @@ CASE(psi_aprox_NR)
 
     ! Calculate the xylem conductance for the current leaf water potential.
     leaf_k(:,j) = kmax(l)                                                      &
-        / (1 + (leaf_psi(:,j)/conductance_b(pft))**conductance_c(pft))
+        / (1 + (leaf_psi(:,j)/conductance_b(l))**conductance_c(l))
 
   END DO
 
@@ -572,5 +659,62 @@ sum = sum / (1 - xf)
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END FUNCTION SOX_2F1
+
+! ---------------------------------------------------------------------
+! Same as the function above but with cf as an array input, for use with
+! per-point (e.g. impaired) conductance curves. JBaguley
+! ---------------------------------------------------------------------
+FUNCTION SOX_2F1_multiple_cf(n_xf, cf, xf) RESULT( sum )
+
+USE ereport_mod, ONLY: ereport
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
+INTEGER, INTENT(IN) :: n_xf ! Size of xf array
+
+REAL(KIND=real_jlslsm), INTENT(IN) :: cf(n_xf)
+REAL(KIND=real_jlslsm), INTENT(IN) :: xf(n_xf)
+
+REAL(KIND=real_jlslsm) :: sum(n_xf)
+
+! Local variables
+REAL(KIND=real_jlslsm) :: current_term(n_xf)
+REAL(KIND=real_jlslsm) :: z(n_xf)
+INTEGER :: i
+
+! Series convergence controls - see SOX_2F1 above.
+REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
+INTEGER, PARAMETER :: max_terms = 100
+
+! zhook variables
+INTEGER :: errcode
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='SOX_2F1_MULTIPLE_CF'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+z = xf / (xf - 1)
+
+! Calculate the 0th term in the sum.
+current_term = 1.0
+sum = 1.0
+
+! Tn = [n / (n-1+cf)] * z * Tn-1 - see the derivation above SOX_2F1.
+DO i = 1, max_terms
+  current_term = current_term * i * z / (i - 1 + cf)
+  sum = sum + current_term
+
+  IF (ALL(ABS(current_term) < series_tol * ABS(sum))) EXIT
+END DO
+
+! Apply the (1-xf)^(-1) prefactor - see SOX_2F1 above.
+sum = sum / (1 - xf)
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
+END FUNCTION SOX_2F1_multiple_cf
 
 END MODULE xylem_hydraulics_SOX_jls_mod

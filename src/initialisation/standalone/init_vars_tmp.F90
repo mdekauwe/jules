@@ -18,7 +18,8 @@ USE jules_vegetation_mod, ONLY: l_triffid, l_use_pft_psi, fsmc_shape,          &
 
 USE trif, ONLY: lai_min
 
-USE pftparm, ONLY: fsmc_mod, psi_close, psi_open
+USE pftparm, ONLY: fsmc_mod, psi_close, psi_open, kmax_pft, conductance_b_pft, &
+                    conductance_c_pft
 USE ancil_info, ONLY: land_pts, nsoilt
 USE jules_sea_seaice_mod, ONLY: z0hsea, alpham, alphac, alphab, dtice
 USE C_kappai, ONLY: kappai, de
@@ -319,6 +320,15 @@ IF ((fsmc_shape == 1) .AND. ANY(fsmc_mod == 1)) THEN
                    "const_z=T in JULES_SOIL_PROPS.")
   END IF
 END IF
+
+!------------------------------------------------------------------
+! Initialise impared xylem conductance curve properties.
+!------------------------------------------------------------------
+DO i = 1, npft
+  psparms%kmax_impaired_pft(:,i) = kmax_pft(i)
+  psparms%conductance_b_impaired_pft(:,i) = conductance_b_pft(i)
+  psparms%conductance_c_impaired_pft(:,i) = conductance_c_pft(i)
+END DO
 
 RETURN
 

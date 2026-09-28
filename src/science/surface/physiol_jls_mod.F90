@@ -57,8 +57,10 @@ SUBROUTINE physiol (                                                           &
   !p_s_parms (IN)
   bexp_soilt, sathh_soilt, v_close_pft, v_open_pft,satcon_soilt,               &
   !p_s_parms (out) JBaguley
-  soil_wp_soilt,soil_k_soilt,soil_root_k_soilt,psi_root_zone_pft,psi_leaf_pft, &
-  cica_ratio_pft,leaf_k_pft,                                                   &
+  soil_wp_soilt, soil_k_soilt, soil_root_k_soilt, psi_root_zone_pft,           &
+  psi_leaf_pft, cica_ratio_pft, leaf_k_pft, k_max_impaired_pft,                &
+  conductance_b_impaired_pft, conductance_c_impaired_pft, psi_leaf_extreme_pft,&
+  psi_root_extreme_pft,                                                        &
   !ancil_info (IN)
   l_soil_point,                                                                &
   !jules_surface_types (IN)
@@ -67,8 +69,8 @@ SUBROUTINE physiol (                                                           &
   sthu_soilt_wtrac,                                                            &
   ! water tracers (OUT)
   smc_soilt_wtrac,                                                             &
-  ! TEMPORARY: output variables for testing
-  carbon_gain, hydraulic_cost                                                  &
+  ! diagnostic output variables for stomatal optimisation model
+  carbon_gain, hydraulic_cost, gc_som                                          &
 )
 
 
@@ -340,6 +342,14 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,cica_ratio_pft(land_pts,npft)                                                 &
 ,leaf_k_pft(land_pts,npft)
 
+!p_s_parms (IN OUT) JBaguley
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+ k_max_impaired_pft(land_pts,npft)                                             &
+,conductance_b_impaired_pft(land_pts,npft)                                     &
+,conductance_c_impaired_pft(land_pts,npft)                                     &
+,psi_leaf_extreme_pft(land_pts,npft)                                           &
+,psi_root_extreme_pft(land_pts,npft)
+
 !crop_vars_mod (IN)
 REAL(KIND=real_jlslsm), INTENT(IN) :: rootc_cpft(land_pts,ncpft)
 REAL(KIND=real_jlslsm), INTENT(IN) :: sthu_irr_soilt(land_pts,nsoilt,sm_levels)
@@ -393,12 +403,15 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: smc_soilt_wtrac(land_pts,nsoilt,        &
                                      ! Water tracer in available moisture in
                                      ! the soil profile (kg/m2).
 
-! TEMPORARY: output variables for testing
-REAL(KIND=real_jlslsm) ::                                                      &
+! Stomatal optimisation diagnostic variables (OUT)
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
  carbon_gain(land_pts,npft)                                                    &
                             ! Carbon gain for each leaf state
-,hydraulic_cost(land_pts,npft)
+,hydraulic_cost(land_pts,npft)                                                 &
                             ! Hydraulic cost for each leaf state
+,gc_som(land_pts,npft)
+                            ! Stomatal conductance calculated by stomatal
+                            ! optimisation model
 
 !Local variables
 LOGICAL ::                                                                     &
@@ -1138,6 +1151,7 @@ DO n = 1,npft
 
   ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
   ! psi_root_zone_pft
+  ! NOTE: min_rootc_pft needs to be changed for dynamic root growth
   CALL smc_ext (land_pts,sm_levels,surft_pts(n),surft_index(:,n), n, f_root,   &
                 satcon_soilt(:,m,:),                        &
                 sthu_surft(:,m,:),                                             &
@@ -1149,6 +1163,7 @@ DO n = 1,npft
                 psi_root_zone_pft(:,n))
 
   ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
+  ! NOTE: min_rootc_pft needs to be changed for dynamic root growth
   IF (l_irrig_dmd) THEN
     CALL smc_ext (land_pts,sm_levels,surft_pts(n),surft_index(:,n), n, f_root, &
                   satcon_soilt(:,n,:),                      &
@@ -1287,7 +1302,10 @@ DO n = 1,npft
 ,               isoprene_pft(:,n),terpene_pft(:,n)                             &
 ,               methanol_pft(:,n),acetone_pft(:,n)                             &
 ,               open_index,open_pts                                            &
-,               carbon_gain(:,n),hydraulic_cost(:,n)                           &
+,               carbon_gain(:,n),hydraulic_cost(:,n),gc_som(:,n)               &
+,               k_max_impaired_pft(:,n), conductance_b_impaired_pft(:,n)       &
+,               conductance_c_impaired_pft(:,n)                                &
+,               psi_leaf_extreme_pft(:,n), psi_root_extreme_pft(:,n)           &
                     !New arguments replacing USE statements
                     !crop_vars_mod (IN)
 ,                   dvi_cpft,rootc_cpft)

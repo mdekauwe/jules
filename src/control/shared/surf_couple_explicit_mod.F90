@@ -637,6 +637,10 @@ CASE ( jules )
     psparms%soil_wp_soilt,psparms%soil_k_soilt,psparms%soil_root_k_soilt,      &
     psparms%psi_root_zone_pft,psparms%psi_leaf_pft,psparms%cica_ratio_pft,     &
     psparms%leaf_k_pft,                                                        &
+    !p_s_parms (IN OUT) JBaguley
+    psparms%kmax_impaired_pft,psparms%conductance_b_impaired_pft,              &
+    psparms%conductance_c_impaired_pft,                                        &
+    psparms%psi_leaf_extreme_pft,psparms%psi_root_extreme_pft,                 &
     !urban_param (IN)
     urban_param%wrr_gb,                                                        &
     !Fluxes (IN OUT)
@@ -661,8 +665,8 @@ CASE ( jules )
     jules_vars%diff_frac,                                                      &
     !chemvars (OUT)
     chemvars%flux_o3_pft, chemvars%fo3_pft,                                    &
-    !TEMPORARY gain and cost
-    psparms%carbon_gain_pft, psparms%hydraulic_cost_pft,                       &
+    !Stomatal optimisation diagnostics (OUT)
+    psparms%carbon_gain_pft, psparms%hydraulic_cost_pft, psparms%gc_som_pft,   &
     !Water tracers (IN)
     wtrac_jls%snow_surft, wtrac_jls%canopy_surft,                              &
     wtrac_jls%sthu_soilt, wtrac_jls%qw_1_ij,                                   &

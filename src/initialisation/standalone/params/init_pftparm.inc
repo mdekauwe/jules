@@ -65,7 +65,7 @@ USE pftparm, ONLY:                                                             &
   vint,         vsl,           sug_yg,                                         &
   z0v,          sox_a,         sox_p50,                                        &
   sox_rp_min,                                                                  &
-  min_rootc_pft, rmass,        rootc_density_pft,                              & ! JBaguley
+  min_rootc_pft, r_Cmass_frac, rootc_density_pft,                              & ! JBaguley
   root_psi_crit, root_radi_pft
 
 USE c_z0h_z0m, ONLY: z0h_z0m, z0h_z0m_classic
@@ -709,15 +709,15 @@ IF ( ANY( fsmc_mod(:) == 2 ) ) THEN
     CALL log_error(routinename, "No value for rootc_density_pft")
   END IF
 
-  IF ( ANY( rmass(:) < EPSILON(1.0) ) ) THEN
+  IF ( ANY( r_Cmass_frac(:) < EPSILON(1.0) ) ) THEN
     ERROR = 1
     CALL log_error(routinename,                                                &
-                   "Value for rmass must be between larger than zero")
+                   "Value for r_Cmass_frac must be between larger than zero")
   END IF
 
-  IF ( ANY( rmass(:) > 1.0 ) ) THEN
+  IF ( ANY( r_Cmass_frac(:) > 1.0 ) ) THEN
     ERROR = 1
-    CALL log_error(routinename, "Value for rmass must be less than one")
+    CALL log_error(routinename, "Value for r_Cmass_frac must be less than one")
   END IF
 END IF
 

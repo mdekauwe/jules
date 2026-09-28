@@ -14,7 +14,7 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_HYDRAULICS_JLS_MOD'
 
-PUBLIC :: xylem_conductance_jls, leaf_psi_jls
+PUBLIC :: leaf_conductance_jls, xylem_conductance_jls, leaf_psi_jls
 
 CONTAINS
 
@@ -22,6 +22,88 @@ CONTAINS
 ! Contains routines used to switch between different xylem conductance
 ! models.
 ! *********************************************************************
+
+! ---------------------------------------------------------------------
+! Function to manage leaf conductance calculations for different
+! conductance models, for all land points. JBaguley
+! ---------------------------------------------------------------------
+SUBROUTINE leaf_conductance_jls( pft,                                          &
+                                 land_pnts,                                    &
+                                 water_potential,                              &
+                                 kmax,                                         &
+                                 kcrit,                                        &
+                                 conductance_b,                                &
+                                 conductance_c,                                &
+                               ! INTENT OUT
+                                 leaf_k                                        &
+  )
+
+USE pftparm, ONLY: pft_conductance_model
+USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance
+USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_conductance_CW_jls
+USE xylem_hydraulics_SOX_jls_mod, ONLY: leaf_conductance_SOX_jls
+
+USE ereport_mod, ONLY: ereport
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
+INTEGER, INTENT(IN) ::                                                         &
+  pft                                                                          &
+                            ! Plant functional type index
+, land_pnts
+                            ! Number of land points
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  water_potential(land_pnts)                                                   &
+                            ! Water potentials for each land point (Pa)
+, kmax(land_pnts)                                                              &
+                            ! Maximum xylem conductance for each land point
+                            ! (m/s)
+, kcrit(land_pnts)                                                             &
+                            ! Critical xylem conductance for each land point
+                            ! (m/s)
+, conductance_b(land_pnts)                                                     &
+                            ! Conductance parameter b for each land point (Pa)
+, conductance_c(land_pnts)
+                            ! Conductance parameter c for each land point
+
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  leaf_k(land_pnts)
+                            ! Leaf conductance for each land point (m/s)
+
+! Local variables
+INTEGER :: errcode
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_CONDUCTANCE_JLS'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+SELECT CASE ( pft_conductance_model(pft) )
+
+CASE ( CW_conductance )
+  CALL leaf_conductance_CW_jls( pft, land_pnts, water_potential,               &
+                                kmax, kcrit, conductance_b, conductance_c,     &
+                              ! INTENT OUT
+                                leaf_k )
+
+CASE ( SOX_conductance )
+  CALL leaf_conductance_SOX_jls( pft, land_pnts, water_potential,              &
+                                 kmax, kcrit, conductance_b, conductance_c,    &
+                               ! INTENT OUT
+                                 leaf_k )
+
+CASE DEFAULT
+  errcode = 101  !  a hard error
+  CALL ereport(RoutineName, errcode,                                           &
+   'pft_conductance_model should be CW_conductance (1) or SOX_conductance (2)')
+
+END SELECT
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+END SUBROUTINE leaf_conductance_jls
 
 ! ---------------------------------------------------------------------
 ! Function to manage xylem conductance calculations for different
@@ -36,6 +118,8 @@ SUBROUTINE xylem_conductance_jls( pft,                                         &
                                   water_potential,                             &
                                   kmax,                                        &
                                   kcrit,                                       &
+                                  conductance_b,                               &
+                                  conductance_c,                               &
                                 ! INTENT OUT
                                   xylem_conductance                            &
   )
@@ -63,9 +147,14 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 , kmax(open_pnts)                                                              &
                             ! Maximum xylem conductance for each open point
                             ! (m/s).
-, kcrit(open_pnts)
+, kcrit(open_pnts)                                                             &
                             ! Critical xylem conductance for each open point
                             ! (m/s).
+, conductance_b(open_pnts)                                                     &
+                            ! Conductance parameter b for each open point
+                            ! (Pa). JBaguley
+, conductance_c(open_pnts)
+                            ! Conductance parameter c for each open point.
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   xylem_conductance(n_water_potentials, open_pnts)
@@ -90,6 +179,8 @@ CASE ( CW_conductance )
                                  water_potential,                              &
                                  kmax,                                         &
                                  kcrit,                                        &
+                                 conductance_b,                                &
+                                 conductance_c,                                &
                                ! INTENT OUT
                                  xylem_conductance                             &
                                  )
@@ -100,6 +191,8 @@ CASE ( SOX_conductance )
                                   water_potential,                             &
                                   kmax,                                        &
                                   kcrit,                                       &
+                                  conductance_b,                               &
+                                  conductance_c,                               &
                                 ! INTENT OUT
                                   xylem_conductance                            &
                                   )
@@ -132,6 +225,8 @@ SUBROUTINE leaf_psi_jls( pft,                                                  &
                          root_zone_psi,                                        &
                          kmax,                                                 &
                          kcrit,                                                &
+                         conductance_b,                                        &
+                         conductance_c,                                        &
                       ! INTENT OUT
                          leaf_psi,                                             &
                          leaf_k                                                &
@@ -168,9 +263,14 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 , kmax(land_pts)                                                               &
                             ! Maximum xylem conductance for each land point
                             ! (m/s).
-, kcrit(land_pts)
+, kcrit(land_pts)                                                              &
                             ! Critical xylem conductance for each land point
                             ! (m/s).
+, conductance_b(land_pts)                                                      &
+                            ! Conductance parameter b for each land point
+                            ! (Pa). JBaguley
+, conductance_c(land_pts)
+                            ! Conductance parameter c for each land point.
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_psi(n_e_leaf, open_pnts)                                                &
@@ -201,6 +301,8 @@ CASE ( CW_conductance )
                         root_zone_psi,                                         &
                         kmax,                                                  &
                         kcrit,                                                 &
+                        conductance_b,                                         &
+                        conductance_c,                                         &
                      ! INTENT OUT
                         leaf_psi,                                              &
                         leaf_k                                                 &
@@ -217,6 +319,8 @@ CASE ( SOX_conductance )
                          root_zone_psi,                                        &
                          kmax,                                                 &
                          kcrit,                                                &
+                         conductance_b,                                        &
+                         conductance_c,                                        &
                       ! INTENT OUT
                          leaf_psi,                                             &
                          leaf_k                                                &

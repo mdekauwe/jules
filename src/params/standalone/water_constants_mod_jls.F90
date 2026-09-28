@@ -48,5 +48,8 @@ REAL, PARAMETER :: hcapi               = 2100.0
 ! RHO_ICE*LF/ZERODEGC*1/(RHO_WATER*G) (m/K)
 REAL, PARAMETER :: dpsidt              = 114.3
 
+! Molecular weight of water (kg/mol)
+REAL, PARAMETER :: Water_kg_per_mol   = 0.01801528
+
 END MODULE water_constants_mod
 #endif

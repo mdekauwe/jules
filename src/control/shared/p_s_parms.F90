@@ -119,8 +119,32 @@ TYPE :: psparms_data_type
   REAL(KIND=real_jlslsm), ALLOCATABLE :: hydraulic_cost_pft(:,:)
     ! Hydraulic cost for each plant functional type (unitless)
   REAL(KIND=real_jlslsm), ALLOCATABLE :: leaf_k_pft(:,:)
-    ! Percentage loss of conductance at the leaf relative to the
-    ! maximum conductance. (unitless) JBaguley
+    ! Conductance at the leaf (mol m-2 s-1 Pa-1) JBaguley
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: kmax_impaired_pft(:,:)
+    ! The maximum conductance of the impared plant xylem
+    ! (kg m-2 s-1) JBaguley
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: conductance_b_impaired_pft(:,:)
+    ! Sensetivity parameter, b, in the xylem conductance model
+    ! for impared xylem conductance (Pa). JBaguley
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: conductance_c_impaired_pft(:,:)
+     ! Shape parameter, c, in the xylem conductance model
+     ! for impared xylem conductance (unitless). JBaguley
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: psi_leaf_extreme_pft(:,:)
+    ! Minimum leaf water potential for each plant functional type (Pa).
+    ! Used in the whole trunk xylem impairment model. JBaguley
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: psi_root_extreme_pft(:,:)
+    ! Minimum root water potential for each plant functional type (Pa).
+    ! Used in the whole trunk xylem impairment model. JBaguley
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: psi_canopy_pft(:,:)
+    ! Canopy water potential for each plant functional type (Pa) JBaguley
+    ! Calculated from transpiration after JULES compensates for imperfect
+    ! atmospher-leaf coupling.
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: k_canopy_pft(:,:)
+    ! Canopy xylem conductance to water (mol m-2 s-1 Pa-1) JBaguley
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: gc_som_pft(:,:)
+    ! Stomatal conductance calculated in stomatal optimisation model
+    ! (m/s) JBaguley
+
 END TYPE
 
 !================================
@@ -162,6 +186,14 @@ TYPE :: psparms_type
   REAL(KIND=real_jlslsm), POINTER :: carbon_gain_pft(:,:) ! JBaguley
   REAL(KIND=real_jlslsm), POINTER :: hydraulic_cost_pft(:,:) ! JBaguley
   REAL(KIND=real_jlslsm), POINTER :: leaf_k_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: kmax_impaired_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: conductance_b_impaired_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: conductance_c_impaired_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: psi_leaf_extreme_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: psi_root_extreme_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: psi_canopy_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: k_canopy_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: gc_som_pft(:,:) ! JBaguley
 END TYPE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='P_S_PARMS'
@@ -218,6 +250,14 @@ ALLOCATE(psparms_data%cica_ratio_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%carbon_gain_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%hydraulic_cost_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%leaf_k_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%kmax_impaired_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%conductance_b_impaired_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%conductance_c_impaired_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%psi_leaf_extreme_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%psi_root_extreme_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%psi_canopy_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%k_canopy_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%gc_som_pft(land_pts,npft)) ! JBaguley
 
 psparms_data%bexp_soilt(:,:,:)        = 0.0
 psparms_data%sathh_soilt(:,:,:)       = 0.0
@@ -237,7 +277,15 @@ psparms_data%som_transpiration_pft(:,:) = 0.0 ! JBaguley
 psparms_data%cica_ratio_pft(:,:)      = 0.0 ! JBaguley
 psparms_data%carbon_gain_pft(:,:)     = 0.0 ! JBaguley
 psparms_data%hydraulic_cost_pft(:,:)  = 0.0 ! JBaguley
-psparms_data%leaf_k_pft(:,:) = 0.0 ! JBaguley
+psparms_data%leaf_k_pft(:,:)          = 0.0 ! JBaguley
+psparms_data%kmax_impaired_pft(:,:)   = 0.0 ! JBaguley
+psparms_data%conductance_b_impaired_pft(:,:) = 0.0 ! JBaguley
+psparms_data%conductance_c_impaired_pft(:,:) = 0.0 ! JBaguley
+psparms_data%psi_leaf_extreme_pft(:,:) = 0.0 ! JBaguley
+psparms_data%psi_root_extreme_pft(:,:) = 0.0 ! JBaguley
+psparms_data%psi_canopy_pft(:,:)        = 0.0 ! JBaguley
+psparms_data%k_canopy_pft(:,:)         = 0.0 ! JBaguley
+psparms_data%gc_som_pft(:,:)         = 0.0 ! JBaguley
 
 ! Plant and soil parameters
 ALLOCATE(psparms_data%albsoil_soilt(land_pts,nsoilt))
@@ -351,6 +399,14 @@ DEALLOCATE(psparms_data%cica_ratio_pft) ! JBaguley
 DEALLOCATE(psparms_data%carbon_gain_pft) ! JBaguley
 DEALLOCATE(psparms_data%hydraulic_cost_pft) ! JBaguley
 DEALLOCATE(psparms_data%leaf_k_pft) ! JBaguley
+DEALLOCATE(psparms_data%kmax_impaired_pft) ! JBaguley
+DEALLOCATE(psparms_data%conductance_b_impaired_pft) ! JBaguley
+DEALLOCATE(psparms_data%conductance_c_impaired_pft) ! JBaguley
+DEALLOCATE(psparms_data%psi_leaf_extreme_pft) ! JBaguley
+DEALLOCATE(psparms_data%psi_root_extreme_pft) ! JBaguley
+DEALLOCATE(psparms_data%psi_canopy_pft) ! JBaguley
+DEALLOCATE(psparms_data%k_canopy_pft) ! JBaguley
+DEALLOCATE(psparms_data%gc_som_pft) ! JBaguley
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -420,6 +476,14 @@ psparms%cica_ratio_pft => psparms_data%cica_ratio_pft ! JBaguley
 psparms%carbon_gain_pft => psparms_data%carbon_gain_pft ! JBaguley
 psparms%hydraulic_cost_pft => psparms_data%hydraulic_cost_pft ! JBaguley
 psparms%leaf_k_pft => psparms_data%leaf_k_pft ! JBaguley
+psparms%kmax_impaired_pft => psparms_data%kmax_impaired_pft ! JBaguley
+psparms%conductance_b_impaired_pft => psparms_data%conductance_b_impaired_pft ! JBaguley
+psparms%conductance_c_impaired_pft => psparms_data%conductance_c_impaired_pft ! JBaguley
+psparms%psi_leaf_extreme_pft => psparms_data%psi_leaf_extreme_pft ! JBaguley
+psparms%psi_root_extreme_pft => psparms_data%psi_root_extreme_pft ! JBaguley
+psparms%psi_canopy_pft => psparms_data%psi_canopy_pft ! JBaguley
+psparms%k_canopy_pft => psparms_data%k_canopy_pft ! JBaguley
+psparms%gc_som_pft => psparms_data%gc_som_pft ! JBaguley
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -485,6 +549,14 @@ NULLIFY(psparms%cica_ratio_pft) ! JBaguley
 NULLIFY(psparms%carbon_gain_pft) ! JBaguley
 NULLIFY(psparms%hydraulic_cost_pft) ! JBaguley
 NULLIFY(psparms%leaf_k_pft) ! JBaguley
+NULLIFY(psparms%kmax_impaired_pft) ! JBaguley
+NULLIFY(psparms%conductance_b_impaired_pft) ! JBaguley
+NULLIFY(psparms%conductance_c_impaired_pft) ! JBaguley
+NULLIFY(psparms%psi_leaf_extreme_pft) ! JBaguley
+NULLIFY(psparms%psi_root_extreme_pft) ! JBaguley
+NULLIFY(psparms%psi_canopy_pft) ! JBaguley
+NULLIFY(psparms%k_canopy_pft) ! JBaguley
+NULLIFY(psparms%gc_som_pft) ! JBaguley
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN

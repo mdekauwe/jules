@@ -25,8 +25,9 @@ CONTAINS
 SUBROUTINE phenol (land_pts, veg_pts, n, veg_index, dtime_phen, g_leaf, ht,    &
                   lai, g_leaf_phen)
 
-USE jules_vegetation_mod, ONLY: l_nitrogen
-USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, g_leaf_0
+USE jules_vegetation_mod, ONLY: l_nitrogen, l_ximpair_leaf_loss
+USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, g_leaf_0, ximpair_leaf_sens
+USE xylem_impairment_memory_mod, ONLY: ximpair_lock
 USE trif, ONLY: g_grow
 
 USE parkind1, ONLY: jprb, jpim
@@ -85,8 +86,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
 REAL(KIND=real_jlslsm) ::                                                      &
   lai_bal(land_pts),                                                           &
     ! Balanced growth LAI.
-  phen(land_pts)
+  phen(land_pts),                                                              &
     ! Phenological state.
+  phen_max(land_pts)
+    ! Largest phenological state the (damaged) xylem can supply.
 
 ! Dr Hook variables
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -110,6 +113,25 @@ DO j = 1,veg_pts
 END DO
 
 !-----------------------------------------------------------------------------
+! Lasting xylem damage (memory impairment models, l_ximpair_leaf_loss): the
+! canopy cannot be fuller than the damaged xylem can supply,
+!   phen <= 1 - ximpair_leaf_sens * (1 - k_cap/kmax),
+! so it sheds leaves (at the rate of phenological leaf drop) when the
+! locked-in loss rises and regrows as the xylem recovers. This is a cap on
+! the canopy rather than an extra turnover rate: leaf drop below is a
+! threshold on g_leaf, so amplifying the turnover would either do nothing
+! or drop the whole canopy.
+!-----------------------------------------------------------------------------
+phen_max(:) = 1.0
+IF (l_ximpair_leaf_loss .AND. ALLOCATED(ximpair_lock)) THEN
+  DO j = 1,veg_pts
+    l = veg_index(j)
+    phen_max(l) = MAX(0.01, 1.0 - ximpair_leaf_sens(n)                         &
+                                  * MAX(ximpair_lock(l,n), 0.0))
+  END DO
+END IF
+
+!-----------------------------------------------------------------------------
 ! Update the phenological state and output the leaf turnover rate in
 ! terms of the balanced growth LAI
 !-----------------------------------------------------------------------------
@@ -121,9 +143,16 @@ DO j = 1,veg_pts
     dphen          = MAX(dphen,(0.01 - phen(l)))
     g_leaf_phen(l) = -dphen / dtime_phen
 
+  ELSE IF (phen(l) > phen_max(l)) THEN
+    ! Shed the leaf area the damaged xylem cannot supply; the shed leaves
+    ! add to the leaf turnover.
+    dphen          = -dtime_phen * g_grow(n)
+    dphen          = MAX(dphen,(phen_max(l) - phen(l)))
+    g_leaf_phen(l) = MAX(phen(l) * g_leaf(l), -dphen / dtime_phen)
+
   ELSE
-    dphen          = dtime_phen * g_grow(n) * (1.0 - phen(l))
-    dphen          = MIN(dphen,(1.0 - phen(l)))
+    dphen          = dtime_phen * g_grow(n) * (phen_max(l) - phen(l))
+    dphen          = MIN(dphen,(phen_max(l) - phen(l)))
     g_leaf_phen(l) = phen(l) * g_leaf(l)
 
     ! In the Nitrogen scheme use g_leaf_phen to keep track of net change in

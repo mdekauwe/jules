@@ -98,6 +98,9 @@ SUBROUTINE jules_land_sf_explicit (                                            &
  !p_s_parms (out) JBaguley
  soil_wp_soilt,soil_k_soilt,soil_root_k_soilt,psi_root_zone_pft,psi_leaf_pft,  &
  cica_ratio_pft,leaf_k_pft,                                                    &
+ !p_s_parms (IN OUT) JBaguley
+ k_max_impaired_pft,conductance_b_impaired_pft,conductance_c_impaired_pft,     &
+ psi_leaf_extreme_pft,psi_root_extreme_pft,                                    &
  !urban_param (IN)
  wrr_gb,                                                                       &
  !Fluxes (IN OUT)
@@ -122,8 +125,8 @@ SUBROUTINE jules_land_sf_explicit (                                            &
  diff_frac,                                                                    &
  !chemvars (OUT)
  flux_o3_pft, fo3_pft,                                                         &
- !TEMPORARY (OUT)
- carbon_gain, hydraulic_cost,                                                  &
+ !Stomatal optimisation diagnostics (OUT)
+ carbon_gain, hydraulic_cost, gc_som,                                          &
  !Water tracers (IN)
  snow_surft_wtrac, canopy_wtrac, sthu_soilt_wtrac, qw_1_wtrac,                 &
  ! Water tracers (OUT)
@@ -682,6 +685,14 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,cica_ratio_pft(land_pts,npft)                                                 &
 ,leaf_k_pft(land_pts,npft)
 
+!p_s_parms (IN OUT) JBaguley
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+ k_max_impaired_pft(land_pts,npft)                                             &
+,conductance_b_impaired_pft(land_pts,npft)                                     &
+,conductance_c_impaired_pft(land_pts,npft)                                     &
+,psi_leaf_extreme_pft(land_pts,npft)                                           &
+,psi_root_extreme_pft(land_pts,npft)
+
 !crop_vars_mod (IN)
 REAL(KIND=real_jlslsm), INTENT(IN) :: rootc_cpft(land_pts,ncpft)
 REAL(KIND=real_jlslsm), INTENT(IN) :: sthu_irr_soilt(land_pts,nsoilt,sm_levels)
@@ -766,12 +777,15 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: diff_frac(t_i_length * t_j_length)
 REAL(KIND=real_jlslsm), INTENT(OUT) :: flux_o3_pft(land_pts,npft)
 REAL(KIND=real_jlslsm), INTENT(OUT) :: fo3_pft(land_pts,npft)
 
-! TEMPORARY: output variables for testing
+!Stomatal optimisation diagnostics OUT
 REAL(KIND=real_jlslsm) ::                                                      &
  carbon_gain(land_pts,npft)                                                    &
                             ! Carbon gain for each leaf state
-,hydraulic_cost(land_pts,npft)
+,hydraulic_cost(land_pts,npft)                                                 &
                             ! Hydraulic cost for each leaf state
+,gc_som(land_pts,npft)
+                            ! Stomatal conductance from stomatal optimisation
+                            ! model
 ! Water tracers (IN)
 REAL(KIND=real_jlslsm), INTENT(IN) :: snow_surft_wtrac(land_pts,nsurft,        &
                                                         n_wtrac_jls)
@@ -1257,6 +1271,9 @@ CALL physiol (                                                                 &
   !p_s_parms (OUT) JBaguley
   soil_wp_soilt,soil_k_soilt,soil_root_k_soilt,psi_root_zone_pft,psi_leaf_pft, &
   cica_ratio_pft,leaf_k_pft,                                                   &
+  !p_s_parms (IN OUT) JBaguley
+  k_max_impaired_pft, conductance_b_impaired_pft,                              &
+  conductance_c_impaired_pft, psi_leaf_extreme_pft, psi_root_extreme_pft,      &
   !ancil_info
   l_soil_point,                                                                &
   !jules_surface_types (IN)
@@ -1265,8 +1282,8 @@ CALL physiol (                                                                 &
   sthu_soilt_wtrac,                                                            &
   !water tracers (OUT)
   smc_soilt_wtrac,                                                             &
-  ! TEMPORARY: output variables for testing
-  carbon_gain, hydraulic_cost                                                  &
+  ! Diagnostic variables for stomatal optimisation
+  carbon_gain, hydraulic_cost, gc_som                                          &
 )
 
 ! Update gc_surft for canopy snow if using the canopy snow scheme

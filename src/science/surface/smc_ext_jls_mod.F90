@@ -134,9 +134,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 !                     !    water.
 ,psi_close(npnts,nshyd)                                                        &
 !                     ! (negative) soil water potential (in Pa)
-!                     !    of layers above which stomatal
-!                     !    aperture is not limited by soil
-!                     !    water.
+!                     !    below which stomata are closed.
 ,soil_dk_dthk(npnts,nshyd)                                                     &
 !                     ! The rate of change of soil_k with sthu
 !                     !    (kg/m2/s) for each soil layer.
@@ -757,7 +755,7 @@ FUNCTION soil_to_root_conductance(npnts,nshyd,surft_pts,surft_index,ft         &
 ! Refrence: G.B.Bonan et al, 2014, Geoscientific Model Development
 !---------------------------------------------------------------------
 ! TODO: Could add OMP to loops
-USE pftparm, ONLY: min_rootc_pft, root_radi_pft, rootc_density_pft, rmass
+USE pftparm, ONLY: min_rootc_pft, root_radi_pft, rootc_density_pft, r_Cmass_frac
 
 USE conversions_mod, ONLY: pi
 USE jules_soil_mod, ONLY: dzsoil

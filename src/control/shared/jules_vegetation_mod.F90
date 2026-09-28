@@ -135,6 +135,36 @@ INTEGER, PARAMETER ::                                                          &
     ! Use the SOX conductance model when calculating xylem conductance.
     !   k(psi) = kmax / (1 + (psi / b)^c)
 
+! Paramiters identifying different xylem imparement models.
+! These should have unique values. JBaguley
+INTEGER, PARAMETER ::                                                          &
+  xylem_impairment_none = 0,                                                   &
+    ! No xylem imparement model is used.
+  xylem_impairment_kmax = 1,                                                   &
+    ! Xylem are impaired by reducing the maximum xylem conductance.
+  xylem_impairment_whole_trunk = 2,                                            &
+    ! Conductance along the xylem limited by the historic minimum water
+    ! potential profile.
+  xylem_impairment_memory = 3,                                                 &
+    ! Embolism memory with recovery: the vulnerability curve is capped at
+    ! kmax * (1 - PLC_mem), where PLC_mem is the loss of conductivity at the
+    ! most negative damage-driving water potential experienced, relaxing
+    ! back when the plant rehydrates.
+  xylem_impairment_kmax_refit = 4
+    ! The kmax model made consistent with Mackay et al. (2015): Kcav from
+    ! the intact curve at the minimum damage-driving water potential, with
+    ! the Weibull parameters refitted to the capped curve.
+
+! Water potential driving embolism in the memory impairment model
+! (ximpair_psi_driver).
+INTEGER, PARAMETER ::                                                          &
+  ximpair_driver_leaf = 1,                                                     &
+    ! Leaf water potential.
+  ximpair_driver_mean = 2,                                                     &
+    ! Mean of the leaf and root zone water potentials.
+  ximpair_driver_root = 3
+    ! Root zone water potential (~ predawn; Mackay et al. 2015).
+
 ! Parameters identifying different aproximation methods for determaning the
 ! the leaf water potential from transpiration rate.
 ! These should have unique values. JBaguley
@@ -384,6 +414,20 @@ LOGICAL ::                                                                     &
       ! the demand gs and A are re-derived by the optimiser and stay
       ! consistent with the water actually used; other steps are unchanged.
 LOGICAL ::                                                                     &
+  l_ximpair_rec_lai = .FALSE.,                                                 &
+      ! Xylem impairment models 3 and 4: recover lost conductance with new
+      ! leaf area (a rise in LAI comes with undamaged xylem) - see
+      ! update_xylem_impairment_memory.
+  l_ximpair_rec_growth = .FALSE.,                                              &
+      ! Xylem impairment models 3 and 4: recover lost conductance with new
+      ! xylem grown from carbon gain (ximpair_wood_alloc) - see
+      ! update_xylem_impairment_memory.
+  l_ximpair_leaf_loss = .FALSE.,                                               &
+      ! Xylem impairment models 3 and 4 with TRIFFID phenology (l_phenol):
+      ! cap the phenological state at what the damaged xylem can supply,
+      ! phen <= 1 - ximpair_leaf_sens * (1 - k_cap/kmax), so the canopy sheds
+      ! leaves after lasting hydraulic damage and regrows as it recovers -
+      ! see phenol.
   l_som_skip_search_wellwatered = .FALSE.
       ! When .TRUE., skip the full Ci search in
       ! profit_max_profit_model for any point where hydraulic cost is
@@ -540,6 +584,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_supply_limit, l_som_plant_segments, l_som_gain_gross,               &
     l_som_cuticular_floor,                                                    &
+    l_ximpair_rec_lai, l_ximpair_rec_growth, l_ximpair_leaf_loss,             &
     som_leaf_resist_frac, som_gl_max,                                         &
     som_psi_aprox_method, som_profit_model,                                   &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
@@ -1264,6 +1309,15 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_cuticular_floor = ', l_som_cuticular_floor
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' l_ximpair_rec_lai = ', l_ximpair_rec_lai
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_ximpair_rec_growth = ', l_ximpair_rec_growth
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_ximpair_leaf_loss = ', l_ximpair_leaf_loss
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 WRITE(lineBuffer,*) ' som_hc_negligible_tol = ', som_hc_negligible_tol
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -1395,11 +1449,13 @@ INTEGER, PARAMETER :: n_int = 19 ! was 16, +3 for som_ci_search_method/
 INTEGER, PARAMETER :: n_real = 14 + (n_photo_coef * 5) ! +3 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max
-INTEGER, PARAMETER :: n_log = 34 + npft_max ! +1 for l_som_gain_gross, +1 for
+INTEGER, PARAMETER :: n_log = 37 + npft_max ! +1 for l_som_gain_gross, +1 for
                                   ! l_som_cuticular_floor, +1 for
                                   ! l_som_skip_search_wellwatered, +1 for
                                   ! l_som_supply_limit, +1 for
-                                  ! l_som_plant_segments (trunk vn7.9: 29)
+                                  ! l_som_plant_segments, +3 for
+                                  ! l_ximpair_rec_lai/l_ximpair_rec_growth/
+                                  ! l_ximpair_leaf_loss (trunk vn7.9: 29)
 
 TYPE :: my_namelist
   SEQUENCE
@@ -1446,6 +1502,9 @@ TYPE :: my_namelist
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_floor
+  LOGICAL :: l_ximpair_rec_lai
+  LOGICAL :: l_ximpair_rec_growth
+  LOGICAL :: l_ximpair_leaf_loss
   LOGICAL :: l_nrun_mid_trif
   LOGICAL :: l_trif_init_accum
   LOGICAL :: l_phenol
@@ -1536,6 +1595,9 @@ IF (mype == 0) THEN
   my_nml % l_som_plant_segments = l_som_plant_segments
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
+  my_nml % l_ximpair_rec_lai = l_ximpair_rec_lai
+  my_nml % l_ximpair_rec_growth = l_ximpair_rec_growth
+  my_nml % l_ximpair_leaf_loss = l_ximpair_leaf_loss
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
   my_nml % l_trif_init_accum   = l_trif_init_accum
   my_nml % l_phenol        = l_phenol
@@ -1615,6 +1677,9 @@ IF (mype /= 0) THEN
   l_som_plant_segments = my_nml % l_som_plant_segments
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor
+  l_ximpair_rec_lai = my_nml % l_ximpair_rec_lai
+  l_ximpair_rec_growth = my_nml % l_ximpair_rec_growth
+  l_ximpair_leaf_loss = my_nml % l_ximpair_leaf_loss
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif
   l_trif_init_accum = my_nml % l_trif_init_accum
   l_phenol        = my_nml % l_phenol
