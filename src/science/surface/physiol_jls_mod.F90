@@ -25,18 +25,19 @@ SUBROUTINE physiol (                                                           &
   lai_pft,pstar,qw_1,sthu_soilt,sthf_soilt,t_soil_soilt,tstar_surft,           &
   smvccl_soilt,smvcst_soilt,smvcwt_soilt,vshr,z0_surft,z1_uv_ij,o3,            &
   canhc_surft,vfrac_surft,emis_surft,l_emis_surft_set,emis_soil,flake,         &
-  g_leaf,gs,gc_surft,gc_stom_surft,gc_corr,gpp,gpp_pft,npp,npp_pft,            &
+  g_leaf,gs,gc_surft,gc_stom_surft,gc_corr,gpp,gpp_pft,el_pft,npp,npp_pft,     &
   resp_p,resp_p_pft,resp_s_soilt,resp_l_pft,                                   &
   resp_r_pft,resp_w_pft,n_leaf,                                                &
   n_root,n_stem,lai_bal,                                                       &
   smc_soilt,wt_ext_surft,fsmc_pft,                                             &
   albsoil_soilt,cos_zenith_angle,                                              &
-  can_rad_mod,ilayers,flux_o3_pft,fo3_pft,sf_diag,asteps_since_triffid,        &
+  can_rad_mod,ilayers,leaf_flux_mod,som_base_parm,                             &
+  flux_o3_pft,fo3_pft,sf_diag,asteps_since_triffid,                            &
   non_lake_frac,                                                               &
   !SUGAR variables
   f_nsc_pft, growth_sug_gb, growth_sug_pft,                                    &
   ! SOX variables
-  psi_root_zone_pft, lwp_c_pft,                                                &
+  lwp_c_pft,                                                                   &
   !New arguments replacing USE statements
   !Fluxes (IN)
   t_home_gb,t_growth_gb,                                                       &
@@ -54,7 +55,10 @@ SUBROUTINE physiol (                                                           &
   !crop_vars_mod (OUT)
   gs_irr_surft, smc_irr_soilt, wt_ext_irr_surft, gc_irr_surft,                 &
   !p_s_parms (IN)
-  bexp_soilt, sathh_soilt, v_close_pft, v_open_pft,                            &
+  bexp_soilt, sathh_soilt, v_close_pft, v_open_pft,satcon_soilt,               &
+  !p_s_parms (out) JBaguley
+  soil_wp_soilt,soil_k_soilt,soil_root_k_soilt,psi_root_zone_pft,psi_leaf_pft, &
+  cica_ratio_pft,leaf_k_pft,                                                   &
   !ancil_info (IN)
   l_soil_point,                                                                &
   !jules_surface_types (IN)
@@ -62,7 +66,10 @@ SUBROUTINE physiol (                                                           &
   ! water tracers (IN)
   sthu_soilt_wtrac,                                                            &
   ! water tracers (OUT)
-  smc_soilt_wtrac)
+  smc_soilt_wtrac,                                                             &
+  ! TEMPORARY: output variables for testing
+  carbon_gain, hydraulic_cost                                                  &
+)
 
 
 !Use in relevant subroutines
@@ -101,13 +108,15 @@ USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 
 USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
-  l_crop, l_use_pft_psi, l_triffid
+  l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
-USE jules_hydrology_mod, ONLY: l_limit_gsoil
+USE jules_hydrology_mod, ONLY: l_limit_gsoil, l_soil_evap_or
 
-USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f
+USE soil_evap_or_mod, ONLY: gsoil_or
+
+USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs,                    &
                                l_spec_alb_bs
@@ -224,7 +233,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
     !Surface ozone concentration (ppb).
   cos_zenith_angle(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end),       &
     !Cosine of the zenith angle
-  non_lake_frac(land_pts)
+  non_lake_frac(land_pts)                                                      
     ! Sum of fractions of surface tiles linked to soil
 
 TYPE(veg_state_type), INTENT(IN OUT) :: veg_state
@@ -248,6 +257,9 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
     !Gridbox mean gross primary productivity (kg C/m2/s).
   gpp_pft(land_pts,npft),                                                      &
     !Gross primary productivity (kg C/m2/s).
+  el_pft(land_pts,npft),                                                       &
+    !Transpiration rate (mol H2O/m2/s) calculated in
+    ! stomatal optimisation code.
   npp(land_pts),                                                               &
   !Gridbox mean net primary productivity (kg C/m2/s).
   npp_pft(land_pts,npft),                                                      &
@@ -297,8 +309,6 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
     !Gridbox mean structural C growth rate (kg C/m2/s)
   growth_sug_pft(land_pts,npft),                                               &
     !Plant structural C growth rate (kg C/m2/s)
-  psi_root_zone_pft(land_pts,npft),                                            &
-    !Water potential in the root zone (Pa)
   lwp_c_pft(land_pts,npft)
     !Canopy leaf water potential (MPa)
 
@@ -313,11 +323,22 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: hwr_gb(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
         albobs_scaling_surft(land_pts,ntype,rad_nband)
 
-!p_s_parms (IN)
+!p_s_parms (IN) JBaguley added satcon_soilt
 REAL(KIND=real_jlslsm), INTENT(IN) :: bexp_soilt(land_pts,nsoilt,sm_levels)
 REAL(KIND=real_jlslsm), INTENT(IN) :: sathh_soilt(land_pts,nsoilt,sm_levels)
 REAL(KIND=real_jlslsm), INTENT(IN) :: v_close_pft(land_pts,sm_levels,npft)
 REAL(KIND=real_jlslsm), INTENT(IN) :: v_open_pft(land_pts,sm_levels,npft)
+REAL(KIND=real_jlslsm), INTENT(IN) :: satcon_soilt(land_pts,nsoilt,0:sm_levels)
+
+!p_s_parms (OUT) JBaguley
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+ soil_wp_soilt(land_pts,nsoilt,sm_levels)                                      &
+,soil_k_soilt(land_pts,nsoilt,sm_levels)                                       &
+,soil_root_k_soilt(land_pts,nsoilt,sm_levels)                                  &
+,psi_root_zone_pft(land_pts,npft)                                              &
+,psi_leaf_pft(land_pts,npft)                                                   &
+,cica_ratio_pft(land_pts,npft)                                                 &
+,leaf_k_pft(land_pts,npft)
 
 !crop_vars_mod (IN)
 REAL(KIND=real_jlslsm), INTENT(IN) :: rootc_cpft(land_pts,ncpft)
@@ -372,6 +393,13 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: smc_soilt_wtrac(land_pts,nsoilt,        &
                                      ! Water tracer in available moisture in
                                      ! the soil profile (kg/m2).
 
+! TEMPORARY: output variables for testing
+REAL(KIND=real_jlslsm) ::                                                      &
+ carbon_gain(land_pts,npft)                                                    &
+                            ! Carbon gain for each leaf state
+,hydraulic_cost(land_pts,npft)
+                            ! Hydraulic cost for each leaf state
+
 !Local variables
 LOGICAL ::                                                                     &
    firstcall = .TRUE.
@@ -381,7 +409,13 @@ INTEGER ::                                                                     &
 !                                !Switch for canopy radiation model
 ,ilayers                                                                       &
 !                                !No of layers in canopy radiation model
-,albpft_call = imdi              ! Flag for albpft, scaling to obs
+,leaf_flux_mod                                                                 &
+!                                !Switch for leaf flux model JBaguley
+,som_base_parm                                                                 &
+!                                !Switch for stomatal optimisation base
+!                                !  physical parameter.
+,albpft_call = imdi
+!                                !Flag for albpft, scaling to obs
 
 REAL(KIND=real_jlslsm) ::                                                      &
  alb_type_dummy(land_pts,ntype,4)                                              &
@@ -443,6 +477,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
 fsmc_irr(land_pts,npft)                                                        &
 !                            ! WORK Soil moisture availability
 !                                 !     factor over irrigated fraction.
+,psi_root_zone_irr(land_pts,npft)                                              &
+!                            ! WORK Root zone water potential over irrigated
+!                                 !     fraction. JBaguley
 ,sthu_nir_soilt(land_pts,nsoilt,sm_levels)                                     &
 ,sthu_surft(land_pts,nsoilt,sm_levels)                                         &
 ,wt_ext_irr_soilt(land_pts,nsoilt,sm_levels)                                   &
@@ -514,7 +551,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,vf_type(land_pts,ntype)                                                       &
                             ! WORK VFRAC for surface types.
 ,wt_ext_type(land_pts,sm_levels,ntype)                                         &
-!                                 ! WORK WT_EXT for surface types.
+!                           ! WORK WT_EXT for surface types.
 ,wt_ext_soilt(land_pts,nsoilt,sm_levels)                                       &
    !Gridbox-mean wt_ext_soilt. NB This is only non-zero if l_aggregate=TRUE.
 ,fsoil(land_pts,npft)                                                          &
@@ -571,6 +608,32 @@ INTEGER ::                                                                     &
 
 INTEGER :: asteps_since_triffid
 
+! Or soil evaporation scheme (l_soil_evap_or)
+INTEGER ::                                                                     &
+  i_or, j_or
+      ! Grid indices of a land point.
+
+REAL(KIND=real_jlslsm) ::                                                      &
+  ustar_or
+      ! Neutral friction velocity over the tile (m s-1).
+
+REAL(KIND=real_jlslsm), PARAMETER :: vonk_or = 0.4
+      ! von Karman constant.
+
+! Soil supply limit on transpiration (l_som_supply_limit)
+INTEGER ::                                                                     &
+  k_sup, kl_sup
+      ! Loop indices.
+
+REAL(KIND=real_jlslsm) ::                                                      &
+  e_supply(land_pts),                                                          &
+      ! Transpiration the soil can supply this timestep (kg m-2 s-1): this
+      ! tile's smc (the moisture limit sf_evap applies to esoil) per
+      ! timestep. Negative when the limit is off.
+  fsoil_sup
+      ! Fraction of the ground below the canopy seen by soil evaporation,
+      ! as soil_evap computes it (exp(-0.5 LAI)).
+
 LOGICAL :: l_getprofile     ! Switch IN to albpft
 
 INTEGER, PARAMETER :: omp_cutoff=50   ! Cut off for loop multithreading
@@ -603,8 +666,10 @@ l_do_omp    = land_pts>omp_cutoff
 !$OMP PARALLEL IF(l_do_omp) DEFAULT(NONE)                                      &
 !$OMP PRIVATE(i, j, k, l, n, m, il, i_wt)                                      &
 !$OMP SHARED(dim_cslayer, l_do_omp)                                            &
-!$OMP SHARED(npft,land_pts,gpp_pft,npp_pft,resp_p_pft,resp_w_pft,              &
-!$OMP resp_l_pft,resp_r_pft,fsmc_pft,apar_diag_pft,isoprene_pft,terpene_pft,   &
+!$OMP SHARED(npft,land_pts,el_pft,gpp_pft,npp_pft,resp_p_pft,resp_w_pft,       &
+!$OMP resp_l_pft,resp_r_pft,fsmc_pft,apar_diag_pft,psi_leaf_pft,cica_ratio_pft &
+!$OMP leaf_k_pft                                                               &
+!$OMP isoprene_pft,terpene_pft,                                                &
 !$OMP methanol_pft,acetone_pft, nsoilt,smc_soilt,g_leaf,fsmc_irr,root_param,   &
 !$OMP sm_levels,rib,f_root,tdims, ilayers,faparv,nsurft,gc_stom_surft,         &
 !$OMP smc_irr_soilt,ntype,alb_type_dummy,fapar_dir,fapar_dif,                  &
@@ -617,11 +682,12 @@ l_do_omp    = land_pts>omp_cutoff
 !$OMP gsoil_irr_soilt, smvccl_soilt, gs_nvg, soil, l_limit_gsoil,              &
 !$OMP sthu_irr_soilt, smvcst_soilt, gsoil_soilt, sthu_soilt,                   &
 !$OMP gc_corr, n_wtrac_jls, smc_soilt_wtrac, growth_sug_pft, growth_sug_gb,    &
-!$OMP lwp_c_pft,l_wtrac_jls)
+!$OMP psi_root_zone_pft,psi_root_zone_irr,lwp_c_pft,l_wtrac_jls)
 
 DO n = 1,npft
 !$OMP DO SCHEDULE(STATIC)
   DO l = 1,land_pts
+    el_pft(l,n)       = 0.0
     gpp_pft(l,n)      = 0.0
     npp_pft(l,n)      = 0.0
     resp_p_pft(l,n)   = 0.0
@@ -631,6 +697,9 @@ DO n = 1,npft
     growth_sug_pft(l,n) = 0.0
     fsmc_pft(l,n)     = 0.0
     apar_diag_pft(l,n)= 0.0
+    psi_leaf_pft(l,n) = 0.0
+    cica_ratio_pft(l,n) = 0.0
+    leaf_k_pft(l,n)   = 0.0
     isoprene_pft(l,n) = 0.0
     terpene_pft(l,n)  = 0.0
     methanol_pft(l,n) = 0.0
@@ -639,6 +708,8 @@ DO n = 1,npft
     fsmc_irr(l,n)     = 0.0
     root_param(l,n)   = 0.0
     gc_corr(l,n)      = 0.0
+    psi_root_zone_pft(l,n) = 0.0 !JBaguley
+    psi_root_zone_irr(l,n) = 0.0 !JBaguley
     lwp_c_pft(l,n)    = 0.0
   END DO
 !$OMP END DO NOWAIT
@@ -934,6 +1005,20 @@ IF ( can_rad_mod /= 1 ) THEN
     albobs_scaling_surft)
 END IF
 
+IF ( l_soil_evap_or .AND. l_irrig_dmd ) THEN
+  errorstatus = 101
+  CALL ereport("physiol", errorstatus,                                         &
+               "l_soil_evap_or is not coded for l_irrig_dmd=T")
+END IF
+
+! The bare-soil Or call indexes the soil tile; with aggregation there is
+! only one tile.
+IF ( l_soil_evap_or .AND. l_aggregate ) THEN
+  errorstatus = 101
+  CALL ereport("physiol", errorstatus,                                         &
+               "l_soil_evap_or is not coded for l_aggregate=T")
+END IF
+
 !-----------------------------------------------------------------------
 ! Loop over Plant Functional Types to calculate the available moisture
 ! and the values of canopy conductance, the carbon fluxes and the leaf
@@ -1051,21 +1136,29 @@ DO n = 1,npft
   END IF
 !$OMP END PARALLEL
 
+  ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
+  ! psi_root_zone_pft
   CALL smc_ext (land_pts,sm_levels,surft_pts(n),surft_index(:,n), n, f_root,   &
+                satcon_soilt(:,m,:),                        &
                 sthu_surft(:,m,:),                                             &
                 v_open,smvcst_soilt(:,m,:),                                    &
                 v_close,                                                       &
                 bexp_soilt(:,m,:), sathh_soilt(:,m,:),                         &
-                wt_ext_type(:,:,n),fsmc_pft(:,n),psi_root_zone_pft(:,n))
+                soil_wp_soilt(:,m,:),soil_k_soilt(:,m,:),                      &
+                soil_root_k_soilt(:,m,:),wt_ext_type(:,:,n),fsmc_pft(:,n),     &
+                psi_root_zone_pft(:,n))
 
+  ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
   IF (l_irrig_dmd) THEN
     CALL smc_ext (land_pts,sm_levels,surft_pts(n),surft_index(:,n), n, f_root, &
+                  satcon_soilt(:,n,:),                      &
                   sthu_irr_soilt(:,m,:),                                       &
                   v_open,smvcst_soilt(:,m,:),                                  &
                   v_close,                                                     &
                   bexp_soilt(:,m,:), sathh_soilt(:,m,:),                       &
-                  wt_ext_irr_type(:,:,n),fsmc_irr(:,n),                        &
-                  psi_root_zone_pft(:,n))
+                  soil_wp_soilt(:,m,:),soil_k_soilt(:,m,:),                    &
+                  soil_root_k_soilt(:,m,:),wt_ext_irr_type(:,:,n),             &
+                  fsmc_irr(:,n),psi_root_zone_irr(:,n))
   END IF
 
   CALL raero (land_pts,land_index,surft_pts(n),surft_index(:,n)                &
@@ -1091,7 +1184,7 @@ DO n = 1,npft
     END DO  !  layer
 !$OMP END PARALLEL DO
 
-    IF ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) THEN
+    IF ( can_rad_mod == 5 .OR. can_rad_mod == 6 .OR. can_rad_mod == 7 ) THEN
 !$OMP PARALLEL DO IF(ilayers > 1) DEFAULT(NONE) PRIVATE(i, k, l, il)           &
 !$OMP SHARED(ilayers, surft_pts, surft_index, land_index, fapar_shd,           &
 !$OMP        diff_frac, fapar_dif2dif, fapar_dir2dir, fsun, fapar_sun,         &
@@ -1116,9 +1209,57 @@ DO n = 1,npft
         END DO !  points
       END DO  !  layer
 !$OMP END PARALLEL DO
-    END IF  !  can_rad_mod=5/6
+    END IF  !  can_rad_mod=5/6/7
 
   END IF  !  can_rad_mod
+
+  !-----------------------------------------------------------------------
+  ! Soil supply limit on transpiration. sf_evap caps esoil (which includes
+  ! the transpiration) at smc, the available water computed below, AFTER
+  ! the fluxes and GPP are set, so on capped steps carbon is gained for
+  ! water that never moves. smc depends only on the soil state and the
+  ! uptake weights, so compute this tile's contribution here and give it to
+  ! the optimiser as the most it may transpire: on those steps gs, A and E
+  ! come out consistent and at the value the cap would have allowed, and
+  ! nothing changes on the other steps. (Same form as the l_use_pft_psi
+  ! smc sum below, for this tile.)
+  !-----------------------------------------------------------------------
+  ! smc = (1 - fsoil) * [uptake-weighted water above v_close]
+  !       + fsoil * [top-layer water] (see the smc sums at the end of this
+  ! routine). soil_evap later blends gs and a soil-evaporation share into
+  ! the weights, so the veg part here uses the pre-soil_evap weights: a
+  ! close approximation, with the sf_evap cap (and the TVeg scaling there)
+  ! as the backstop. Exact when one PFT tile covers the gridbox; with
+  ! several tiles or a bare-soil fraction, smc blends the frac-weighted veg
+  ! sum with the gridbox fsoil_tot, so this per-tile value is only an
+  ! approximation. The limit is on transpiration while sf_evap caps
+  ! transpiration + soil evaporation, so the backstop can still bind.
+  ! (The TVeg scaling in sf_evap is not coded for l_irrig_dmd.)
+  e_supply(:) = -1.0
+  IF ( l_som_supply_limit ) THEN
+    DO k_sup = 1,surft_pts(n)
+      l = surft_index(k_sup,n)
+      e_supply(l) = 0.0
+      DO kl_sup = 1,sm_levels
+        e_supply(l) = e_supply(l)                                              &
+                      + MAX(0.0, wt_ext_type(l,kl_sup,n) * rho_water           &
+                                 * dzsoil(kl_sup)                              &
+                                 * (sthu_surft(l,m,kl_sup)                     &
+                                    * smvcst_soilt(l,m,kl_sup)                 &
+                                    - v_close_pft(l,kl_sup,n)))
+      END DO
+      ! the LAI soil_evap uses (RP scaling undone, as below)
+      IF (l_rp2 .AND. i_rp_scheme == i_rp2b) THEN
+        fsoil_sup = EXP(-0.5 * lai_pft(l,n) / lai_mult_rp(n))
+      ELSE
+        fsoil_sup = EXP(-0.5 * lai_pft(l,n))
+      END IF
+      e_supply(l) = ( (1.0 - fsoil_sup) * e_supply(l)                          &
+                      + fsoil_sup * rho_water * dzsoil(1)                      &
+                        * MAX(0.0, sthu_surft(l,m,1)) * smvcst_soilt(l,m,1) )  &
+                    / timestep
+    END DO
+  END IF
 
   fsun_tmp(:,:) = fsun(:,n,:)
 
@@ -1130,9 +1271,10 @@ DO n = 1,npft
 ,               ipar_land,lai_pft(:,n)                                         &
 ,               canht_pft(:,n),pstar_land                                      &
 ,               q1_land,ra,tstar,o3,t_home_gb,t_growth_gb                      &
-,               can_rad_mod,ilayers,faparv                                     &
-,               psi_root_zone_pft(:,n),lwp_c_pft(:,n)                          &
-,               gpp_pft(:,n),npp_pft(:,n),resp_p_pft(:,n)                      &
+,               psi_root_zone_pft(:,n),e_supply                                &
+,               can_rad_mod,ilayers,leaf_flux_mod,som_base_parm,faparv         &
+,               lwp_c_pft(:,n)                                                 &
+,               el_pft(:,n),gpp_pft(:,n),npp_pft(:,n),resp_p_pft(:,n)          &
 ,               resp_l_pft(:,n),resp_r_pft(:,n),resp_w_pft(:,n)                &
 ,               growth_sug_pft(:,n),f_nsc_pft(:,n)                             &
 ,               n_leaf(:,n),n_root(:,n),n_stem(:,n)                            &
@@ -1140,13 +1282,15 @@ DO n = 1,npft
 ,               gs_type(:,n)                                                   &
 ,               fapar_sun,fapar_shd,fsun_tmp                                   &
 ,               flux_o3_pft(:,n),fo3_pft(:,n)                                  &
-,               fapar_diag_pft(:,n),apar_diag_pft(:,n)                         &
+,               fapar_diag_pft(:,n),apar_diag_pft(:,n),psi_leaf_pft(:,n)       &
+,               cica_ratio_pft(:,n),leaf_k_pft(:,n)                            &
 ,               isoprene_pft(:,n),terpene_pft(:,n)                             &
 ,               methanol_pft(:,n),acetone_pft(:,n)                             &
-,               open_index,open_pts,                                           &
+,               open_index,open_pts                                            &
+,               carbon_gain(:,n),hydraulic_cost(:,n)                           &
                     !New arguments replacing USE statements
                     !crop_vars_mod (IN)
-                    dvi_cpft,rootc_cpft)
+,                   dvi_cpft,rootc_cpft)
 
   ! Store conductance before adjustment for soil evaporation
   gc_corr(:,n) = gs_type(:,n)
@@ -1212,6 +1356,28 @@ DO n = 1,npft
   ELSE
     gsoil_under_canopy(:) = gsoil_soilt(:,m) * gsoil_f(n)
     gsoil_irr_under_canopy(:) = gsoil_irr_soilt(:,m) * gsoil_f(n)
+  END IF
+
+  ! Or scheme: replace the soil conductance beneath this PFT's canopy.
+  IF ( l_soil_evap_or ) THEN
+    DO k = 1,surft_pts(n)
+      l = surft_index(k,n)
+      j_or = (land_index(l) - 1) / t_i_length + 1
+      i_or = land_index(l) - (j_or-1) * t_i_length
+      IF ( l_soil_point(l) ) THEN
+        ustar_or = vonk_or * vshr(i_or,j_or)                                   &
+                   / LOG((z1_uv_ij(i_or,j_or) + z0(l)) / z0(l))
+        gsoil_under_canopy(l) = gsoil_f(n) *                                   &
+          gsoil_or(vshr(i_or,j_or), ustar_or, canht_pft(l,n),                  &
+                   lai_pft_soil_evap(l,n), tstar(l),                           &
+                   sathh_soilt(l,m,1), bexp_soilt(l,m,1),                      &
+                   satcon_soilt(l,m,1),                                        &
+                   sthu_soilt(l,m,1) * smvcst_soilt(l,m,1),                    &
+                   smvcst_soilt(l,m,1))
+      ELSE
+        gsoil_under_canopy(l) = 0.0
+      END IF
+    END DO
   END IF
 
   CALL soil_evap (land_pts,sm_levels,surft_pts(n),surft_index(:,n),            &
@@ -1310,6 +1476,26 @@ DO j = 1,surft_pts(n)
   END IF
 END DO
 !$OMP END PARALLEL DO
+
+! Or scheme: bare soil conductance (no canopy above the soil).
+IF ( l_soil_evap_or ) THEN
+  DO k = 1,surft_pts(n)
+    l = surft_index(k,n)
+    j_or = (land_index(l) - 1) / t_i_length + 1
+    i_or = land_index(l) - (j_or-1) * t_i_length
+    IF ( l_soil_point(l) ) THEN
+      ustar_or = vonk_or * vshr(i_or,j_or)                                     &
+                 / LOG((z1_uv_ij(i_or,j_or) + z0_surft(l,n)) / z0_surft(l,n))
+      gs_type(l,n) = gsoil_or(vshr(i_or,j_or), ustar_or, 0.0, 0.0,             &
+                              tstar_surft(l,n), sathh_soilt(l,m,1),            &
+                              bexp_soilt(l,m,1), satcon_soilt(l,m,1),          &
+                              sthu_soilt(l,m,1) * smvcst_soilt(l,m,1),         &
+                              smvcst_soilt(l,m,1))
+    ELSE
+      gs_type(l,n) = 0.0
+    END IF
+  END DO
+END IF
 
 !==============================================================================
 ! *END NOTICE REGARDING SOIL TILING**

@@ -594,7 +594,8 @@ CASE ( jules )
     resfs,resft,rhokh_surft,dtstar_surft,fluxes%z0h_surft,fluxes%z0m_surft,    &
     chr1p5m,progs%smc_soilt,hcons_soilt,trifctltype%gpp_gb,trifctltype%npp_gb, &
     trifctltype%resp_p_gb,trifctltype%g_leaf_pft,                              &
-    trifctltype%gpp_pft,trifctltype%npp_pft,trifctltype%resp_p_pft,            &
+    trifctltype%gpp_pft,psparms%som_transpiration_pft,                         & !JBaguley
+    trifctltype%npp_pft,trifctltype%resp_p_pft,            &
     trifctltype%resp_s_soilt,resp_s_tot_soilt,                                 &
     trif_vars%resp_l_pft,trif_vars%resp_r_pft,trifctltype%resp_w_pft,          &
     trif_vars%n_leaf_pft,trif_vars%n_root_pft,trif_vars%n_stem_pft,            &
@@ -602,7 +603,7 @@ CASE ( jules )
     progs%gc_surft,canhc_surft,wt_ext_surft,flake,                             &
     ainfo%surft_index,surft_pts,tile_frac,fluxes%fsmc_pft,emis_soil,           &
     trifctltype%growth_sug_pft,trifctltype%growth_sug_gb,progs%f_nsc_pft,      &
-    trifctltype%lwp_c_pft, trifctltype%psi_root_zone_pft,                      &
+    trifctltype%lwp_c_pft,                                                     &
     ! OUT required for classic aerosols
     cd_land_ij,rib_surft,ch_surft_classic,cd_std_classic,                      &
     ! OUT required for sea and sea-ice calculations
@@ -629,9 +630,13 @@ CASE ( jules )
     !crop_vars_mod (OUT)
     crop_vars%gs_irr_surft, crop_vars%smc_irr_soilt,                           &
     crop_vars%wt_ext_irr_surft, crop_vars%gc_irr_surft,                        &
-    !p_s_parms (IN)
+    !p_s_parms (IN) JBaguley added satcon_soilt
     psparms%bexp_soilt, psparms%sathh_soilt, psparms%v_close_pft,              &
-    psparms%v_open_pft,                                                        &
+    psparms%v_open_pft, psparms%satcon_soilt,                                  &
+    !p_s_parms (OUT) JBaguley
+    psparms%soil_wp_soilt,psparms%soil_k_soilt,psparms%soil_root_k_soilt,      &
+    psparms%psi_root_zone_pft,psparms%psi_leaf_pft,psparms%cica_ratio_pft,     &
+    psparms%leaf_k_pft,                                                        &
     !urban_param (IN)
     urban_param%wrr_gb,                                                        &
     !Fluxes (IN OUT)
@@ -656,6 +661,8 @@ CASE ( jules )
     jules_vars%diff_frac,                                                      &
     !chemvars (OUT)
     chemvars%flux_o3_pft, chemvars%fo3_pft,                                    &
+    !TEMPORARY gain and cost
+    psparms%carbon_gain_pft, psparms%hydraulic_cost_pft,                       &
     !Water tracers (IN)
     wtrac_jls%snow_surft, wtrac_jls%canopy_surft,                              &
     wtrac_jls%sthu_soilt, wtrac_jls%qw_1_ij,                                   &

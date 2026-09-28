@@ -29,7 +29,7 @@ USE string_utils_mod, ONLY: to_string
 USE jules_soil_mod, ONLY: jules_soil, sm_levels, dzsoil, dzsoil_elev,          &
                           l_vg_soil, l_soil_sat_down, soilhc_method,           &
                           l_bedrock, l_tile_soil, l_broadcast_ancils,          &
-                          check_jules_soil
+                          l_bound_soil_wp,l_ds_correction, check_jules_soil
 
 USE jules_surface_mod, ONLY: l_elev_land_ice
 
@@ -128,6 +128,12 @@ ELSE
   CALL log_info("init_soil",                                                   &
     "l_tile_soil = F. Soil tiling is switched off: nsoilt = 1")
 END IF
+
+CALL log_info("init_soil",                                                     &
+    "l_bound_soil_wp: " // TRIM(to_string(l_bound_soil_wp)))
+
+CALL log_info("init_soil",                                                     &
+    "l_ds_correction: " // TRIM(to_string(l_ds_correction)))
 
 RETURN
 END SUBROUTINE init_soil

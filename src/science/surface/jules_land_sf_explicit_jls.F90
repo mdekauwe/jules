@@ -66,11 +66,11 @@ SUBROUTINE jules_land_sf_explicit (                                            &
 ! OUT data required elsewhere in boundary layer or surface code
  alpha1,ashtf_prime_surft,fqw_surft,epot_surft,fracaero_t,fracaero_s,          &
  resfs,resft,rhokh_surft,dtstar_surft,z0h_surft, z0m_surft,                    &
- chr1p5m,smc_soilt,hcons_soilt,gpp,npp,resp_p,g_leaf,gpp_pft,npp_pft,          &
+ chr1p5m,smc_soilt,hcons_soilt,gpp,npp,resp_p,g_leaf,gpp_pft,el_pft,npp_pft,   &
  resp_p_pft,resp_s_soilt,resp_s_tot_soilt,resp_l_pft,resp_r_pft,               &
  resp_w_pft,n_leaf,n_root,n_stem,lai_bal,gc_surft,canhc_surft,wt_ext_surft,    &
  flake,surft_index,surft_pts,tile_frac,fsmc_pft,emis_soil,                     &
- growth_sug_pft,growth_sug_gb,f_nsc_pft,lwp_c_pft,psi_root_zone_pft,           &
+ growth_sug_pft,growth_sug_gb,f_nsc_pft,lwp_c_pft,                             &
 ! OUT required for classic aerosols
  cd_land,rib_surft,ch_surft_classic,cd_std_classic,                            &
 ! OUT required for sea and sea-ice calculations
@@ -94,7 +94,10 @@ SUBROUTINE jules_land_sf_explicit (                                            &
  !crop_vars_mod (OUT)
  gs_irr_surft, smc_irr_soilt, wt_ext_irr_surft, gc_irr_surft,                  &
  !p_s_parms (IN)
- bexp_soilt, sathh_soilt, v_close_pft, v_open_pft,                             &
+ bexp_soilt, sathh_soilt, v_close_pft, v_open_pft, satcon_soilt,               &
+ !p_s_parms (out) JBaguley
+ soil_wp_soilt,soil_k_soilt,soil_root_k_soilt,psi_root_zone_pft,psi_leaf_pft,  &
+ cica_ratio_pft,leaf_k_pft,                                                    &
  !urban_param (IN)
  wrr_gb,                                                                       &
  !Fluxes (IN OUT)
@@ -119,6 +122,8 @@ SUBROUTINE jules_land_sf_explicit (                                            &
  diff_frac,                                                                    &
  !chemvars (OUT)
  flux_o3_pft, fo3_pft,                                                         &
+ !TEMPORARY (OUT)
+ carbon_gain, hydraulic_cost,                                                  &
  !Water tracers (IN)
  snow_surft_wtrac, canopy_wtrac, sthu_soilt_wtrac, qw_1_wtrac,                 &
  ! Water tracers (OUT)
@@ -194,8 +199,8 @@ USE jules_surface_mod, ONLY: l_aggregate, formdrag, l_anthrop_heat_src,        &
                              IP_ScrnDecpl2, IP_ScrnDecpl3,                     &
                              l_vary_z0m_soil, l_elev_land_ice, ls
 
-USE jules_vegetation_mod, ONLY: can_model, can_rad_mod, ilayers, l_triffid,    &
-                                l_vegdrag_surft
+USE jules_vegetation_mod, ONLY: can_model, can_rad_mod, ilayers, leaf_flux_mod,&
+                                som_base_parm, l_triffid,  l_vegdrag_surft
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
@@ -563,6 +568,9 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,gpp_pft(land_pts,npft)                                                        &
                              ! OUT Gross primary productivity
                              !     on PFTs (kg C/m2/s).
+,el_pft(land_pts,npft)                                                         &
+                             ! OUT Transpiration rate calcuated in the
+                             !      stomatal optimisation code (mol/m2/s).
 ,npp_pft(land_pts,npft)                                                        &
                              ! OUT Net primary productivity
                              !     (kg C/m2/s).
@@ -624,10 +632,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,gc_corr(land_pts,npft)                                                        &
                              ! OUT "Stomatal" conductance
                              !     without bare soil evaporation
-,lwp_c_pft(land_pts,npft)                                                      &
+,lwp_c_pft(land_pts,npft)
                              ! OUT Canopy leaf water potential (MPa)
-,psi_root_zone_pft(land_pts,npft)
-                             ! OUT Water potential in the root zone (Pa)
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
  cd_land(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end)                  &
@@ -659,11 +665,22 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: wrr_gb(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
           albobs_scaling_surft(land_pts,ntype,rad_nband)
 
-!p_s_parms (IN)
+!p_s_parms (IN) JBaguley added satcon_soilt
 REAL(KIND=real_jlslsm), INTENT(IN) :: bexp_soilt(land_pts,nsoilt,sm_levels)
 REAL(KIND=real_jlslsm), INTENT(IN) :: sathh_soilt(land_pts,nsoilt,sm_levels)
 REAL(KIND=real_jlslsm), INTENT(IN) :: v_close_pft(land_pts,sm_levels,npft)
 REAL(KIND=real_jlslsm), INTENT(IN) :: v_open_pft(land_pts,sm_levels,npft)
+REAL(KIND=real_jlslsm), INTENT(IN) :: satcon_soilt(land_pts,nsoilt,0:sm_levels)
+
+!p_s_parms (OUT) JBaguley
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+ soil_wp_soilt(land_pts,nsoilt,sm_levels)                                      &
+,soil_k_soilt(land_pts,nsoilt,sm_levels)                                       &
+,soil_root_k_soilt(land_pts,nsoilt,sm_levels)                                  &
+,psi_root_zone_pft(land_pts,npft)                                              &
+,psi_leaf_pft(land_pts,npft)                                                   &
+,cica_ratio_pft(land_pts,npft)                                                 &
+,leaf_k_pft(land_pts,npft)
 
 !crop_vars_mod (IN)
 REAL(KIND=real_jlslsm), INTENT(IN) :: rootc_cpft(land_pts,ncpft)
@@ -749,6 +766,12 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: diff_frac(t_i_length * t_j_length)
 REAL(KIND=real_jlslsm), INTENT(OUT) :: flux_o3_pft(land_pts,npft)
 REAL(KIND=real_jlslsm), INTENT(OUT) :: fo3_pft(land_pts,npft)
 
+! TEMPORARY: output variables for testing
+REAL(KIND=real_jlslsm) ::                                                      &
+ carbon_gain(land_pts,npft)                                                    &
+                            ! Carbon gain for each leaf state
+,hydraulic_cost(land_pts,npft)
+                            ! Hydraulic cost for each leaf state
 ! Water tracers (IN)
 REAL(KIND=real_jlslsm), INTENT(IN) :: snow_surft_wtrac(land_pts,nsurft,        &
                                                         n_wtrac_jls)
@@ -1200,18 +1223,19 @@ CALL physiol (                                                                 &
   lai_pft,pstar,qw_1,sthu_soilt,sthf_soilt,t_soil_soilt,tstar_surft,           &
   smvccl_soilt,smvcst_soilt,smvcwt_soilt,vshr,z0_surft,z1_uv,o3,               &
   canhc_surft,vfrac_surft,emis_surft,l_emis_surft_set,emis_soil,flake,         &
-  g_leaf,gs,gc_surft,gc_stom_surft,gc_corr,gpp,gpp_pft,npp,npp_pft,            &
+  g_leaf,gs,gc_surft,gc_stom_surft,gc_corr,gpp,gpp_pft,el_pft,npp,npp_pft,     &
   resp_p,resp_p_pft,resp_s_soilt,resp_l_pft,                                   &
   resp_r_pft,resp_w_pft,n_leaf,                                                &
   n_root,n_stem,lai_bal,                                                       &
   smc_soilt,wt_ext_surft,fsmc_pft,                                             &
   albsoil_soilt,cos_zenith_angle,                                              &
-  can_rad_mod,ilayers,flux_o3_pft,fo3_pft,sf_diag,asteps_since_triffid,        &
+  can_rad_mod,ilayers,leaf_flux_mod,som_base_parm,                             &
+  flux_o3_pft,fo3_pft,sf_diag,asteps_since_triffid,                            &
   non_lake_frac,                                                               &
   !SUGAR variables
   f_nsc_pft, growth_sug_gb, growth_sug_pft,                                    &
   ! SOX variables
-  psi_root_zone_pft, lwp_c_pft,                                                &
+  lwp_c_pft,                                                                   &
   !New arguments replacing USE statements
   !Fluxes (IN)
   t_home_gb,t_growth_gb,                                                       &
@@ -1229,7 +1253,10 @@ CALL physiol (                                                                 &
   !crop_vars_mod (OUT)
   gs_irr_surft, smc_irr_soilt, wt_ext_irr_surft, gc_irr_surft,                 &
   !p_s_parms (IN)
-  bexp_soilt, sathh_soilt, v_close_pft, v_open_pft,                            &
+  bexp_soilt, sathh_soilt, v_close_pft, v_open_pft,satcon_soilt,               &
+  !p_s_parms (OUT) JBaguley
+  soil_wp_soilt,soil_k_soilt,soil_root_k_soilt,psi_root_zone_pft,psi_leaf_pft, &
+  cica_ratio_pft,leaf_k_pft,                                                   &
   !ancil_info
   l_soil_point,                                                                &
   !jules_surface_types (IN)
@@ -1237,8 +1264,10 @@ CALL physiol (                                                                 &
   !water tracers (IN)
   sthu_soilt_wtrac,                                                            &
   !water tracers (OUT)
-  smc_soilt_wtrac)
-
+  smc_soilt_wtrac,                                                             &
+  ! TEMPORARY: output variables for testing
+  carbon_gain, hydraulic_cost                                                  &
+)
 
 ! Update gc_surft for canopy snow if using the canopy snow scheme
 IF ( .NOT. l_aggregate .AND. can_model == 4) THEN

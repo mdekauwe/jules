@@ -16,12 +16,13 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='SOIL_HYD_MOD'
 
 CONTAINS
 
-SUBROUTINE soil_hyd (npnts, nshyd, soil_pts, timestep, l_top, l_soil_sat_down, &
+SUBROUTINE soil_hyd_step (npnts, nshyd, soil_pts, timestep, l_top,           &
+                     l_soil_sat_down,                                          &
                      soil_index, bexp, dz,                                     &
                      ext, fw, ksz, sathh, sthzw, v_sat,                        &
                      qbase_l, zdepth,                                          &
                      smcl, sthu, smclsat, w_flux,                              &
-                     smclzw, smclsatzw)
+                     smclzw, smclsatzw, l_bad)
 
 !Use in relevant subroutines
 USE darcy_ic_mod,   ONLY: darcy_ic
@@ -113,6 +114,12 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   smclsatzw(npnts)
     ! Moisture content in deep layer at saturation (kg/m2).
 
+LOGICAL, INTENT(OUT) ::                                                        &
+  l_bad(npnts)
+    ! .TRUE. where the implicit solution for this step is unreliable (see
+    ! the checks after the call to gauss); soil_hyd then repeats the step
+    ! for that point with shorter sub-steps.
+
 !-----------------------------------------------------------------------------
 ! Local scalars:
 !-----------------------------------------------------------------------------
@@ -129,6 +136,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
 LOGICAL ::                                                                     &
   use_lims
     ! Whether to apply the dsthumin and dsthumax limits in the Gauss solver.
+
+REAL(KIND=real_jlslsm), PARAMETER ::                                           &
+  sthu_flag_min = 0.01,                                                        &
+    ! Layers wetter than this (as a fraction of saturation) should not be
+    ! emptied in a single step.
+  dsthu_flag_tol = 1.0e-6
+    ! Tolerance for the solution being pinned at dsthumin.
 
 !-----------------------------------------------------------------------------
 ! Local arrays:
@@ -161,9 +175,11 @@ INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
 
-CHARACTER(LEN=*), PARAMETER :: RoutineName='SOIL_HYD'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='SOIL_HYD_STEP'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+l_bad(:) = .FALSE.
 
 IF (l_holdwater) THEN
   use_lims = .FALSE.
@@ -345,6 +361,28 @@ CALL gauss(nshyd, npnts, soil_pts, use_lims, soil_index, a, b, c, d,           &
            dsthumin, dsthumax, dsthu)
 
 !-----------------------------------------------------------------------------
+! Flag points where the linearised implicit step is unreliable, so that
+! soil_hyd can repeat them with shorter sub-steps:
+!  - a non-positive diagonal element, which the linearisation of the Darcy
+!    fluxes can produce near saturation (e.g. a wrong-signed
+!    dwflux_dsthu1 with l_dpsids_dsdz), making the solve meaningless;
+!  - a layer that held water being emptied in a single step (the solution
+!    pinned at dsthumin), which is how the bad solutions show up - the next
+!    step then has a dry layer beside a saturated one and NaNs follow;
+!  - a non-finite increment.
+!-----------------------------------------------------------------------------
+DO n = 1,nshyd
+  DO j = 1,soil_pts
+    i = soil_index(j)
+    IF ( b(i,n) <= 0.0 .OR. dsthu(i,n) /= dsthu(i,n) .OR.                     &
+         ( sthu(i,n) > sthu_flag_min .AND.                                     &
+           dsthu(i,n) <= dsthumin(i,n) + dsthu_flag_tol ) ) THEN
+      l_bad(i) = .TRUE.
+    END IF
+  END DO
+END DO
+
+!-----------------------------------------------------------------------------
 ! Diagnose the implicit fluxes.
 !-----------------------------------------------------------------------------
 IF ( .NOT. l_holdwater) THEN
@@ -471,6 +509,145 @@ DO n = 1,nshyd
     smcl(i,n)  = smcl(i,n) + dsmcl(i,n)
     sthu(i,n)  = smclu(i,n) / smclsat(i,n)
   END DO
+END DO
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+RETURN
+END SUBROUTINE soil_hyd_step
+
+!-----------------------------------------------------------------------------
+! Adaptive sub-stepping wrapper around soil_hyd_step.
+!
+! The implicit soil water update linearises the Darcy fluxes about the
+! start of the step. With long timesteps (e.g. running at the native
+! resolution of the driving data, 30 min to several hours), thin layers
+! and steep (e.g. van Genuchten with small n) hydraulic curves, that
+! linearisation can be badly wrong near saturation: the solve empties a
+! layer in one step, and the dry-beside-saturated state that follows then
+! produces NaNs (seen at FR-Pue as the whole soil column going to zero).
+!
+! Each point is first stepped over the full timestep as before. Only the
+! points soil_hyd_step flags (see there) are repeated from their initial
+! state with the timestep split into 2, 4, 8, ... up to max_substep
+! sub-steps, until no sub-step is flagged (or max_substep is reached, when
+! the result is accepted). The forcing terms (fw, ext, qbase_l) are held
+! fixed over the sub-steps and w_flux is returned as the mean over them.
+! Unflagged points are unchanged, so the results only differ from the
+! original single step where that step was unreliable.
+!
+! NOTE: with l_top, the limit on supersaturation of the deep store
+! (dwzw) is applied per sub-step from the deep store at the start of the
+! timestep, since that store is only updated afterwards in soil_hyd_wt.
+!-----------------------------------------------------------------------------
+SUBROUTINE soil_hyd (npnts, nshyd, soil_pts, timestep, l_top, l_soil_sat_down, &
+                     soil_index, bexp, dz,                                     &
+                     ext, fw, ksz, sathh, sthzw, v_sat,                        &
+                     qbase_l, zdepth,                                          &
+                     smcl, sthu, smclsat, w_flux,                              &
+                     smclzw, smclsatzw)
+
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
+USE um_types, ONLY: real_jlslsm
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) ::                                                         &
+  npnts, nshyd, soil_pts
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  timestep
+LOGICAL, INTENT(IN) ::                                                         &
+  l_top, l_soil_sat_down
+INTEGER, INTENT(IN) ::                                                         &
+  soil_index(npnts)
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  bexp(npnts,nshyd), dz(nshyd), ext(npnts,nshyd), fw(npnts),                  &
+  ksz(npnts,0:nshyd), sathh(npnts,nshyd), sthzw(npnts), v_sat(npnts,nshyd),   &
+  qbase_l(npnts,nshyd+1), zdepth(0:nshyd)
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+  smcl(npnts,nshyd), sthu(npnts,nshyd)
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  smclsat(npnts,nshyd), w_flux(npnts,0:nshyd), smclzw(npnts),                 &
+  smclsatzw(npnts)
+    ! See soil_hyd_step for the arguments.
+
+INTEGER, PARAMETER :: max_substep = 64
+    ! Maximum number of sub-steps per timestep.
+
+INTEGER :: i, j, k, nsub, nbad
+INTEGER :: bad_index(npnts)
+    ! Points still needing sub-steps.
+
+LOGICAL :: l_bad(npnts), l_bad_sub(npnts), l_bad_any(npnts)
+
+REAL(KIND=real_jlslsm) ::                                                      &
+  smcl0(npnts,nshyd), sthu0(npnts,nshyd),                                     &
+    ! State at the start of the timestep.
+  w_flux_sub(npnts,0:nshyd), w_flux_sum(npnts,0:nshyd)
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+
+CHARACTER(LEN=*), PARAMETER :: RoutineName='SOIL_HYD'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+smcl0(:,:) = smcl(:,:)
+sthu0(:,:) = sthu(:,:)
+
+CALL soil_hyd_step (npnts, nshyd, soil_pts, timestep, l_top, l_soil_sat_down,  &
+                    soil_index, bexp, dz, ext, fw, ksz, sathh, sthzw, v_sat,   &
+                    qbase_l, zdepth, smcl, sthu, smclsat, w_flux,              &
+                    smclzw, smclsatzw, l_bad)
+
+nbad = 0
+DO j = 1,soil_pts
+  i = soil_index(j)
+  IF (l_bad(i)) THEN
+    nbad = nbad + 1
+    bad_index(nbad) = i
+  END IF
+END DO
+
+nsub = 1
+DO WHILE (nbad > 0 .AND. nsub < max_substep)
+  nsub = 2 * nsub
+
+  ! Restart the flagged points from the start of the timestep.
+  DO j = 1,nbad
+    i = bad_index(j)
+    smcl(i,:)       = smcl0(i,:)
+    sthu(i,:)       = sthu0(i,:)
+    w_flux_sum(i,:) = 0.0
+    l_bad_any(i)    = .FALSE.
+  END DO
+
+  DO k = 1,nsub
+    CALL soil_hyd_step (npnts, nshyd, nbad, timestep / REAL(nsub), l_top,      &
+                        l_soil_sat_down, bad_index, bexp, dz, ext, fw, ksz,    &
+                        sathh, sthzw, v_sat, qbase_l, zdepth, smcl, sthu,      &
+                        smclsat, w_flux_sub, smclzw, smclsatzw, l_bad_sub)
+    DO j = 1,nbad
+      i = bad_index(j)
+      w_flux_sum(i,:) = w_flux_sum(i,:) + w_flux_sub(i,:)
+      l_bad_any(i)    = l_bad_any(i) .OR. l_bad_sub(i)
+    END DO
+  END DO
+
+  ! Keep the sub-stepped result; points still flagged are repeated with
+  ! twice as many sub-steps (or accepted once max_substep is reached).
+  k = 0
+  DO j = 1,nbad
+    i = bad_index(j)
+    w_flux(i,:) = w_flux_sum(i,:) / REAL(nsub)
+    IF (l_bad_any(i)) THEN
+      k = k + 1
+      bad_index(k) = i
+    END IF
+  END DO
+  nbad = k
 END DO
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

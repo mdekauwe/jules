@@ -203,7 +203,6 @@ DO j = 1,veg_pts
     END IF
 
   END IF  !  stomata_model
-
 END DO
 !$OMP END PARALLEL DO
 

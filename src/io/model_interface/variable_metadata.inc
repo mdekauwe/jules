@@ -9,7 +9,6 @@
 ! DATA statements for variable metadata
 !-----------------------------------------------------------------------------
 
-
 !-----------------------------------------------------------------------------
 ! Metadata for latitude
 !-----------------------------------------------------------------------------
@@ -9353,5 +9352,137 @@ DATA metadata(722) / var_metadata(                                             &
     "Water that is removed from the system during use",                        &
 ! Units
     "kg s-1"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for soil_wp
+!-----------------------------------------------------------------------------
+DATA metadata(723) / var_metadata(                                             &
+! String identifier
+    'soil_wp',                                                                 &
+! Variable type
+    var_type_soil,                                                             &
+! Long name
+    "Water potential of each soil layer",                                      &
+! Units
+    "MPa"                                                                      &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for soil_k
+!-----------------------------------------------------------------------------
+DATA metadata(724) / var_metadata(                                             &
+! String identifier
+    'soil_k',                                                                  &
+! Variable type
+    var_type_soil,                                                             &
+! Long name
+    "Soil conductance in each soil layer",                                     &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for soil_root_k
+!-----------------------------------------------------------------------------
+DATA metadata(725) / var_metadata(                                             &
+! String identifier
+    'soil_root_k',                                                             &
+! Variable type
+    var_type_soil,                                                             &
+! Long name
+    "Soil to root conductance in each soil layer",                             &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for psi_root_zone_pft
+!-----------------------------------------------------------------------------
+DATA metadata(726) / var_metadata(                                             &
+! String identifier
+    'psi_root_zone_pft',                                                       &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Root zone water potential",                                               &
+! Units
+    "MPa"                                                                      &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for psi_leaf_pft
+!-----------------------------------------------------------------------------
+DATA metadata(727) / var_metadata(                                             &
+! String identifier
+    'psi_leaf_pft',                                                            &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Leaf water potential",                                                    &
+! Units
+    "MPa"                                                                      &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for som_transpiration_pft
+!-----------------------------------------------------------------------------
+DATA metadata(728) / var_metadata(                                             &
+! String identifier
+    'som_transpiration_pft',                                                   &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Transpiration rate from stomatal optimisation calculation",               &
+! Units
+    "mol m-2 s-1"                                                              &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for cica_ratio_pft
+!-----------------------------------------------------------------------------
+DATA metadata(729) / var_metadata(                                             &
+! String identifier
+    'cica_ratio_pft',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ratio of intercellular CO2 and canopy level atmospheric " //              &
+    "CO2 concentrations",                                                      &
+! Units
+    "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for carbon_gain_pft
+!-----------------------------------------------------------------------------
+DATA metadata(730) / var_metadata(                                             &
+! String identifier
+    'carbon_gain_pft',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Carbon gain for stomatal optimisation model",                             &
+! Units
+    "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for hydraulic_cost_pft
+!-----------------------------------------------------------------------------
+DATA metadata(731) / var_metadata(                                             &
+! String identifier
+    'hydraulic_cost_pft',                                                      &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Hydraulic cost for stomatal optimisation model",                          &
+! Units
+    "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for PLC_pft
+!-----------------------------------------------------------------------------
+DATA metadata(732) / var_metadata(                                             &
+! String identifier
+    'PLC_pft',                                                                 &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Percentage loss of conductance at the leaf water potential relative" //   &
+    "to maximum conductance",                                                  &
+! Units
+    "1"                                                                        &
   ) /
 #endif

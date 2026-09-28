@@ -94,6 +94,9 @@ USE jules_rivers_mod, ONLY: nstep_rivers, np_rivers, n_rivers,                 &
 
 USE coastal, ONLY: flandg
 
+USE pftparm, ONLY:                                                             &
+  kmax_pft
+
 !Others
 USE io_constants, ONLY:                                                        &
   mdi
@@ -3557,6 +3560,75 @@ CASE ( 'bl_height' )
 CASE ( 'level_separation' )
   cube = cube_from_array( jules_vars%dzl )
 
+  ! Water potential in each soil layer in MPa JBaguley
+  ! 1.0e-6 is to convert from Pa to MPa
+CASE ( 'soil_wp' )
+  DO k = 1, sm_levels
+    workspace_levs(:,k) = soiltiles_to_gbm(                                    &
+          psparms%soil_wp_soilt(:,:,k)*1.0e-6, ainfo)
+  END DO
+  cube_land = cube_from_array(workspace_levs(:,1:sm_levels))
+  cube = map_from_land(cube_land)
+
+  ! Water conductivity in each soil layer JBaguley
+CASE ( 'soil_k' )
+  DO k = 1, sm_levels
+    workspace_levs(:,k) = soiltiles_to_gbm(psparms%soil_k_soilt(:,:,k),ainfo)
+  END DO
+  cube_land = cube_from_array(workspace_levs(:,1:sm_levels))
+  cube = map_from_land(cube_land)
+
+  ! Water conductivity from soil to root in each soil layer JBaguley
+CASE ( 'soil_root_k' )
+  DO k = 1, sm_levels
+    workspace_levs(:,k) = soiltiles_to_gbm(psparms%soil_root_k_soilt(:,:,k),   &
+                                           ainfo)
+  END DO
+  cube_land = cube_from_array(workspace_levs(:,1:sm_levels))
+  cube = map_from_land(cube_land)
+
+  ! Root zone water potential for each plant functional type in MPa JBaguley
+  ! The 1.0e-6 is to convert from Pa to MPa
+CASE ( 'psi_root_zone_pft' )
+  cube_land = cube_from_array(psparms%psi_root_zone_pft(:,:)*1.0e-6)
+  cube = map_from_land(cube_land)
+
+  ! Leaf water potential for each plant functional type JBaguley
+  ! The 1.0e-6 is to convert from Pa to MPa
+CASE ( 'psi_leaf_pft' )
+  cube_land = cube_from_array(psparms%psi_leaf_pft(:,:)*1.0e-6)
+  cube = map_from_land(cube_land)
+
+  ! Transpiration rate calcuated in the stomatal optimisation calculation JBaguley
+CASE ( 'som_transpiration_pft' )
+  cube_land = cube_from_array(psparms%som_transpiration_pft)
+  cube = map_from_land(cube_land)
+
+  ! Ratio of intercellular and canopy level CO2 concentration JBaguley
+CASE ('cica_ratio_pft')
+  cube_land = cube_from_array(psparms%cica_ratio_pft)
+  cube = map_from_land(cube_land)
+
+  ! Carbon gain for each plant functional type JBaguley
+CASE ('carbon_gain_pft')
+  cube_land = cube_from_array(psparms%carbon_gain_pft)
+  cube = map_from_land(cube_land)
+
+  ! Hydraulic cost for each plant functional type JBaguley
+CASE ('hydraulic_cost_pft')
+  cube_land = cube_from_array(psparms%hydraulic_cost_pft)
+  cube = map_from_land(cube_land)
+
+  ! Percentage loss of conductance at the leaf water potential compared to the
+  ! maximum conductance JBaguley
+CASE ('PLC_pft')
+
+  DO i = 1, npft
+    workspace_pft(:,i) = 100.0 * (1 - psparms%leaf_k_pft(:,i)/kmax_pft(i))
+  END DO
+
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
 
 CASE DEFAULT
   CALL log_fatal("extract_var",                                                &

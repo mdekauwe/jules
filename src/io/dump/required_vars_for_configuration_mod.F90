@@ -193,7 +193,7 @@ CALL add_to_list( 't_soil',     nvars, identifiers, l_append_soilt )
 !-----------------------------------------------------------------------------
 ! Variables that are needed only if certain options set.
 !-----------------------------------------------------------------------------
-IF ( can_rad_mod == 1 ) THEN
+IF ( can_rad_mod == 1 .OR. can_rad_mod == 7 ) THEN
   CALL add_to_list( 'gs', nvars, identifiers )
 END IF
 

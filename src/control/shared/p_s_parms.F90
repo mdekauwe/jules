@@ -96,6 +96,31 @@ TYPE :: psparms_data_type
     ! thaw depth calculation based on unfrozen water content fraction.
   REAL(KIND=real_jlslsm), ALLOCATABLE :: soil_ph_soilt(:,:,:)
     ! Soil pH, defined on soil layers.
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: soil_wp_soilt(:,:,:)
+    ! Soil water potential for each soil layer (Pa) JBaguley
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: soil_k_soilt(:,:,:)
+    ! Soil conductance for each soil layer (kg m-2 s-1) JBaguley
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: soil_root_k_soilt(:,:,:)
+    ! Soil to root water conductance per unit soil area for each soil
+    !   layer (kg m-3 s-1) JBaguley
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: psi_root_zone_pft(:,:)
+    ! Root zone water potential for each plant functional type (Pa) JBaguley
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: psi_leaf_pft(:,:)
+    ! Leaf water potential for each plant functional type (Pa) JBaguley
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: som_transpiration_pft(:,:)
+    ! Transpiration rate calculated in stomatal optimisation 
+    ! model (mol m-2 s-1) JBaguley
+    ! TODO: above variable is temporary.
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: cica_ratio_pft(:,:)
+    ! Ratio of the intercellular and canopy level CO2 concentrations
+    ! (unitless)
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: carbon_gain_pft(:,:)
+    ! Carbon gain for each plant functional type (unitless)
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: hydraulic_cost_pft(:,:)
+    ! Hydraulic cost for each plant functional type (unitless)
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: leaf_k_pft(:,:)
+    ! Percentage loss of conductance at the leaf relative to the
+    ! maximum conductance. (unitless) JBaguley
 END TYPE
 
 !================================
@@ -127,6 +152,16 @@ TYPE :: psparms_type
   REAL(KIND=real_jlslsm), POINTER :: sthf_soilt(:,:,:)
   REAL(KIND=real_jlslsm), POINTER :: sthu_min_soilt(:,:,:)
   REAL(KIND=real_jlslsm), POINTER :: soil_ph_soilt(:,:,:)
+  REAL(KIND=real_jlslsm), POINTER :: soil_wp_soilt(:,:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: soil_k_soilt(:,:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: soil_root_k_soilt(:,:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: psi_root_zone_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: psi_leaf_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: som_transpiration_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: cica_ratio_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: carbon_gain_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: hydraulic_cost_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: leaf_k_pft(:,:) ! JBaguley
 END TYPE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='P_S_PARMS'
@@ -173,16 +208,36 @@ ALLOCATE(psparms_data%smvccl_soilt(land_pts,nsoilt,sm_levels))
 ALLOCATE(psparms_data%smvcwt_soilt(land_pts,nsoilt,sm_levels))
 ALLOCATE(psparms_data%smvcst_soilt(land_pts,nsoilt,sm_levels))
 ALLOCATE(psparms_data%clay_soilt(land_pts,nsoilt,dim_cslayer))
+ALLOCATE(psparms_data%soil_wp_soilt(land_pts,nsoilt,sm_levels)) ! JBaguley
+ALLOCATE(psparms_data%soil_k_soilt(land_pts,nsoilt,sm_levels)) ! JBaguley
+ALLOCATE(psparms_data%soil_root_k_soilt(land_pts,nsoilt,sm_levels)) ! JBaguley
+ALLOCATE(psparms_data%psi_root_zone_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%psi_leaf_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%som_transpiration_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%cica_ratio_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%carbon_gain_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%hydraulic_cost_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%leaf_k_pft(land_pts,npft)) ! JBaguley
 
-psparms_data%bexp_soilt(:,:,:)   = 0.0
-psparms_data%sathh_soilt(:,:,:)  = 0.0
-psparms_data%hcap_soilt(:,:,:)   = 0.0
-psparms_data%hcon_soilt(:,:,:)   = 0.0
-psparms_data%satcon_soilt(:,:,:) = 0.0
-psparms_data%smvccl_soilt(:,:,:) = 0.0
-psparms_data%smvcwt_soilt(:,:,:) = 0.0
-psparms_data%smvcst_soilt(:,:,:) = 0.0
-psparms_data%clay_soilt(:,:,:)   = 0.0
+psparms_data%bexp_soilt(:,:,:)        = 0.0
+psparms_data%sathh_soilt(:,:,:)       = 0.0
+psparms_data%hcap_soilt(:,:,:)        = 0.0
+psparms_data%hcon_soilt(:,:,:)        = 0.0
+psparms_data%satcon_soilt(:,:,:)      = 0.0
+psparms_data%smvccl_soilt(:,:,:)      = 0.0
+psparms_data%smvcwt_soilt(:,:,:)      = 0.0
+psparms_data%smvcst_soilt(:,:,:)      = 0.0
+psparms_data%clay_soilt(:,:,:)        = 0.0
+psparms_data%soil_wp_soilt(:,:,:)     = 0.0 ! JBaguley
+psparms_data%soil_k_soilt(:,:,:)      = 0.0 ! JBaguley
+psparms_data%soil_root_k_soilt(:,:,:) = 0.0 ! JBaguley
+psparms_data%psi_root_zone_pft(:,:)   = 0.0 ! JBaguley
+psparms_data%psi_leaf_pft(:,:)        = 0.0 ! JBaguley
+psparms_data%som_transpiration_pft(:,:) = 0.0 ! JBaguley
+psparms_data%cica_ratio_pft(:,:)      = 0.0 ! JBaguley
+psparms_data%carbon_gain_pft(:,:)     = 0.0 ! JBaguley
+psparms_data%hydraulic_cost_pft(:,:)  = 0.0 ! JBaguley
+psparms_data%leaf_k_pft(:,:) = 0.0 ! JBaguley
 
 ! Plant and soil parameters
 ALLOCATE(psparms_data%albsoil_soilt(land_pts,nsoilt))
@@ -286,6 +341,16 @@ DEALLOCATE(psparms_data%sthu_min_soilt)
 DEALLOCATE(psparms_data%soil_ph_soilt)
 DEALLOCATE(psparms_data%v_close_pft)
 DEALLOCATE(psparms_data%v_open_pft)
+DEALLOCATE(psparms_data%soil_wp_soilt) ! JBaguley
+DEALLOCATE(psparms_data%soil_k_soilt) ! JBaguley
+DEALLOCATE(psparms_data%soil_root_k_soilt) ! JBaguley
+DEALLOCATE(psparms_data%psi_root_zone_pft) ! JBaguley
+DEALLOCATE(psparms_data%psi_leaf_pft) ! JBaguley
+DEALLOCATE(psparms_data%som_transpiration_pft) ! JBaguley
+DEALLOCATE(psparms_data%cica_ratio_pft) ! JBaguley
+DEALLOCATE(psparms_data%carbon_gain_pft) ! JBaguley
+DEALLOCATE(psparms_data%hydraulic_cost_pft) ! JBaguley
+DEALLOCATE(psparms_data%leaf_k_pft) ! JBaguley
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -345,6 +410,16 @@ psparms%sthu_min_soilt => psparms_data%sthu_min_soilt
 psparms%soil_ph_soilt => psparms_data%soil_ph_soilt
 psparms%v_close_pft => psparms_data%v_close_pft
 psparms%v_open_pft => psparms_data%v_open_pft
+psparms%soil_wp_soilt => psparms_data%soil_wp_soilt ! JBaguley
+psparms%soil_k_soilt => psparms_data%soil_k_soilt ! JBaguley
+psparms%soil_root_k_soilt => psparms_data%soil_root_k_soilt ! JBaguley
+psparms%psi_root_zone_pft => psparms_data%psi_root_zone_pft ! JBaguley
+psparms%psi_leaf_pft => psparms_data%psi_leaf_pft ! JBaguley
+psparms%som_transpiration_pft => psparms_data%som_transpiration_pft ! JBaguley
+psparms%cica_ratio_pft => psparms_data%cica_ratio_pft ! JBaguley
+psparms%carbon_gain_pft => psparms_data%carbon_gain_pft ! JBaguley
+psparms%hydraulic_cost_pft => psparms_data%hydraulic_cost_pft ! JBaguley
+psparms%leaf_k_pft => psparms_data%leaf_k_pft ! JBaguley
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -400,6 +475,16 @@ NULLIFY(psparms%sthu_min_soilt)
 NULLIFY(psparms%soil_ph_soilt)
 NULLIFY(psparms%v_close_pft)
 NULLIFY(psparms%v_open_pft)
+NULLIFY(psparms%soil_wp_soilt) ! JBaguley
+NULLIFY(psparms%soil_k_soilt) ! JBaguley
+NULLIFY(psparms%soil_root_k_soilt) ! JBaguley
+NULLIFY(psparms%psi_root_zone_pft) ! JBaguley
+NULLIFY(psparms%psi_leaf_pft) ! JBaguley
+NULLIFY(psparms%som_transpiration_pft) ! JBaguley
+NULLIFY(psparms%cica_ratio_pft) ! JBaguley
+NULLIFY(psparms%carbon_gain_pft) ! JBaguley
+NULLIFY(psparms%hydraulic_cost_pft) ! JBaguley
+NULLIFY(psparms%leaf_k_pft) ! JBaguley
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN

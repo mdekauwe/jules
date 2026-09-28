@@ -656,7 +656,17 @@ DO l = 1,land_pts
       IF ( edt > smc_soilt(l,mm) ) THEN
         DO n = 1,nsurft
           esoil_surft(l,n) = smc_soilt(l,mm) * esoil_surft(l,n) / edt
+          ! The stomatal transpiration diagnostic is part of esoil and is
+          ! reduced by the same factor, so TVeg is the water actually taken.
+          IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
+            sf_diag%et_stom_surft(l,n) = smc_soilt(l,mm)                       &
+                                         * sf_diag%et_stom_surft(l,n) / edt
+          END IF
         END DO
+        IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
+          sf_diag%et_stom_ij(i,j) = smc_soilt(l,mm)                            &
+                                    * sf_diag%et_stom_ij(i,j) / edt
+        END IF
         esoil_soilt(i,j,mm) = smc_soilt(l,mm) / timestep
       END IF
 
@@ -668,6 +678,15 @@ DO l = 1,land_pts
         IF ( edt > smc_soilt(l,mm) ) THEN
           esoil_surft(l,n) = smc_soilt(l,mm) * esoil_surft(l,n) / edt
           esoil_soilt(i,j,mm) = smc_soilt(l,mm) / timestep
+          ! As above: reduce the transpiration diagnostic by the same factor.
+          IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
+            sf_diag%et_stom_ij(i,j) = sf_diag%et_stom_ij(i,j)                  &
+                                      - tile_frac(l,n)                         &
+                                      * sf_diag%et_stom_surft(l,n)             &
+                                      * (1.0 - smc_soilt(l,mm) / edt)
+            sf_diag%et_stom_surft(l,n) = smc_soilt(l,mm)                       &
+                                         * sf_diag%et_stom_surft(l,n) / edt
+          END IF
         END IF
       END DO !nsurft
     END IF !nsoilt == 1

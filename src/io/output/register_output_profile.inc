@@ -262,9 +262,12 @@ IF ( output_main_run )                                                         &
 ! Note that duplicate identifiers are allowed, as long different names have
 ! been specified for them to use in output files
 !
-! Finally, if the river and land grids differ, we check whether variables are
+! If the river and land grids differ, we check whether variables are
 ! river or land variables, and define the output grid accordingly. We only
 ! allow one grid type in each profile.
+!
+! If water potential has been requested as an output we force it to be
+! calculated.
 !-----------------------------------------------------------------------------
 
 have_river_variable = .FALSE.

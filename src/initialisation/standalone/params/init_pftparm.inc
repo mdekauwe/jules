@@ -64,7 +64,9 @@ USE pftparm, ONLY:                                                             &
   tleaf_of,     tlow,          tupp,                                           &
   vint,         vsl,           sug_yg,                                         &
   z0v,          sox_a,         sox_p50,                                        &
-  sox_rp_min
+  sox_rp_min,                                                                  &
+  min_rootc_pft, rmass,        rootc_density_pft,                              & ! JBaguley
+  root_psi_crit, root_radi_pft
 
 USE c_z0h_z0m, ONLY: z0h_z0m, z0h_z0m_classic
 
@@ -675,6 +677,48 @@ END IF
 IF ( ANY( ABS( progs%lai_pft(:,:) - rmdi ) < EPSILON(1.0) ) ) THEN
   ERROR = 1
   CALL log_error(routinename, "No value for lai")
+END IF
+
+! Check variables required for soil moisture availability calculation based
+! on soil to root conductance.
+IF ( ANY( fsmc_mod(:) == 2 ) ) THEN
+  IF ( ANY( ABS( min_rootc_pft(:) - rmdi ) < EPSILON(1.0) ) ) THEN
+    ERROR = 1
+    CALL log_error(routinename, "No value for min_rootc_pft")
+  ELSE IF ( ANY( min_rootc_pft(:) < 0. ) ) THEN
+    ERROR = 1
+    CALL log_error(routinename, "Negative value for min_rootc_pft")
+  END IF
+
+  IF ( ANY( ABS( root_psi_crit(:) - rmdi) < EPSILON(1.0) ) ) THEN
+    ERROR = 1
+    CALL log_error(routinename, "No value given for root_psi_crit")
+  ELSE IF ( ANY( root_psi_crit(:) > -EPSILON(1.0) ) ) THEN
+    ERROR = 1
+    CALL log_error(routinename,                                                &
+                   "Posative or zero value given for root_psi_crit")
+  END IF
+
+  IF ( ANY( root_radi_pft(:) < EPSILON(1.0) ) ) THEN
+    ERROR = 1
+    CALL log_error(routinename, "No value for root_radi_pft")
+  END IF
+
+  IF ( ANY( rootc_density_pft(:) < EPSILON(1.0) ) ) THEN
+    ERROR = 1
+    CALL log_error(routinename, "No value for rootc_density_pft")
+  END IF
+
+  IF ( ANY( rmass(:) < EPSILON(1.0) ) ) THEN
+    ERROR = 1
+    CALL log_error(routinename,                                                &
+                   "Value for rmass must be between larger than zero")
+  END IF
+
+  IF ( ANY( rmass(:) > 1.0 ) ) THEN
+    ERROR = 1
+    CALL log_error(routinename, "Value for rmass must be less than one")
+  END IF
 END IF
 
 IF ( ERROR /= 0 )                                                              &

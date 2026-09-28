@@ -509,7 +509,7 @@ DO n = 1,npft
         !-----------------------------------------------------------------------
         dlai = lai(l,n) / REAL(ilayers)
 
-        IF ( can_rad_mod /= 5 .AND. can_rad_mod /= 6 ) THEN
+        IF ( can_rad_mod /= 5 .AND. can_rad_mod /= 6 .AND. can_rad_mod /= 7 ) THEN
           !-----------------------------------------------------------------------
           ! Differentiate these equations to calculate PAR absorption per unit
           ! LAI down through the canopy. Centre derivatives in the centre of each
@@ -544,7 +544,7 @@ DO n = 1,npft
         ELSE
 
           !-----------------------------------------------------------------------
-          !               can_rad_mod = 5 or 6.
+          !               can_rad_mod = 5, 6 or 7.
           !               Don't use derivatives.
           !-----------------------------------------------------------------------
 

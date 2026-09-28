@@ -242,5 +242,142 @@ END IF
 
 END FUNCTION sthu_from_hh
 
+SUBROUTINE bound_soil_psi(npnts,nshyd,surft_pts,surft_index,ft,                &
+                          min_psi, max_psi, psi,                               &
+                          sthu, sthu_at_max_psi)
+!-----------------------------------------------------------------------------
+! Description:
+!   Applies boundry condtions to soil water potential.
+!
+!   When l_ds_correction = false
+!     Limits the minimum water potential to min_psi.
+!   When l_ds_correction = true
+!     Applies the dry soil aproximaion from S.W. Webb 2000.
+!
+!   Dry soil aproximation:
+!     The dry soil approximation follows that outlined in S.W.
+!     Webb 2000. For the purpose of computation efficiency the
+!     implementation asumes that the soil moisture content
+!     of the matching point is known (sthu_at_max_psi). Given
+!     this the derivtive in equation seven of S.W. Webb 2000
+!     is equal to the gradient of a straight line between the
+!     two points (0, log_10(ds_psi)) and (sthu_at_max_psi,
+!     log_10(max_psi)):
+!
+!      d log_10(P_cap)      log_10(ds_psi) - log_10(max_psi)
+!     ----------------  =  ----------------------------------
+!          d S_l                    sthu_at_max_psi
+!
+! Code Description:
+!   Language: Fortran 90.
+!-----------------------------------------------------------------------------
+
+USE jules_soil_mod, ONLY: l_ds_correction, ds_psi
+
+IMPLICIT NONE
+
+! Subroutine arguments
+INTEGER, INTENT(IN) ::                                                         &
+ npnts                                                                         &
+                      ! Number of gridpoints.
+,nshyd                                                                         &
+                      ! Number of soil moisture layers.
+,surft_pts                                                                     &
+                      ! Number of points containing the
+!                     !    given surface type.
+,surft_index(npnts)                                                            &
+                      ! Indices on the land grid of the
+!                     !    points containing the given
+!                     !    surface type
+,ft                   ! Plant functional type.
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+ min_psi(npnts,nshyd)                                                          &
+                      ! Minimum water potential boundry (Pa)
+!                     ! When l_ds_correction = false
+!                     !     Minimum possible water potential
+!                     ! When l_ds_correction = true
+!                     !     Water potential at the matching point
+!                     !     above which the dry soil approximation
+!                     !     is applied. Refrence S.W. Webb 2000.
+,max_psi(npnts,nshyd)                                                          &
+                      ! Maximum water potential (Pa)
+,sthu(npnts,nshyd)                                                             &
+                      ! Unfrozen soil moisture content of
+!                     !    each layer as a fraction of
+!                     !    saturation. Only used
+!                     !    if l_ds_correction is True
+,sthu_at_max_psi(npnts,nshyd)
+                      ! Unfrozen soil moisture content of
+!                     !    each layer as a fraction of
+!                     !    saturation bellow which the dry soil
+!                     !    aproximation is used, corresponds to
+!                     !    psi_max.
+!                     !    Only used when l_ds_correction is True
+
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+ psi(npnts,nshyd)     ! Negative soil water potential in each soil layer
+!                     ! (Pa)
+
+! work
+INTEGER ::                                                                     &
+ i,j,n                ! Loop counters
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+
+CHARACTER(LEN=*), PARAMETER :: RoutineName='BOUND_SOIL_PSI'
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+! Apply maximum value limit to psi
+!$OMP PARALLEL                                                                 &
+!$OMP DEFAULT(NONE)                                                            &
+!$OMP PRIVATE(j,i,n)                                                           &
+!$OMP SHARED(surft_pts,surft_index,psi,psi_open,nshyd)
+DO n = 1,nshyd
+!$OMP DO SCHEDULE(STATIC)
+  DO j = 1,surft_pts
+    i = surft_index(j)
+    psi(i,n) = MIN(psi(i,n),max_psi(i,n))
+  END DO
+!$OMP END DO NOWAIT
+END DO
+!$OMP END PARALLEL
+
+! Modify psi if bellow psi_close
+!$OMP PARALLEL                                                                 &
+!$OMP DEFAULT(NONE)                                                            &
+!$OMP PRIVATE(j,i,n)                                                           &
+!$OMP SHARED(surft_pts,surft_index,psi,psi_close,l_ds_correction,nshyd)
+DO n = 1,nshyd
+  ! Apply dry soil corection to psi
+  ! Refrence; Webb 2000
+  IF (l_ds_correction(n)) THEN
+!$OMP DO SCHEDULE(STATIC)
+    DO j = 1,surft_pts
+      i = surft_index(j)
+      if(psi(i,n) < min_psi(i,n)) THEN
+        psi(i,n) = ds_psi * (min_psi(i,n) / ds_psi)**(sthu(i,n)/sthu_at_max_psi(i,n))
+      end if
+    END DO
+!$OMP END DO NOWAIT
+  ! Apply minimum cut to psi
+  ELSE
+!$OMP DO SCHEDULE(STATIC)
+    DO j = 1,surft_pts
+      i = surft_index(j)
+      psi(i,n) = MAX(psi(i,n),min_psi(i,n))
+    END DO
+!$OMP END DO NOWAIT
+  END IF
+END DO
+!$OMP END PARALLEL
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+RETURN
+END SUBROUTINE bound_soil_psi
+
+
 
 END MODULE hyd_psi_mod

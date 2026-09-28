@@ -110,7 +110,7 @@ ELSE
   IF ( l_trait_phys ) THEN
 
     SELECT CASE ( can_rad_mod )
-    CASE ( 1, 6 )
+    CASE ( 1, 6, 7 )
       x_tmp = kn(n) * lai_bal
       IF ( x_tmp > EPSILON(0.0) ) THEN
         nl_ave = nmass(n) * lma(n) * (1 - EXP(-x_tmp))                         &
@@ -123,13 +123,13 @@ ELSE
     CASE DEFAULT
       errcode = 101  !  a hard error
       CALL ereport(RoutineName, errcode,                                       &
-                   'can_rad_mod should be 1, 4, 5 or 6')
+                   'can_rad_mod should be 1, 4, 5, 6 or 7')
     END SELECT
 
   ELSE
 
     SELECT CASE ( can_rad_mod )
-    CASE ( 1, 6 )
+    CASE ( 1, 6, 7 )
       x_tmp = kn(n) * lai_bal
       IF ( x_tmp > EPSILON(0.0) ) THEN
         nl_ave = nl0(n) * sigl(n) * (1 - EXP(-x_tmp))                          &
@@ -140,7 +140,7 @@ ELSE
     CASE DEFAULT
       errcode = 101  !  a hard error
       CALL ereport(RoutineName, errcode,                                       &
-                   'can_rad_mod should be 1, 4, 5 or 6')
+                   'can_rad_mod should be 1, 4, 5, 6 or 7')
     END SELECT
 
   END IF  !  l_trait_phys
@@ -231,9 +231,10 @@ can_averaging_fac(:) = 1.0
 IF ( l_leaf_n_resp_fix ) THEN
   SELECT CASE ( can_rad_mod )
 
-  CASE ( 1, 6 )
+  CASE ( 1, 6, 7 )
     !       Exponential decay with LAI.
-    IF ( can_rad_mod == 1 ) THEN
+    ! can_rad_mod = 7 uses the big-leaf N profile, exp(-kpar*L).
+    IF ( can_rad_mod == 1 .OR. can_rad_mod == 7 ) THEN
       kval = kpar(ft)
     ELSE
       kval = knl(ft)
@@ -257,7 +258,7 @@ IF ( l_leaf_n_resp_fix ) THEN
   CASE DEFAULT
     errcode = 101  !  a hard error
     CALL ereport(RoutineName, errcode,                                         &
-                 'can_rad_mod should be 1, 4, 5 or 6')
+                 'can_rad_mod should be 1, 4, 5, 6 or 7')
 
   END SELECT
 
