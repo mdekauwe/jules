@@ -45,8 +45,9 @@ MODULE desica_jls_mod
 ! one k_plant / (1 - som_leaf_resist_frac).
 !
 ! Soil water extraction stays E (as in CABLE-DESICA); Q is a diagnostic.
-! The state is not written to the dump: on a (re)start psi_leaf and
-! psi_stem start at psi_root_zone.
+! psi_leaf and psi_stem are dumped ('psi_leaf_desica', 'psi_stem_desica',
+! Pa). A value >= 0 (e.g. an initial condition of 0) means "not set": the
+! state then starts at psi_root_zone.
 !
 ! References:
 ! Tuzet et al. (2003) Plant Cell Environ. 26: 1097-1116.
@@ -59,7 +60,7 @@ USE um_types, ONLY: real_jlslsm
 IMPLICIT NONE
 
 PRIVATE
-PUBLIC :: desica_fw, desica_hydraulics, tuzet_fw,                              &
+PUBLIC :: desica_alloc, desica_fw, desica_hydraulics, tuzet_fw,                &
           psi_leaf_desica, psi_stem_desica, flux_root_desica, flux_sap_desica
 
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE ::                                   &
@@ -73,9 +74,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE ::                                   &
   flux_sap_desica(:,:)
                             ! Sap flow stem -> leaf J, timestep mean
                             ! (kg m-2 ground s-1).
-
-LOGICAL, ALLOCATABLE, SAVE :: l_desica_init(:,:)
-                            ! State has been initialised at this point/PFT.
 
 REAL(KIND=real_jlslsm), PARAMETER :: dt_max = 600.0
                             ! Longest sub-step (s), Xu et al. (2016).
@@ -91,12 +89,31 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='DESICA_JLS_MOD'
 CONTAINS
 
 !-----------------------------------------------------------------------------
+! Allocate the state (land_pts, npft), zero = not set, if not done yet.
+!-----------------------------------------------------------------------------
+SUBROUTINE desica_alloc( land_pts )
+
+USE jules_surface_types_mod, ONLY: npft
+
+INTEGER, INTENT(IN) :: land_pts
+
+IF ( .NOT. ALLOCATED(psi_leaf_desica) ) THEN
+  ALLOCATE( psi_leaf_desica(land_pts,npft), psi_stem_desica(land_pts,npft),   &
+            flux_root_desica(land_pts,npft), flux_sap_desica(land_pts,npft) )
+  psi_leaf_desica(:,:)  = 0.0
+  psi_stem_desica(:,:)  = 0.0
+  flux_root_desica(:,:) = 0.0
+  flux_sap_desica(:,:)  = 0.0
+END IF
+
+END SUBROUTINE desica_alloc
+
+!-----------------------------------------------------------------------------
 ! Tuzet factor from the psi_leaf of the previous timestep. Initialises the
 ! state to psi_root_zone at points not seen before.
 !-----------------------------------------------------------------------------
 SUBROUTINE desica_fw( ft, land_pts, veg_pts, veg_index, psi_root_zone, fw )
 
-USE jules_surface_types_mod, ONLY: npft
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: psi_root_zone(land_pts)
                             ! Root zone water potential (Pa).
@@ -105,24 +122,15 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: fw(land_pts)
 
 INTEGER :: l, m
 
-IF ( .NOT. ALLOCATED(psi_leaf_desica) ) THEN
-  ALLOCATE( psi_leaf_desica(land_pts,npft), psi_stem_desica(land_pts,npft),   &
-            flux_root_desica(land_pts,npft), flux_sap_desica(land_pts,npft),  &
-            l_desica_init(land_pts,npft) )
-  psi_leaf_desica(:,:)  = 0.0
-  psi_stem_desica(:,:)  = 0.0
-  flux_root_desica(:,:) = 0.0
-  flux_sap_desica(:,:)  = 0.0
-  l_desica_init(:,:)    = .FALSE.
-END IF
+CALL desica_alloc( land_pts )
 
 fw(:) = 1.0
 DO m = 1,veg_pts
   l = veg_index(m)
-  IF ( .NOT. l_desica_init(l,ft) ) THEN
-    psi_leaf_desica(l,ft) = MIN(psi_root_zone(l), 0.0)
-    psi_stem_desica(l,ft) = MIN(psi_root_zone(l), 0.0)
-    l_desica_init(l,ft)   = .TRUE.
+  ! Not set (no dump/initial value): start at the soil water potential.
+  IF ( psi_stem_desica(l,ft) >= 0.0 .OR. psi_leaf_desica(l,ft) >= 0.0 ) THEN
+    psi_leaf_desica(l,ft) = MIN(psi_root_zone(l), -1.0)
+    psi_stem_desica(l,ft) = MIN(psi_root_zone(l), -1.0)
   END IF
   fw(l) = tuzet_fw(ft, psi_leaf_desica(l,ft))
 END DO

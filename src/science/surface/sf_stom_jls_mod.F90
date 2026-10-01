@@ -67,7 +67,7 @@ USE theta_field_sizes, ONLY: t_i_length
 USE jules_surface_types_mod, ONLY: nnpft, ncpft
 
 USE pftparm, ONLY:                                                             &
-        kmax_pft, conductance_b, conductance_c, kcrit, gcut
+        kmax_pft, conductance_b, conductance_c, kcrit, gcut, min_gl_pft
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported model ids. JBaguley
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
@@ -2501,7 +2501,11 @@ CASE ( 1 )
   IF ( stomata_model == stomata_desica .AND. i_pass < n_pass ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
-      gl_cut_ds = gcut(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
+      ! Trial E for this fw, with the cuticular floor if it is on (here
+      ! without its supply/xylem bounds, which only act near closure).
+      gl_cut_ds = 0.0
+      IF ( l_som_cuticular_floor ) gl_cut_ds = gcut(ft) * 1.0e-3 * rmol        &
+                                               * tstar(l) / pstar(l) * lai(l)
       el_try(l) = MAX(dqc(l), 0.0) * pstar(l) / repsilon                     &
                   * MAX(gc(l), gl_cut_ds) / (rmol * tstar(l))
     END DO
@@ -2797,22 +2801,22 @@ CASE DEFAULT
 END SELECT  ! can_rad_mod
 
 !-----------------------------------------------------------------------------
-! DESICA: gmin (gcut) as the lower bound on the canopy conductance, not
-! added to it (DESICA, CABLE-DESICA), at night too; A is unchanged. Then
-! the transpiration (as in stom_opt_mod_ci) advances psi_leaf and psi_stem.
+! DESICA: as the stomatal optimisation, no stomatal loss with no light
+! (gc = min_gl_pft, as stom_opt_mod's closed points), and the canopy
+! transpiration (as in stom_opt_mod_ci) for the cuticular floor below and
+! the plant hydraulics after it. psi_leaf/leaf_k here are only the
+! steady-state values the floor block expects; desica_hydraulics replaces
+! them.
 !-----------------------------------------------------------------------------
 IF ( stomata_model == stomata_desica ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
-    ! mmol m-2 leaf s-1 -> m s-1, times LAI for the canopy.
-    gl_cut_ds = gcut(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
-    gc(l)     = MAX(gc(l), gl_cut_ds)
-    el(l)     = MAX(dqc(l), 0.0) * pstar(l) / repsilon * gc(l)                 &
-                / (rmol * tstar(l))
+    IF ( apar(l) == 0.0 ) gc(l) = min_gl_pft(ft)
+    el(l)       = MAX(dqc(l), 0.0) * pstar(l) / repsilon * gc(l)               &
+                  / (rmol * tstar(l))
+    psi_leaf(l) = psi_root_zone(l)
+    leaf_k(l)   = kmax_pft(ft) * lai(l)
   END DO
-  CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
-                          lai, ht, psi_root_zone, el, .TRUE.,                &
-                          psi_leaf, leaf_k )
 END IF
 
 !-----------------------------------------------------------------------------
@@ -2824,7 +2828,8 @@ END IF
 ! psi_leaf / leaf_k are re-solved for the total flux. Applies at night too
 ! (closed points), as cuticular loss is not stomatal.
 !-----------------------------------------------------------------------------
-IF ( l_som_cuticular_floor .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
+IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
+                                   stomata_model == stomata_desica ) ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     ! mmol m-2 leaf s-1 -> m s-1, times LAI for the canopy.
@@ -2876,6 +2881,16 @@ IF ( l_som_cuticular_floor .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
       END IF
     END DO
   END IF
+END IF
+
+!-----------------------------------------------------------------------------
+! DESICA: advance psi_leaf and psi_stem for this timestep's transpiration
+! (including any cuticular floor).
+!-----------------------------------------------------------------------------
+IF ( stomata_model == stomata_desica ) THEN
+  CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
+                          lai, ht, psi_root_zone, el, .TRUE.,                &
+                          psi_leaf, leaf_k )
 END IF
 
 !-----------------------------------------------------------------------------

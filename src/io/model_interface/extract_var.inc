@@ -21,7 +21,8 @@ USE gridbox_mean_mod, ONLY:                                                    &
   surftiles_to_gbm, soiltiles_to_gbm
 
 USE timestep_mod, ONLY: timestep
-USE desica_jls_mod, ONLY: psi_stem_desica, flux_root_desica, flux_sap_desica
+USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
+                          flux_sap_desica
 
 !Use variables
 !Science variables
@@ -3630,6 +3631,18 @@ CASE ('hydraulic_cost_pft')
 CASE ( 'psi_stem_pft' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(psi_stem_desica) ) workspace_pft(:,:) = psi_stem_desica * 1.0e-6
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'psi_leaf_desica' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(psi_leaf_desica) ) workspace_pft(:,:) = psi_leaf_desica
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'psi_stem_desica' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(psi_stem_desica) ) workspace_pft(:,:) = psi_stem_desica
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

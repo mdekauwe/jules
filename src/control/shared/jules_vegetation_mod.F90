@@ -1098,12 +1098,14 @@ IF ( l_som_plant_segments .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.     &
                'som_psi_aprox_method=2 or 3 and can_rad_mod=1 or 7')
 END IF
 
-IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.    &
-                                   ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) ) THEN
+IF ( l_som_cuticular_floor .AND.                                               &
+     ( ( leaf_flux_mod /= leaf_flux_stom_opt .AND.                            &
+         stomata_model /= stomata_desica ) .OR.                               &
+       ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_cuticular_floor requires leaf_flux_mod=2 and ' //        &
-               'can_rad_mod=1 or 7')
+               'l_som_cuticular_floor requires leaf_flux_mod=2 or ' //         &
+               'stomata_model=4, and can_rad_mod=1 or 7')
 END IF
 
 IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &

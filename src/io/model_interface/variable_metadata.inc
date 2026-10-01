@@ -9537,4 +9537,30 @@ DATA metadata(736) / var_metadata(                                             &
 ! Units
     "kg m-2 s-1"                                                               &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for psi_leaf_desica (DESICA prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(737) / var_metadata(                                             &
+! String identifier
+    'psi_leaf_desica',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "DESICA leaf water potential (prognostic; 0 = start at the soil)",         &
+! Units
+    "Pa"                                                                       &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for psi_stem_desica (DESICA prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(738) / var_metadata(                                             &
+! String identifier
+    'psi_stem_desica',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "DESICA stem water potential (prognostic; 0 = start at the soil)",         &
+! Units
+    "Pa"                                                                       &
+  ) /
 #endif

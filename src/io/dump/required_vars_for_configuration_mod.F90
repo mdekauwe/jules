@@ -36,7 +36,8 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_nitrogen, l_prescsow, l_trif_crop,           &
                                 photo_acclim_model, photo_adapt,               &
                                 photo_acclim, photo_adapt_acclim,              &
-                                l_croprotate, l_trif_biocrop, l_sugar, l_red
+                                l_croprotate, l_trif_biocrop, l_sugar, l_red,  &
+                                stomata_model, stomata_desica
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -272,6 +273,12 @@ END IF
 IF ( l_sugar ) THEN
   ! With SUGAR on, NSC mass fraction is prognostic for all PFTs
   CALL add_to_list( 'f_nsc', nvars, identifiers )
+END IF
+
+IF ( stomata_model == stomata_desica ) THEN
+  ! DESICA leaf and stem water potentials are prognostic for all PFTs
+  CALL add_to_list( 'psi_leaf_desica', nvars, identifiers )
+  CALL add_to_list( 'psi_stem_desica', nvars, identifiers )
 END IF
 
 ! TOPMODEL variables.
