@@ -14,7 +14,37 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*),PARAMETER,PRIVATE :: ModuleName='XYLEM_HYDRAULICS_CW_JLS_MOD'
 
-PUBLIC :: xylem_conductance_CW_jls, leaf_psi_CW_jls
+PUBLIC :: xylem_conductance_CW_jls, leaf_psi_CW_jls, leaf_psi_lut_jls,        &
+          supply_lut_psi, supply_lut_e_crit, supply_lut_f
+
+! ---------------------------------------------------------------------
+! Supply-function lookup table (som_psi_aprox_method = psi_aprox_LUT),
+! for either conductance model of the PFT (pft_conductance_model):
+!   cumulative Weibull: f(psi) = exp(-(psi/b)^c)
+!   SOX:                f(psi) = 1 / (1 + (psi/b)^c)
+! With k(psi) = kmax * f(psi), the transpiration between root zone and
+! leaf is E = kmax * (S(psi_l) - S(psi_r)), S(psi) = integral(f, psi, 0).
+! S depends only on the PFT's b and c (not on kmax, which can vary in
+! space and time), so it is tabulated once per PFT on a uniform psi grid
+! from 0 down to where f has fallen to well below kcrit/kmax. psi_leaf is
+! then found by inverting S directly (binary search plus linear
+! interpolation) instead of Newton-Raphson on the incomplete gamma or
+! hypergeometric series.
+! ---------------------------------------------------------------------
+INTEGER, PARAMETER, PRIVATE :: n_lut = 4001
+REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: lut_f_floor = 1.0e-6
+                            ! Bottom of the Weibull table (f falls fast).
+REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: lut_f_floor_kcrit = 0.1
+                            ! Bottom of the SOX table, as a fraction of
+                            ! kcrit/kmax (f has a power-law tail, so a fixed
+                            ! tiny floor would spread the table too thin).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: lut_s(:,:)
+                            ! S(psi_i) (Pa), psi_i = -(i-1)*lut_dpsi.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: lut_dpsi(:)
+                            ! Grid spacing for each PFT (Pa).
+LOGICAL, ALLOCATABLE, SAVE, PRIVATE :: lut_ready(:)
+LOGICAL, ALLOCATABLE, SAVE, PRIVATE :: lut_sox(:)
+                            ! Table is for the SOX curve (else Weibull).
 
 CONTAINS
 
@@ -133,7 +163,8 @@ SUBROUTINE leaf_psi_CW_jls( pft,                                               &
   )
 
 USE jules_vegetation_mod, ONLY: som_psi_aprox_method, psi_aprox_TE,            &
-                                psi_aprox_NR, l_som_plant_segments
+                                psi_aprox_NR, psi_aprox_LUT,                   &
+                                l_som_plant_segments
 
 USE pftparm, ONLY: conductance_b, conductance_c
 
@@ -429,15 +460,260 @@ CASE(psi_aprox_NR)
 
   END IF  ! l_som_plant_segments
 
+! ---------------------------------------------------------------------
+! Invert the tabulated supply function (see lut_s at the top of this
+! module): S(psi_l) = S(psi_r) + e_leaf/kmax. Exact up to the table's
+! linear interpolation, with no iteration. A demand beyond what the curve
+! can supply from psi_r puts the leaf at the bottom of the table, where
+! k = lut_f_floor * kmax < kcrit, so stom_opt_mod rejects it as before.
+! ---------------------------------------------------------------------
+CASE(psi_aprox_LUT)
+  IF ( l_som_plant_segments ) THEN
+    CALL leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,  &
+                                open_index, e_leaf, root_zone_psi, kmax, kcrit, &
+                                leaf_psi, leaf_k )
+  ELSE
+    CALL leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,    &
+                              open_index, e_leaf, root_zone_psi, kmax,          &
+                              leaf_psi, leaf_k )
+  END IF  ! l_som_plant_segments
+
 CASE DEFAULT
   errcode = 101  !  a hard error
   CALL ereport(RoutineName, errcode,                                           &
-        'som_psi_aprox_method should be psi_aprox_TE or psi_aprox_NR')
+        'som_psi_aprox_method should be psi_aprox_TE, psi_aprox_NR ' //       &
+        'or psi_aprox_LUT')
 END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE leaf_psi_CW_jls
+
+
+! *****************************************************************************
+! Leaf water potential and conductance by inverting the tabulated supply
+! function (see lut_s at the top of this module):
+!   S(psi_l) = S(psi_r) + e_leaf/kmax.
+! Exact up to the table's linear interpolation, with no iteration. A demand
+! beyond what the curve can supply from psi_r puts the leaf at the bottom of
+! the table, where k = lut_f_floor * kmax < kcrit, so stom_opt_mod rejects it
+! as for the Newton-Raphson solve. Has no automatic arrays, so it is cheap to
+! call for a single sample per point.
+! *****************************************************************************
+SUBROUTINE leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index, &
+                                open_index, e_leaf, root_zone_psi, kmax,       &
+                                leaf_psi, leaf_k )
+
+USE pftparm, ONLY: conductance_b, conductance_c
+
+INTEGER, INTENT(IN) ::                                                         &
+  pft, n_e_leaf, land_pts, open_pnts, veg_index(land_pts), open_index(land_pts)
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  e_leaf(n_e_leaf, open_pnts)                                                  &
+                            ! Transpiration rates for each open point.
+, root_zone_psi(land_pts)                                                      &
+                            ! Water potential in the root zone (Pa).
+, kmax(land_pts)
+                            ! Maximum xylem conductance (same units as
+                            ! e_leaf per Pa).
+
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  leaf_psi(n_e_leaf, open_pnts)                                                &
+                            ! Leaf water potential (Pa).
+, leaf_k(n_e_leaf, open_pnts)
+                            ! Xylem conductance at the leaf water potential.
+
+INTEGER :: i, j, l
+
+DO j = 1, open_pnts
+  l = veg_index(open_index(j))
+  DO i = 1, n_e_leaf
+    leaf_psi(i,j) = supply_lut_psi(pft, root_zone_psi(l), e_leaf(i,j) / kmax(l))
+    leaf_k(i,j) = kmax(l) * supply_lut_f(pft, leaf_psi(i,j))
+  END DO
+END DO
+
+END SUBROUTINE leaf_psi_lut_jls
+
+
+! *****************************************************************************
+! Leaf water potential (Pa) from the supply-function table, for root zone
+! potential psi_root (Pa) and normalised demand e_over_kmax = e_leaf/kmax (Pa):
+! solves S(psi_l) = S(psi_r) + e_over_kmax. See leaf_psi_lut_jls.
+! *****************************************************************************
+FUNCTION supply_lut_psi( pft, psi_root, e_over_kmax ) RESULT( psi_l )
+
+INTEGER, INTENT(IN) :: pft
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_root, e_over_kmax
+REAL(KIND=real_jlslsm) :: psi_l
+
+INTEGER :: lo, hi, mid, i_root
+REAL(KIND=real_jlslsm) :: dpsi, r_root, s_target
+
+CALL build_supply_lut(pft)
+dpsi = lut_dpsi(pft)
+
+! S at the root zone water potential plus the demand, and the table cell
+! psi_root is in (the search starts there).
+r_root = MIN(MAX(-psi_root / dpsi, 0.0), REAL(n_lut - 1))
+i_root = MIN(INT(r_root) + 1, n_lut - 1)
+s_target = lut_s_at(pft, psi_root) + e_over_kmax
+
+IF ( s_target >= lut_s(n_lut,pft) ) THEN
+  psi_l = MIN(-(n_lut - 1) * dpsi, psi_root)
+ELSE
+  ! lut_s(lo) <= s_target < lut_s(hi); S is strictly increasing.
+  lo = i_root
+  hi = n_lut
+  DO WHILE ( hi - lo > 1 )
+    mid = (lo + hi) / 2
+    IF ( lut_s(mid,pft) <= s_target ) THEN
+      lo = mid
+    ELSE
+      hi = mid
+    END IF
+  END DO
+  psi_l = -(lo - 1) * dpsi - dpsi * (s_target - lut_s(lo,pft))                 &
+          / (lut_s(hi,pft) - lut_s(lo,pft))
+  psi_l = MIN(psi_l, psi_root)
+END IF
+
+END FUNCTION supply_lut_psi
+
+
+! *****************************************************************************
+! Largest normalised transpiration, e/kmax (Pa), the curve can supply from
+! psi_root while keeping k >= kcrit_frac * kmax: S(psi_crit) - S(psi_root),
+! with k(psi_crit) = kcrit_frac * kmax. Zero if psi_root is already beyond
+! psi_crit.
+! *****************************************************************************
+FUNCTION supply_lut_e_crit( pft, psi_root, kcrit_frac ) RESULT( e_crit )
+
+USE pftparm, ONLY: conductance_b, conductance_c
+
+INTEGER, INTENT(IN) :: pft
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_root, kcrit_frac
+REAL(KIND=real_jlslsm) :: e_crit
+
+REAL(KIND=real_jlslsm) :: psi_crit
+
+CALL build_supply_lut(pft)
+! f(psi_crit) = kcrit_frac
+IF ( lut_sox(pft) ) THEN
+  psi_crit = conductance_b(pft)                                                &
+             * (1.0 / kcrit_frac - 1.0)**(1.0 / conductance_c(pft))
+ELSE
+  psi_crit = conductance_b(pft)                                                &
+             * (-LOG(kcrit_frac))**(1.0 / conductance_c(pft))
+END IF
+e_crit = MAX(lut_s_at(pft, psi_crit) - lut_s_at(pft, psi_root), 0.0)
+
+END FUNCTION supply_lut_e_crit
+
+! Relative conductance f(psi) = k/kmax of the PFT's conductance model.
+FUNCTION supply_lut_f( pft, psi ) RESULT( f )
+
+USE pftparm, ONLY: conductance_b, conductance_c
+
+INTEGER, INTENT(IN) :: pft
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+REAL(KIND=real_jlslsm) :: f
+
+CALL build_supply_lut(pft)
+IF ( lut_sox(pft) ) THEN
+  f = 1.0 / (1.0 + (ABS(psi / conductance_b(pft)))**conductance_c(pft))
+ELSE
+  f = EXP(-(ABS(psi / conductance_b(pft)))**conductance_c(pft))
+END IF
+
+END FUNCTION supply_lut_f
+
+! S(psi) by linear interpolation in the table (the table must be built).
+FUNCTION lut_s_at( pft, psi ) RESULT( s_psi )
+
+INTEGER, INTENT(IN) :: pft
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+REAL(KIND=real_jlslsm) :: s_psi
+
+INTEGER :: i0
+REAL(KIND=real_jlslsm) :: r
+
+r = MIN(MAX(-psi / lut_dpsi(pft), 0.0), REAL(n_lut - 1))
+i0 = MIN(INT(r) + 1, n_lut - 1)
+s_psi = lut_s(i0,pft) + (r - (i0 - 1)) * (lut_s(i0+1,pft) - lut_s(i0,pft))
+
+END FUNCTION lut_s_at
+
+! *****************************************************************************
+! Build (once per PFT) the supply-function table used by psi_aprox_LUT:
+! lut_s(i,pft) = integral(f, psi_i, 0) by Simpson's rule on each grid cell,
+! for the PFT's conductance model (see lut_s above). Built by numerical
+! integration rather than the closed forms (incomplete gamma /
+! hypergeometric series), whose series are poorly conditioned deep into the
+! curve.
+! *****************************************************************************
+SUBROUTINE build_supply_lut( pft )
+
+USE max_dimensions, ONLY: npft_max
+USE pftparm, ONLY: conductance_b, conductance_c, pft_conductance_model,       &
+                   kcrit_fractional_loss
+USE jules_vegetation_mod, ONLY: SOX_conductance
+
+INTEGER, INTENT(IN) :: pft
+
+INTEGER :: i
+REAL(KIND=real_jlslsm) :: b, c, dpsi, p0, pm, p1, f_floor
+LOGICAL :: l_sox
+
+IF ( ALLOCATED(lut_ready) ) THEN
+  IF ( lut_ready(pft) ) RETURN
+END IF
+
+!$OMP CRITICAL (som_supply_lut)
+IF ( .NOT. ALLOCATED(lut_ready) ) THEN
+  ALLOCATE( lut_s(n_lut, npft_max), lut_dpsi(npft_max), lut_ready(npft_max), &
+            lut_sox(npft_max) )
+  lut_ready(:) = .FALSE.
+END IF
+
+IF ( .NOT. lut_ready(pft) ) THEN
+  b = conductance_b(pft)
+  c = conductance_c(pft)
+  l_sox = pft_conductance_model(pft) == SOX_conductance
+  ! Bottom of the table: where f = f_floor.
+  IF ( l_sox ) THEN
+    f_floor = lut_f_floor_kcrit * (1.0 - kcrit_fractional_loss(pft))
+    dpsi = ABS(b) * (1.0 / f_floor - 1.0)**(1.0 / c) / (n_lut - 1)
+  ELSE
+    dpsi = ABS(b) * (-LOG(lut_f_floor))**(1.0 / c) / (n_lut - 1)
+  END IF
+  lut_dpsi(pft) = dpsi
+  lut_s(1,pft) = 0.0
+  DO i = 2, n_lut
+    p0 = -(i - 2) * dpsi
+    p1 = -(i - 1) * dpsi
+    pm = 0.5 * (p0 + p1)
+    lut_s(i,pft) = lut_s(i-1,pft) + dpsi / 6.0                                 &
+                   * ( f_of(p0) + 4.0 * f_of(pm) + f_of(p1) )
+  END DO
+  lut_sox(pft) = l_sox
+  lut_ready(pft) = .TRUE.
+END IF
+!$OMP END CRITICAL (som_supply_lut)
+
+CONTAINS
+
+  REAL(KIND=real_jlslsm) FUNCTION f_of(p)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: p
+  IF ( l_sox ) THEN
+    f_of = 1.0 / (1.0 + (ABS(p / b))**c)
+  ELSE
+    f_of = EXP(-(ABS(p / b))**c)
+  END IF
+  END FUNCTION f_of
+
+END SUBROUTINE build_supply_lut
 
 ! *****************************************************************************
 ! Leaf water potential and whole-plant conductance for the plant as root,

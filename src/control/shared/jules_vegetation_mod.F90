@@ -142,9 +142,13 @@ INTEGER, PARAMETER ::                                                          &
   psi_aprox_TE = 1,                                                            &
     ! Use a zeroth order Taylor series expansion of the xylem conductence
     ! model to aproximate leaf water potential from transpiration rate.
-  psi_aprox_NR = 2
+  psi_aprox_NR = 2,                                                            &
     ! Use the Newton Raphson method to aproximate leaf water potential
      ! from transpiration rate.
+  psi_aprox_LUT = 3
+    ! Invert a per-PFT lookup table of the supply function (the integral
+    ! of the vulnerability curve) to get leaf water potential directly
+    ! from transpiration rate (cumulative Weibull or SOX conductance).
 
 ! Parameters identifying different profit models for determaning the optimal
 ! stomatal conductance.
@@ -166,24 +170,6 @@ INTEGER, PARAMETER ::                                                          &
     !      CarbonGain(psi) = Anet(psi)
     !
     !      HydraulicCost(psi) = 1 - (k(psi) / kmax)
-
-! Parameters identifying different Ci-search strategies for
-! profit_max_profit_model (SOX_profit_model is unaffected by this switch and
-! always uses the flat single-pass search at som_n_sample resolution).
-! These should have unique values.
-INTEGER, PARAMETER ::                                                          &
-  ci_search_flat = 1,                                                         &
-    ! Original brute-force flat grid of som_n_sample points over
-    ! [ccp, ca] every timestep. Slow (O(som_n_sample) hydraulic solves per
-    ! timestep) but the most tested/robust; the default.
-  ci_search_golden = 2
-    ! A som_n_ci_prescan-point coarse prescan (only used to get max_al/max_kl
-    ! reference values for the profit_max_profit_model CG/HC normalisation),
-    ! followed by a golden-section search over the full [ccp, ca] range for
-    ! som_n_ci_golden_iter iterations. Relies on profit(ci) being unimodal
-    ! (rising then falling, including via a hard cliff to infeasible at the
-    ! high-ci end) - the fastest option, and the one with the least
-    ! robustness margin if that assumption is ever wrong.
 
 !-----------------------------------------------------------------------------
 ! Items set in namelist
@@ -323,16 +309,8 @@ INTEGER ::                                                                     &
   som_n_sample = 100,                                                          &
       ! Number of sample points used by the stomatal optimisation model.
       ! JBaguley
-  som_ci_search_method = ci_search_flat,                                      &
-      ! Which Ci-search strategy profit_max_profit_model uses - see the
-      ! ci_search_flat/ci_search_golden PARAMETERs above. Defaults to the
-      ! original flat search so nothing changes unless this is set
-      ! explicitly.
-  som_n_ci_prescan = 15,                                                      &
-      ! Number of Ci sample points used for ci_search_golden's coarse
-      ! prescan (only used to get max_al/max_kl reference values).
   som_n_ci_golden_iter = 16,                                                  &
-      ! Number of golden-section iterations used by ci_search_golden, on
+      ! Maximum golden-section iterations of the l_som_fast Ci search, on
       ! top of the initial two-point bracket setup.
   som_psi_aprox_method = 1,                                                    &
       ! Flag for the method used to approximate the leaf water potential from
@@ -384,6 +362,18 @@ LOGICAL ::                                                                     &
       ! the demand gs and A are re-derived by the optimiser and stay
       ! consistent with the water actually used; other steps are unchanged.
 LOGICAL ::                                                                     &
+  l_som_fast = .FALSE.
+      ! Speed-up option for the stomatal optimisation (leaf_flux_mod = 2).
+      ! When .TRUE., profit_max_profit_model finds the optimal Ci with a
+      ! bounded search instead of the flat grid of som_n_sample points: a
+      ! root find for the upper edge ci_b of the feasible Ci range (gl, E
+      ! and the loss of k all rise with Ci, so the feasible samples are
+      ! [ccp, ci_b]), which gives the CG/HC normalisation of the flat grid
+      ! in the limit of a fine grid, then golden-section on [ccp, ci_b] only
+      ! (som_n_ci_golden_iter). See stom_opt_bounded_search. It also sets
+      ! som_psi_aprox_method = psi_aprox_LUT, overriding the namelist value.
+      ! SOX_profit_model always uses the flat grid.
+LOGICAL ::                                                                     &
   l_som_skip_search_wellwatered = .FALSE.
       ! When .TRUE., skip the full Ci search in
       ! profit_max_profit_model for any point where hydraulic cost is
@@ -393,7 +383,7 @@ LOGICAL ::                                                                     &
       ! Off by default: the fast path places ci at
       ! ca - 0.001*(ca - ccp), much closer to ca than the top point of the
       ! flat grid ((ca - ccp)/som_n_sample below ca), so gl there is ~10x
-      ! what ci_search_flat itself would select at som_n_sample=100 -
+      ! what the flat search itself would select at som_n_sample=100 -
       ! i.e. turning it on changes results, not just speed.
 
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -535,9 +525,9 @@ NAMELIST  / jules_vegetation/                                                  &
     l_phenol, l_triffid, l_trif_eq, l_veg_compete,                             &
     phenol_period, triffid_period, l_trait_phys, l_ht_compete,                 &
     l_bvoc_emis, l_o3_damage, can_model, can_rad_mod, ilayers, leaf_flux_mod,  &
-    som_base_parm, som_n_sample, som_ci_search_method,                        &
-    som_n_ci_prescan, som_n_ci_golden_iter,                                   &
+    som_base_parm, som_n_sample, som_n_ci_golden_iter,                        &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
+    l_som_fast,                                                               &
     l_som_supply_limit, l_som_plant_segments, l_som_gain_gross,               &
     l_som_cuticular_floor,                                                    &
     som_leaf_resist_frac, som_gl_max,                                         &
@@ -592,7 +582,7 @@ USE jules_surface_types_mod, ONLY: npft, ncpft, nnpft
 
 USE jules_surface_mod, ONLY: l_aggregate
 
-USE jules_print_mgr, ONLY: jules_message
+USE jules_print_mgr, ONLY: jules_message, jules_print
 
 !-----------------------------------------------------------------------------
 ! Description:
@@ -709,25 +699,8 @@ IF (som_n_sample < 10) THEN
                'som_n_sample should be grater than or equal to 10')
 END IF
 
-! Check that som_ci_search_method is suitable.
-SELECT CASE (som_ci_search_method)
-CASE (ci_search_flat, ci_search_golden)
-  ! Valid values
-CASE DEFAULT
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-     'som_ci_search_method should be flat (1) or golden (2)')
-END SELECT
-
-! Check that the golden-section prescan/iteration counts are sufficiently
-! large (golden needs at least a couple of prescan points to bracket
-! max_al/max_kl, and at least 1 iteration to refine past the initial
-! two-point bracket).
-IF (som_n_ci_prescan < 2) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'som_n_ci_prescan should be greater than or equal to 2')
-END IF
+! Check that the l_som_fast golden-section iteration count is sufficiently
+! large (at least 1 iteration to refine past the initial two-point bracket).
 IF (som_n_ci_golden_iter < 1) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -751,13 +724,21 @@ END IF
 
 ! Check that the som_psi_aprox_method is suitable. JBaguley
 SELECT CASE( som_psi_aprox_method)
-CASE ( 1, 2)
+CASE ( psi_aprox_TE, psi_aprox_NR, psi_aprox_LUT )
   ! Valid values
 CASE DEFAULT
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-     'som_psi_aprox_method should be Taylore series (1) or Lookup table (2)')
+     'som_psi_aprox_method should be Taylor series (1), Newton-Raphson (2) ' //&
+     'or lookup table (3)')
 END SELECT
+
+! l_som_fast also selects the lookup-table leaf-psi solver.
+IF ( l_som_fast .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
+  som_psi_aprox_method = psi_aprox_LUT
+  CALL jules_print('check_jules_vegetation',                                   &
+       'l_som_fast: bounded Ci search and som_psi_aprox_method=3')
+END IF
 
 ! Check that the som_profit_model is suitable. JBaguley
 SELECT CASE( som_profit_model)
@@ -1085,12 +1066,13 @@ IF ( fsmc_shape == 1 .AND. .NOT. l_use_pft_psi ) THEN
 END IF
 
 IF ( l_som_plant_segments .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.     &
-                                  som_psi_aprox_method /= psi_aprox_NR .OR.     &
+                                  ( som_psi_aprox_method /= psi_aprox_NR .AND.  &
+                                    som_psi_aprox_method /= psi_aprox_LUT ) .OR.&
                                   ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_som_plant_segments requires leaf_flux_mod=2, ' //            &
-               'som_psi_aprox_method=2 and can_rad_mod=1 or 7')
+               'som_psi_aprox_method=2 or 3 and can_rad_mod=1 or 7')
 END IF
 
 IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.    &
@@ -1240,17 +1222,14 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' som_n_sample = ', som_n_sample
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' som_ci_search_method = ', som_ci_search_method
-CALL jules_print('jules_vegetation_mod',lineBuffer)
-
-WRITE(lineBuffer,*) ' som_n_ci_prescan = ', som_n_ci_prescan
-CALL jules_print('jules_vegetation_mod',lineBuffer)
-
 WRITE(lineBuffer,*) ' som_n_ci_golden_iter = ', som_n_ci_golden_iter
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_skip_search_wellwatered = ',                       &
                     l_som_skip_search_wellwatered
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_som_fast = ', l_som_fast
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_supply_limit = ', l_som_supply_limit
@@ -1391,12 +1370,12 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 19 ! was 16, +3 for som_ci_search_method/
-                                  ! som_n_ci_prescan/som_n_ci_golden_iter
+INTEGER, PARAMETER :: n_int = 17 ! was 16, +1 for som_n_ci_golden_iter
 INTEGER, PARAMETER :: n_real = 14 + (n_photo_coef * 5) ! +3 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max
-INTEGER, PARAMETER :: n_log = 34 + npft_max ! +1 for l_som_gain_gross, +1 for
+INTEGER, PARAMETER :: n_log = 35 + npft_max ! +1 for l_som_fast, +1 for
+                                  ! l_som_gain_gross, +1 for
                                   ! l_som_cuticular_floor, +1 for
                                   ! l_som_skip_search_wellwatered, +1 for
                                   ! l_som_supply_limit, +1 for
@@ -1412,8 +1391,6 @@ TYPE :: my_namelist
   INTEGER :: leaf_flux_mod !JBaguley
   INTEGER :: som_base_parm !JBaguley
   INTEGER :: som_n_sample !JBaguley
-  INTEGER :: som_ci_search_method
-  INTEGER :: som_n_ci_prescan
   INTEGER :: som_n_ci_golden_iter
   INTEGER :: som_psi_aprox_method !JBaguley
   INTEGER :: som_profit_model !JBaguley
@@ -1443,6 +1420,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: som_leaf_resist_frac
   REAL(KIND=real_jlslsm) :: som_gl_max
   LOGICAL :: l_som_skip_search_wellwatered
+  LOGICAL :: l_som_fast
   LOGICAL :: l_som_supply_limit
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
@@ -1502,8 +1480,6 @@ IF (mype == 0) THEN
   my_nml % leaf_flux_mod   = leaf_flux_mod !JBaguley
   my_nml % som_base_parm   = som_base_parm !JBaguley
   my_nml % som_n_sample    = som_n_sample  !JBaguley
-  my_nml % som_ci_search_method = som_ci_search_method
-  my_nml % som_n_ci_prescan     = som_n_ci_prescan
   my_nml % som_n_ci_golden_iter = som_n_ci_golden_iter
   my_nml % som_psi_aprox_method = som_psi_aprox_method !JBaguley
   my_nml % som_profit_model = som_profit_model !JBaguley
@@ -1533,6 +1509,7 @@ IF (mype == 0) THEN
   my_nml % som_leaf_resist_frac = som_leaf_resist_frac
   my_nml % som_gl_max = som_gl_max
   my_nml % l_som_skip_search_wellwatered = l_som_skip_search_wellwatered
+  my_nml % l_som_fast = l_som_fast
   my_nml % l_som_supply_limit = l_som_supply_limit
   my_nml % l_som_plant_segments = l_som_plant_segments
   my_nml % l_som_gain_gross = l_som_gain_gross
@@ -1581,8 +1558,6 @@ IF (mype /= 0) THEN
   leaf_flux_mod   = my_nml % leaf_flux_mod !JBaguley
   som_base_parm   = my_nml % som_base_parm !JBaguley
   som_n_sample    = my_nml % som_n_sample  !JBaguley
-  som_ci_search_method = my_nml % som_ci_search_method
-  som_n_ci_prescan     = my_nml % som_n_ci_prescan
   som_n_ci_golden_iter = my_nml % som_n_ci_golden_iter
   som_psi_aprox_method = my_nml % som_psi_aprox_method !JBaguley
   som_profit_model = my_nml % som_profit_model !JBaguley
@@ -1612,6 +1587,7 @@ IF (mype /= 0) THEN
   som_leaf_resist_frac = my_nml % som_leaf_resist_frac
   som_gl_max = my_nml % som_gl_max
   l_som_skip_search_wellwatered = my_nml % l_som_skip_search_wellwatered
+  l_som_fast = my_nml % l_som_fast
   l_som_supply_limit = my_nml % l_som_supply_limit
   l_som_plant_segments = my_nml % l_som_plant_segments
   l_som_gain_gross = my_nml % l_som_gain_gross

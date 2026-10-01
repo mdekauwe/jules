@@ -14,7 +14,7 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='STOM_OPT_JLS_MOD'
 
-PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_golden_search
+PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_bounded_search
 PUBLIC stom_opt_mod
 
 CONTAINS
@@ -49,8 +49,7 @@ USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY:                                                &
         som_base_parm_ci, som_base_parm_psi, som_n_sample,                     &
         profit_max_profit_model, SOX_profit_model, som_profit_model,          &
-        som_ci_search_method, ci_search_flat,                                 &
-        ci_search_golden, som_n_ci_prescan, som_n_ci_golden_iter,             &
+        l_som_fast, som_n_ci_golden_iter,                                     &
         l_som_skip_search_wellwatered, som_hc_negligible_tol
 
 USE pftparm, ONLY:                                                             &
@@ -175,8 +174,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 INTEGER ::                                                                     &
  optimal_index                                                                 &
                             ! Holds index of the optimal stomatal conductance
-                            !  for each land point. Used by SOX_profit_model
-                            !  and ci_search_flat's single-pass search.
+                            !  for each land point. Used by SOX_profit_model.
 ,i,j,l                                                                         &
                             ! Iterators
 ,errcode
@@ -184,31 +182,22 @@ INTEGER ::                                                                     &
 
 INTEGER ::                                                                     &
  optimal_index_flat(open_pts)
-                            ! Index of the best sample for ci_search_flat,
+                            ! Index of the best sample for the flat search,
                             ! from the shared stom_opt_profit_max_select
-                            ! helper (replaces the bare "optimal_index"
-                            ! scalar loop previously used inline here).
+                            ! helper.
 
 LOGICAL ::                                                                     &
  l_good_sample(som_n_sample, open_pts)                                        &
                             ! Feasibility mask for the single-pass
                             ! SOX_profit_model search.
 ,l_good_sample_flat(som_n_sample, open_pts)
-                            ! Feasibility mask for ci_search_flat.
+                            ! Feasibility mask for the flat search.
 
 !-----------------------------------------------------------------------------
 ! Arrays containing results of sampling over the base parameter. Only need
 ! to do so for locations with open stomata.
-!
-! NOTE on som_ci_search_method (profit_max_profit_model only -
-! SOX_profit_model is unaffected and always uses the flat single-pass
-! search at som_n_sample resolution, using the "single-pass" arrays below):
-!   ci_search_flat: unchanged flat grid, but now routed through the shared
-!     stom_opt_profit_max_select helper (same arrays, same som_n_sample
-!     resolution, no behaviour change from before this rework).
-!   ci_search_golden: see stom_opt_golden_search - works on scalar
-!     (open_pts)-shaped arrays, not a big sample grid, so needs no large
-!     array declarations here.
+! (profit_max_profit_model with l_som_fast uses stom_opt_bounded_search
+! instead, which needs none of the sample arrays.)
 !-----------------------------------------------------------------------------
 REAL(KIND=real_jlslsm) ::                                                      &
  ci_lo(land_pts)                                                               &
@@ -218,7 +207,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Upper bound of the Ci sampling range for the
                             ! pass about to be run.
 
-! -- Single-pass sample arrays (SOX_profit_model, always; ci_search_flat) --
+! -- Flat-search sample arrays (SOX_profit_model, and profit_max_profit_model
+! -- without l_som_fast) --
 REAL(KIND=real_jlslsm) ::                                                      &
  ci_sample(0:som_n_sample, open_pts)                                           &
                             ! Internal CO2 pressure (Pa).
@@ -256,17 +246,16 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! kcrit gathered onto the open-point index, for
                             ! the SOX xylem_conductance_jls call.
 
-! -- ci_search_golden outputs (scalar per open point) --
+! -- stom_opt_bounded_search outputs (scalar per open point) --
 REAL(KIND=real_jlslsm) ::                                                      &
- ci_golden(open_pts)                                                           &
-,al_golden(open_pts)                                                          &
-,gl_golden(open_pts)                                                          &
-,kl_golden(open_pts)                                                          &
-,psi_golden(open_pts)                                                         &
-,el_golden(open_pts)                                                          &
-,carbon_gain_golden(open_pts)                                                 &
-,hydraulic_cost_golden(open_pts)                                              &
-,profit_golden(open_pts)
+ ci_bnd(open_pts)                                                              &
+,al_bnd(open_pts)                                                              &
+,gl_bnd(open_pts)                                                              &
+,kl_bnd(open_pts)                                                              &
+,psi_bnd(open_pts)                                                             &
+,el_bnd(open_pts)                                                              &
+,carbon_gain_bnd(open_pts)                                                     &
+,hydraulic_cost_bnd(open_pts)
 
 ! -- Negligible-hydraulic-cost fast path (profit_max_profit_model only) --
 ! A single-point evaluation at the most water-demanding candidate Ci (near
@@ -293,17 +282,12 @@ INTEGER ::                                                                     &
                             ! Compressed subset of open_index holding only
                             ! the points not resolved by the fast path.
 ,open_pts_flat                                                                &
-                            ! Number of points to run the flat search over:
-                            ! all of open_index_search for ci_search_flat,
-                            ! only golden's fallback points for
-                            ! ci_search_golden.
+                            ! Number of points to run the flat search over
+                            ! (all of open_index_search, or 0 with
+                            ! l_som_fast).
 ,open_index_flat(open_pts)
                             ! Compressed subset of open_index for the flat
                             ! search (same convention as open_index_search).
-
-LOGICAL :: l_golden_fallback(open_pts)
-                            ! Points stom_opt_golden_search could not
-                            ! resolve - see that routine.
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -325,11 +309,6 @@ fo3(:)     = 0.0
 gl(:)      = min_gl_pft(pft)
 psi_leaf(:)= psi_root_zone(:)
 leaf_k(:)  = kmax
-
-carbon_gain(:,:) = 0.0
-hydraulic_cost(:,:) = 0.0
-profit(:,:) = 0.0
-kl_SOX(:,:) = 0.0
 
 ! If there are no land points with open stomata then no calculation is needed.
 IF(0 == open_pts) THEN
@@ -364,7 +343,7 @@ SELECT CASE ( som_base_parm )
       ! is negligible, it is negligible everywhere in range, so
       ! profit(ci) = CarbonGain(ci) - (~0) is just CarbonGain, which keeps
       ! rising with ci - the search would converge on this same near-ca
-      ! point anyway, just at O(som_n_sample) or O(golden) times the cost.
+      ! point anyway, just at O(som_n_sample) times the cost.
       ! Skip it and use this point directly. Points that fail the check
       ! (hydraulic cost not negligible, or even the near-ca point already
       ! infeasible under water stress) fall through to the normal search
@@ -414,7 +393,7 @@ SELECT CASE ( som_base_parm )
           ! NOTE: open_index_search must stay in the same veg_index-compressed
           ! convention as open_index (i.e. hold open_index(j), not l =
           ! veg_index(open_index(j))) - it is later passed as the open_index
-          ! actual argument to stom_opt_mod_ci/stom_opt_golden_search, both of
+          ! actual argument to stom_opt_mod_ci/stom_opt_bounded_search, both of
           ! which apply their own veg_index(open_index(j)) remap internally.
           ! Storing the already-remapped land point l here would cause that
           ! remap to be applied twice.
@@ -422,70 +401,49 @@ SELECT CASE ( som_base_parm )
         END IF
       END DO
 
-      SELECT CASE (som_ci_search_method)
+      IF (l_som_fast) THEN
+        !-------------------------------------------------------------------
+        ! Root find for the feasible-range edge, then golden-section within
+        ! it - see stom_opt_bounded_search. Never needs the flat search.
+        !-------------------------------------------------------------------
+        open_pts_flat = 0
+        IF (open_pts_search > 0) THEN
+          CALL stom_opt_bounded_search(                                       &
+          ! IN
+              land_pts, pft, open_pts_search, open_index_search,              &
+              pft_photo_model, veg_index,                                     &
+              rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,&
+              km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,      &
+              gl_max, l_multilayer, som_n_sample, som_n_ci_golden_iter,       &
+          ! OUT
+              ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                        &
+              el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                     &
+                  )
 
-      CASE (ci_search_flat)
+          DO j = 1, open_pts_search
+            l = veg_index(open_index_search(j))
+            ci(l) = ci_bnd(j)
+            al(l) = al_bnd(j)
+            gl(l) = gl_bnd(j)
+            psi_leaf(l) = psi_bnd(j)
+            el(l) = el_bnd(j)
+            leaf_k(l) = kl_bnd(j)
+            carbon_gain_out(l) = carbon_gain_bnd(j)
+            hydraulic_cost_out(l) = hydraulic_cost_bnd(j)
+          END DO
+        END IF
+      ELSE
         ! Every point not resolved by the fast path goes to the flat search
         ! below.
         open_pts_flat = open_pts_search
         open_index_flat(1:open_pts_search) =                                   &
                                           open_index_search(1:open_pts_search)
-
-      CASE (ci_search_golden)
-        !-------------------------------------------------------------------
-        ! Golden-section search - see stom_opt_golden_search for the
-        ! algorithm and its caveats. Run only over the points the fast path
-        ! above didn't already resolve. Points where the golden prescan
-        ! could not resolve the feasible Ci region (l_golden_fallback, see
-        ! stom_opt_golden_search) are handed on to the flat search below
-        ! instead of taking golden's result.
-        !-------------------------------------------------------------------
-        open_pts_flat = 0
-        IF (open_pts_search > 0) THEN
-          CALL stom_opt_golden_search(                                        &
-          ! IN
-              land_pts, pft, open_pts_search, open_index_search,              &
-              pft_photo_model, veg_index,                                     &
-              rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,&
-              km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,  &
-              gl_max,                                                         &
-              l_multilayer, som_n_ci_prescan, som_n_ci_golden_iter,           &
-          ! OUT
-              ci_golden, al_golden, gl_golden, kl_golden, psi_golden,         &
-              el_golden, carbon_gain_golden, hydraulic_cost_golden,           &
-              l_golden_fallback                                               &
-                  )
-
-          DO j = 1, open_pts_search
-            IF (l_golden_fallback(j)) THEN
-              open_pts_flat = open_pts_flat + 1
-              open_index_flat(open_pts_flat) = open_index_search(j)
-            ELSE
-              l = veg_index(open_index_search(j))
-              ci(l) = ci_golden(j)
-              al(l) = al_golden(j)
-              gl(l) = gl_golden(j)
-              psi_leaf(l) = psi_golden(j)
-              el(l) = el_golden(j)
-              leaf_k(l) = kl_golden(j)
-              carbon_gain_out(l) = carbon_gain_golden(j)
-              hydraulic_cost_out(l) = hydraulic_cost_golden(j)
-            END IF
-          END DO
-        END IF
-
-      CASE DEFAULT
-        errcode = 101  !  a hard error
-        CALL ereport(RoutineName, errcode,                                     &
-             'som_ci_search_method should be flat (1) or golden (2)')
-
-      END SELECT ! som_ci_search_method
+      END IF
 
       !---------------------------------------------------------------------
       ! Flat grid: som_n_sample points over the full [ccp, ca] range, routed
       ! through the shared stom_opt_profit_max_select helper, run over
-      ! open_index_flat - every remaining point for ci_search_flat, or only
-      ! golden's fallback points for ci_search_golden.
+      ! open_index_flat.
       !---------------------------------------------------------------------
       IF (open_pts_flat > 0) THEN
         ci_lo(:) = MAX(ccp(:), 0.0)
@@ -534,9 +492,13 @@ SELECT CASE ( som_base_parm )
 
     CASE (SOX_profit_model)
       !-------------------------------------------------------------------
-      ! SOX_profit_model: unaffected by som_ci_search_method, always a
+      ! SOX_profit_model: unaffected by l_som_fast's Ci search, always a
       ! single-pass search at som_n_sample resolution over [ccp, ca].
       !-------------------------------------------------------------------
+      carbon_gain(:,:) = 0.0
+      hydraulic_cost(:,:) = 0.0
+      profit(:,:) = 0.0
+      kl_SOX(:,:) = 0.0
       l_good_sample(:,:) = .TRUE.
       ci_lo(:) = MAX(ccp(:), 0.0)
       ci_hi(:) = ca(:)
@@ -714,9 +676,9 @@ INTEGER, INTENT(IN) ::                                                         &
 , n_sample
                             ! Number of Ci sample points to use for this
                             ! call. Lets this routine be reused at different
-                            ! resolutions/ranges (flat/golden Ci searches
-                            ! in stom_opt_mod) rather than being fixed to
-                            ! the module-level som_n_sample.
+                            ! resolutions/ranges in stom_opt_mod rather
+                            ! than being fixed to the module-level
+                            ! som_n_sample.
 
 !-----------------------------------------------------------------------------
 ! IN real variables
@@ -1020,10 +982,10 @@ DO j = 1,open_pts
   !
   ! NOTE: (ca-ci) is designed to stay bounded away from 0 by the "n-1 step"
   ! construction of ci_sample above, but when a caller sets ci_hi(l) close
-  ! to (or exactly at) ca(l) for a *narrow* range - as ci_search_golden's
-  ! converging bracket legitimately can - this margin can shrink far more
-  ! than the flat single-pass grid ever produced, overflowing this division
-  ! to Infinity in practice.
+  ! to (or exactly at) ca(l) for a *narrow* range - as the fast-path single
+  ! sample near ca does - this margin can shrink far more than the flat
+  ! single-pass grid ever produced, overflowing this division to Infinity in
+  ! practice.
   ! Floor the denominator so this can only ever produce a large-but-finite
   ! gl, which the psi/k feasibility mask downstream then correctly rejects
   ! as infeasible rather than an Infinity that can corrupt reductions and
@@ -1124,7 +1086,7 @@ END SUBROUTINE stom_opt_mod_ci
 ! callers should then use sample index 0 (the closed-stomata state) rather
 ! than treat this as an error - see the note in stom_opt_mod.
 !
-! Used by ci_search_flat's single pass to select the profit-maximising
+! Used by the flat search's single pass to select the profit-maximising
 ! sample, keeping the mask/profit/MAXLOC logic out of stom_opt_mod itself.
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_profit_max_select(                                        &
@@ -1257,375 +1219,437 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE stom_opt_profit_max_select
 
 !-----------------------------------------------------------------------------
-! Golden-section search for the profit-maximising Ci, over [ccp, ca], for
-! profit_max_profit_model. profit(ci) = CG(ci) - HC(ci) is expected to rise
-! then fall (possibly via a hard cliff to infeasible where kl drops below
-! kcrit, rather than a smooth interior decline) as ci increases - i.e.
-! "unimodal" in the weak sense golden-section needs. This assumption has no
-! safety net of its own (unlike a grid search, which samples the whole
-! domain and so cannot miss an entire alternative region): a genuinely
-! bimodal or non-monotonic profit(ci) would make this converge confidently
-! to the wrong answer with no way to detect it. Mitigated here by:
-!   (a) tracking the best profit actually seen across every point sampled
-!       (prescan and golden-section alike), not just trusting the final
-!       bracket, so a stray better sample earlier in the search still wins;
-!   (b) the som_n_ci_prescan coarse prescan itself, which - being a full
-!       flat pass, just at low resolution - would need to be actively
-!       misled by aliasing to miss a materially better distant region.
-! Uses n_prescan + 2 + n_iter total Ci evaluations (each evaluation = one
-! stom_opt_mod_ci call at n_sample=1, batched across all open points).
+! Bounded profit-max Ci search (l_som_fast), one open point at a time.
+!
+! gl rises with Ci (A rises and ca - Ci falls), so E rises and k(psi_leaf)
+! falls: the feasible samples of the flat grid form a single range
+! [ccp, ci_b]. For each point:
+!   1. ccp gives max k (E = 0); if it is infeasible every Ci is. A is
+!      monotone in Ci, so if A <= 0 at the top of the range every feasible
+!      A is too and the stomata are closed, as for the flat search.
+!   2. ci_b by an Illinois (bracketed regula falsi) root find: with
+!      psi_aprox_LUT on the cap that gl_max and k > kcrit put on gl, which
+!      needs only photosynthesis (edge_by_gl_cap); otherwise on the
+!      feasibility margin of full evaluations (edge_by_margin). Max A is
+!      A(ci_b): the normalisation the flat grid gets from its feasible
+!      samples in the limit of a fine grid.
+!   3. golden-section maximisation of profit on [ccp, ci_b], where every Ci
+!      is feasible (no cliff), to (ci_b - ccp)/opt_resol or n_iter
+!      iterations.
+! The best point seen (including ccp and ci_b) is returned. Each evaluation
+! is scalar (eval_ci), so points stop as soon as they have converged.
 !-----------------------------------------------------------------------------
-SUBROUTINE stom_opt_golden_search(                                            &
+SUBROUTINE stom_opt_bounded_search(                                            &
 ! IN
         land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,       &
         rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,       &
-        km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,         &
-        gl_max, l_multilayer, n_prescan, n_iter,                              &
+        km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,             &
+        gl_max, l_multilayer, n_top, n_iter,                                   &
 ! OUT
-        ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g, &
-        l_fallback                                                            &
+        ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g   &
 )
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-USE jules_vegetation_mod, ONLY: l_som_gain_gross
+USE ereport_mod, ONLY: ereport
+USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
+                                photo_farquhar, CW_conductance,                &
+                                SOX_conductance,                               &
+                                som_psi_aprox_method, psi_aprox_LUT,           &
+                                l_som_plant_segments
+USE pftparm, ONLY: c3, alpha, pft_conductance_model
+USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
+USE planet_constants_mod, ONLY: repsilon
+USE c_rmol, ONLY: rmol
+USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
+USE xylem_hydraulics_CW_jls_mod, ONLY: supply_lut_psi, supply_lut_e_crit,       &
+                                       supply_lut_f
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts, pft, open_pts, open_index(land_pts), pft_photo_model,             &
-  veg_index(land_pts), n_prescan, n_iter
+  veg_index(land_pts), n_top, n_iter
 
-REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
-  rd(land_pts), ca(land_pts), psi_root_zone(land_pts), acr(land_pts),        &
-  apar(land_pts), oi(land_pts), vcmax(land_pts), kc(land_pts), ko(land_pts), &
-  ccp(land_pts), pstar(land_pts), km(land_pts), dq(land_pts), qs(land_pts),  &
-  je(land_pts), t_leaf(land_pts), je_ratio(land_pts), fapar_lf(land_pts),    &
-  ipar(land_pts), kmax(land_pts), kcrit(land_pts), gl_max(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  rd(land_pts), ca(land_pts), psi_root_zone(land_pts), acr(land_pts),         &
+  apar(land_pts), oi(land_pts), vcmax(land_pts), kc(land_pts), ko(land_pts),  &
+  ccp(land_pts), pstar(land_pts), km(land_pts), dq(land_pts), je(land_pts),   &
+  t_leaf(land_pts), je_ratio(land_pts), fapar_lf(land_pts), ipar(land_pts),   &
+  kmax(land_pts), kcrit(land_pts), gl_max(land_pts)
 
 LOGICAL, INTENT(IN) :: l_multilayer
 
-REAL(KIND=real_jlslsm), INTENT(OUT) ::                                        &
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   ci_g(open_pts), al_g(open_pts), gl_g(open_pts), kl_g(open_pts),            &
   psi_g(open_pts), el_g(open_pts), carbon_gain_g(open_pts),                  &
   hydraulic_cost_g(open_pts)
 
-LOGICAL, INTENT(OUT) :: l_fallback(open_pts)
-                            ! .TRUE. where the prescan found fewer than
-                            ! min_good_prescan feasible samples with
-                            ! positive net photosynthesis: the feasible Ci
-                            ! region is then too narrow for the prescan to
-                            ! resolve, max_al_ref is unreliable (or <= 0,
-                            ! which would force every golden evaluation to
-                            ! -HUGE and close the stomata), and the caller
-                            ! should use the flat search for this point
-                            ! instead of the ci_g/al_g/... values returned
-                            ! here.
+REAL(KIND=real_jlslsm), PARAMETER ::                                           &
+  edge_rtol = 1.0e-3,                                                          &
+                            ! ci_b to edge_rtol * (ca - ci_b), so gl at the
+                            ! edge (~ 1/(ca - Ci)) is good to ~0.1% ...
+  opt_resol = 2000.0,                                                          &
+                            ! Optimum Ci to (ci_b - ccp)/opt_resol.
+  edge_margin = 1.0e-3,                                                        &
+                            ! ... or once k is within this fraction of kmax
+                            ! above kcrit, or gl within this fraction of
+                            ! gl_max (gl ~ 1/(ca - Ci), so near ca the edge
+                            ! needs a margin test, not just a Ci tolerance).
+  golden_ratio = 0.6180339887498949_real_jlslsm
+INTEGER, PARAMETER :: max_edge_iter = 20
 
-! Local
-INTEGER, PARAMETER :: min_good_prescan = 2
-REAL(KIND=real_jlslsm), PARAMETER :: golden_ratio = 0.6180339887498949_real_jlslsm
+INTEGER :: i, j, l, side, idx1(land_pts)
+LOGICAL :: l_lut, ok_u, l_edge
 
-INTEGER :: i, j, l, errcode
-
-REAL(KIND=real_jlslsm) :: ci_lo(land_pts), ci_hi(land_pts)
-
-! -- Prescan (flat, coarse, only used for max_al_ref/max_kl_ref) --
-REAL(KIND=real_jlslsm) ::                                                     &
-  ci_p(0:n_prescan, open_pts), al_p(0:n_prescan, open_pts),                  &
-  gl_p(0:n_prescan, open_pts), kl_p(0:n_prescan, open_pts),                  &
-  psi_p(0:n_prescan, open_pts), el_p(0:n_prescan, open_pts)
-LOGICAL :: good_p(n_prescan, open_pts)
-REAL(KIND=real_jlslsm) :: max_al_ref(open_pts), max_kl_ref(open_pts)
-REAL(KIND=real_jlslsm) :: g_off(open_pts)
-                            ! Gain offset: 0 (net An) or Rd (gross A).
-
-! -- Single-point evaluation scratch (n_sample=1 each call) --
-REAL(KIND=real_jlslsm) ::                                                     &
-  ci_e(0:1, open_pts), al_e(0:1, open_pts), gl_e(0:1, open_pts),             &
-  kl_e(0:1, open_pts), psi_e(0:1, open_pts), el_e(0:1, open_pts)
-
-! -- Golden-section bracket state, per open point --
-REAL(KIND=real_jlslsm) ::                                                     &
-  a_pt(open_pts), b_pt(open_pts), c_pt(open_pts), d_pt(open_pts),            &
-  fc(open_pts), fd(open_pts), f_new(open_pts)
-REAL(KIND=real_jlslsm) ::                                                     &
-  al_c(open_pts), gl_c(open_pts), kl_c(open_pts), psi_c(open_pts),           &
-  el_c(open_pts)
-REAL(KIND=real_jlslsm) ::                                                     &
-  al_d(open_pts), gl_d(open_pts), kl_d(open_pts), psi_d(open_pts),           &
-  el_d(open_pts)
-REAL(KIND=real_jlslsm) ::                                                     &
-  best_f(open_pts), best_ci(open_pts), best_al(open_pts), best_gl(open_pts), &
-  best_kl(open_pts), best_psi(open_pts), best_el(open_pts)
-LOGICAL :: update_c(open_pts), feasible(open_pts)
+REAL(KIND=real_jlslsm) ::                                                      &
+  g_off, max_al, max_kl, ci_lo, ci_top, tol1,                                  &
+  ! Evaluation state (eval_ci)
+  last_ci, al_u, gl_u, el_u, psi_u, kl_u,                                      &
+  ! Edge (last feasible) and the infeasible end of its bracket
+  e_ci, e_al, e_gl, e_el, e_psi, e_kl, e_g, b_ci, b_g, g_u, c_ci, t_al,        &
+  ! Best seen
+  best_f, best_ci, best_al, best_gl, best_el, best_psi, best_kl,               &
+  ! Golden-section bracket
+  a, b, d_ci, fc, fd
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='STOM_OPT_GOLDEN_SEARCH'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='STOM_OPT_BOUNDED_SEARCH'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-!-----------------------------------------------------------------------------
-! Stage 0: coarse prescan over the full range, purely to get max_al_ref/
-! max_kl_ref for the CG/HC normalisation (golden-section itself doesn't
-! naturally produce these the way a batch grid search does).
-!-----------------------------------------------------------------------------
-ci_lo(:) = MAX(ccp(:), 0.0)
-ci_hi(:) = ca(:)
+! Leaf psi from the supply-function table directly where it applies;
+! otherwise one-point calls of leaf_psi_jls (open index list idx1).
+l_lut = ( pft_conductance_model(pft) == CW_conductance .OR.                    &
+          pft_conductance_model(pft) == SOX_conductance ) .AND.                &
+        som_psi_aprox_method == psi_aprox_LUT .AND. .NOT. l_som_plant_segments
+idx1(:) = 1
 
-CALL stom_opt_mod_ci(                                                          &
-    land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,          &
-    n_prescan, ci_lo, ci_hi,                                                  &
-    rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,          &
-    km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,            &
-    l_multilayer,                                                            &
-    ci_p, al_p, gl_p, kl_p, psi_p, el_p                                       &
-        )
-
-good_p(:,:) = .TRUE.
 DO j = 1, open_pts
   l = veg_index(open_index(j))
-  good_p(:,j) = good_p(:,j)                                                  &
-          .AND. psi_p(1:,j) <= psi_root_zone(l) + TINY(psi_root_zone(l))     &
-          .AND. kl_p(1:,j) > kcrit(l)
-  IF (gl_max(l) > 0.0) good_p(:,j) = good_p(:,j) .AND. gl_p(1:,j) <= gl_max(l)
-END DO
+  idx1(1) = open_index(j)
+  g_off = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
+  ci_lo = MAX(ccp(l), 0.0)
+  ! With the gl_max cap the edge is found to the 1e-2 Pa floor on ca - Ci
+  ! used for gl; without it (gl unbounded near ca) stop at the top of the
+  ! flat grid, as that search does.
+  IF ( gl_max(l) > 0.0 ) THEN
+    ci_top = MAX(ca(l) - 1.0e-2_real_jlslsm, ci_lo)
+  ELSE
+    ci_top = ca(l) - (ca(l) - ci_lo) / n_top
+  END IF
 
-! gain offset: 0 (net An) or Rd (gross A), see l_som_gain_gross
-DO j = 1, open_pts
-  l = veg_index(open_index(j))
-  g_off(j) = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
-  max_al_ref(j) = MAXVAL(al_p(1:,j) + g_off(j), MASK = good_p(:,j))
-END DO
-max_kl_ref = MAXVAL(kl_p(1:,:), MASK = good_p, DIM = 1)
+  !---------------------------------------------------------------------------
+  ! 1. Lower end (max k) and top of the range.
+  !---------------------------------------------------------------------------
+  CALL eval_ci(ci_lo)
+  max_kl = kl_u
+  IF ( .NOT. ok_u ) THEN
+    CALL set_closed()
+    CYCLE
+  END IF
+  CALL store_best(-HUGE(1.0_real_jlslsm), ci_lo)
+  e_ci = ci_lo; e_al = al_u; e_gl = gl_u; e_el = el_u; e_psi = psi_u
+  e_kl = kl_u; e_g = margin()
 
-! Hand a point back to the flat search when the feasible Ci region is too
-! narrow for the prescan to resolve (see the l_fallback declaration). Under
-! severe water stress the feasible region is a sliver just above ccp; if it
-! is narrower than ~1/n_prescan of [ccp, ca] the only feasible prescan
-! sample is at ccp itself, where net photosynthesis is <= 0, and golden
-! would otherwise close the stomata where a finer grid finds an open
-! optimum. Points whose ccp sample is itself infeasible (kl <= kcrit even
-! at zero transpiration) are not handed back - nothing in [ccp, ca] can be
-! feasible there, so the flat search would also close the stomata.
-DO j = 1, open_pts
-  l_fallback(j) = good_p(1,j) .AND.                                          &
-                  COUNT(good_p(:,j) .AND. al_p(1:,j) > 0.0) < min_good_prescan
-END DO
+  CALL eval_ci(ci_top)
+  IF ( al_u + g_off <= 0.0 ) THEN
+    CALL set_closed()
+    CYCLE
+  END IF
+  t_al = al_u
 
-! Seed "best seen" from the prescan itself, in case golden-section's own
-! bracket never revisits the true optimum (see the module-level note above
-! this subroutine) - this also correctly seeds the closed-stomata fallback
-! (best_f = -HUGE) for any point with no feasible prescan sample or
-! max_al_ref <= 0.
-best_f(:) = -HUGE(1.0_real_jlslsm)
-DO j = 1, open_pts
-  l = veg_index(open_index(j))
-  IF (max_al_ref(j) > 0.0) THEN
-    DO i = 1, n_prescan
-      IF (good_p(i,j)) THEN
-        f_new(j) = (al_p(i,j) + g_off(j))/max_al_ref(j)                      &
-                 - (max_kl_ref(j)-kl_p(i,j))/(max_kl_ref(j)-kcrit(l))
-        IF (f_new(j) > best_f(j)) THEN
-          best_f(j) = f_new(j)
-          best_ci(j) = ci_p(i,j); best_al(j) = al_p(i,j)
-          best_gl(j) = gl_p(i,j); best_kl(j) = kl_p(i,j)
-          best_psi(j) = psi_p(i,j); best_el(j) = el_p(i,j)
-        END IF
+  !---------------------------------------------------------------------------
+  ! 2. Upper edge of the feasible range, ci_b (e_*), unless the whole range
+  !    is feasible.
+  !---------------------------------------------------------------------------
+  IF ( ok_u ) THEN
+    e_ci = ci_top; e_al = al_u; e_gl = gl_u; e_el = el_u; e_psi = psi_u
+    e_kl = kl_u
+  ELSE
+    l_edge = .FALSE.
+    IF ( l_lut ) CALL edge_by_gl_cap()
+    IF ( .NOT. l_edge ) CALL edge_by_margin()
+  END IF
+
+  ! Normalisation; no carbon benefit from opening => closed, as for the flat
+  ! search (stom_opt_profit_max_select).
+  max_al = e_al + g_off
+  IF ( max_al <= 0.0 ) THEN
+    CALL set_closed()
+    CYCLE
+  END IF
+
+  ! Both ends of the feasible range are candidates.
+  best_f = profit(best_al, best_kl)
+  IF ( profit(e_al, e_kl) > best_f ) THEN
+    best_f = profit(e_al, e_kl); best_ci = e_ci; best_al = e_al
+    best_gl = e_gl; best_el = e_el; best_psi = e_psi; best_kl = e_kl
+  END IF
+
+  !---------------------------------------------------------------------------
+  ! 3. Golden-section search for the maximum profit on [ccp, ci_b], stopping
+  !    after n_iter iterations or once the bracket is below
+  !    (ci_b - ccp)/opt_resol. (Brent's parabolic steps were tried here, but
+  !    in low light profit is nearly flat over a wide Ci range and, at this
+  !    precision, too noisy for them.)
+  !---------------------------------------------------------------------------
+  a = ci_lo
+  b = e_ci
+  tol1 = (b - a) / opt_resol
+  IF ( tol1 > 0.0 ) THEN
+    c_ci = b - golden_ratio * (b - a)
+    d_ci = a + golden_ratio * (b - a)
+    CALL eval_ci(c_ci)
+    fc = profit_u()
+    CALL eval_ci(d_ci)
+    fd = profit_u()
+    DO i = 1, n_iter
+      IF ( b - a <= tol1 ) EXIT
+      IF ( fc >= fd ) THEN
+        b = d_ci
+        d_ci = c_ci; fd = fc
+        c_ci = b - golden_ratio * (b - a)
+        CALL eval_ci(c_ci)
+        fc = profit_u()
+      ELSE
+        a = c_ci
+        c_ci = d_ci; fc = fd
+        d_ci = a + golden_ratio * (b - a)
+        CALL eval_ci(d_ci)
+        fd = profit_u()
       END IF
     END DO
   END IF
-END DO
 
-!-----------------------------------------------------------------------------
-! Stage 1: initialise the golden-section bracket [a,b] = [ccp, ca] and its
-! two interior points c < d, and evaluate both (2 separate n_sample=1
-! calls, since the ci_sample stepping formula can't place two arbitrary
-! points c/d in a single n_sample=2 call - see the note on stom_opt_mod_ci).
-!-----------------------------------------------------------------------------
-DO j = 1, open_pts
-  l = veg_index(open_index(j))
-  a_pt(j) = MAX(ccp(l), 0.0)
-  b_pt(j) = ca(l)
-  c_pt(j) = b_pt(j) - golden_ratio * (b_pt(j) - a_pt(j))
-  d_pt(j) = a_pt(j) + golden_ratio * (b_pt(j) - a_pt(j))
-  ci_lo(l) = c_pt(j)
-  ci_hi(l) = ca(l)
-END DO
-
-CALL stom_opt_mod_ci(                                                          &
-    land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,          &
-    1, ci_lo, ci_hi,                                                          &
-    rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,          &
-    km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,            &
-    l_multilayer,                                                            &
-    ci_e, al_e, gl_e, kl_e, psi_e, el_e                                       &
-        )
-
-DO j = 1, open_pts
-  l = veg_index(open_index(j))
-  al_c(j) = al_e(1,j); gl_c(j) = gl_e(1,j); kl_c(j) = kl_e(1,j)
-  psi_c(j) = psi_e(1,j); el_c(j) = el_e(1,j)
-  feasible(j) = (psi_c(j) <= psi_root_zone(l) + TINY(psi_root_zone(l)))       &
-               .AND. (kl_c(j) > kcrit(l))                                     &
-               .AND. (gl_max(l) <= 0.0 .OR. gl_c(j) <= gl_max(l))
-  IF (feasible(j) .AND. max_al_ref(j) > 0.0) THEN
-    fc(j) = (al_c(j) + g_off(j))/max_al_ref(j)                               &
-           - (max_kl_ref(j)-kl_c(j))/(max_kl_ref(j)-kcrit(l))
-  ELSE
-    fc(j) = -HUGE(1.0_real_jlslsm)
-  END IF
-  IF (fc(j) > best_f(j)) THEN
-    best_f(j) = fc(j); best_ci(j) = c_pt(j); best_al(j) = al_c(j)
-    best_gl(j) = gl_c(j); best_kl(j) = kl_c(j); best_psi(j) = psi_c(j)
-    best_el(j) = el_c(j)
-  END IF
-  ci_lo(l) = d_pt(j)
-END DO
-
-CALL stom_opt_mod_ci(                                                          &
-    land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,          &
-    1, ci_lo, ci_hi,                                                          &
-    rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,          &
-    km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,            &
-    l_multilayer,                                                            &
-    ci_e, al_e, gl_e, kl_e, psi_e, el_e                                       &
-        )
-
-DO j = 1, open_pts
-  l = veg_index(open_index(j))
-  al_d(j) = al_e(1,j); gl_d(j) = gl_e(1,j); kl_d(j) = kl_e(1,j)
-  psi_d(j) = psi_e(1,j); el_d(j) = el_e(1,j)
-  feasible(j) = (psi_d(j) <= psi_root_zone(l) + TINY(psi_root_zone(l)))       &
-               .AND. (kl_d(j) > kcrit(l))                                     &
-               .AND. (gl_max(l) <= 0.0 .OR. gl_d(j) <= gl_max(l))
-  IF (feasible(j) .AND. max_al_ref(j) > 0.0) THEN
-    fd(j) = (al_d(j) + g_off(j))/max_al_ref(j)                               &
-           - (max_kl_ref(j)-kl_d(j))/(max_kl_ref(j)-kcrit(l))
-  ELSE
-    fd(j) = -HUGE(1.0_real_jlslsm)
-  END IF
-  IF (fd(j) > best_f(j)) THEN
-    best_f(j) = fd(j); best_ci(j) = d_pt(j); best_al(j) = al_d(j)
-    best_gl(j) = gl_d(j); best_kl(j) = kl_d(j); best_psi(j) = psi_d(j)
-    best_el(j) = el_d(j)
-  END IF
-END DO
-
-!-----------------------------------------------------------------------------
-! Stage 2: golden-section iterations. Each iteration evaluates exactly one
-! new point per open point (whichever of c/d that point needs refreshed,
-! decided independently per point by its own fc vs fd comparison), batched
-! into a single stom_opt_mod_ci call across all open points.
-!-----------------------------------------------------------------------------
-DO i = 1, n_iter
-
-  DO j = 1, open_pts
-    l = veg_index(open_index(j))
-    ! NOTE: ">=" not ">". Under real water stress the feasible Ci region
-    ! (kl > kcrit) is a narrow low-Ci sliver with everything above it
-    ! infeasible (profit = -HUGE), so both c and d can easily land in the
-    ! infeasible zone early on - a genuine tie (fc == fd == -HUGE). ">"
-    ! would then take the ELSE branch below, which shrinks the bracket
-    ! towards *higher* Ci - moving further from the feasible region, since
-    ! feasibility here always sits on the low-Ci side (lower Ci means less
-    ! transpiration demand, hence higher kl, for any given psi_root_zone).
-    ! ">=" makes a tie shrink towards *lower* Ci instead, which is the
-    ! correct direction whenever both probes are infeasible, and is a
-    ! no-op (arbitrary but harmless) tie-break in the well-watered case
-    ! where a true numerical tie between two feasible, similar-profit
-    ! points can also occur (see the low-stress "plateau" discussion).
-    update_c(j) = fc(j) >= fd(j)
-    IF (update_c(j)) THEN
-      b_pt(j) = d_pt(j)
-      d_pt(j) = c_pt(j); fd(j) = fc(j)
-      al_d(j) = al_c(j); gl_d(j) = gl_c(j); kl_d(j) = kl_c(j)
-      psi_d(j) = psi_c(j); el_d(j) = el_c(j)
-      c_pt(j) = b_pt(j) - golden_ratio * (b_pt(j) - a_pt(j))
-      ci_lo(l) = c_pt(j)
-    ELSE
-      a_pt(j) = c_pt(j)
-      c_pt(j) = d_pt(j); fc(j) = fd(j)
-      al_c(j) = al_d(j); gl_c(j) = gl_d(j); kl_c(j) = kl_d(j)
-      psi_c(j) = psi_d(j); el_c(j) = el_d(j)
-      d_pt(j) = a_pt(j) + golden_ratio * (b_pt(j) - a_pt(j))
-      ci_lo(l) = d_pt(j)
-    END IF
-    ci_hi(l) = ca(l)
-  END DO
-
-  CALL stom_opt_mod_ci(                                                        &
-      land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,        &
-      1, ci_lo, ci_hi,                                                        &
-      rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,        &
-      km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,          &
-      l_multilayer,                                                          &
-      ci_e, al_e, gl_e, kl_e, psi_e, el_e                                     &
-          )
-
-  DO j = 1, open_pts
-    l = veg_index(open_index(j))
-    feasible(j) = (psi_e(1,j) <= psi_root_zone(l) + TINY(psi_root_zone(l)))   &
-                 .AND. (kl_e(1,j) > kcrit(l))                                 &
-                 .AND. (gl_max(l) <= 0.0 .OR. gl_e(1,j) <= gl_max(l))
-    IF (feasible(j) .AND. max_al_ref(j) > 0.0) THEN
-      f_new(j) = (al_e(1,j) + g_off(j))/max_al_ref(j)                        &
-               - (max_kl_ref(j)-kl_e(1,j))/(max_kl_ref(j)-kcrit(l))
-    ELSE
-      f_new(j) = -HUGE(1.0_real_jlslsm)
-    END IF
-
-    IF (update_c(j)) THEN
-      fc(j) = f_new(j); al_c(j) = al_e(1,j); gl_c(j) = gl_e(1,j)
-      kl_c(j) = kl_e(1,j); psi_c(j) = psi_e(1,j); el_c(j) = el_e(1,j)
-    ELSE
-      fd(j) = f_new(j); al_d(j) = al_e(1,j); gl_d(j) = gl_e(1,j)
-      kl_d(j) = kl_e(1,j); psi_d(j) = psi_e(1,j); el_d(j) = el_e(1,j)
-    END IF
-
-    IF (f_new(j) > best_f(j)) THEN
-      best_f(j) = f_new(j); best_ci(j) = ci_e(1,j); best_al(j) = al_e(1,j)
-      best_gl(j) = gl_e(1,j); best_kl(j) = kl_e(1,j)
-      best_psi(j) = psi_e(1,j); best_el(j) = el_e(1,j)
-    END IF
-  END DO
-
-END DO
-
-!-----------------------------------------------------------------------------
-! Final selection: the best point seen anywhere in the search (prescan,
-! initial bracket, or golden-section iterations), or the closed-stomata
-! state if nothing was ever feasible - matching the same fallback
-! philosophy as stom_opt_mod's other search methods (see the note above
-! stom_opt_profit_max_select).
-!-----------------------------------------------------------------------------
-DO j = 1, open_pts
-  l = veg_index(open_index(j))
-  IF (best_f(j) > -HUGE(1.0_real_jlslsm)) THEN
-    ci_g(j) = MAX(0.0, best_ci(j))
-    al_g(j) = MAX(0.0, best_al(j))
-    gl_g(j) = MAX(0.0, best_gl(j))
-    psi_g(j) = best_psi(j)
-    el_g(j) = best_el(j)
-    kl_g(j) = best_kl(j)
-    carbon_gain_g(j) = (best_al(j) + g_off(j)) / max_al_ref(j)
-    hydraulic_cost_g(j) = (max_kl_ref(j) - best_kl(j))                       &
-                         / (max_kl_ref(j) - kcrit(l))
-  ELSE
-    ci_g(j) = ca(l)
-    al_g(j) = -rd(l)
-    gl_g(j) = 0.0
-    kl_g(j) = 0.0
-    psi_g(j) = psi_root_zone(l)
-    el_g(j) = 0.0
-    carbon_gain_g(j) = 0.0
-    hydraulic_cost_g(j) = 0.0
-  END IF
+  ci_g(j) = MAX(0.0, best_ci)
+  al_g(j) = MAX(0.0, best_al)
+  gl_g(j) = MAX(0.0, best_gl)
+  psi_g(j) = best_psi
+  el_g(j) = best_el
+  kl_g(j) = best_kl
+  carbon_gain_g(j) = (best_al + g_off) / max_al
+  hydraulic_cost_g(j) = (max_kl - best_kl) / (max_kl - kcrit(l))
 END DO
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
-END SUBROUTINE stom_opt_golden_search
+CONTAINS
+
+  !---------------------------------------------------------------------------
+  ! Leaf state at internal CO2 ci for land point l: the same photosynthesis,
+  ! conductance, transpiration and leaf-psi calculations as stom_opt_mod_ci
+  ! for one sample, and its feasibility (ok_u) as stom_opt_profit_max_select.
+  !---------------------------------------------------------------------------
+  SUBROUTINE eval_ci(ci)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: ci
+  REAL(KIND=real_jlslsm) :: vpd
+  REAL(KIND=real_jlslsm) :: el1(1,1), psi1(1,1), kl1(1,1)
+
+  last_ci = ci
+  al_u = photo_al(ci)
+  gl_u = ratio * (al_u * rmol * t_leaf(l)) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
+  vpd = dq(l) * pstar(l) / repsilon
+  el_u = MAX(0.0, vpd * gl_u / pstar(l) * pstar(l) / (rmol * t_leaf(l)))
+
+  IF ( l_lut ) THEN
+    psi_u = supply_lut_psi(pft, psi_root_zone(l), el_u / kmax(l))
+    kl_u = kmax(l) * supply_lut_f(pft, psi_u)
+  ELSE
+    el1(1,1) = el_u
+    CALL leaf_psi_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,              &
+                       psi_root_zone, kmax, kcrit, psi1, kl1 )
+    psi_u = psi1(1,1)
+    kl_u = kl1(1,1)
+  END IF
+
+  ok_u = psi_u <= psi_root_zone(l) + TINY(psi_root_zone(l))                    &
+         .AND. kl_u > kcrit(l)                                                 &
+         .AND. (gl_max(l) <= 0.0 .OR. gl_u <= gl_max(l))
+  END SUBROUTINE eval_ci
+
+  ! Net photosynthesis at internal CO2 ci (as stom_opt_mod_ci).
+  REAL(KIND=real_jlslsm) FUNCTION photo_al(ci)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: ci
+  REAL(KIND=real_jlslsm) :: wcarb, wlite, wexpt, wl, b1, b2, b3
+  INTEGER :: errcode
+
+  SELECT CASE ( pft_photo_model )
+  CASE ( photo_collatz )
+    IF (c3(pft) == 1) THEN
+      wcarb = vcmax(l) * (ci - ccp(l)) / (ci + kc(l) * (1.0 + oi(l) / ko(l)))
+      wlite = alpha(pft) * acr(l) * (ci - ccp(l)) / (ci + 2.0 * ccp(l))
+      wlite = MAX(wlite, TINY(1.0e0))
+      IF (l_multilayer) wlite = wlite / apar(l) * fapar_lf(l) * ipar(l)
+      wexpt = fwe_c3 * vcmax(l)
+    ELSE
+      wcarb = vcmax(l)
+      wlite = MAX(alpha(pft) * acr(l), TINY(1.0e0))
+      wexpt = fwe_c4 * vcmax(l) * ci / pstar(l)
+    END IF
+    b1 = beta1
+    b2 = -(wcarb + wlite)
+    b3 = wcarb * wlite
+    wl = -b2 / (2.0 * b1) - SQRT(b2 * b2 / (4 * beta1 * beta1) - b3 / b1)
+    b1 = beta2
+    b2 = -(wl + wexpt)
+    b3 = wl * wexpt
+    wl = -b2 / (2.0 * b1) - SQRT(b2 * b2 / (4 * beta2 * beta2) - b3 / b1)
+
+  CASE ( photo_farquhar )
+    wcarb = vcmax(l) * (ci - ccp(l)) / (ci + km(l))
+    wlite = je(l) / 4.0 * (ci - ccp(l)) / (ci + 2.0 * ccp(l))
+    wlite = MAX(wlite, TINY(1.0e0))
+    IF (l_multilayer) wlite = wlite * je_ratio(l)
+    wl = MIN(wcarb, wlite)
+
+  CASE DEFAULT
+    wl = 0.0
+    errcode = 101  !  a hard error
+    CALL ereport(RoutineName, errcode,                                         &
+                 'pft_photo_model should be photo_collatz or photo_farquhar')
+  END SELECT
+
+  photo_al = wl - rd(l)
+  END FUNCTION photo_al
+
+  !---------------------------------------------------------------------------
+  ! Edge of the feasible range from the cap it puts on gl. With the supply
+  ! table, k > kcrit <=> E < kmax * supply_lut_e_crit, and E = gl * vpd/(R T),
+  ! so feasibility is gl <= g_cap = MIN(gl_max, E_crit * R T / vpd), i.e.
+  !   f(Ci) = g_cap * (ca - Ci) - ratio * R T * A(Ci) >= 0,
+  ! which is decreasing and close to linear in Ci and needs only A, not the
+  ! hydraulics. Illinois root find for f = 0 between the feasible e_* end and
+  ! ci_top, then one full evaluation at the edge. Leaves l_edge = .FALSE. (for
+  ! edge_by_margin) if the table and the full evaluation disagree.
+  !---------------------------------------------------------------------------
+  SUBROUTINE edge_by_gl_cap()
+  REAL(KIND=real_jlslsm) :: conv_e, g_cap, rk, fa, fb, fc_e, ea, eb, ec
+  INTEGER :: it, sd
+
+  conv_e = dq(l) * pstar(l) / repsilon / (rmol * t_leaf(l))
+  g_cap = HUGE(1.0_real_jlslsm)
+  IF ( gl_max(l) > 0.0 ) g_cap = gl_max(l)
+  IF ( conv_e > 0.0 ) g_cap = MIN(g_cap, kmax(l)                              &
+       * supply_lut_e_crit(pft, psi_root_zone(l), kcrit(l) / kmax(l)) / conv_e)
+  IF ( g_cap >= HUGE(1.0_real_jlslsm) ) RETURN
+
+  rk = ratio * rmol * t_leaf(l)
+  ea = e_ci
+  fa = g_cap * MAX(ca(l) - ea, 1.0e-2_real_jlslsm) - rk * e_al
+  eb = ci_top
+  fb = g_cap * MAX(ca(l) - eb, 1.0e-2_real_jlslsm) - rk * t_al
+  IF ( fa < 0.0 .OR. fb >= 0.0 ) RETURN
+
+  sd = 0
+  DO it = 1, max_edge_iter
+    IF ( eb - ea <= edge_rtol * (ca(l) - ea) ) EXIT
+    ec = (ea * fb - eb * fa) / (fb - fa)
+    IF ( .NOT. ( ec > ea .AND. ec < eb ) ) ec = 0.5 * (ea + eb)
+    fc_e = g_cap * MAX(ca(l) - ec, 1.0e-2_real_jlslsm) - rk * photo_al(ec)
+    IF ( fc_e >= 0.0 ) THEN
+      ea = ec; fa = fc_e
+      IF ( sd == 1 ) fb = 0.5 * fb
+      sd = 1
+    ELSE
+      eb = ec; fb = fc_e
+      IF ( sd == -1 ) fa = 0.5 * fa
+      sd = -1
+    END IF
+  END DO
+
+  ! Full state at the edge; step back a little if interpolation in the
+  ! table leaves it just outside.
+  DO it = 1, 3
+    IF ( ea <= e_ci ) RETURN
+    CALL eval_ci(ea)
+    IF ( ok_u ) THEN
+      e_ci = ea; e_al = al_u; e_gl = gl_u; e_el = el_u; e_psi = psi_u
+      e_kl = kl_u
+      l_edge = .TRUE.
+      RETURN
+    END IF
+    ea = ea - edge_rtol * (ca(l) - ea)
+  END DO
+  END SUBROUTINE edge_by_gl_cap
+
+  !---------------------------------------------------------------------------
+  ! Edge of the feasible range by an Illinois root find on the feasibility
+  ! margin of full evaluations (any hydraulics).
+  !---------------------------------------------------------------------------
+  SUBROUTINE edge_by_margin()
+  INTEGER :: it
+
+  ! edge_by_gl_cap may have left a different evaluation in *_u.
+  IF ( l_lut ) CALL eval_ci(ci_top)
+  b_ci = ci_top
+  b_g = margin()
+  side = 0
+  DO it = 1, max_edge_iter
+    IF ( b_ci - e_ci <= edge_rtol * (ca(l) - e_ci) .OR. e_g < edge_margin )    &
+      EXIT
+    c_ci = (e_ci * b_g - b_ci * e_g) / (b_g - e_g)
+    IF ( .NOT. ( c_ci > e_ci .AND. c_ci < b_ci ) ) c_ci = 0.5 * (e_ci + b_ci)
+    CALL eval_ci(c_ci)
+    g_u = margin()
+    IF ( ok_u ) THEN
+      e_ci = c_ci; e_al = al_u; e_gl = gl_u; e_el = el_u; e_psi = psi_u
+      e_kl = kl_u; e_g = g_u
+      IF ( side == 1 ) b_g = 0.5 * b_g
+      side = 1
+    ELSE
+      b_ci = c_ci; b_g = g_u
+      IF ( side == -1 ) e_g = 0.5 * e_g
+      side = -1
+    END IF
+  END DO
+  END SUBROUTINE edge_by_margin
+
+  ! Feasibility margin of the latest evaluation: > 0 where feasible,
+  ! decreasing in Ci, for the Illinois edge search.
+  REAL(KIND=real_jlslsm) FUNCTION margin()
+  margin = (kl_u - kcrit(l)) / kmax(l)
+  IF ( gl_max(l) > 0.0 ) margin = MIN(margin, (gl_max(l) - gl_u) / gl_max(l))
+  IF ( ok_u ) THEN
+    margin = MAX(margin, TINY(1.0_real_jlslsm))
+  ELSE
+    margin = MIN(margin, -TINY(1.0_real_jlslsm))
+  END IF
+  END FUNCTION margin
+
+  ! Profit = CG - HC, as stom_opt_profit_max_select.
+  REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in
+  profit = (al_in + g_off) / max_al - (max_kl - kl_in) / (max_kl - kcrit(l))
+  END FUNCTION profit
+
+  ! Profit of the latest evaluation (-HUGE if infeasible), kept if best.
+  REAL(KIND=real_jlslsm) FUNCTION profit_u()
+  IF ( ok_u ) THEN
+    profit_u = profit(al_u, kl_u)
+  ELSE
+    profit_u = -HUGE(1.0_real_jlslsm)
+  END IF
+  IF ( profit_u > best_f ) CALL store_best(profit_u, last_ci)
+  END FUNCTION profit_u
+
+  SUBROUTINE store_best(f, ci)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: f, ci
+  best_f = f; best_ci = ci; best_al = al_u; best_gl = gl_u; best_el = el_u
+  best_psi = psi_u; best_kl = kl_u
+  END SUBROUTINE store_best
+
+  SUBROUTINE set_closed()
+  ci_g(j) = ca(l)
+  al_g(j) = -rd(l)
+  gl_g(j) = 0.0
+  kl_g(j) = 0.0
+  psi_g(j) = psi_root_zone(l)
+  el_g(j) = 0.0
+  carbon_gain_g(j) = 0.0
+  hydraulic_cost_g(j) = 0.0
+  END SUBROUTINE set_closed
+
+END SUBROUTINE stom_opt_bounded_search
 
 END MODULE stom_opt_jls_mod

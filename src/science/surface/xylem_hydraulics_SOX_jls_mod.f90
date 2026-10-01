@@ -136,7 +136,8 @@ SUBROUTINE leaf_psi_SOX_jls( pft,                                              &
   )
 
 USE jules_vegetation_mod, ONLY: som_psi_aprox_method, psi_aprox_TE,            &
-                                psi_aprox_NR
+                                psi_aprox_NR, psi_aprox_LUT
+USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_lut_jls
 
 USE pftparm, ONLY: conductance_b, conductance_c
 
@@ -390,8 +391,11 @@ CASE(psi_aprox_NR)
       ! denominator to avoid a literal divide-by-zero for a sample that has
       ! already collapsed leaf_k to (numerically) 0; see leaf_psi_CW_jls for
       ! the equivalent reasoning.
+      ! (Was "+": the update must lower psi_leaf when the demand exceeds the
+      ! supply, as in leaf_psi_CW_jls; with "+" it stepped away from the
+      ! root, e.g. -5.0 instead of -5.5 MPa at high demand.)
       leaf_psi(:,j) = leaf_psi(:,j)                                            &
-             + (e_leaf(:,j) - e_leaf_current(:,j))                             &
+             - (e_leaf(:,j) - e_leaf_current(:,j))                             &
                / MAX(leaf_k(:,j), TINY(1.0_real_jlslsm))
 
       ! Guard against runaway steps for an infeasible sample, as in
@@ -411,10 +415,17 @@ CASE(psi_aprox_NR)
 
   END DO
 
+! Supply-function lookup table (see xylem_hydraulics_CW_jls_mod).
+CASE(psi_aprox_LUT)
+  CALL leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,        &
+                         open_index, e_leaf, root_zone_psi, kmax,              &
+                         leaf_psi, leaf_k )
+
 CASE DEFAULT
   errcode = 101  !  a hard error
   CALL ereport(RoutineName, errcode,                                           &
-        'som_psi_aprox_method should be psi_aprox_TE or psi_aprox_NR')
+        'som_psi_aprox_method should be psi_aprox_TE, psi_aprox_NR or ' //     &
+        'psi_aprox_LUT')
 END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

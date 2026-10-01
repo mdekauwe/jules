@@ -138,8 +138,10 @@ SUBROUTINE leaf_psi_jls( pft,                                                  &
   )
 
 USE pftparm, ONLY: pft_conductance_model
-USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance
-USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls
+USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,             &
+                                som_psi_aprox_method, psi_aprox_LUT,           &
+                                l_som_plant_segments
+USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls, leaf_psi_lut_jls
 USE xylem_hydraulics_SOX_jls_mod, ONLY: leaf_psi_SOX_jls
 
 USE ereport_mod, ONLY: ereport
@@ -191,6 +193,13 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 SELECT CASE ( pft_conductance_model(pft) )
 
 CASE ( CW_conductance )
+  IF ( som_psi_aprox_method == psi_aprox_LUT .AND.                             &
+       .NOT. l_som_plant_segments ) THEN
+    ! Direct call: skips leaf_psi_CW_jls's automatic work arrays.
+    CALL leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,   &
+                              open_index, e_leaf, root_zone_psi, kmax,         &
+                              leaf_psi, leaf_k )
+  ELSE
   CALL leaf_psi_CW_jls( pft,                                                   &
                         n_e_leaf,                                              &
                         land_pts,                                              &
@@ -205,8 +214,14 @@ CASE ( CW_conductance )
                         leaf_psi,                                              &
                         leaf_k                                                 &
                         )
+  END IF
 
 CASE ( SOX_conductance )
+  IF ( som_psi_aprox_method == psi_aprox_LUT ) THEN
+    CALL leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,      &
+                           open_index, e_leaf, root_zone_psi, kmax,            &
+                           leaf_psi, leaf_k )
+  ELSE
   CALL leaf_psi_SOX_jls( pft,                                                  &
                          n_e_leaf,                                             &
                          land_pts,                                             &
@@ -221,6 +236,7 @@ CASE ( SOX_conductance )
                          leaf_psi,                                             &
                          leaf_k                                                &
                          )
+  END IF
 
 CASE DEFAULT
   errcode = 101  !  a hard error
