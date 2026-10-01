@@ -32,7 +32,7 @@ SUBROUTINE smc_ext (npnts,nshyd,surft_pts,surft_index,ft                       &
 USE pftparm, ONLY: calc_rz_psi, fsmc_mod, root_psi_crit
 USE hyd_psi_mod, ONLY: psi_from_sthu, bound_soil_psi
 USE jules_vegetation_mod, ONLY: fsmc_shape, leaf_flux_mod, leaf_flux_stom_opt, &
-                                stomata_model, stomata_sox
+                                stomata_model, stomata_sox, stomata_desica
 USE hyd_con_ic_mod, ONLY: hyd_con_ic
 USE jules_soil_mod, ONLY: l_bound_soil_wp, ds_psi, dzsoil
 
@@ -236,7 +236,8 @@ IF ( fsmc_mod(ft) == 1 ) THEN
 
   ! SOX (stomata_model = stomata_sox) also needs psi_root_zone.
   IF ( fsmc_shape == 1 .OR. leaf_flux_mod == leaf_flux_stom_opt                &
-       .OR. calc_rz_psi(ft) .OR. stomata_model == stomata_sox ) THEN
+       .OR. calc_rz_psi(ft) .OR. stomata_model == stomata_sox                  &
+       .OR. stomata_model == stomata_desica ) THEN
 !$OMP PARALLEL DO                                                              &
 !$OMP SCHEDULE(STATIC)                                                         &
 !$OMP DEFAULT(NONE)                                                            &
@@ -427,7 +428,8 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
   ! fraction of the transpiration taken from each layer.
   !---------------------------------------------------------------------
 
-  IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft) ) THEN
+  IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft)               &
+       .OR. stomata_model == stomata_desica ) THEN
     psi_root_zone = calc_weighted_mean(npnts, nshyd, surft_pts, surft_index,   &
                                        psi, wt_ext)
 
@@ -445,7 +447,7 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
 ELSE
 
   IF ( fsmc_shape == 1 .OR. leaf_flux_mod == leaf_flux_stom_opt                &
-       .OR. calc_rz_psi(ft)) THEN
+       .OR. calc_rz_psi(ft) .OR. stomata_model == stomata_desica ) THEN
 !$OMP PARALLEL                                                                 &
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(j,i,n)                                                           &
@@ -500,7 +502,8 @@ ELSE
   ! fraction of the transpiration taken from each layer.
   !---------------------------------------------------------------------
 
-  IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft) ) THEN
+  IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft)               &
+       .OR. stomata_model == stomata_desica ) THEN
     psi_root_zone = calc_weighted_mean(npnts, nshyd, surft_pts, surft_index,   &
                                        psi, wt_ext)
 

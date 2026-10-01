@@ -9498,4 +9498,43 @@ DATA metadata(733) / var_metadata(                                             &
 ! Units
     "1"                                                                        &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for psi_stem_pft (DESICA)
+!-----------------------------------------------------------------------------
+DATA metadata(734) / var_metadata(                                             &
+! String identifier
+    'psi_stem_pft',                                                            &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Stem water potential (DESICA)",                                           &
+! Units
+    "MPa"                                                                      &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for root_uptake_pft (DESICA)
+!-----------------------------------------------------------------------------
+DATA metadata(735) / var_metadata(                                             &
+! String identifier
+    'root_uptake_pft',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Root water uptake into the stem store (DESICA)",                          &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for sapflow_pft (DESICA)
+!-----------------------------------------------------------------------------
+DATA metadata(736) / var_metadata(                                             &
+! String identifier
+    'sapflow_pft',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Sap flow from the stem store to the leaves (DESICA)",                     &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
 #endif

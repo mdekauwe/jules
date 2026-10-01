@@ -453,6 +453,17 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Cuticular (minimum) leaf conductance to water vapour, per
                  ! unit leaf area (mmol H2O m-2 s-1), applied as a floor on
                  ! the canopy conductance when l_som_cuticular_floor.
+,g1_tuzet(:)                                                                   &
+                 ! DESICA (stomata_model = 4): slope of gs = g1 fw An / ca (-).
+,sf_tuzet(:)                                                                   &
+                 ! DESICA: sensitivity of the Tuzet closure (MPa-1).
+,psi_f_tuzet(:)                                                                &
+                 ! DESICA: reference leaf water potential of the Tuzet
+                 ! closure, ~50% closure (Pa).
+,cap_leaf(:)                                                                   &
+,cap_stem(:)                                                                   &
+                 ! DESICA: leaf and stem water capacitance per unit leaf area
+                 ! (mol H2O m-2 leaf Pa-1).
 ,kcrit_fractional_loss(:)                                                      &
                  ! Critical fractional loss of xylem conductance.
 ,kcrit(:)
@@ -766,6 +777,11 @@ ALLOCATE( conductance_b(npft))
 ALLOCATE( conductance_c(npft))
 ALLOCATE( seg_kfac(npft,3))
 ALLOCATE( gcut(npft))
+ALLOCATE( g1_tuzet(npft))
+ALLOCATE( sf_tuzet(npft))
+ALLOCATE( psi_f_tuzet(npft))
+ALLOCATE( cap_leaf(npft))
+ALLOCATE( cap_stem(npft))
 ALLOCATE( conductance_b_seg(npft,3))
 ALLOCATE( conductance_c_seg(npft,3))
 
@@ -784,6 +800,11 @@ conductance_b(:) = 1.0
 conductance_c(:) = 1.0
 seg_kfac(:,:) = 1.0
 gcut(:) = 3.0
+g1_tuzet(:) = 4.19
+sf_tuzet(:) = 2.0
+psi_f_tuzet(:) = -2.05e6
+cap_leaf(:) = 83.3e-9
+cap_stem(:) = 3000.0e-9
 conductance_b_seg(:,:) = 1.0
 conductance_c_seg(:,:) = 1.0
 
@@ -1055,6 +1076,16 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' conductance_c = ',conductance_c
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' gcut = ',gcut
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' sf_tuzet = ',sf_tuzet
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' psi_f_tuzet = ',psi_f_tuzet
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' cap_leaf = ',cap_leaf
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' cap_stem = ',cap_stem
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' seg_kfac = ',seg_kfac
 CALL jules_print('pftparm',lineBuffer)

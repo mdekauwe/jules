@@ -21,6 +21,7 @@ USE gridbox_mean_mod, ONLY:                                                    &
   surftiles_to_gbm, soiltiles_to_gbm
 
 USE timestep_mod, ONLY: timestep
+USE desica_jls_mod, ONLY: psi_stem_desica, flux_root_desica, flux_sap_desica
 
 !Use variables
 !Science variables
@@ -3624,6 +3625,26 @@ CASE ('hydraulic_cost_pft')
 
   ! Percentage loss of conductance at the leaf water potential compared to the
   ! maximum conductance JBaguley
+  ! DESICA (stomata_model = 4) stem water potential (Pa -> MPa) and root
+  ! uptake / sap flow (kg m-2 s-1); zero when DESICA is not in use.
+CASE ( 'psi_stem_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(psi_stem_desica) ) workspace_pft(:,:) = psi_stem_desica * 1.0e-6
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'root_uptake_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(flux_root_desica) ) workspace_pft(:,:) = flux_root_desica
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'sapflow_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(flux_sap_desica) ) workspace_pft(:,:) = flux_sap_desica
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
 CASE ('PLC_pft')
 
   DO i = 1, npft

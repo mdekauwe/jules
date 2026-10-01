@@ -101,9 +101,14 @@ INTEGER, PARAMETER ::                                                          &
   stomata_medlyn = 2,                                                          &
     ! Use the model of Medlyn et al. (2011) - see Eqn.11,
     !   doi: 10.1111/j.1365-2486.2010.02375.x.
-  stomata_sox = 3
+  stomata_sox = 3,                                                             &
     ! Use the semi-analytical version of the SOX model (Eller et al 2020)
     ! doi: 10.1111/nph.16419 - Eqns. 4 & 5
+  stomata_desica = 4
+    ! DESICA: Tuzet et al. (2003) stomatal closure on leaf water potential,
+    ! with leaf and stem water potentials (and stem storage) from the plant
+    ! hydraulics of Xu et al. (2016), doi: 10.1111/nph.14009 (Notes S1).
+    ! See desica_jls_mod.
 
 ! Parameters identifying alternate models for determaning the net carbon
 ! uptake and stomatal conductance within plants.
@@ -975,13 +980,31 @@ END IF  !  photo_model == photo_farquhar
 
 ! Check that the stomatal conductance model is reasonable.
 SELECT CASE ( stomata_model )
-CASE ( stomata_jacobs, stomata_medlyn, stomata_sox )
+CASE ( stomata_jacobs, stomata_medlyn, stomata_sox, stomata_desica )
   ! These are valid, so nothing to do.
 CASE DEFAULT
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                "Invalid value for stomata_model" )
 END SELECT
+
+! DESICA sets ci from the Tuzet closure in leaf_limits, i.e. it uses the
+! fsmc (leaf_flux_mod = 1) leaf path. Stress acts through psi_leaf only
+! (fsmc is not applied).
+IF ( stomata_model == stomata_desica ) THEN
+  IF ( leaf_flux_mod /= leaf_flux_fsmc ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 "stomata_model = 4 (DESICA) requires leaf_flux_mod = 1")
+  END IF
+  ! The within-step gs-psi_leaf solve (bisection on fw) is coded for the
+  ! big leaf only.
+  IF ( can_rad_mod /= 1 ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 "stomata_model = 4 (DESICA) requires can_rad_mod = 1")
+  END IF
+END IF
 
 IF ( l_triffid .AND. ( .NOT. l_phenol ) ) THEN
   errcode = -105 ! warning

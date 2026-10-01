@@ -37,7 +37,7 @@ SUBROUTINE sf_stom  (land_pts,land_index                                       &
 ,                    veg_pts,veg_index                                         &
 ,                    ft,co2,co2_3d,co2_dim_len                                 &
 ,                    co2_dim_row,l_co2_interactive                             &
-,                    fsmc,veg_state,ht,ipar,lai                                &
+,                    fsmc_in,veg_state,ht,ipar,lai                             &
 ,                    canht,pstar                                               &
 ,                    q1,ra,tstar,o3,t_home_gb,t_growth_gb,psi_root_zone        &
 ,                    e_supply                                                  &
@@ -73,7 +73,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
 ! imported parameters
     photo_collatz, photo_farquhar, photo_sox_collatz, stomata_medlyn,          &
-    stomata_sox, photo_adapt, photo_acclim, photo_adapt_acclim,                &
+    stomata_sox, stomata_desica, photo_adapt, photo_acclim, photo_adapt_acclim,&
     photo_act_model, photo_act_pft, photo_act_gb, n_photo_coef,                &
 ! imported scalars that are not changed
     dsj_coef, dsv_coef, jv25_coef, act_j_coef, act_v_coef,                     &
@@ -125,6 +125,8 @@ USE stom_opt_jls_mod, ONLY: stom_opt_mod
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
 
 USE planet_constants_mod, ONLY: repsilon
+USE desica_jls_mod, ONLY: desica_fw, desica_hydraulics, tuzet_fw
+USE timestep_mod, ONLY: timestep
 
 
 
@@ -172,7 +174,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 ,co2_3d(co2_dim_len,co2_dim_row)                                               &
 !                                 ! IN 3D atmos CO2 concentration
 !                                 !    (kg CO2/kg air).
-,fsmc(land_pts)                                                                &
+,fsmc_in(land_pts)                                                             &
                             ! IN Soil water factor.
 ,ht(land_pts)                                                                  &
                             ! IN Canopy height (m).
@@ -669,6 +671,25 @@ REAL(KIND=real_jlslsm) :: fsmc_leaf_resp(land_pts)
                             ! leaf_flux_stom_opt (where stom_opt_mod uses
                             ! unscaled rd, al = wl - rd).
 REAL(KIND=real_jlslsm) :: fsmc_unity(land_pts)
+REAL(KIND=real_jlslsm) :: fsmc(land_pts)
+                            ! Soil water factor applied to the leaf fluxes:
+                            ! fsmc_in, or 1.0 for stomata_desica (stress acts
+                            ! through psi_leaf only).
+REAL(KIND=real_jlslsm) :: fsmc_lim(land_pts)
+                            ! fsmc passed to leaf_limits: fsmc, or the Tuzet
+                            ! factor fw for stomata_desica (leaf_limits sets
+                            ! ci from it).
+REAL(KIND=real_jlslsm) :: gl_cut_ds
+                            ! DESICA canopy cuticular conductance (m s-1).
+INTEGER, PARAMETER :: n_fw_bisect = 12
+                            ! DESICA bisection steps on fw (to 2.4e-4).
+INTEGER :: n_pass, i_pass
+                            ! Passes of the big-leaf flux calculation.
+REAL(KIND=real_jlslsm) :: fw_lo(land_pts), fw_hi(land_pts),                    &
+                          el_try(land_pts), psi_try(land_pts), k_try(land_pts)
+                            ! DESICA bisection bracket on fw, and the trial
+                            ! transpiration (mol m-2 s-1), end-of-step
+                            ! psi_leaf (Pa) and plant conductance.
 REAL(KIND=real_jlslsm) :: gl_max_lf(land_pts), gl_max_bigleaf(land_pts)
                             ! som_gl_max on the basis each stom_opt_mod call
                             ! works on: per leaf area for the multilayer
@@ -1264,6 +1285,18 @@ CASE DEFAULT
 END SELECT  !  pft_photo_model
 
 !-----------------------------------------------------------------------------
+! Soil water factor for the leaf fluxes. DESICA: no fsmc, the stomata close
+! on psi_leaf through the Tuzet factor, from psi_leaf of the last timestep.
+!-----------------------------------------------------------------------------
+IF ( stomata_model == stomata_desica ) THEN
+  CALL desica_fw( ft, land_pts, veg_pts, veg_index, psi_root_zone, fsmc_lim )
+  fsmc(:) = 1.0
+ELSE
+  fsmc(:)     = fsmc_in(:)
+  fsmc_lim(:) = fsmc_in(:)
+END IF
+
+!-----------------------------------------------------------------------------
 ! Calculate fluxes.
 !-----------------------------------------------------------------------------
 
@@ -1341,7 +1374,7 @@ CASE ( 4 )
       ! Calculate the limiting factors for leaf photosynthesis
       !-----------------------------------------------------------------------
       CALL leaf_limits (ft, land_pts, pft_photo_model ,veg_pts, veg_index      &
-,                       acr, apar, ca, ccp, dqc, fsmc, je, kc, km, ko, oa      &
+,                       acr, apar, ca, ccp, dqc, fsmc_lim, je, kc, km, ko, oa  &
 ,                       pstar, vcmax                                           &
 ,                       clos_pts, open_pts, clos_index, open_index             &
 ,                       ci, wcarb, wexpt, wlite )
@@ -2094,7 +2127,7 @@ ELSE
       ! Calculate the limiting factors for leaf photosynthesis
       !-----------------------------------------------------------------------
       CALL leaf_limits (ft, land_pts, pft_photo_model, veg_pts, veg_index      &
-  ,                       acr, apar, ca, ccp, dqc, fsmc, je, kc, km, ko, oa      &
+  ,                       acr, apar, ca, ccp, dqc, fsmc_lim, je, kc, km, ko, oa  &
   ,                       pstar, vcmax                                           &
   ,                       clos_pts, open_pts, clos_index, open_index             &
   ,                       ci, wcarb, wexpt, wlite)
@@ -2253,6 +2286,24 @@ CASE ( 1 )
   END IF
 
   !---------------------------------------------------------------------------
+  ! DESICA: solve fw = Tuzet(psi_leaf at the end of the step, for the E that
+  ! fw gives) by bisection on fw in [0, 1], re-running the big-leaf fluxes
+  ! below for each trial fw (see desica_jls_mod). Other models: one pass.
+  !---------------------------------------------------------------------------
+  n_pass = 1
+  IF ( stomata_model == stomata_desica ) THEN
+    n_pass = n_fw_bisect + 1
+    fw_lo(:) = 0.0
+    fw_hi(:) = 1.0
+  END IF
+
+  DO i_pass = 1,n_pass
+
+  IF ( stomata_model == stomata_desica ) THEN
+    fsmc_lim(:) = 0.5 * (fw_lo(:) + fw_hi(:))
+  END IF
+
+  !---------------------------------------------------------------------------
   ! Iterate to ensure that the canopy humidity deficit is consistent with the
   ! H2O flux. The first estimate of the canopy humidity deficit uses the
   ! stomatal conductance from the previous timestep.
@@ -2286,8 +2337,8 @@ CASE ( 1 )
           ! Calculate the limiting factors for leaf photosynthesis.
           !-------------------------------------------------------------------
           CALL leaf_limits (ft, land_pts, pft_photo_model, veg_pts, veg_index  &
-          ,                 acr, apar, ca, ccp, dqc, fsmc, je, kc, km, ko, oa  &
-          ,                 pstar, vcmax                                       &
+          ,                 acr, apar, ca, ccp, dqc, fsmc_lim, je, kc, km, ko  &
+          ,                 oa, pstar, vcmax                                   &
           ,                 clos_pts, open_pts, clos_index, open_index         &
           ,                 ci, wcarb, wexpt, wlite)
 
@@ -2446,6 +2497,28 @@ CASE ( 1 )
         END IF
       END DO
   END SELECT
+
+  IF ( stomata_model == stomata_desica .AND. i_pass < n_pass ) THEN
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      gl_cut_ds = gcut(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
+      el_try(l) = MAX(dqc(l), 0.0) * pstar(l) / repsilon                     &
+                  * MAX(gc(l), gl_cut_ds) / (rmol * tstar(l))
+    END DO
+    CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,       &
+                            lai, ht, psi_root_zone, el_try, .FALSE.,         &
+                            psi_try, k_try )
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      IF ( fsmc_lim(l) > tuzet_fw(ft, psi_try(l)) ) THEN
+        fw_hi(l) = fsmc_lim(l)
+      ELSE
+        fw_lo(l) = fsmc_lim(l)
+      END IF
+    END DO
+  END IF
+
+  END DO  ! i_pass (DESICA bisection)
 
 
 CASE ( 7 )
@@ -2722,6 +2795,25 @@ CASE DEFAULT
                'can_rad_mod should be 1, 4, 5, 6 or 7')
 
 END SELECT  ! can_rad_mod
+
+!-----------------------------------------------------------------------------
+! DESICA: gmin (gcut) as the lower bound on the canopy conductance, not
+! added to it (DESICA, CABLE-DESICA), at night too; A is unchanged. Then
+! the transpiration (as in stom_opt_mod_ci) advances psi_leaf and psi_stem.
+!-----------------------------------------------------------------------------
+IF ( stomata_model == stomata_desica ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    ! mmol m-2 leaf s-1 -> m s-1, times LAI for the canopy.
+    gl_cut_ds = gcut(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
+    gc(l)     = MAX(gc(l), gl_cut_ds)
+    el(l)     = MAX(dqc(l), 0.0) * pstar(l) / repsilon * gc(l)                 &
+                / (rmol * tstar(l))
+  END DO
+  CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
+                          lai, ht, psi_root_zone, el, .TRUE.,                &
+                          psi_leaf, leaf_k )
+END IF
 
 !-----------------------------------------------------------------------------
 ! Cuticular floor (l_som_cuticular_floor). Water still leaks through the
