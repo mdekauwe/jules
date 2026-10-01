@@ -157,7 +157,11 @@ CASE ( 'sthzw_soilt', 'zw_soilt' )
   dim_names(1:ndims) = [ land_dim_name, soilt_dim_name ]
   dim_sizes(1:ndims) = [ global_land_pts, nsoilt ]
 
-CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc' )
+CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                        &
+       'psi_leaf_desica', 'psi_stem_desica',                                    &
+       'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',                  &
+       'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',                 &
+       'ximpair_npp_prev', 'ximpair_lai_prev', 'ximpair_wood_prev' )
   ndims = 2
   dim_names(1:ndims) = [ land_dim_name, pft_dim_name ]
   dim_sizes(1:ndims) = [ global_land_pts, npft ]
@@ -561,7 +565,7 @@ SELECT CASE ( identifier )
 CASE ( 'rivers_lat_rp', 'rivers_lon_rp', 'rivers_x_coord_rp',                  &
        'rivers_y_coord_rp', 'rivers_sto_rp', 'rfm_surfstore_rp',               &
        'rfm_substore_rp', 'rfm_flowin_rp', 'rfm_bflowin_rp',                   &
-       'rivers_outflow_rp', 'outflow_per_river',                               &
+       'rivers_outflow_rp', 'outflow_per_river', 'inland_outflow_rp',          &
        'flood_flow', 'flood_flow_prev', 'flood_storage', 'flood_storage_prev', &
        'river_channel_flow', 'river_channel_storage', 'river_depth_prev',      &
        'river_flow_prev'                                                       &

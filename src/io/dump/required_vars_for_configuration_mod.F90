@@ -30,13 +30,16 @@ USE jules_soil_biogeochem_mod, ONLY: soil_model_ecosse, soil_model_4pool,      &
 
 USE jules_soil_ecosse_mod, ONLY: l_soil_N
 
+USE pftparm, ONLY: pft_xylem_impairment_model
+
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_triffid, l_phenol, l_veg_compete,            &
                                 l_crop, l_landuse,                             &
                                 l_nitrogen, l_prescsow, l_trif_crop,           &
                                 photo_acclim_model, photo_adapt,               &
                                 photo_acclim, photo_adapt_acclim,              &
-                                l_croprotate, l_trif_biocrop, l_sugar, l_red
+                                l_croprotate, l_trif_biocrop, l_sugar, l_red,  &
+                                stomata_model, stomata_desica
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -49,7 +52,7 @@ USE jules_surface_mod, ONLY: l_elev_land_ice, l_flake_model
 
 USE jules_soil_mod, ONLY: l_bedrock, sm_levels, l_tile_soil
 
-USE fire_mod,     ONLY: fire_cntl, l_fire
+USE fire_mod,     ONLY: fire_cntl, l_fire_weather_index
 
 USE metstats_mod, ONLY: metstats_flag, l_metstats
 
@@ -274,6 +277,26 @@ IF ( l_sugar ) THEN
   CALL add_to_list( 'f_nsc', nvars, identifiers )
 END IF
 
+IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
+  ! Xylem impairment: damaged curves, extreme water potentials and the
+  ! recovery memory are prognostic for all PFTs
+  CALL add_to_list( 'kmax_impaired', nvars, identifiers )
+  CALL add_to_list( 'cond_b_impaired', nvars, identifiers )
+  CALL add_to_list( 'cond_c_impaired', nvars, identifiers )
+  CALL add_to_list( 'psi_leaf_extreme', nvars, identifiers )
+  CALL add_to_list( 'psi_root_extreme', nvars, identifiers )
+  CALL add_to_list( 'ximpair_lock', nvars, identifiers )
+  CALL add_to_list( 'ximpair_npp_prev', nvars, identifiers )
+  CALL add_to_list( 'ximpair_lai_prev', nvars, identifiers )
+  CALL add_to_list( 'ximpair_wood_prev', nvars, identifiers )
+END IF
+
+IF ( stomata_model == stomata_desica ) THEN
+  ! DESICA leaf and stem water potentials are prognostic for all PFTs
+  CALL add_to_list( 'psi_leaf_desica', nvars, identifiers )
+  CALL add_to_list( 'psi_stem_desica', nvars, identifiers )
+END IF
+
 ! TOPMODEL variables.
 IF ( l_top ) THEN
   ! Wetness in deep layer and depth to water table..
@@ -368,7 +391,7 @@ END IF
 !-----------------------------------------------------------------------------
 ! Add fire prognostic variables if switched on
 !-----------------------------------------------------------------------------
-IF ( l_fire ) THEN
+IF ( l_fire_weather_index ) THEN
   IF (fire_cntl%mcarthur%flag) THEN
     CALL add_to_list( 'fire_mcarthur_r_dr', nvars, identifiers )
     CALL add_to_list( 'fire_mcarthur_n_dr', nvars, identifiers )

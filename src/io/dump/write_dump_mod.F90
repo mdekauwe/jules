@@ -21,13 +21,16 @@ USE jules_fields_mod, ONLY: crop_vars, psparms, ainfo, trif_vars, progs,       &
 ! TYPE Definitions
 USE jules_fields_mod, ONLY: toppdm, soilecosse, trifctltype
 USE imgn_vars_mod, ONLY: imgn_vars
+USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
+USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
+    ximpair_npp_prev, ximpair_lai_prev, ximpair_wood_prev
 
 USE model_grid_mod, ONLY:                                                      &
   global_land_pts, grid_area_ij, latitude, longitude, l_coord_latlon,          &
   projection_x_coord, projection_y_coord
 
 USE ancil_info, ONLY:                                                          &
-  dim_cs1, dim_soil_n_pool, nsurft, nsoilt, dim_cslayer, nmasst
+  dim_cs1, dim_soil_n_pool, nsurft, nsoilt, dim_cslayer, nmasst, land_pts
 
 USE jules_surface_types_mod, ONLY:                                             &
   npft, ntype, ncpft
@@ -332,6 +335,67 @@ DO i = 1,nvars
   CASE ( 'f_nsc' )
     DO n = 1,npft
       CALL gather_land_field(progs%f_nsc_pft(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'psi_leaf_desica' )
+    CALL desica_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(psi_leaf_desica(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'psi_stem_desica' )
+    CALL desica_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(psi_stem_desica(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'kmax_impaired' )
+    DO n = 1,npft
+      CALL gather_land_field(psparms%kmax_impaired_pft(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'cond_b_impaired' )
+    DO n = 1,npft
+      CALL gather_land_field(psparms%conductance_b_impaired_pft(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'cond_c_impaired' )
+    DO n = 1,npft
+      CALL gather_land_field(psparms%conductance_c_impaired_pft(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'psi_leaf_extreme' )
+    DO n = 1,npft
+      CALL gather_land_field(psparms%psi_leaf_extreme_pft(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'psi_root_extreme' )
+    DO n = 1,npft
+      CALL gather_land_field(psparms%psi_root_extreme_pft(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'ximpair_lock' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(ximpair_lock(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'ximpair_npp_prev' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(ximpair_npp_prev(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'ximpair_lai_prev' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(ximpair_lai_prev(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'ximpair_wood_prev' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(ximpair_wood_prev(:,n), global_data_2d(:,n))
     END DO
 
     !Case if nsoilt == 1, so it is OK to hardwire the 2nd dimension to 1
@@ -680,6 +744,7 @@ DO i = 1,nvars
          'rivers_x_coord_rp', 'rivers_y_coord_rp',                             &
          'rfm_surfstore_rp', 'rfm_substore_rp',                                &
          'rfm_flowin_rp', 'rfm_bflowin_rp', 'rivers_outflow_rp',               &
+         'inland_outflow_rp',                                                  &
          'flood_flow', 'flood_flow_prev', 'flood_storage',                     &
          'flood_storage_prev', 'river_channel_flow', 'river_channel_storage',  &
          'river_depth_prev', 'river_flow_prev' )
@@ -985,7 +1050,11 @@ DO i = 1,nvars
 
       ! If it is a variable with one levels dimension, write the appropriate
       ! number of levels to global_data_2d.
-    CASE ( 'canht', 'lai', 'years_since_harvest', 'harvest_doy', 'f_nsc')
+    CASE ( 'canht', 'lai', 'years_since_harvest', 'harvest_doy', 'f_nsc',     &
+           'psi_leaf_desica', 'psi_stem_desica',                               &
+           'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',              &
+           'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',             &
+           'ximpair_npp_prev', 'ximpair_lai_prev', 'ximpair_wood_prev' )
       CALL file_write_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 
     CASE ( 'cropdvi', 'croprootc', 'cropharvc', 'cropreservec',                &

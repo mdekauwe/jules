@@ -128,7 +128,7 @@ USE work_vars_mod_cbl,  ONLY: work_vars_type      ! and some kept thru timestep
 !Import interfaces to subroutines called
 USE hydrol_mod,               ONLY: hydrol
 USE snow_mod,                 ONLY: snow
-USE jules_rivers_mod,         ONLY: l_rivers, l_inland, rivers_call
+USE jules_rivers_mod,         ONLY: l_rivers, rivers_call
 
 ! Code which isn't currently suitable for building into LFRic
 #if !defined(LFRIC)
@@ -190,7 +190,8 @@ USE jules_deposition_mod,     ONLY: l_deposition, l_deposition_from_ukca
 USE deposition_from_surf_couple_extra_mod,                                     &
                               ONLY: deposition_from_surf_couple_extra
 
-USE jules_hydrology_mod,      ONLY: l_hydrology, l_pdm, l_top, l_var_rainfrac
+USE jules_hydrology_mod,      ONLY: l_hydrology, l_pdm, l_top, l_var_rainfrac, &
+                                    l_inland
 
 USE lake_mod, ONLY:    h_snow_sw_att                                           &
                      , trap_frozen                                             &
@@ -258,7 +259,7 @@ USE stash_array_mod,          ONLY: sf
 USE atm_step_local,           ONLY: dim_cs1
 #else
 !Modules specific to JULES
-USE fire_mod,                 ONLY: fire_prog, fire_diag, l_fire
+USE fire_mod,                 ONLY: fire_prog, fire_diag, l_fire_weather_index
 
 USE metstats_mod,             ONLY: metstats_prog, l_metstats
 
@@ -1026,7 +1027,7 @@ CASE ( jules )
     END IF
 
     !Fire (standalone only)
-    IF ( l_fire ) THEN
+    IF ( l_fire_weather_index ) THEN
       !Calculate the gridbox mean soil moisture
       smc_gb = soiltiles_to_gbm(progs%smc_soilt, ainfo)
       CALL fire_timestep(metstats_prog, smc_gb, fire_prog, fire_diag,          &

@@ -17,6 +17,9 @@ USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, ainfo, trif_vars,      &
                             soilecosse, progs, progs_data, trifctltype,        &
                             jules_vars, fluxes, rivers, water_resources
 USE imgn_vars_mod, ONLY: imgn_vars
+USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
+USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
+    ximpair_npp_prev, ximpair_lai_prev, ximpair_wood_prev
 
 
 USE model_grid_mod, ONLY:                                                      &
@@ -207,7 +210,11 @@ DO i = 1,nvars
     CASE ( 'toppdm%sthzw_soilt', 'toppdm%zw_soilt' )
       CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:nsoilt))
 
-    CASE ( 'canht', 'lai', 'years_since_harvest' , 'f_nsc' )
+    CASE ( 'canht', 'lai', 'years_since_harvest' , 'f_nsc',                    &
+           'psi_leaf_desica', 'psi_stem_desica',                               &
+           'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',              &
+           'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',             &
+           'ximpair_npp_prev', 'ximpair_lai_prev', 'ximpair_wood_prev' )
       CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 
     CASE ( 'plantNumDensity' )
@@ -541,6 +548,67 @@ DO i = 1,nvars
   CASE ( 'f_nsc' )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), progs%f_nsc_pft(:,n))
+    END DO
+
+  CASE ( 'psi_leaf_desica' )
+    CALL desica_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), psi_leaf_desica(:,n))
+    END DO
+
+  CASE ( 'psi_stem_desica' )
+    CALL desica_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), psi_stem_desica(:,n))
+    END DO
+
+  CASE ( 'kmax_impaired' )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), psparms%kmax_impaired_pft(:,n))
+    END DO
+
+  CASE ( 'cond_b_impaired' )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), psparms%conductance_b_impaired_pft(:,n))
+    END DO
+
+  CASE ( 'cond_c_impaired' )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), psparms%conductance_c_impaired_pft(:,n))
+    END DO
+
+  CASE ( 'psi_leaf_extreme' )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), psparms%psi_leaf_extreme_pft(:,n))
+    END DO
+
+  CASE ( 'psi_root_extreme' )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), psparms%psi_root_extreme_pft(:,n))
+    END DO
+
+  CASE ( 'ximpair_lock' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), ximpair_lock(:,n))
+    END DO
+
+  CASE ( 'ximpair_npp_prev' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), ximpair_npp_prev(:,n))
+    END DO
+
+  CASE ( 'ximpair_lai_prev' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), ximpair_lai_prev(:,n))
+    END DO
+
+  CASE ( 'ximpair_wood_prev' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), ximpair_wood_prev(:,n))
     END DO
 
   CASE ( 'plantNumDensity' )
@@ -987,7 +1055,7 @@ DO i = 1,nvars
          'flood_storage_prev', 'rfm_bflowin_rp', 'rfm_flowin_rp',              &
          'rfm_substore_rp', 'rfm_surfstore_rp', 'river_channel_storage',       &
          'river_channel_flow', 'river_depth_prev', 'river_flow_prev',          &
-         'rivers_outflow_rp', 'rivers_sto_rp' )
+         'rivers_outflow_rp', 'rivers_sto_rp', 'inland_outflow_rp' )
     ! nothing to do
 
     !-------------------------------------------------------------------------

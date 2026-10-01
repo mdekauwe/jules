@@ -14,7 +14,8 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_IMPAIRMENT_MEMORY_MOD'
 
-PUBLIC :: leaf_conductance_impaired_memory_jls,                                &
+PUBLIC :: ximpair_memory_alloc,                                                &
+          leaf_conductance_impaired_memory_jls,                                &
           xylem_conductance_impaired_memory_stom_opt_jls,                      &
           leaf_psi_impaired_memory,                                            &
           update_xylem_impairment_memory,                                      &
@@ -26,7 +27,7 @@ PRIVATE :: k_intact, antideriv, psi_at_k
 ! NPP (kg C m-2 s-1) of each PFT from the previous timestep, for the growth
 ! recovery term with ximpair_growth_basis = 2. NPP is computed in sf_stom
 ! after the impairment update, so the update uses last step's value.
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: npp_prev(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_npp_prev(:,:)
 
 ! Locked-in loss of conductivity, 1 - k_cap/kmax, of each PFT at each land
 ! point, kept for TRIFFID phenology (l_ximpair_leaf_loss). Not allocated
@@ -34,7 +35,43 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: npp_prev(:,:)
 ! where not yet set.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock(:,:)
 
+! LAI and wood carbon of each PFT at the last update, for the leaf-area and
+! growth recovery terms; -1 = not yet seen.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lai_prev(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_wood_prev(:,:)
+! ximpair_npp_prev, ximpair_lock, ximpair_lai_prev and ximpair_wood_prev are
+! written to and read from dumps (ximpair_memory_alloc allocates them).
+
 CONTAINS
+
+! ---------------------------------------------------------------------
+! Allocate the impairment memory (n_land_pts, npft) with its start values,
+! if not done yet (first update, or a dump / initial-condition read).
+! ---------------------------------------------------------------------
+SUBROUTINE ximpair_memory_alloc( n_land_pts )
+
+USE jules_surface_types_mod, ONLY: npft
+
+INTEGER, INTENT(IN) :: n_land_pts
+
+IF (.NOT. ALLOCATED(ximpair_npp_prev)) THEN
+  ALLOCATE(ximpair_npp_prev(n_land_pts, npft))
+  ximpair_npp_prev(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(ximpair_lock)) THEN
+  ALLOCATE(ximpair_lock(n_land_pts, npft))
+  ximpair_lock(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(ximpair_lai_prev)) THEN
+  ALLOCATE(ximpair_lai_prev(n_land_pts, npft))
+  ximpair_lai_prev(:,:) = -1.0
+END IF
+IF (.NOT. ALLOCATED(ximpair_wood_prev)) THEN
+  ALLOCATE(ximpair_wood_prev(n_land_pts, npft))
+  ximpair_wood_prev(:,:) = -1.0
+END IF
+
+END SUBROUTINE ximpair_memory_alloc
 
 ! *********************************************************************
 ! Embolism memory xylem impairment model (pft_xylem_impairment_model = 3).
@@ -516,8 +553,6 @@ REAL(KIND=real_jlslsm), PARAMETER :: c_per_mol_co2 = 12.0e-3
 ! TRIFFID turnover rates (g_wood) are per 360-day year.
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_trif_year = 360.0 * 86400.0
 
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: lai_prev(:,:)
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: wood_prev(:,:)
                             ! LAI at the previous update, per PFT, for
                             ! l_ximpair_rec_lai. NOTE: not held in the dump,
                             ! so after a restart the first update sees no
@@ -553,17 +588,17 @@ c_pts(:)     = conductance_c_pft(pft)
 ! Recovery.
 !-----------------------------------------------------------------------------
 IF (l_ximpair_rec_lai) THEN
-  IF (.NOT. ALLOCATED(lai_prev)) THEN
-    ALLOCATE(lai_prev(n_land_pts, npft))
-    lai_prev(:,:) = -1.0
+  IF (.NOT. ALLOCATED(ximpair_lai_prev)) THEN
+    ALLOCATE(ximpair_lai_prev(n_land_pts, npft))
+    ximpair_lai_prev(:,:) = -1.0
   END IF
   DO l = 1, n_land_pts
-    IF (lai_prev(l,pft) >= 0.0 .AND. lai(l) > lai_prev(l,pft) .AND.            &
+    IF (ximpair_lai_prev(l,pft) >= 0.0 .AND. lai(l) > ximpair_lai_prev(l,pft) .AND.            &
         lai(l) > lai_min) THEN
-      kcap(l) = ( MAX(lai_prev(l,pft), 0.0) * kcap(l)                          &
-                  + (lai(l) - lai_prev(l,pft)) * kmax_pts(l) ) / lai(l)
+      kcap(l) = ( MAX(ximpair_lai_prev(l,pft), 0.0) * kcap(l)                          &
+                  + (lai(l) - ximpair_lai_prev(l,pft)) * kmax_pts(l) ) / lai(l)
     END IF
-    lai_prev(l,pft) = lai(l)
+    ximpair_lai_prev(l,pft) = lai(l)
   END DO
 END IF
 
@@ -576,10 +611,10 @@ IF (l_ximpair_rec_growth) THEN
                * MAX(anetc(:), 0.0) * REAL(timestep_len)
   CASE (2)
     ! A fixed fraction of NPP (previous timestep).
-    IF (.NOT. ALLOCATED(npp_prev)) THEN
+    IF (.NOT. ALLOCATED(ximpair_npp_prev)) THEN
       c_new(:) = 0.0
     ELSE
-      c_new(:) = ximpair_wood_alloc(pft) * MAX(npp_prev(:,pft), 0.0)          &
+      c_new(:) = ximpair_wood_alloc(pft) * MAX(ximpair_npp_prev(:,pft), 0.0)          &
                  * REAL(timestep_len)
     END IF
   CASE (3)
@@ -596,15 +631,15 @@ IF (l_ximpair_rec_growth) THEN
     wood(:) = a_ws(pft) * eta_sl(pft) * canht(:)                               &
               * ( a_ws(pft) * eta_sl(pft) * MAX(canht(:), 0.0) / a_wl(pft) )   &
               ** (1.0 / (b_wl(pft) - 1.0))
-    IF (.NOT. ALLOCATED(wood_prev)) THEN
-      ALLOCATE(wood_prev(n_land_pts, npft))
-      wood_prev(:,:) = -1.0
+    IF (.NOT. ALLOCATED(ximpair_wood_prev)) THEN
+      ALLOCATE(ximpair_wood_prev(n_land_pts, npft))
+      ximpair_wood_prev(:,:) = -1.0
     END IF
-    WHERE (wood_prev(:,pft) < 0.0) wood_prev(:,pft) = wood(:)
-    c_new(:) = MAX(wood(:) - wood_prev(:,pft)                                  &
+    WHERE (ximpair_wood_prev(:,pft) < 0.0) ximpair_wood_prev(:,pft) = wood(:)
+    c_new(:) = MAX(wood(:) - ximpair_wood_prev(:,pft)                                  &
                    + g_wood(pft) * wood(:) * REAL(timestep_len)                &
                    / sec_per_trif_year, 0.0)
-    wood_prev(:,pft) = wood(:)
+    ximpair_wood_prev(:,pft) = wood(:)
   CASE DEFAULT
     errcode = 101  !  a hard error
     CALL ereport(RoutineName, errcode,                                         &
@@ -704,11 +739,11 @@ USE jules_surface_types_mod, ONLY: npft
 INTEGER, INTENT(IN) :: n_land_pts, pft
 REAL(KIND=real_jlslsm), INTENT(IN) :: npp(n_land_pts)
 
-IF (.NOT. ALLOCATED(npp_prev)) THEN
-  ALLOCATE(npp_prev(n_land_pts, npft))
-  npp_prev(:,:) = 0.0
+IF (.NOT. ALLOCATED(ximpair_npp_prev)) THEN
+  ALLOCATE(ximpair_npp_prev(n_land_pts, npft))
+  ximpair_npp_prev(:,:) = 0.0
 END IF
-npp_prev(:,pft) = npp(:)
+ximpair_npp_prev(:,pft) = npp(:)
 
 END SUBROUTINE ximpair_store_npp
 

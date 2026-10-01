@@ -118,6 +118,9 @@ TYPE :: psparms_data_type
     ! Carbon gain for each plant functional type (unitless)
   REAL(KIND=real_jlslsm), ALLOCATABLE :: hydraulic_cost_pft(:,:)
     ! Hydraulic cost for each plant functional type (unitless)
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: gc_stom_pft(:,:)
+    ! Canopy stomatal conductance for water of each PFT, before the soil
+    ! evaporation term is added (m s-1)
   REAL(KIND=real_jlslsm), ALLOCATABLE :: leaf_k_pft(:,:)
     ! Conductance at the leaf (mol m-2 s-1 Pa-1) JBaguley
   REAL(KIND=real_jlslsm), ALLOCATABLE :: kmax_impaired_pft(:,:)
@@ -194,6 +197,7 @@ TYPE :: psparms_type
   REAL(KIND=real_jlslsm), POINTER :: psi_canopy_pft(:,:) ! JBaguley
   REAL(KIND=real_jlslsm), POINTER :: k_canopy_pft(:,:) ! JBaguley
   REAL(KIND=real_jlslsm), POINTER :: gc_som_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: gc_stom_pft(:,:)
 END TYPE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='P_S_PARMS'
@@ -258,6 +262,7 @@ ALLOCATE(psparms_data%psi_root_extreme_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%psi_canopy_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%k_canopy_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%gc_som_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%gc_stom_pft(land_pts,npft))
 
 psparms_data%bexp_soilt(:,:,:)        = 0.0
 psparms_data%sathh_soilt(:,:,:)       = 0.0
@@ -286,6 +291,7 @@ psparms_data%psi_root_extreme_pft(:,:) = 0.0 ! JBaguley
 psparms_data%psi_canopy_pft(:,:)        = 0.0 ! JBaguley
 psparms_data%k_canopy_pft(:,:)         = 0.0 ! JBaguley
 psparms_data%gc_som_pft(:,:)         = 0.0 ! JBaguley
+psparms_data%gc_stom_pft(:,:) = 0.0
 
 ! Plant and soil parameters
 ALLOCATE(psparms_data%albsoil_soilt(land_pts,nsoilt))
@@ -407,6 +413,7 @@ DEALLOCATE(psparms_data%psi_root_extreme_pft) ! JBaguley
 DEALLOCATE(psparms_data%psi_canopy_pft) ! JBaguley
 DEALLOCATE(psparms_data%k_canopy_pft) ! JBaguley
 DEALLOCATE(psparms_data%gc_som_pft) ! JBaguley
+DEALLOCATE(psparms_data%gc_stom_pft)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -484,6 +491,7 @@ psparms%psi_root_extreme_pft => psparms_data%psi_root_extreme_pft ! JBaguley
 psparms%psi_canopy_pft => psparms_data%psi_canopy_pft ! JBaguley
 psparms%k_canopy_pft => psparms_data%k_canopy_pft ! JBaguley
 psparms%gc_som_pft => psparms_data%gc_som_pft ! JBaguley
+psparms%gc_stom_pft => psparms_data%gc_stom_pft
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -557,6 +565,7 @@ NULLIFY(psparms%psi_root_extreme_pft) ! JBaguley
 NULLIFY(psparms%psi_canopy_pft) ! JBaguley
 NULLIFY(psparms%k_canopy_pft) ! JBaguley
 NULLIFY(psparms%gc_som_pft) ! JBaguley
+NULLIFY(psparms%gc_stom_pft)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN

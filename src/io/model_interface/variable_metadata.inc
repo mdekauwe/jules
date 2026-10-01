@@ -9354,9 +9354,22 @@ DATA metadata(722) / var_metadata(                                             &
     "kg s-1"                                                                   &
   ) /
 !-----------------------------------------------------------------------------
-! Metadata for soil_wp
+! Metadata for inland_outflow_rp
 !-----------------------------------------------------------------------------
 DATA metadata(723) / var_metadata(                                             &
+! String identifier
+    'inland_outflow_rp',                                                       &
+! Variable type
+    var_type_rp,                                                               &
+! Long name
+    "Inland basin flow on river routing grid",                                 &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for soil_wp
+!-----------------------------------------------------------------------------
+DATA metadata(724) / var_metadata(                                             &
 ! String identifier
     'soil_wp',                                                                 &
 ! Variable type
@@ -9369,7 +9382,7 @@ DATA metadata(723) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for soil_k
 !-----------------------------------------------------------------------------
-DATA metadata(724) / var_metadata(                                             &
+DATA metadata(725) / var_metadata(                                             &
 ! String identifier
     'soil_k',                                                                  &
 ! Variable type
@@ -9382,7 +9395,7 @@ DATA metadata(724) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for soil_root_k
 !-----------------------------------------------------------------------------
-DATA metadata(725) / var_metadata(                                             &
+DATA metadata(726) / var_metadata(                                             &
 ! String identifier
     'soil_root_k',                                                             &
 ! Variable type
@@ -9395,7 +9408,7 @@ DATA metadata(725) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for psi_root_zone_pft
 !-----------------------------------------------------------------------------
-DATA metadata(726) / var_metadata(                                             &
+DATA metadata(727) / var_metadata(                                             &
 ! String identifier
     'psi_root_zone_pft',                                                       &
 ! Variable type
@@ -9408,7 +9421,7 @@ DATA metadata(726) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for psi_leaf_pft
 !-----------------------------------------------------------------------------
-DATA metadata(727) / var_metadata(                                             &
+DATA metadata(728) / var_metadata(                                             &
 ! String identifier
     'psi_leaf_pft',                                                            &
 ! Variable type
@@ -9421,7 +9434,7 @@ DATA metadata(727) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for som_transpiration_pft
 !-----------------------------------------------------------------------------
-DATA metadata(728) / var_metadata(                                             &
+DATA metadata(729) / var_metadata(                                             &
 ! String identifier
     'som_transpiration_pft',                                                   &
 ! Variable type
@@ -9434,7 +9447,7 @@ DATA metadata(728) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for cica_ratio_pft
 !-----------------------------------------------------------------------------
-DATA metadata(729) / var_metadata(                                             &
+DATA metadata(730) / var_metadata(                                             &
 ! String identifier
     'cica_ratio_pft',                                                          &
 ! Variable type
@@ -9448,7 +9461,7 @@ DATA metadata(729) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for carbon_gain_pft
 !-----------------------------------------------------------------------------
-DATA metadata(730) / var_metadata(                                             &
+DATA metadata(731) / var_metadata(                                             &
 ! String identifier
     'carbon_gain_pft',                                                         &
 ! Variable type
@@ -9461,7 +9474,7 @@ DATA metadata(730) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for hydraulic_cost_pft
 !-----------------------------------------------------------------------------
-DATA metadata(731) / var_metadata(                                             &
+DATA metadata(732) / var_metadata(                                             &
 ! String identifier
     'hydraulic_cost_pft',                                                      &
 ! Variable type
@@ -9474,7 +9487,7 @@ DATA metadata(731) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for PLC_pft
 !-----------------------------------------------------------------------------
-DATA metadata(732) / var_metadata(                                             &
+DATA metadata(733) / var_metadata(                                             &
 ! String identifier
     'PLC_pft',                                                                 &
 ! Variable type
@@ -9486,9 +9499,100 @@ DATA metadata(732) / var_metadata(                                             &
     "1"                                                                        &
   ) /
 !-----------------------------------------------------------------------------
+! Metadata for psi_stem_pft (DESICA)
+!-----------------------------------------------------------------------------
+DATA metadata(734) / var_metadata(                                             &
+! String identifier
+    'psi_stem_pft',                                                            &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Stem water potential (DESICA)",                                           &
+! Units
+    "MPa"                                                                      &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for root_uptake_pft (DESICA)
+!-----------------------------------------------------------------------------
+DATA metadata(735) / var_metadata(                                             &
+! String identifier
+    'root_uptake_pft',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Root water uptake into the stem store (DESICA)",                          &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for sapflow_pft (DESICA)
+!-----------------------------------------------------------------------------
+DATA metadata(736) / var_metadata(                                             &
+! String identifier
+    'sapflow_pft',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Sap flow from the stem store to the leaves (DESICA)",                     &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for psi_leaf_desica (DESICA prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(737) / var_metadata(                                             &
+! String identifier
+    'psi_leaf_desica',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "DESICA leaf water potential (prognostic; 0 = start at the soil)",         &
+! Units
+    "Pa"                                                                       &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for psi_stem_desica (DESICA prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(738) / var_metadata(                                             &
+! String identifier
+    'psi_stem_desica',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "DESICA stem water potential (prognostic; 0 = start at the soil)",         &
+! Units
+    "Pa"                                                                       &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for dw_plant_pft (DESICA)
+!-----------------------------------------------------------------------------
+DATA metadata(739) / var_metadata(                                             &
+! String identifier
+    'dw_plant_pft',                                                            &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Change of plant water store, root uptake minus transpiration (DESICA)",   &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for gc_stom_pft
+!-----------------------------------------------------------------------------
+DATA metadata(740) / var_metadata(                                             &
+! String identifier
+    'gc_stom_pft',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Canopy stomatal conductance for water (no soil evaporation)",             &
+! Units
+    "m s-1"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
 ! Metadata for impaired_kmax_pft
 !-----------------------------------------------------------------------------
-DATA metadata(733) / var_metadata(                                             &
+DATA metadata(741) / var_metadata(                                             &
 ! String identifier
     'impaired_kmax_pft',                                                       &
 ! Variable type
@@ -9501,7 +9605,7 @@ DATA metadata(733) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for conductance_b_impaired_pft
 !-----------------------------------------------------------------------------
-DATA metadata(734) / var_metadata(                                             &
+DATA metadata(742) / var_metadata(                                             &
 ! String identifier
     'conductance_b_impaired_pft',                                              &
 ! Variable type
@@ -9514,7 +9618,7 @@ DATA metadata(734) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for conductance_c_impaired_pft
 !-----------------------------------------------------------------------------
-DATA metadata(735) / var_metadata(                                             &
+DATA metadata(743) / var_metadata(                                             &
 ! String identifier
     'conductance_c_impaired_pft',                                              &
 ! Variable type
@@ -9527,7 +9631,7 @@ DATA metadata(735) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for psi_canopy_pft
 !-----------------------------------------------------------------------------
-DATA metadata(736) / var_metadata(                                             &
+DATA metadata(744) / var_metadata(                                             &
 ! String identifier
     'psi_canopy_pft',                                                          &
 ! Variable type
@@ -9540,7 +9644,7 @@ DATA metadata(736) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for PLC_canopy_pft
 !-----------------------------------------------------------------------------
-DATA metadata(737) / var_metadata(                                             &
+DATA metadata(745) / var_metadata(                                             &
 ! String identifier
     'PLC_canopy_pft',                                                          &
 ! Variable type
@@ -9553,7 +9657,7 @@ DATA metadata(737) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for gc_som_pft
 !-----------------------------------------------------------------------------
-DATA metadata(738) / var_metadata(                                             &
+DATA metadata(746) / var_metadata(                                             &
 ! String identifier
     'gc_som_pft',                                                              &
 ! Variable type
@@ -9562,5 +9666,122 @@ DATA metadata(738) / var_metadata(                                             &
     "Stomatal conductance from stomatal optimisation calculation",             &
 ! Units
     "m s-1"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for kmax_impaired (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(747) / var_metadata(                                             &
+! String identifier
+    'kmax_impaired',                                                       &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Impaired maximum xylem conductance (0 = intact)",                     &
+! Units
+    "m s-1"                                                                &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for cond_b_impaired (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(748) / var_metadata(                                             &
+! String identifier
+    'cond_b_impaired',                                                     &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Impaired vulnerability curve b (0 = intact)",                         &
+! Units
+    "Pa"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for cond_c_impaired (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(749) / var_metadata(                                             &
+! String identifier
+    'cond_c_impaired',                                                     &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Impaired vulnerability curve c (0 = intact)",                         &
+! Units
+    "1"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for psi_leaf_extreme (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(750) / var_metadata(                                             &
+! String identifier
+    'psi_leaf_extreme',                                                    &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Most negative leaf water potential experienced",                      &
+! Units
+    "Pa"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for psi_root_extreme (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(751) / var_metadata(                                             &
+! String identifier
+    'psi_root_extreme',                                                    &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Most negative root-zone water potential experienced",                 &
+! Units
+    "Pa"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_lock (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(752) / var_metadata(                                             &
+! String identifier
+    'ximpair_lock',                                                        &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Locked-in loss of conductivity (xylem impairment)",                   &
+! Units
+    "1"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_npp_prev (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(753) / var_metadata(                                             &
+! String identifier
+    'ximpair_npp_prev',                                                    &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Previous-step NPP for xylem impairment recovery",                     &
+! Units
+    "kg m-2 s-1"                                                           &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_lai_prev (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(754) / var_metadata(                                             &
+! String identifier
+    'ximpair_lai_prev',                                                    &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "LAI at the last impairment update (-1 = not seen)",                   &
+! Units
+    "m2 m-2"                                                               &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_wood_prev (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(755) / var_metadata(                                             &
+! String identifier
+    'ximpair_wood_prev',                                                   &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Wood carbon at the last impairment update (-1 = not seen)",           &
+! Units
+    "kg m-2"                                                               &
   ) /
 #endif

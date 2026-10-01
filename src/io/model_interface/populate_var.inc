@@ -17,6 +17,9 @@ USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, fire_vars, ainfo,      &
 USE jules_fields_mod, ONLY: toppdm
 USE imgn_drive_mod, ONLY: imgn_drive
 USE imgn_vars_mod, ONLY: imgn_vars
+USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
+USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
+    ximpair_npp_prev, ximpair_lai_prev, ximpair_wood_prev
 
 USE ancil_info, ONLY:                                                          &
   dim_cslayer, land_pts, nsurft, nsoilt
@@ -1947,6 +1950,104 @@ CASE ( 'f_nsc' )
     progs%f_nsc_pft(:,:) = const_val
   END IF
 
+  ! DESICA state (Pa); 0 = start at the soil water potential.
+CASE ( 'psi_leaf_desica' )
+  CALL desica_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, psi_leaf_desica(:,:))
+  ELSE
+    psi_leaf_desica(:,:) = const_val
+  END IF
+
+CASE ( 'psi_stem_desica' )
+  CALL desica_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, psi_stem_desica(:,:))
+  ELSE
+    psi_stem_desica(:,:) = const_val
+  END IF
+
+  ! Xylem impairment state (see required_vars_for_configuration). Initial
+  ! values: 0 for all but ximpair_lai_prev / ximpair_wood_prev (-1).
+
+CASE ( 'kmax_impaired' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, psparms%kmax_impaired_pft(:,:))
+  ELSE
+    psparms%kmax_impaired_pft(:,:) = const_val
+  END IF
+
+CASE ( 'cond_b_impaired' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, psparms%conductance_b_impaired_pft(:,:))
+  ELSE
+    psparms%conductance_b_impaired_pft(:,:) = const_val
+  END IF
+
+CASE ( 'cond_c_impaired' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, psparms%conductance_c_impaired_pft(:,:))
+  ELSE
+    psparms%conductance_c_impaired_pft(:,:) = const_val
+  END IF
+
+CASE ( 'psi_leaf_extreme' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, psparms%psi_leaf_extreme_pft(:,:))
+  ELSE
+    psparms%psi_leaf_extreme_pft(:,:) = const_val
+  END IF
+
+CASE ( 'psi_root_extreme' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, psparms%psi_root_extreme_pft(:,:))
+  ELSE
+    psparms%psi_root_extreme_pft(:,:) = const_val
+  END IF
+
+CASE ( 'ximpair_lock' )
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_lock(:,:))
+  ELSE
+    ximpair_lock(:,:) = const_val
+  END IF
+
+CASE ( 'ximpair_npp_prev' )
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_npp_prev(:,:))
+  ELSE
+    ximpair_npp_prev(:,:) = const_val
+  END IF
+
+CASE ( 'ximpair_lai_prev' )
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_lai_prev(:,:))
+  ELSE
+    ximpair_lai_prev(:,:) = const_val
+  END IF
+
+CASE ( 'ximpair_wood_prev' )
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_wood_prev(:,:))
+  ELSE
+    ximpair_wood_prev(:,:) = const_val
+  END IF
+
   !-----------------------------------------------------------------------------
   ! Forcing variables
   !-----------------------------------------------------------------------------
@@ -2437,6 +2538,14 @@ CASE ( 'rivers_outflow_rp' )
     CALL cube_get_data(cube_land, rivers%rivers_outflow_rp)
   ELSE
     rivers%rivers_outflow_rp(:) = const_val
+  END IF
+
+CASE ( 'inland_outflow_rp' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = cube_create([ SIZE(cube%values) ])
+    CALL cube_get_data(cube_land, rivers%inland_outflow_rp)
+  ELSE
+    rivers%inland_outflow_rp(:) = const_val
   END IF
 
 CASE ( 'rfm_surfstore_rp' )

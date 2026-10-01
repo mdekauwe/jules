@@ -36,12 +36,12 @@ SUBROUTINE leaf_limits(ft, land_field, pft_photo_model, veg_pts, veg_index     &
 ,                      clos_pts, open_pts, clos_index, open_index              &
 ,                      ci, wcarb, wexpt, wlite )
 
-USE pftparm, ONLY: alpha, c3, dqcrit, f0, g1_stomata
+USE pftparm, ONLY: alpha, c3, dqcrit, f0, g1_stomata, g1_tuzet
 USE planet_constants_mod, ONLY: repsilon
 USE jules_surface_mod, ONLY: fwe_c3, fwe_c4
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported parameters
-    photo_collatz, photo_farquhar, stomata_jacobs,                             &
+    photo_collatz, photo_farquhar, stomata_jacobs, stomata_desica,             &
 ! imported scalars that are not changed
     stomata_model
 
@@ -83,7 +83,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Canopy level specific humidity deficit
                             ! (kg H2O/kg air).
 ,fsmc(land_field)                                                              &
-                            ! Soil water factor.
+                            ! Soil water factor. For stomata_desica, the
+                            ! Tuzet leaf water potential factor fw instead.
 ,je(land_field)                                                                &
                             ! Electron transport rate (mol m-2 s-1)
 ,kc(land_field)                                                                &
@@ -164,7 +165,7 @@ vpd_factor = 1.0 / ( repsilon * 1.0e3 )
 !$OMP PRIVATE(j,l)                                                             &
 !$OMP SHARED(veg_pts,veg_index,ft,                                             &
 !$OMP        ccp,vcmax,ci,ca,f0,dq,dqcrit,l_closed,fsmc,apar,g1_stomata,       &
-!$OMP        stomata_model,pstar,vpd_factor)
+!$OMP        stomata_model,pstar,vpd_factor,g1_tuzet)
 DO j = 1,veg_pts
   l = veg_index(j)
 
@@ -179,6 +180,25 @@ DO j = 1,veg_pts
     ! Note that we test apar rather than acr (which is apar but in different
     ! units) to retain bit comparability with older versions.
     IF (fsmc(l) == 0.0 .OR. dq(l) >= dqcrit(ft) .OR. apar(l) == 0.0) THEN
+      l_closed(l) = .TRUE.
+    ELSE
+      l_closed(l) = .FALSE.
+    END IF
+
+  ELSE IF ( stomata_model == stomata_desica ) THEN
+
+    ! DESICA / Tuzet et al. (2003): gs = g1 fw An / ca for water vapour, so
+    ! An = gs (ca - ci) / 1.6 gives ci = ca (1 - 1.6 / (g1 fw)), with fw
+    ! passed in fsmc. There is no VPD term: the response to demand comes
+    ! through psi_leaf. Closed where ci would fall to the compensation
+    ! point (An <= 0).
+    IF ( g1_tuzet(ft) * fsmc(l) > 1.6 ) THEN
+      ci(l) = ca(l) * (1.0 - 1.6 / (g1_tuzet(ft) * fsmc(l)))
+    ELSE
+      ci(l) = ccp(l)
+    END IF
+
+    IF (ci(l) <= ccp(l) .OR. apar(l) == 0.0) THEN
       l_closed(l) = .TRUE.
     ELSE
       l_closed(l) = .FALSE.

@@ -21,6 +21,11 @@ USE gridbox_mean_mod, ONLY:                                                    &
   surftiles_to_gbm, soiltiles_to_gbm
 
 USE timestep_mod, ONLY: timestep
+USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_npp_prev,         &
+                                       ximpair_lai_prev, ximpair_wood_prev
+USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
+                          flux_sap_desica, dw_plant_desica
+USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
 
 !Use variables
 !Science variables
@@ -2686,6 +2691,9 @@ CASE ( 'rfm_surfstore_rp' )
 CASE ( 'rivers_outflow_rp' )
   cube = cube_from_array(rivers%rivers_outflow_rp)
 
+CASE ( 'inland_outflow_rp' )
+  cube = cube_from_array(rivers%inland_outflow_rp)
+
 CASE ( 'river_elevation' )
   cube = cube_from_array(rivers%river_elevation)
 
@@ -3596,7 +3604,13 @@ CASE ( 'psi_root_zone_pft' )
   ! Leaf water potential for each plant functional type JBaguley
   ! The 1.0e-6 is to convert from Pa to MPa
 CASE ( 'psi_leaf_pft' )
-  cube_land = cube_from_array(psparms%psi_leaf_pft(:,:)*1.0e-6)
+  ! DESICA: the state advanced with the actual transpiration (sf_evap),
+  ! not sf_stom's projection.
+  IF ( stomata_model == stomata_desica .AND. ALLOCATED(psi_leaf_desica) ) THEN
+    cube_land = cube_from_array(psi_leaf_desica(:,:)*1.0e-6)
+  ELSE
+    cube_land = cube_from_array(psparms%psi_leaf_pft(:,:)*1.0e-6)
+  END IF
   cube = map_from_land(cube_land)
 
   ! Transpiration rate calcuated in the stomatal optimisation calculation JBaguley
@@ -3605,6 +3619,10 @@ CASE ( 'som_transpiration_pft' )
   cube = map_from_land(cube_land)
 
   ! Ratio of intercellular and canopy level CO2 concentration JBaguley
+CASE ( 'gc_stom_pft' )
+  cube_land = cube_from_array(psparms%gc_stom_pft)
+  cube = map_from_land(cube_land)
+
 CASE ('cica_ratio_pft')
   cube_land = cube_from_array(psparms%cica_ratio_pft)
   cube = map_from_land(cube_land)
@@ -3621,6 +3639,98 @@ CASE ('hydraulic_cost_pft')
 
   ! Percentage loss of conductance at the leaf water potential compared to the
   ! maximum conductance JBaguley
+  ! DESICA (stomata_model = 4) stem water potential (Pa -> MPa) and root
+  ! uptake / sap flow (kg m-2 s-1); zero when DESICA is not in use.
+CASE ( 'psi_stem_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(psi_stem_desica) ) workspace_pft(:,:) = psi_stem_desica * 1.0e-6
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'psi_leaf_desica' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(psi_leaf_desica) ) workspace_pft(:,:) = psi_leaf_desica
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'psi_stem_desica' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(psi_stem_desica) ) workspace_pft(:,:) = psi_stem_desica
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'kmax_impaired' )
+  workspace_pft(:,:) = 0.0
+  workspace_pft(:,:) = psparms%kmax_impaired_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'cond_b_impaired' )
+  workspace_pft(:,:) = 0.0
+  workspace_pft(:,:) = psparms%conductance_b_impaired_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'cond_c_impaired' )
+  workspace_pft(:,:) = 0.0
+  workspace_pft(:,:) = psparms%conductance_c_impaired_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'psi_leaf_extreme' )
+  workspace_pft(:,:) = 0.0
+  workspace_pft(:,:) = psparms%psi_leaf_extreme_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'psi_root_extreme' )
+  workspace_pft(:,:) = 0.0
+  workspace_pft(:,:) = psparms%psi_root_extreme_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_lock' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(ximpair_lock) ) workspace_pft(:,:) = ximpair_lock
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_npp_prev' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(ximpair_npp_prev) ) workspace_pft(:,:) = ximpair_npp_prev
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_lai_prev' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(ximpair_lai_prev) ) workspace_pft(:,:) = ximpair_lai_prev
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_wood_prev' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(ximpair_wood_prev) ) workspace_pft(:,:) = ximpair_wood_prev
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'root_uptake_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(flux_root_desica) ) workspace_pft(:,:) = flux_root_desica
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'dw_plant_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(dw_plant_desica) ) workspace_pft(:,:) = dw_plant_desica
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'sapflow_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(flux_sap_desica) ) workspace_pft(:,:) = flux_sap_desica
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
 CASE ('PLC_pft')
 
   ! Convert the leaf conductance to a percentage loss of conductance

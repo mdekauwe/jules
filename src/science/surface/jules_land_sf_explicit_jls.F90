@@ -69,7 +69,7 @@ SUBROUTINE jules_land_sf_explicit (                                            &
  chr1p5m,smc_soilt,hcons_soilt,gpp,npp,resp_p,g_leaf,gpp_pft,el_pft,npp_pft,   &
  resp_p_pft,resp_s_soilt,resp_s_tot_soilt,resp_l_pft,resp_r_pft,               &
  resp_w_pft,n_leaf,n_root,n_stem,lai_bal,gc_surft,canhc_surft,wt_ext_surft,    &
- flake,surft_index,surft_pts,tile_frac,fsmc_pft,emis_soil,                     &
+ flake,surft_index,surft_pts,tile_frac,non_irrig_frac,fsmc_pft,emis_soil,      &
  growth_sug_pft,growth_sug_gb,f_nsc_pft,lwp_c_pft,                             &
 ! OUT required for classic aerosols
  cd_land,rib_surft,ch_surft_classic,cd_std_classic,                            &
@@ -97,7 +97,7 @@ SUBROUTINE jules_land_sf_explicit (                                            &
  bexp_soilt, sathh_soilt, v_close_pft, v_open_pft, satcon_soilt,               &
  !p_s_parms (out) JBaguley
  soil_wp_soilt,soil_k_soilt,soil_root_k_soilt,psi_root_zone_pft,psi_leaf_pft,  &
- cica_ratio_pft,leaf_k_pft,                                                    &
+ cica_ratio_pft,leaf_k_pft,gc_stom_pft,                                        &
  !p_s_parms (IN OUT) JBaguley
  k_max_impaired_pft,conductance_b_impaired_pft,conductance_c_impaired_pft,     &
  psi_leaf_extreme_pft,psi_root_extreme_pft,                                    &
@@ -168,6 +168,7 @@ USE urbanz0_mod,                ONLY: urbanz0
 USE veg_param,                  ONLY: secs_per_360days
 USE veg3_field_mod,             ONLY: veg_state_type
 USE water_constants_mod,        ONLY: lc, rho_ice, tm
+USE c_irrigation_mod,           ONLY: irrig_tile
 
 USE jules_soil_biogeochem_mod, ONLY:                                           &
 ! imported scalar parameters
@@ -203,9 +204,10 @@ USE jules_surface_mod, ONLY: l_aggregate, formdrag, l_anthrop_heat_src,        &
                              l_vary_z0m_soil, l_elev_land_ice, ls
 
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod, ilayers, leaf_flux_mod,&
-                                som_base_parm, l_triffid,  l_vegdrag_surft
+                                som_base_parm, l_triffid,  l_vegdrag_surft,   &
+                                stomata_model, stomata_desica
 
-USE jules_irrig_mod, ONLY: l_irrig_dmd
+USE jules_irrig_mod, ONLY: l_irrig_dmd, irrig_option, tile_based_irrigation
 
 USE jules_sea_seaice_mod, ONLY: l_ctile, charnock, ip_ss_solid
 
@@ -630,6 +632,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,tile_frac(land_pts,nsurft)                                                    &
                              ! OUT Tile fractions including
                              !     snow cover in the ice tile.
+,non_irrig_frac(land_pts)                                                      &
+                             ! OUT Fraction of non-irrigated tiles.
 ,fsmc_pft(land_pts,npft)                                                       &
                              ! OUT Moisture availability factor.
 ,gc_corr(land_pts,npft)                                                        &
@@ -683,7 +687,9 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,psi_root_zone_pft(land_pts,npft)                                              &
 ,psi_leaf_pft(land_pts,npft)                                                   &
 ,cica_ratio_pft(land_pts,npft)                                                 &
-,leaf_k_pft(land_pts,npft)
+,leaf_k_pft(land_pts,npft)                                                     &
+,gc_stom_pft(land_pts,npft)
+                            ! Canopy stomatal conductance of each PFT (m s-1)
 
 !p_s_parms (IN OUT) JBaguley
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
@@ -1224,6 +1230,21 @@ IF ( l_anthrop_heat_src .AND. .NOT. l_aggregate ) THEN
                                   anthrop_heat_surft)
 END IF
 
+! Set up non irrigated fraction
+non_irrig_frac(:) = 1.0
+IF (irrig_option == tile_based_irrigation) THEN
+  DO n = 1,ntype
+    IF (irrig_tile(n) > 0) THEN
+!$OMP PARALLEL DO SCHEDULE(STATIC) DEFAULT(NONE) PRIVATE(l)                    &
+!$OMP SHARED(land_pts, non_irrig_frac, frac, n)
+      DO l = 1, land_pts
+        non_irrig_frac(l) =  non_irrig_frac(l) - frac(l,n)
+      END DO
+!$OMP END PARALLEL DO
+    END IF
+  END DO
+END IF
+
 !-----------------------------------------------------------------------
 ! Call physiology routine to calculate surface conductances and carbon
 ! fluxes.
@@ -1233,7 +1254,8 @@ CALL physiol (                                                                 &
   sm_levels,nsurft,n_wtrac_jls,surft_pts,surft_index,                          &
   dim_cs1,                                                                     &
   co2_mmr,co2_3d,co2_dim_len, co2_dim_row,l_co2_interactive,                   &
-  can_model,cs_pool_soilt,veg_state,frac,canht_pft,photosynth_act_rad,         &
+  can_model,cs_pool_soilt,veg_state,frac,non_irrig_frac,                       &
+  canht_pft,photosynth_act_rad,                                                &
   lai_pft,pstar,qw_1,sthu_soilt,sthf_soilt,t_soil_soilt,tstar_surft,           &
   smvccl_soilt,smvcst_soilt,smvcwt_soilt,vshr,z0_surft,z1_uv,o3,               &
   canhc_surft,vfrac_surft,emis_surft,l_emis_surft_set,emis_soil,flake,         &
@@ -1307,6 +1329,17 @@ IF ( .NOT. l_aggregate .AND. can_model == 4) THEN
       END DO
 !$OMP END PARALLEL DO
     END IF
+  END DO
+END IF
+
+!----------------------------------------------------------------------
+! Canopy stomatal conductance of each PFT, before soil evaporation is
+! added to the tile conductance (output gc_stom_pft).
+!----------------------------------------------------------------------
+gc_stom_pft(:,:) = 0.0
+IF ( .NOT. l_aggregate ) THEN
+  DO n = 1,npft
+    gc_stom_pft(:,n) = gc_stom_surft(:,n)
   END DO
 END IF
 
@@ -2265,7 +2298,8 @@ DO n = 1,nsurft
 
   ! We should only attempt to access sf_diag%resfs_stom(:,n) if it has
   ! been fully allocated.
-  IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
+  IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR.                      &
+      stomata_model == stomata_desica) THEN
     n_diag = n
   ELSE
     n_diag = 1
@@ -2276,7 +2310,9 @@ DO n = 1,nsurft
    canopy(:,n),catch(:,n),chn(:,n),dq(:,n),epdt,flake(:,n),gc_surft(:,n),      &
    gc_stom_surft(:,n),snowdep_surft(:,n),snow_surft(:,n),vshr_land,            &
    tstar_surft(:,n),fracaero_t(:,n),fracaero_s(:,n),resfs(:,n),resft(:,n),     &
-   sf_diag%resfs_stom(:,n_diag),sf_diag%l_et_stom,sf_diag%l_et_stom_surft)
+   sf_diag%resfs_stom(:,n_diag),                                               &
+   sf_diag%l_et_stom .OR. stomata_model == stomata_desica,                     &
+   sf_diag%l_et_stom_surft)
 
 END DO
 
@@ -2619,7 +2655,8 @@ DO n = 1,nsurft
 
   ! We should only attempt to access sf_diag%resfs_stom(:,n) if it has
   ! been fully allocated.
-  IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
+  IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR.                      &
+      stomata_model == stomata_desica) THEN
     n_diag = n
   ELSE
     n_diag = 1
@@ -2630,7 +2667,9 @@ DO n = 1,nsurft
    canopy(:,n),catch(:,n),ch_surft(:,n),dq(:,n),epdt,flake(:,n),gc_surft(:,n), &
    gc_stom_surft(:,n),snowdep_surft(:,n),snow_surft(:,n),vshr_land,            &
    tstar_surft(:,n),fracaero_t(:,n),fracaero_s(:,n),resfs(:,n),resft(:,n),     &
-   sf_diag%resfs_stom(:,n_diag),sf_diag%l_et_stom,sf_diag%l_et_stom_surft)
+   sf_diag%resfs_stom(:,n_diag),                                               &
+   sf_diag%l_et_stom .OR. stomata_model == stomata_desica,                     &
+   sf_diag%l_et_stom_surft)
 
   CALL sf_flux (                                                               &
    land_pts,surft_pts(n),                                                      &
