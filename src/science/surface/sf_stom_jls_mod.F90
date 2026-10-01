@@ -125,7 +125,8 @@ USE stom_opt_jls_mod, ONLY: stom_opt_mod
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
 
 USE planet_constants_mod, ONLY: repsilon
-USE desica_jls_mod, ONLY: desica_fw, desica_hydraulics, tuzet_fw
+USE desica_jls_mod, ONLY: desica_fw, desica_hydraulics, tuzet_fw,             &
+                          desica_store_inputs
 USE timestep_mod, ONLY: timestep
 
 
@@ -2886,12 +2887,12 @@ IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
 END IF
 
 !-----------------------------------------------------------------------------
-! DESICA: advance psi_leaf and psi_stem for this timestep's transpiration
+! DESICA: project psi_leaf and psi_stem for this timestep's transpiration
 ! (including any cuticular floor). Where the plant cannot deliver it
 ! without psi_stem or psi_leaf passing their lower bounds, gc is cut to the
 ! transpiration it can deliver (A is not re-solved: by then the Tuzet
-! factor has shut the stomata), so the plant never loses water it does not
-! have.
+! factor has shut the stomata). The state is advanced in sf_evap, with the
+! actual transpiration; here the step's inputs are stored for that.
 !-----------------------------------------------------------------------------
 IF ( stomata_model == stomata_desica ) THEN
   CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
@@ -2905,8 +2906,10 @@ IF ( stomata_model == stomata_desica ) THEN
     END IF
   END DO
   CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
-                          lai, ht, psi_root_zone, el, .TRUE.,                &
+                          lai, ht, psi_root_zone, el, .FALSE.,               &
                           psi_leaf, leaf_k, el_hyd )
+  CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,        &
+                            psi_root_zone )
 END IF
 
 !-----------------------------------------------------------------------------

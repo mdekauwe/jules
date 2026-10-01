@@ -49,7 +49,14 @@ MODULE desica_jls_mod
 ! leaf-side conductance is k_plant / som_leaf_resist_frac and the root-side
 ! one k_plant / (1 - som_leaf_resist_frac).
 !
-! Soil water extraction stays E (as in CABLE-DESICA); Q is a diagnostic.
+! Water accounting: sf_stom solves gs with a projected E and stores the
+! step's inputs (desica_store_inputs). Once the surface fluxes are final,
+! sf_evap advances psi_leaf and psi_stem with the actual transpiration T
+! (desica_commit) and extracts the root uptake Q from the soil instead of
+! T; the plant store takes up the difference, dW/dt = Q - T. Where the
+! plant cannot deliver T (a psi bound), the shortfall is added to Q, and
+! where the soil cannot supply Q, Q is cut and the stem store pays
+! (desica_cut_uptake), so soil + plant + atmosphere water is conserved.
 ! psi_leaf and psi_stem are dumped ('psi_leaf_desica', 'psi_stem_desica',
 ! Pa). A value >= 0 (e.g. an initial condition of 0) means "not set": the
 ! state then starts at psi_root_zone.
@@ -66,7 +73,9 @@ IMPLICIT NONE
 
 PRIVATE
 PUBLIC :: desica_alloc, desica_fw, desica_hydraulics, tuzet_fw,                &
-          psi_leaf_desica, psi_stem_desica, flux_root_desica, flux_sap_desica
+          desica_store_inputs, desica_commit, desica_cut_uptake,               &
+          psi_leaf_desica, psi_stem_desica, flux_root_desica, flux_sap_desica, &
+          dw_plant_desica
 
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE ::                                   &
   psi_leaf_desica(:,:),                                                        &
@@ -76,9 +85,16 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE ::                                   &
   flux_root_desica(:,:),                                                       &
                             ! Root water uptake Q, timestep mean
                             ! (kg m-2 ground s-1).
-  flux_sap_desica(:,:)
+  flux_sap_desica(:,:),                                                        &
                             ! Sap flow stem -> leaf J, timestep mean
                             ! (kg m-2 ground s-1).
+  dw_plant_desica(:,:),                                                        &
+                            ! Change of plant water store, Q - T
+                            ! (kg m-2 ground s-1).
+  lai_desica(:,:), ht_desica(:,:), psi_soil_desica(:,:)
+                            ! This step's LAI, canopy height (m) and root
+                            ! zone water potential (Pa), stored by sf_stom
+                            ! for desica_commit.
 
 REAL(KIND=real_jlslsm), PARAMETER :: dt_max = 600.0
                             ! Longest sub-step (s), Xu et al. (2016).
@@ -104,11 +120,17 @@ INTEGER, INTENT(IN) :: land_pts
 
 IF ( .NOT. ALLOCATED(psi_leaf_desica) ) THEN
   ALLOCATE( psi_leaf_desica(land_pts,npft), psi_stem_desica(land_pts,npft),   &
-            flux_root_desica(land_pts,npft), flux_sap_desica(land_pts,npft) )
+            flux_root_desica(land_pts,npft), flux_sap_desica(land_pts,npft),  &
+            dw_plant_desica(land_pts,npft), lai_desica(land_pts,npft),        &
+            ht_desica(land_pts,npft), psi_soil_desica(land_pts,npft) )
   psi_leaf_desica(:,:)  = 0.0
   psi_stem_desica(:,:)  = 0.0
   flux_root_desica(:,:) = 0.0
   flux_sap_desica(:,:)  = 0.0
+  dw_plant_desica(:,:)  = 0.0
+  lai_desica(:,:)       = 0.0
+  ht_desica(:,:)        = 0.0
+  psi_soil_desica(:,:)  = 0.0
 END IF
 
 END SUBROUTINE desica_alloc
@@ -330,5 +352,86 @@ DO m = 1,veg_pts
 END DO
 
 END SUBROUTINE desica_hydraulics
+
+!-----------------------------------------------------------------------------
+! Store this step's plant inputs for desica_commit (called from sf_stom).
+!-----------------------------------------------------------------------------
+SUBROUTINE desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, canht, &
+                                psi_root_zone )
+
+INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: lai(land_pts), canht(land_pts),        &
+                                      psi_root_zone(land_pts)
+INTEGER :: l, m
+
+CALL desica_alloc( land_pts )
+DO m = 1,veg_pts
+  l = veg_index(m)
+  lai_desica(l,ft)      = lai(l)
+  ht_desica(l,ft)       = canht(l)
+  psi_soil_desica(l,ft) = psi_root_zone(l)
+END DO
+
+END SUBROUTINE desica_store_inputs
+
+!-----------------------------------------------------------------------------
+! Advance psi_leaf/psi_stem with the actual transpiration t_stom of PFT ft
+! (kg m-2 s-1) and return the root uptake to take from the soil, q_soil
+! (kg m-2 s-1). Called from sf_evap once the surface fluxes are final.
+!-----------------------------------------------------------------------------
+SUBROUTINE desica_commit( ft, land_pts, npts, pts_index, timestep, t_stom,    &
+                          q_soil )
+
+INTEGER, INTENT(IN) :: ft, land_pts, npts, pts_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: timestep, t_stom(land_pts)
+REAL(KIND=real_jlslsm), INTENT(OUT) :: q_soil(land_pts)
+
+INTEGER :: l, m
+REAL(KIND=real_jlslsm) :: el(land_pts), psi_l(land_pts), k_l(land_pts),      &
+                          el_hyd(land_pts)
+
+CALL desica_alloc( land_pts )
+q_soil(:) = 0.0
+el(:)     = 0.0
+DO m = 1,npts
+  l = pts_index(m)
+  el(l) = MAX(t_stom(l), 0.0) / mol_h2o
+END DO
+CALL desica_hydraulics( ft, land_pts, npts, pts_index, timestep,              &
+                        lai_desica(:,ft), ht_desica(:,ft),                    &
+                        psi_soil_desica(:,ft), el, .TRUE., psi_l, k_l, el_hyd )
+DO m = 1,npts
+  l = pts_index(m)
+  ! Transpiration the plant could not deliver (psi at a bound) comes
+  ! straight from the soil, so no water is created.
+  q_soil(l) = flux_root_desica(l,ft) + MAX(el(l) - el_hyd(l), 0.0) * mol_h2o
+  flux_root_desica(l,ft) = q_soil(l)
+  dw_plant_desica(l,ft)  = q_soil(l) - MAX(t_stom(l), 0.0)
+END DO
+
+END SUBROUTINE desica_commit
+
+!-----------------------------------------------------------------------------
+! The soil could not supply the uptake: cut it by dq (kg m-2 s-1) at point l
+! of PFT ft and let the stem store pay for it.
+!-----------------------------------------------------------------------------
+SUBROUTINE desica_cut_uptake( ft, l, timestep, dq )
+
+USE pftparm, ONLY: cap_stem
+
+INTEGER, INTENT(IN) :: ft, l
+REAL(KIND=real_jlslsm), INTENT(IN) :: timestep, dq
+
+REAL(KIND=real_jlslsm) :: c_stem
+
+c_stem = cap_stem(ft) * lai_desica(l,ft)
+flux_root_desica(l,ft) = flux_root_desica(l,ft) - dq
+dw_plant_desica(l,ft)  = dw_plant_desica(l,ft) - dq
+IF ( c_stem > 0.0 ) THEN
+  psi_stem_desica(l,ft) = psi_stem_desica(l,ft) - dq / mol_h2o * timestep    &
+                                                  / c_stem
+END IF
+
+END SUBROUTINE desica_cut_uptake
 
 END MODULE desica_jls_mod

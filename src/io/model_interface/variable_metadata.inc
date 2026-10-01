@@ -9563,4 +9563,17 @@ DATA metadata(738) / var_metadata(                                             &
 ! Units
     "Pa"                                                                       &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for dw_plant_pft (DESICA)
+!-----------------------------------------------------------------------------
+DATA metadata(739) / var_metadata(                                             &
+! String identifier
+    'dw_plant_pft',                                                            &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Change of plant water store, root uptake minus transpiration (DESICA)",   &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
 #endif

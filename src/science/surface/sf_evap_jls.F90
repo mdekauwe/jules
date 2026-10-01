@@ -50,7 +50,10 @@ USE ancil_info, ONLY: nsoilt
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
 USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
-USE jules_surface_types_mod, ONLY: lake
+USE jules_surface_types_mod, ONLY: lake, npft
+USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
+USE desica_jls_mod, ONLY: desica_commit, desica_cut_uptake
+USE ereport_mod, ONLY: ereport
 
 USE jules_science_fixes_mod, ONLY: l_fix_neg_snow
 
@@ -199,8 +202,24 @@ REAL(KIND=real_jlslsm) ::                                                      &
                        ! Increment in GBM sensible heat flux.
 ,e_surft_old(land_pts,nsurft)                                                  &
 !                            ! Surface moisture flux before adjustment.
-,le_surft_old(land_pts,nsurft)
+,le_surft_old(land_pts,nsurft)                                                  &
 !                            ! Surf latent heat flux before adjustment.
+,t_stom(land_pts,nsurft)                                                       &
+!                            ! DESICA: stomatal transpiration (kg/m2/s).
+,esoil_ext(land_pts,nsurft)                                                    &
+!                            ! Flux taken from soil moisture (kg/m2/s):
+!                            !     esoil_surft, except that for DESICA the
+!                            !     transpiration is replaced by the root
+!                            !     uptake.
+,q_ds(land_pts)
+!                            ! DESICA root uptake of one PFT (kg/m2/s).
+
+REAL(KIND=real_jlslsm) ::                                                      &
+ sum_t, sum_q, excess, dq_cut
+                       ! DESICA soil-supply check on the uptake.
+LOGICAL :: l_desica
+                       ! DESICA is on (stomata_model = stomata_desica).
+INTEGER :: errcode
 
 REAL(KIND=real_jlslsm) ::                                                      &
  diff_lat_htf                                                                  &
@@ -236,6 +255,14 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='SF_EVAP'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+l_desica = ( stomata_model == stomata_desica )
+IF ( l_desica .AND. ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
+  errcode = 101
+  CALL ereport('sf_evap', errcode, 'stomata_model = 4 (DESICA) water '     //  &
+               'accounting is coded for nsoilt = 1, no l_irrig_dmd and '   //  &
+               'no l_aggregate')
+END IF
+
 !$OMP PARALLEL                                                                 &
 !$OMP DEFAULT(SHARED)                                                          &
 !$OMP PRIVATE(i,j,k,m,l,n,mm,edt,rhokh1_prime,diff_lat_htf,dtstar,             &
@@ -246,6 +273,7 @@ DO n = 1,nsurft
   DO l = 1,land_pts
     ecan_surft(l,n) = 0.0
     esoil_surft(l,n) = 0.0
+    t_stom(l,n) = 0.0
     IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
       sf_diag%et_stom_surft(l,n) = 0.0
     END IF
@@ -699,6 +727,58 @@ END DO
 !$OMP END DO NOWAIT
 
 !-----------------------------------------------------------------------
+! DESICA: advance the plant water state with the actual transpiration and
+! take the root uptake Q from the soil in place of the transpiration T, so
+! that the plant store holds the difference (see desica_jls_mod). T is the
+! stomatal share of esoil (resfs_stom / resfs, as the et_stom diagnostic),
+! after the soil-supply cap above. If the soil cannot supply the uptake, it
+! is cut and the stem store pays.
+!-----------------------------------------------------------------------
+!$OMP SINGLE
+esoil_ext(:,:) = esoil_surft(:,:)
+IF ( l_desica ) THEN
+  DO n = 1,npft
+    DO k = 1,surft_pts(n)
+      l = surft_index(k,n)
+      IF ( resfs(l,n) > EPSILON(1.0) ) THEN
+        t_stom(l,n) = esoil_surft(l,n) * sf_diag%resfs_stom(l,n) / resfs(l,n)
+      END IF
+    END DO
+    CALL desica_commit( n, land_pts, surft_pts(n), surft_index(:,n),          &
+                        timestep, t_stom(:,n), q_ds )
+    DO k = 1,surft_pts(n)
+      l = surft_index(k,n)
+      esoil_ext(l,n) = esoil_surft(l,n) - t_stom(l,n) + q_ds(l)
+    END DO
+  END DO
+  ! Soil supply: the total taken must not exceed smc.
+  DO l = 1,land_pts
+    j = (land_index(l) - 1) / t_i_length + 1
+    i = land_index(l) - (j-1) * t_i_length
+    sum_t = 0.0
+    sum_q = 0.0
+    DO n = 1,npft
+      sum_t = sum_t + tile_frac(l,n) * t_stom(l,n)
+      sum_q = sum_q + tile_frac(l,n) * (esoil_ext(l,n) - esoil_surft(l,n)      &
+                                        + t_stom(l,n))
+    END DO
+    excess = (esoil_soilt(i,j,1) - sum_t + sum_q) - smc_soilt(l,1) / timestep
+    IF ( excess > 0.0 .AND. sum_q > 0.0 ) THEN
+      DO n = 1,npft
+        IF ( tile_frac(l,n) <= 0.0 ) CYCLE
+        dq_cut = MIN(excess / sum_q, 1.0)                                      &
+                 * (esoil_ext(l,n) - esoil_surft(l,n) + t_stom(l,n))
+        IF ( dq_cut > 0.0 ) THEN
+          CALL desica_cut_uptake( n, l, timestep, dq_cut )
+          esoil_ext(l,n) = esoil_ext(l,n) - dq_cut
+        END IF
+      END DO
+    END IF
+  END DO
+END IF
+!$OMP END SINGLE
+
+!-----------------------------------------------------------------------
 ! Extraction of water from each layer
 !-----------------------------------------------------------------------
 
@@ -727,7 +807,7 @@ DO m = 1,sm_levels
           l = surft_index(k,n)
           ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                                &
                             + tile_frac(l,n) * wt_ext_surft(l,m,n)             &
-                            * esoil_surft(l,n)
+                            * esoil_ext(l,n)
         END DO
 !$OMP END DO
       END IF
@@ -739,7 +819,7 @@ DO m = 1,sm_levels
         l = surft_index(k,n)
         ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                                  &
                             + wt_ext_surft(l,m,n)                              &
-                            * esoil_surft(l,n)
+                            * esoil_ext(l,n)
       END DO
 !$OMP END DO
     END IF !nsoilt

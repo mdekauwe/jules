@@ -22,7 +22,8 @@ USE gridbox_mean_mod, ONLY:                                                    &
 
 USE timestep_mod, ONLY: timestep
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
-                          flux_sap_desica
+                          flux_sap_desica, dw_plant_desica
+USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
 
 !Use variables
 !Science variables
@@ -3601,7 +3602,13 @@ CASE ( 'psi_root_zone_pft' )
   ! Leaf water potential for each plant functional type JBaguley
   ! The 1.0e-6 is to convert from Pa to MPa
 CASE ( 'psi_leaf_pft' )
-  cube_land = cube_from_array(psparms%psi_leaf_pft(:,:)*1.0e-6)
+  ! DESICA: the state advanced with the actual transpiration (sf_evap),
+  ! not sf_stom's projection.
+  IF ( stomata_model == stomata_desica .AND. ALLOCATED(psi_leaf_desica) ) THEN
+    cube_land = cube_from_array(psi_leaf_desica(:,:)*1.0e-6)
+  ELSE
+    cube_land = cube_from_array(psparms%psi_leaf_pft(:,:)*1.0e-6)
+  END IF
   cube = map_from_land(cube_land)
 
   ! Transpiration rate calcuated in the stomatal optimisation calculation JBaguley
@@ -3649,6 +3656,12 @@ CASE ( 'psi_stem_desica' )
 CASE ( 'root_uptake_pft' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(flux_root_desica) ) workspace_pft(:,:) = flux_root_desica
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'dw_plant_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(dw_plant_desica) ) workspace_pft(:,:) = dw_plant_desica
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
