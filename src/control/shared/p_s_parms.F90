@@ -118,6 +118,9 @@ TYPE :: psparms_data_type
     ! Carbon gain for each plant functional type (unitless)
   REAL(KIND=real_jlslsm), ALLOCATABLE :: hydraulic_cost_pft(:,:)
     ! Hydraulic cost for each plant functional type (unitless)
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: gc_stom_pft(:,:)
+    ! Canopy stomatal conductance for water of each PFT, before the soil
+    ! evaporation term is added (m s-1)
   REAL(KIND=real_jlslsm), ALLOCATABLE :: leaf_k_pft(:,:)
     ! Percentage loss of conductance at the leaf relative to the
     ! maximum conductance. (unitless) JBaguley
@@ -162,6 +165,7 @@ TYPE :: psparms_type
   REAL(KIND=real_jlslsm), POINTER :: carbon_gain_pft(:,:) ! JBaguley
   REAL(KIND=real_jlslsm), POINTER :: hydraulic_cost_pft(:,:) ! JBaguley
   REAL(KIND=real_jlslsm), POINTER :: leaf_k_pft(:,:) ! JBaguley
+  REAL(KIND=real_jlslsm), POINTER :: gc_stom_pft(:,:)
 END TYPE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='P_S_PARMS'
@@ -218,6 +222,7 @@ ALLOCATE(psparms_data%cica_ratio_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%carbon_gain_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%hydraulic_cost_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%leaf_k_pft(land_pts,npft)) ! JBaguley
+ALLOCATE(psparms_data%gc_stom_pft(land_pts,npft))
 
 psparms_data%bexp_soilt(:,:,:)        = 0.0
 psparms_data%sathh_soilt(:,:,:)       = 0.0
@@ -238,6 +243,7 @@ psparms_data%cica_ratio_pft(:,:)      = 0.0 ! JBaguley
 psparms_data%carbon_gain_pft(:,:)     = 0.0 ! JBaguley
 psparms_data%hydraulic_cost_pft(:,:)  = 0.0 ! JBaguley
 psparms_data%leaf_k_pft(:,:) = 0.0 ! JBaguley
+psparms_data%gc_stom_pft(:,:) = 0.0
 
 ! Plant and soil parameters
 ALLOCATE(psparms_data%albsoil_soilt(land_pts,nsoilt))
@@ -351,6 +357,7 @@ DEALLOCATE(psparms_data%cica_ratio_pft) ! JBaguley
 DEALLOCATE(psparms_data%carbon_gain_pft) ! JBaguley
 DEALLOCATE(psparms_data%hydraulic_cost_pft) ! JBaguley
 DEALLOCATE(psparms_data%leaf_k_pft) ! JBaguley
+DEALLOCATE(psparms_data%gc_stom_pft)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -420,6 +427,7 @@ psparms%cica_ratio_pft => psparms_data%cica_ratio_pft ! JBaguley
 psparms%carbon_gain_pft => psparms_data%carbon_gain_pft ! JBaguley
 psparms%hydraulic_cost_pft => psparms_data%hydraulic_cost_pft ! JBaguley
 psparms%leaf_k_pft => psparms_data%leaf_k_pft ! JBaguley
+psparms%gc_stom_pft => psparms_data%gc_stom_pft
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -485,6 +493,7 @@ NULLIFY(psparms%cica_ratio_pft) ! JBaguley
 NULLIFY(psparms%carbon_gain_pft) ! JBaguley
 NULLIFY(psparms%hydraulic_cost_pft) ! JBaguley
 NULLIFY(psparms%leaf_k_pft) ! JBaguley
+NULLIFY(psparms%gc_stom_pft)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN

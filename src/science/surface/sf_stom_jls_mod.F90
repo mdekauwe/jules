@@ -73,7 +73,8 @@ USE jules_vegetation_mod, ONLY:                                                &
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
 ! imported parameters
     photo_collatz, photo_farquhar, photo_sox_collatz, stomata_medlyn,          &
-    stomata_sox, stomata_desica, photo_adapt, photo_acclim, photo_adapt_acclim,&
+    stomata_sox, stomata_desica, stomata_profit_max, stomata_sox_profit,       &
+    photo_adapt, photo_acclim, photo_adapt_acclim,                             &
     photo_act_model, photo_act_pft, photo_act_gb, n_photo_coef,                &
 ! imported scalars that are not changed
     dsj_coef, dsv_coef, jv25_coef, act_j_coef, act_v_coef,                     &
@@ -987,7 +988,11 @@ END IF
 CALL qsat(qs,tstar,pstar,land_pts)
 
 ! Set the minimum-allowed humidity deficit.
-IF ( ( stomata_model == stomata_medlyn ) .OR. ( stomata_model == stomata_sox ) ) THEN
+! (The stomatal optimisation keeps the dq_min it had when selected with
+! leaf_flux_mod = 2 and stomata_model = 2.)
+IF ( ( stomata_model == stomata_medlyn ) .OR. ( stomata_model == stomata_sox ) &
+     .OR. ( stomata_model == stomata_profit_max )                              &
+     .OR. ( stomata_model == stomata_sox_profit ) ) THEN
   ! Avoid dq=0 as this would cause the model to blow up.
   dq_min = 0.0001
 ELSE

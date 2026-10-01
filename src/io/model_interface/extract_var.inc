@@ -3617,6 +3617,10 @@ CASE ( 'som_transpiration_pft' )
   cube = map_from_land(cube_land)
 
   ! Ratio of intercellular and canopy level CO2 concentration JBaguley
+CASE ( 'gc_stom_pft' )
+  cube_land = cube_from_array(psparms%gc_stom_pft)
+  cube = map_from_land(cube_land)
+
 CASE ('cica_ratio_pft')
   cube_land = cube_from_array(psparms%cica_ratio_pft)
   cube = map_from_land(cube_land)

@@ -104,11 +104,24 @@ INTEGER, PARAMETER ::                                                          &
   stomata_sox = 3,                                                             &
     ! Use the semi-analytical version of the SOX model (Eller et al 2020)
     ! doi: 10.1111/nph.16419 - Eqns. 4 & 5
-  stomata_desica = 4
+  stomata_desica = 4,                                                          &
     ! DESICA: Tuzet et al. (2003) stomatal closure on leaf water potential,
     ! with leaf and stem water potentials (and stem storage) from the plant
     ! hydraulics of Xu et al. (2016), doi: 10.1111/nph.14009 (Notes S1).
     ! See desica_jls_mod.
+  stomata_profit_max = 5,                                                      &
+    ! Stomatal optimisation, profit maximisation (Sperry et al. 2017); see
+    ! stom_opt_jls_mod.
+  stomata_sox_profit = 6
+    ! Stomatal optimisation with the SOX profit (Eller et al. 2018); see
+    ! stom_opt_jls_mod. Not the semi-analytical SOX (stomata_sox).
+!
+! stomata_model is the one switch for the stomatal scheme. leaf_flux_mod
+! (fsmc leaf path or stomatal optimisation) and som_profit_model (which
+! profit) are derived from it in check_jules_vegetation. Setting
+! leaf_flux_mod = 2 in the namelist (the old way to select the
+! optimisation) still works, with a warning: stomata_model is then set
+! from som_profit_model.
 
 ! Parameters identifying alternate models for determaning the net carbon
 ! uptake and stomatal conductance within plants.
@@ -302,7 +315,8 @@ INTEGER ::                                                                     &
   ilayers = imdi,                                                              &
       ! Number of layers for canopy radiation model
   leaf_flux_mod = 1
-      ! Switch to select the model used to dertermin leaf level fluxes.
+      ! Leaf flux path (1: fsmc, 2: stomatal optimisation). Derived from
+      ! stomata_model; as a namelist input it is deprecated (see above).
       ! JBaguley
 
 ! Stomatal optimisation model (som) integers
@@ -324,9 +338,9 @@ INTEGER ::                                                                     &
       !         conductance model.
       !      2: Precalculated lookup table.
   som_profit_model = 1
-      ! Switch used to select the profit model used to determan the optimal
-      ! stomatal conductance.
-      ! JBaguley
+      ! Profit used by the stomatal optimisation (1: profit max, 2: SOX).
+      ! Derived from stomata_model (5 or 6); only read from the namelist
+      ! with the deprecated leaf_flux_mod = 2. JBaguley
 
 LOGICAL ::                                                                     &
   l_som_gain_gross = .FALSE.
@@ -605,6 +619,45 @@ USE jules_print_mgr, ONLY: jules_message, jules_print
 IMPLICIT NONE
 
 
+!-----------------------------------------------------------------------------
+! The stomatal scheme: stomata_model is the switch; derive the internal
+! leaf_flux_mod and som_profit_model from it. Accept the old namelist form
+! (leaf_flux_mod = 2 with som_profit_model) with a warning.
+!-----------------------------------------------------------------------------
+SELECT CASE ( stomata_model )
+CASE ( stomata_profit_max, stomata_sox_profit )
+  leaf_flux_mod = leaf_flux_stom_opt
+  IF ( stomata_model == stomata_profit_max ) THEN
+    som_profit_model = profit_max_profit_model
+  ELSE
+    som_profit_model = SOX_profit_model
+  END IF
+CASE ( stomata_jacobs, stomata_medlyn, stomata_sox, stomata_desica )
+  IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
+    IF ( stomata_model == stomata_sox .OR. stomata_model == stomata_desica ) THEN
+      errcode = 101
+      CALL ereport("check_jules_vegetation", errcode,                          &
+                   "leaf_flux_mod = 2 cannot be combined with " //             &
+                   "stomata_model = 3 or 4; use stomata_model = 5 " //         &
+                   "(profit max) or 6 (SOX profit)")
+    END IF
+    IF ( som_profit_model == SOX_profit_model ) THEN
+      stomata_model = stomata_sox_profit
+    ELSE
+      stomata_model = stomata_profit_max
+    END IF
+    errcode = -101   ! warning
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 "leaf_flux_mod is deprecated: use stomata_model = 5 " //      &
+                 "(profit max) or 6 (SOX profit). Taking stomata_model " //    &
+                 "from som_profit_model.")
+  ELSE
+    leaf_flux_mod = leaf_flux_fsmc
+  END IF
+CASE DEFAULT
+  ! Reported below.
+END SELECT
+
 ! Phenology or TRIFFID cannot be used with the aggregate surface scheme
 IF ( l_aggregate .AND. (l_phenol .OR. l_triffid) ) THEN
   errcode = 101
@@ -669,7 +722,7 @@ CASE ( 7 )
   IF ( leaf_flux_mod /= leaf_flux_stom_opt ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 'can_rad_mod=7 requires leaf_flux_mod=2')
+                 'can_rad_mod=7 requires stomata_model=5 or 6')
   END IF
 CASE DEFAULT
   errcode = 101
@@ -980,7 +1033,8 @@ END IF  !  photo_model == photo_farquhar
 
 ! Check that the stomatal conductance model is reasonable.
 SELECT CASE ( stomata_model )
-CASE ( stomata_jacobs, stomata_medlyn, stomata_sox, stomata_desica )
+CASE ( stomata_jacobs, stomata_medlyn, stomata_sox, stomata_desica,           &
+       stomata_profit_max, stomata_sox_profit )
   ! These are valid, so nothing to do.
 CASE DEFAULT
   errcode = 101
@@ -992,11 +1046,6 @@ END SELECT
 ! fsmc (leaf_flux_mod = 1) leaf path. Stress acts through psi_leaf only
 ! (fsmc is not applied).
 IF ( stomata_model == stomata_desica ) THEN
-  IF ( leaf_flux_mod /= leaf_flux_fsmc ) THEN
-    errcode = 101
-    CALL ereport("check_jules_vegetation", errcode,                            &
-                 "stomata_model = 4 (DESICA) requires leaf_flux_mod = 1")
-  END IF
   ! The within-step gs-psi_leaf solve (bisection on fw) is coded for the
   ! big leaf only.
   IF ( can_rad_mod /= 1 ) THEN
@@ -1094,7 +1143,7 @@ IF ( l_som_plant_segments .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.     &
                                   ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_plant_segments requires leaf_flux_mod=2, ' //            &
+               'l_som_plant_segments requires stomata_model=5 or 6, ' //            &
                'som_psi_aprox_method=2 or 3 and can_rad_mod=1 or 7')
 END IF
 
@@ -1104,15 +1153,15 @@ IF ( l_som_cuticular_floor .AND.                                               &
        ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_cuticular_floor requires leaf_flux_mod=2 or ' //         &
-               'stomata_model=4, and can_rad_mod=1 or 7')
+               'l_som_cuticular_floor requires stomata_model=4, 5 or 6, ' //   &
+               'and can_rad_mod=1 or 7')
 END IF
 
 IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
                                 .NOT. l_use_pft_psi ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_supply_limit requires leaf_flux_mod=2 and ' //           &
+               'l_som_supply_limit requires stomata_model=5 or 6 and ' //           &
                'l_use_pft_psi=T')
 END IF
 

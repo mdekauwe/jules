@@ -637,7 +637,7 @@ CASE ( jules )
     !p_s_parms (OUT) JBaguley
     psparms%soil_wp_soilt,psparms%soil_k_soilt,psparms%soil_root_k_soilt,      &
     psparms%psi_root_zone_pft,psparms%psi_leaf_pft,psparms%cica_ratio_pft,     &
-    psparms%leaf_k_pft,                                                        &
+    psparms%leaf_k_pft, psparms%gc_stom_pft,                                   &
     !urban_param (IN)
     urban_param%wrr_gb,                                                        &
     !Fluxes (IN OUT)

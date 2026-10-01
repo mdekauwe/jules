@@ -97,7 +97,7 @@ SUBROUTINE jules_land_sf_explicit (                                            &
  bexp_soilt, sathh_soilt, v_close_pft, v_open_pft, satcon_soilt,               &
  !p_s_parms (out) JBaguley
  soil_wp_soilt,soil_k_soilt,soil_root_k_soilt,psi_root_zone_pft,psi_leaf_pft,  &
- cica_ratio_pft,leaf_k_pft,                                                    &
+ cica_ratio_pft,leaf_k_pft,gc_stom_pft,                                        &
  !urban_param (IN)
  wrr_gb,                                                                       &
  !Fluxes (IN OUT)
@@ -684,7 +684,9 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,psi_root_zone_pft(land_pts,npft)                                              &
 ,psi_leaf_pft(land_pts,npft)                                                   &
 ,cica_ratio_pft(land_pts,npft)                                                 &
-,leaf_k_pft(land_pts,npft)
+,leaf_k_pft(land_pts,npft)                                                     &
+,gc_stom_pft(land_pts,npft)
+                            ! Canopy stomatal conductance of each PFT (m s-1)
 
 !crop_vars_mod (IN)
 REAL(KIND=real_jlslsm), INTENT(IN) :: rootc_cpft(land_pts,ncpft)
@@ -1310,6 +1312,17 @@ IF ( .NOT. l_aggregate .AND. can_model == 4) THEN
       END DO
 !$OMP END PARALLEL DO
     END IF
+  END DO
+END IF
+
+!----------------------------------------------------------------------
+! Canopy stomatal conductance of each PFT, before soil evaporation is
+! added to the tile conductance (output gc_stom_pft).
+!----------------------------------------------------------------------
+gc_stom_pft(:,:) = 0.0
+IF ( .NOT. l_aggregate ) THEN
+  DO n = 1,npft
+    gc_stom_pft(:,n) = gc_stom_surft(:,n)
   END DO
 END IF
 

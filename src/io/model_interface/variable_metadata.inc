@@ -9576,4 +9576,17 @@ DATA metadata(739) / var_metadata(                                             &
 ! Units
     "kg m-2 s-1"                                                               &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for gc_stom_pft
+!-----------------------------------------------------------------------------
+DATA metadata(740) / var_metadata(                                             &
+! String identifier
+    'gc_stom_pft',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Canopy stomatal conductance for water (no soil evaporation)",             &
+! Units
+    "m s-1"                                                                    &
+  ) /
 #endif
