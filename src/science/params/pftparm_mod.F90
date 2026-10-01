@@ -454,7 +454,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! unit leaf area (mmol H2O m-2 s-1), applied as a floor on
                  ! the canopy conductance when l_som_cuticular_floor.
 ,g1_tuzet(:)                                                                   &
-                 ! DESICA (stomata_model = 4): slope of gs = g1 fw An / ca (-).
+                 ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
                  ! DESICA: sensitivity of the Tuzet closure (MPa-1).
 ,psi_f_tuzet(:)                                                                &

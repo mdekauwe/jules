@@ -139,7 +139,7 @@ SUBROUTINE leaf_psi_jls( pft,                                                  &
 
 USE pftparm, ONLY: pft_conductance_model
 USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,             &
-                                som_psi_aprox_method, psi_aprox_LUT,           &
+                                som_psi_solver, psi_solver_lut,           &
                                 l_som_plant_segments
 USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls, leaf_psi_lut_jls
 USE xylem_hydraulics_SOX_jls_mod, ONLY: leaf_psi_SOX_jls
@@ -193,7 +193,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 SELECT CASE ( pft_conductance_model(pft) )
 
 CASE ( CW_conductance )
-  IF ( som_psi_aprox_method == psi_aprox_LUT .AND.                             &
+  IF ( som_psi_solver == psi_solver_lut .AND.                             &
        .NOT. l_som_plant_segments ) THEN
     ! Direct call: skips leaf_psi_CW_jls's automatic work arrays.
     CALL leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,   &
@@ -217,7 +217,7 @@ CASE ( CW_conductance )
   END IF
 
 CASE ( SOX_conductance )
-  IF ( som_psi_aprox_method == psi_aprox_LUT ) THEN
+  IF ( som_psi_solver == psi_solver_lut ) THEN
     CALL leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,      &
                            open_index, e_leaf, root_zone_psi, kmax,            &
                            leaf_psi, leaf_k )

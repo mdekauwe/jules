@@ -18,7 +18,7 @@ PUBLIC :: xylem_conductance_CW_jls, leaf_psi_CW_jls, leaf_psi_lut_jls,        &
           supply_lut_psi, supply_lut_e_crit, supply_lut_f
 
 ! ---------------------------------------------------------------------
-! Supply-function lookup table (som_psi_aprox_method = psi_aprox_LUT),
+! Supply-function lookup table (som_psi_solver = psi_solver_lut),
 ! for either conductance model of the PFT (pft_conductance_model):
 !   cumulative Weibull: f(psi) = exp(-(psi/b)^c)
 !   SOX:                f(psi) = 1 / (1 + (psi/b)^c)
@@ -139,9 +139,9 @@ END SUBROUTINE xylem_conductance_CW_jls
 ! water potential from the transpiration rate. This is done to avoid
 ! the need to integrate the conductance equation each iteration.
 !   1: Applies a zeroth order taylor expansion to the conductance
-!      equation (psi_aprox_TE).
+!      equation (psi_solver_taylor).
 !   2: Uses a Newton Raphson approximation to find the leaf water
-!      potential (psi_aprox_NR).
+!      potential (psi_solver_newton).
 !
 ! NOTE: This function is designed for the stomatal optimisation model.
 !       It returns an output array that only contain values for points
@@ -162,8 +162,8 @@ SUBROUTINE leaf_psi_CW_jls( pft,                                               &
                             leaf_k                                             &
   )
 
-USE jules_vegetation_mod, ONLY: som_psi_aprox_method, psi_aprox_TE,            &
-                                psi_aprox_NR, psi_aprox_LUT,                   &
+USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_taylor,            &
+                                psi_solver_newton, psi_solver_lut,                   &
                                 l_som_plant_segments
 
 USE pftparm, ONLY: conductance_b, conductance_c
@@ -270,7 +270,7 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_JLS'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! Select the method to approximate the leaf water potential
-SELECT CASE (som_psi_aprox_method)
+SELECT CASE (som_psi_solver)
 
 ! ---------------------------------------------------------------------
 ! Apply a zeroth order taylor expansion to simplify the integration
@@ -280,7 +280,7 @@ SELECT CASE (som_psi_aprox_method)
 !       is the mean (midpoint) of the root zone and leaf water
 !       potentials.
 ! ---------------------------------------------------------------------
-CASE(psi_aprox_TE)
+CASE(psi_solver_taylor)
 
   DO j = 1,open_pnts ! Iterate over the open points.
       l = veg_index(open_index(j))
@@ -365,7 +365,7 @@ CASE(psi_aprox_TE)
 !  psi_l' = psi_r - (e_leaf - E(psi_l, psi_r))/k(psi_l)
 !
 ! ---------------------------------------------------------------------
-CASE(psi_aprox_NR)
+CASE(psi_solver_newton)
   ! Root / stem / leaf segments in series (l_som_plant_segments): leaf psi
   ! from solving the segments downstream, and the whole-plant conductance
   ! -dE/dpsi_leaf returned in leaf_k. The single-segment code below is left
@@ -396,7 +396,7 @@ CASE(psi_aprox_NR)
     ! prediction of the leaf water potential to;
     leaf_psi(:,j) = root_zone_psi(l) - e_leaf(:,j) / leaf_k(:,j)
 
-    ! Convergence tolerance for this point, matching the psi_aprox_TE
+    ! Convergence tolerance for this point, matching the psi_solver_taylor
     ! tolerance above (10% of kcrit).
     k_conversion_limit = 0.1 * kcrit(l)
 
@@ -467,7 +467,7 @@ CASE(psi_aprox_NR)
 ! can supply from psi_r puts the leaf at the bottom of the table, where
 ! k = lut_f_floor * kmax < kcrit, so stom_opt_mod rejects it as before.
 ! ---------------------------------------------------------------------
-CASE(psi_aprox_LUT)
+CASE(psi_solver_lut)
   IF ( l_som_plant_segments ) THEN
     CALL leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,  &
                                 open_index, e_leaf, root_zone_psi, kmax, kcrit, &
@@ -481,8 +481,8 @@ CASE(psi_aprox_LUT)
 CASE DEFAULT
   errcode = 101  !  a hard error
   CALL ereport(RoutineName, errcode,                                           &
-        'som_psi_aprox_method should be psi_aprox_TE, psi_aprox_NR ' //       &
-        'or psi_aprox_LUT')
+        'som_psi_solver should be psi_solver_taylor, psi_solver_newton ' //       &
+        'or psi_solver_lut')
 END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -646,7 +646,7 @@ s_psi = lut_s(i0,pft) + (r - (i0 - 1)) * (lut_s(i0+1,pft) - lut_s(i0,pft))
 END FUNCTION lut_s_at
 
 ! *****************************************************************************
-! Build (once per PFT) the supply-function table used by psi_aprox_LUT:
+! Build (once per PFT) the supply-function table used by psi_solver_lut:
 ! lut_s(i,pft) = integral(f, psi_i, 0) by Simpson's rule on each grid cell,
 ! for the PFT's conductance model (see lut_s above). Built by numerical
 ! integration rather than the closed forms (incomplete gamma /
@@ -725,7 +725,7 @@ END SUBROUTINE build_supply_lut
 ! watered) and its own cumulative Weibull curve (conductance_b_seg,
 ! conductance_c_seg). For each sampled transpiration the outlet potential of
 ! each segment is solved downstream from psi_root_zone with the same
-! Newton-Raphson as the single segment (psi_aprox_NR), and becomes the next
+! Newton-Raphson as the single segment (psi_solver_newton), and becomes the next
 ! segment's inlet. The last outlet is the leaf water potential.
 !
 ! The conductance the hydraulic cost uses is the whole-plant k = -dE/dpsi_leaf
@@ -875,7 +875,7 @@ INTEGER :: i
 ! close to hydraulic failure - it converges slowly, and the intermediate
 ! terms can grow very large before being cancelled by the exp(-x) factor
 ! below, risking overflow. If this routine is ever exercised with
-! som_psi_aprox_method = psi_aprox_NR under severe water stress and that
+! som_psi_solver = psi_solver_newton under severe water stress and that
 ! becomes a problem in practice, this branch should be paired with a
 ! continued-fraction evaluation of the upper incomplete gamma function
 ! for x >= a+1 (NR's gcf), rather than raising max_terms further.
@@ -893,9 +893,9 @@ INTEGER, PARAMETER :: max_terms = 40
                             ! mask in stom_opt_mod regardless of how
                             ! precisely this series converges for it, so
                             ! spending up to 100 terms chasing it (as the
-                            ! psi_aprox_NR loop, capped at 4 iterations,
+                            ! psi_solver_newton loop, capped at 4 iterations,
                             ! calls this every pass) was wasted work. This
-                            ! does not touch the psi_aprox_TE branch or its
+                            ! does not touch the psi_solver_taylor branch or its
                             ! own convergence tolerance.
 
 ! zhook variables
