@@ -74,8 +74,9 @@ USE jules_vegetation_mod, ONLY:                                                &
 ! imported model ids. JBaguley
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
 ! imported parameters
-    photo_collatz, photo_farquhar, photo_sox_collatz, stomata_medlyn,          &
-    stomata_sox, stomata_desica, stomata_profit_max, stomata_sox_profit,       &
+    photo_collatz, photo_farquhar, photo_sox_collatz, photo_johnson,           &
+    stomata_medlyn, stomata_sox, stomata_desica, stomata_profit_max,           &
+    stomata_sox_profit,                                                        &
     photo_adapt, photo_acclim, photo_adapt_acclim,                             &
     photo_act_model, photo_act_pft, photo_act_gb, n_photo_coef,                &
 ! imported scalars that are not changed
@@ -1005,6 +1006,16 @@ CASE ( photo_farquhar )
 CASE ( photo_sox_collatz )
   pft_photo_model = photo_collatz
   ! For the purposes of initialisation these are both photo_collatz
+CASE ( photo_johnson )
+  ! C3 uses Farquhar with Johnson-Berry electron transport, C4 uses Collatz.
+  ! Johnson-Berry runs through the Farquhar code throughout: it differs only
+  ! in Jmax (which holds Vqmax), je and wlite, which test photo_model
+  ! (calc_photo_parameters, calc_electron_flux, leaf_limits, stom_opt).
+  IF ( c3(ft) == 1 ) THEN
+    pft_photo_model = photo_farquhar
+  ELSE
+    pft_photo_model = photo_collatz
+  END IF
 END SELECT
 
 !-----------------------------------------------------------------------------
@@ -3419,11 +3430,13 @@ SUBROUTINE calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,      &
 
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported parameters
-    jv_ntotal, jv_scale, photo_collatz, photo_farquhar,                        &
+    jv_ntotal, jv_scale, photo_collatz, photo_farquhar, photo_johnson,         &
 ! imported scalars that are not changed
-    n_alloc_jmax, n_alloc_vcmax, l_trait_phys, photo_jv_model
+    n_alloc_jmax, n_alloc_vcmax, l_trait_phys, photo_jv_model, photo_model
 
-USE pftparm, ONLY: fd, jv25_ratio, neff, vint, vsl
+USE pftparm, ONLY: alpha_elec, fd, jv25_ratio, neff, vint, vsl
+
+USE jb_photo_mod, ONLY: jb_vqmax25
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -3469,7 +3482,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   jmax(land_pts),                                                              &
     ! Maximum rate of electron transport (mol CO2 m-2 s-1).
-    ! Only calculated with the Farquhar model.
+    ! Only calculated with the Farquhar model. With photo_johnson, the
+    ! maximum Cyt b6f activity Vqmax (mol e- m-2 s-1).
   rd_dark(land_pts),                                                           &
     ! Dark respiration before light inhibition (mol CO2/m2/s).
   vcmax(land_pts)
@@ -3523,6 +3537,7 @@ END IF
 !$OMP PARALLEL IF(veg_pts > 1)  DEFAULT(NONE)                                  &
 !$OMP PRIVATE(l, m, n_total)                                                   &
 !$OMP SHARED(ft, pft_photo_model, photo_jv_model, veg_index, veg_pts,          &
+!$OMP        photo_model, alpha_elec,                                          &
 !$OMP        denom, fd, jmax, jmax_temp, jv25, jv25_ratio, neff, nleaf,        &
 !$OMP        qtenf_term, rd_dark, recip_j, recip_v, vcmax, vcmax_ref,          &
 !$OMP        vcmax_temp, vint, vsl, l_trait_phys )
@@ -3600,6 +3615,20 @@ CASE ( photo_farquhar )
   END SELECT  !  photo_jv_model
 
   !---------------------------------------------------------------------------
+  ! Johnson-Berry: jmax holds the maximum Cyt b6f activity, Vqmax, found from
+  ! Jmax at 25 degC (Lamour et al. 2026, Eqn 11). It takes the temperature
+  ! response of Jmax below.
+  !---------------------------------------------------------------------------
+  IF ( photo_model == photo_johnson ) THEN
+!$OMP DO SCHEDULE(STATIC)
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      jmax(l) = jb_vqmax25( jmax(l), alpha_elec(ft) )
+    END DO
+!$OMP END DO
+  END IF
+
+  !---------------------------------------------------------------------------
   ! Calculate final values, including temperature effect.
   !---------------------------------------------------------------------------
 !$OMP DO SCHEDULE(STATIC)
@@ -3638,8 +3667,12 @@ END SUBROUTINE calc_photo_parameters
 
 SUBROUTINE calc_electron_flux( land_pts, veg_pts, veg_index, i2, jmax, je )
 
-! Calculate the electron flux for the Farquhar model.
+! Calculate the electron flux for the Farquhar model, or for Johnson-Berry
+! (photo_model = photo_johnson; jmax is then Vqmax, see jb_photo_mod).
 
+USE jules_vegetation_mod, ONLY: photo_johnson, photo_model,                    &
+                                light_curvature => light_curvature_fvcb
+USE jb_photo_mod, ONLY: jb_electron_flux
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -3671,14 +3704,6 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
     ! Electron transport rate (mol m-2 s-1).
 
 !-----------------------------------------------------------------------------
-! Local parameters.
-!-----------------------------------------------------------------------------
-REAL(KIND=real_jlslsm), PARAMETER ::                                           &
-  light_curvature = 0.90
-    ! Curvature of the light response function. Used with Farquhar model of
-    ! photosynthesis. See Eq.4 of Medlyn et al. (2002).
-
-!-----------------------------------------------------------------------------
 ! Local variables.
 !-----------------------------------------------------------------------------
 INTEGER ::                                                                     &
@@ -3700,6 +3725,12 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='CALC_ELECTRON_FLUX'
 !end of header
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+IF ( photo_model == photo_johnson ) THEN
+  CALL jb_electron_flux( land_pts, veg_pts, veg_index, i2, jmax, je )
+  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+  RETURN
+END IF
 
 !-----------------------------------------------------------------------------
 ! Calculate a constant.

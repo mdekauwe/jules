@@ -187,8 +187,8 @@ END SUBROUTINE xylem_conductance_SOX_jls
 ! water potential from the transpiration rate. This is done to avoid
 ! the need to integrate the conductance equation each iteration.
 !   1: Applies a zeroth order taylor expansion to the conductance
-!      equation (psi_aprox_TE).
-!   2: Uses a precalculated look up table (psi_aprox_NR).
+!      equation (psi_solver_taylor).
+!   2: Uses a precalculated look up table (psi_solver_newton).
 !
 ! NOTE: This function is designed for the stomatal optimisation model.
 !       It returns an output array that only contain values for points
@@ -211,8 +211,8 @@ SUBROUTINE leaf_psi_SOX_jls( pft,                                              &
                              leaf_k                                            &
   )
 
-USE jules_vegetation_mod, ONLY: som_psi_aprox_method, psi_aprox_TE,            &
-                                psi_aprox_NR, psi_aprox_LUT
+USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_taylor,            &
+                                psi_solver_newton, psi_solver_lut
 USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_lut_jls
 
 USE ereport_mod, ONLY: ereport
@@ -317,7 +317,7 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_JLS'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! Select the method to approximate the leaf water potential
-SELECT CASE (som_psi_aprox_method)
+SELECT CASE (som_psi_solver)
 
 ! ---------------------------------------------------------------------
 ! Apply a zeroth order taylor expansion to simplify the integration
@@ -327,7 +327,7 @@ SELECT CASE (som_psi_aprox_method)
 !       is the mean (midpoint) of the root zone and leaf water
 !       potentials.
 ! ---------------------------------------------------------------------
-CASE(psi_aprox_TE)
+CASE(psi_solver_taylor)
 
   DO j = 1,open_pnts ! Iterate over the open points.
       l = veg_index(open_index(j))
@@ -416,7 +416,7 @@ CASE(psi_aprox_TE)
 !  psi_l' = psi_r - (e_leaf - E(psi_l, psi_r))/k(psi_l)
 !
 ! ---------------------------------------------------------------------
-CASE(psi_aprox_NR)
+CASE(psi_solver_newton)
 
   ! Calculate the lower 2F1 function for the root zone water
   ! potential, for all land points.
@@ -445,7 +445,7 @@ CASE(psi_aprox_NR)
     !WRITE(*,*) 'root_psi', root_zone_psi(l)
     !WRITE(*,*) 'leaf_psi', leaf_psi(400,j)
 
-    ! Convergence tolerance for this point, matching the psi_aprox_TE
+    ! Convergence tolerance for this point, matching the psi_solver_taylor
     ! tolerance above (10% of kcrit).
     k_conversion_limit = 0.1 * kcrit(l)
 
@@ -503,7 +503,7 @@ CASE(psi_aprox_NR)
   END DO
 
 ! Supply-function lookup table (see xylem_hydraulics_CW_jls_mod).
-CASE(psi_aprox_LUT)
+CASE(psi_solver_lut)
   CALL leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,        &
                          open_index, e_leaf, root_zone_psi, kmax,              &
                          leaf_psi, leaf_k )
@@ -511,8 +511,8 @@ CASE(psi_aprox_LUT)
 CASE DEFAULT
   errcode = 101  !  a hard error
   CALL ereport(RoutineName, errcode,                                           &
-        'som_psi_aprox_method should be psi_aprox_TE, psi_aprox_NR or ' //     &
-        'psi_aprox_LUT')
+        'som_psi_solver should be psi_solver_taylor, psi_solver_newton or ' //     &
+        'psi_solver_lut')
 END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

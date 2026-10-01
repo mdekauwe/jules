@@ -44,9 +44,13 @@ INTEGER, PARAMETER ::                                                          &
     ! Forest Meteorology, 54, 107-136.
   photo_farquhar = 2,                                                          &
     ! C3 plants use the model of Farquhar et al. ,1980, Planta, 149: 78-90.
-  photo_sox_collatz = 3
+  photo_sox_collatz = 3,                                                       &
     ! C3 plants use the model of Collatz et al.as derived for use with the
     ! SOX stomata model.
+  photo_johnson = 4
+    ! C3 plants use the Farquhar et al. (1980) model with the electron
+    ! transport of Johnson & Berry (2021), Photosynth. Res., 148: 101-136,
+    ! through Cyt b6f. Uses the Farquhar parameters; see jb_photo_mod.
 
 ! Parameters identifying alternative models for the thermal response of
 ! photosynthetic capacity.
@@ -104,14 +108,14 @@ INTEGER, PARAMETER ::                                                          &
   stomata_sox = 3,                                                             &
     ! Use the semi-analytical version of the SOX model (Eller et al 2020)
     ! doi: 10.1111/nph.16419 - Eqns. 4 & 5
-  stomata_desica = 4,                                                          &
+  stomata_profit_max = 4,                                                      &
+    ! Stomatal optimisation, profit maximisation (Sperry et al. 2017); see
+    ! stom_opt_jls_mod.
+  stomata_desica = 5,                                                          &
     ! DESICA: Tuzet et al. (2003) stomatal closure on leaf water potential,
     ! with leaf and stem water potentials (and stem storage) from the plant
     ! hydraulics of Xu et al. (2016), doi: 10.1111/nph.14009 (Notes S1).
     ! See desica_jls_mod.
-  stomata_profit_max = 5,                                                      &
-    ! Stomatal optimisation, profit maximisation (Sperry et al. 2017); see
-    ! stom_opt_jls_mod.
   stomata_sox_profit = 6
     ! Stomatal optimisation with the SOX profit (Eller et al. 2018); see
     ! stom_opt_jls_mod. Not the semi-analytical SOX (stomata_sox).
@@ -183,20 +187,31 @@ INTEGER, PARAMETER ::                                                          &
   ximpair_driver_root = 3
     ! Root zone water potential (~ predawn; Mackay et al. 2015).
 
-! Parameters identifying different aproximation methods for determaning the
-! the leaf water potential from transpiration rate.
-! These should have unique values. JBaguley
+! Solvers for the leaf water potential given the transpiration rate
+! (som_psi_solver). These should have unique values. JBaguley
 INTEGER, PARAMETER ::                                                          &
-  psi_aprox_TE = 1,                                                            &
+  psi_solver_taylor = 1,                                                       &
     ! Use a zeroth order Taylor series expansion of the xylem conductence
     ! model to aproximate leaf water potential from transpiration rate.
-  psi_aprox_NR = 2,                                                            &
+  psi_solver_newton = 2,                                                       &
     ! Use the Newton Raphson method to aproximate leaf water potential
      ! from transpiration rate.
-  psi_aprox_LUT = 3
+  psi_solver_lut = 3
     ! Invert a per-PFT lookup table of the supply function (the integral
     ! of the vulnerability curve) to get leaf water potential directly
     ! from transpiration rate (cumulative Weibull or SOX conductance).
+
+! Ci searches of the stomatal optimisation (som_ci_search).
+INTEGER, PARAMETER ::                                                          &
+  som_ci_flat = 1,                                                             &
+    ! Evaluate a flat grid of som_n_sample Ci values and take the best.
+  som_ci_bounded = 2
+    ! Root find for the upper edge ci_b of the feasible Ci range (gl, E and
+    ! the loss of k all rise with Ci, so the feasible range is [ccp, ci_b]),
+    ! which gives the CG/HC normalisation of the flat grid in the limit of a
+    ! fine grid, then golden-section on [ccp, ci_b] (som_n_ci_golden_iter).
+    ! See stom_opt_bounded_search. Fastest with som_psi_solver = 3, which
+    ! gives the edge directly. SOX_profit_model always uses the flat grid.
 
 ! Parameters identifying different profit models for determaning the optimal
 ! stomatal conductance.
@@ -359,14 +374,15 @@ INTEGER ::                                                                     &
       ! Number of sample points used by the stomatal optimisation model.
       ! JBaguley
   som_n_ci_golden_iter = 16,                                                  &
-      ! Maximum golden-section iterations of the l_som_fast Ci search, on
+      ! Maximum golden-section iterations of the bounded Ci search, on
       ! top of the initial two-point bracket setup.
-  som_psi_aprox_method = 1,                                                    &
-      ! Flag for the method used to approximate the leaf water potential from
-      !  transpiration rate.
-      !      1: Zeroth order taylor series expansion of the
-      !         conductance model.
-      !      2: Precalculated lookup table.
+  som_psi_solver = psi_solver_taylor,                                          &
+      ! Leaf water potential from transpiration rate: 1 Taylor series,
+      ! 2 Newton-Raphson, 3 lookup table of the supply function.
+  som_ci_search = som_ci_flat,                                                 &
+      ! Ci search of the stomatal optimisation: 1 flat grid, 2 bounded.
+  som_psi_aprox_method = imdi,                                                 &
+      ! Deprecated namelist input: use som_psi_solver (same values).
   som_profit_model = 1
       ! Profit used by the stomatal optimisation (1: profit max, 2: SOX).
       ! Derived from stomata_model (5 or 6); only read from the namelist
@@ -426,16 +442,8 @@ LOGICAL ::                                                                     &
       ! leaves after lasting hydraulic damage and regrows as it recovers -
       ! see phenol.
   l_som_fast = .FALSE.
-      ! Speed-up option for the stomatal optimisation (leaf_flux_mod = 2).
-      ! When .TRUE., profit_max_profit_model finds the optimal Ci with a
-      ! bounded search instead of the flat grid of som_n_sample points: a
-      ! root find for the upper edge ci_b of the feasible Ci range (gl, E
-      ! and the loss of k all rise with Ci, so the feasible samples are
-      ! [ccp, ci_b]), which gives the CG/HC normalisation of the flat grid
-      ! in the limit of a fine grid, then golden-section on [ccp, ci_b] only
-      ! (som_n_ci_golden_iter). See stom_opt_bounded_search. It also sets
-      ! som_psi_aprox_method = psi_aprox_LUT, overriding the namelist value.
-      ! SOX_profit_model always uses the flat grid.
+      ! Deprecated namelist input: .TRUE. sets som_ci_search = 2 (bounded)
+      ! and som_psi_solver = 3 (lookup table).
 LOGICAL ::                                                                     &
   l_som_skip_search_wellwatered = .FALSE.
       ! When .TRUE., skip the full Ci search in
@@ -477,6 +485,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! mol m-2 s-1, generous for most C3 leaves, so it only binds in that
       ! degenerate regime. Set <= 0 to disable. Big-leaf applies it as
       ! som_gl_max * fpar (canopy basis, matching its canopy-scale gl).
+
+REAL(KIND=real_jlslsm) ::                                                      &
+  light_curvature_fvcb = 0.90
+      ! Curvature (theta) of the light response of electron transport in the
+      ! Farquhar model (Eq.4 of Medlyn et al. 2002, who used 0.9). Most
+      ! models use 0.7 (e.g. von Caemmerer 2009, CLM5, FATES, MAESPA). With
+      ! photo_johnson it only enters the conversion of Jmax to Vqmax (see
+      ! jb_photo_mod), and should match the theta Jmax was derived with.
 
 INTEGER ::                                                                     &
   ignition_method = 1,                                                         &
@@ -594,8 +610,8 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_supply_limit, l_som_plant_segments, l_som_gain_gross,               &
     l_som_cuticular_floor,                                                    &
     l_ximpair_rec_lai, l_ximpair_rec_growth, l_ximpair_leaf_loss,             &
-    som_leaf_resist_frac, som_gl_max,                                         &
-    som_psi_aprox_method, som_profit_model,                                   &
+    som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
+    som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,    &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
     l_nitrogen, l_vegcan_soilfx, l_trif_crop, l_trif_fire,                     &
     l_inferno, ignition_method, l_vegdrag_pft, l_rsl_scalar,                   &
@@ -683,7 +699,7 @@ CASE ( stomata_jacobs, stomata_medlyn, stomata_sox, stomata_desica )
       errcode = 101
       CALL ereport("check_jules_vegetation", errcode,                          &
                    "leaf_flux_mod = 2 cannot be combined with " //             &
-                   "stomata_model = 3 or 4; use stomata_model = 5 " //         &
+                   "stomata_model = 3 or 5; use stomata_model = 4 " //         &
                    "(profit max) or 6 (SOX profit)")
     END IF
     IF ( som_profit_model == SOX_profit_model ) THEN
@@ -693,7 +709,7 @@ CASE ( stomata_jacobs, stomata_medlyn, stomata_sox, stomata_desica )
     END IF
     errcode = -101   ! warning
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 "leaf_flux_mod is deprecated: use stomata_model = 5 " //      &
+                 "leaf_flux_mod is deprecated: use stomata_model = 4 " //      &
                  "(profit max) or 6 (SOX profit). Taking stomata_model " //    &
                  "from som_profit_model.")
   ELSE
@@ -767,7 +783,7 @@ CASE ( 7 )
   IF ( leaf_flux_mod /= leaf_flux_stom_opt ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 'can_rad_mod=7 requires stomata_model=5 or 6')
+                 'can_rad_mod=7 requires stomata_model=4 or 6')
   END IF
 CASE DEFAULT
   errcode = 101
@@ -802,7 +818,7 @@ IF (som_n_sample < 10) THEN
                'som_n_sample should be grater than or equal to 10')
 END IF
 
-! Check that the l_som_fast golden-section iteration count is sufficiently
+! Check that the bounded-search golden-section iteration count is sufficiently
 ! large (at least 1 iteration to refine past the initial two-point bracket).
 IF (som_n_ci_golden_iter < 1) THEN
   errcode = 101
@@ -825,23 +841,42 @@ IF (som_leaf_resist_frac <= 0.0 .OR. som_leaf_resist_frac >= 1.0) THEN
                'som_leaf_resist_frac should be strictly between 0 and 1')
 END IF
 
-! Check that the som_psi_aprox_method is suitable. JBaguley
-SELECT CASE( som_psi_aprox_method)
-CASE ( psi_aprox_TE, psi_aprox_NR, psi_aprox_LUT )
+! Deprecated inputs: l_som_fast and som_psi_aprox_method.
+IF ( som_psi_aprox_method /= imdi ) THEN
+  som_psi_solver = som_psi_aprox_method
+  errcode = -101   ! warning
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               "som_psi_aprox_method is deprecated: use som_psi_solver")
+END IF
+IF ( l_som_fast ) THEN
+  som_ci_search  = som_ci_bounded
+  som_psi_solver = psi_solver_lut
+  errcode = -101   ! warning
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               "l_som_fast is deprecated: use som_ci_search = 2 and " //       &
+               "som_psi_solver = 3 (set here)")
+END IF
+
+! Check that the som_psi_solver is suitable. JBaguley
+SELECT CASE( som_psi_solver )
+CASE ( psi_solver_taylor, psi_solver_newton, psi_solver_lut )
   ! Valid values
 CASE DEFAULT
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-     'som_psi_aprox_method should be Taylor series (1), Newton-Raphson (2) ' //&
+     'som_psi_solver should be Taylor series (1), Newton-Raphson (2) ' //      &
      'or lookup table (3)')
 END SELECT
 
-! l_som_fast also selects the lookup-table leaf-psi solver.
-IF ( l_som_fast .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
-  som_psi_aprox_method = psi_aprox_LUT
-  CALL jules_print('check_jules_vegetation',                                   &
-       'l_som_fast: bounded Ci search and som_psi_aprox_method=3')
-END IF
+! Check that the som_ci_search is suitable.
+SELECT CASE( som_ci_search )
+CASE ( som_ci_flat, som_ci_bounded )
+  ! Valid values
+CASE DEFAULT
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+     'som_ci_search should be flat (1) or bounded (2)')
+END SELECT
 
 ! Check that the som_profit_model is suitable. JBaguley
 SELECT CASE( som_profit_model)
@@ -855,7 +890,7 @@ END SELECT
 
 ! Check that the photosynthesis option is reasonable.
 SELECT CASE ( photo_model )
-CASE ( photo_collatz, photo_farquhar, photo_sox_collatz )
+CASE ( photo_collatz, photo_farquhar, photo_sox_collatz, photo_johnson )
   ! These are valid, nothing more to do.
 CASE DEFAULT
   errcode = 101  !  a fatal error
@@ -864,9 +899,16 @@ CASE DEFAULT
 END SELECT
 
 !-----------------------------------------------------------------------------
-! Check options for the Farquhar model.
+! Check options for the Farquhar model. Johnson-Berry uses the same
+! parameters and options.
 !-----------------------------------------------------------------------------
-IF (  photo_model == photo_farquhar ) THEN
+IF (  photo_model == photo_farquhar .OR. photo_model == photo_johnson ) THEN
+
+  IF ( light_curvature_fvcb <= 0.0 .OR. light_curvature_fvcb > 1.0 ) THEN
+    errcode = 101  !  a fatal error
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 "light_curvature_fvcb must be > 0 and <= 1")
+  END IF
 
   ! The Farquhar model of photosynthesis has only been coded for certain
   ! values of can_rad_mod.
@@ -1074,7 +1116,7 @@ IF (  photo_model == photo_farquhar ) THEN
     END IF
   END IF  !  photo_acclim_model == photo_acclim
 
-END IF  !  photo_model == photo_farquhar
+END IF  !  photo_model == photo_farquhar or photo_johnson
 
 ! Check that the stomatal conductance model is reasonable.
 SELECT CASE ( stomata_model )
@@ -1096,7 +1138,7 @@ IF ( stomata_model == stomata_desica ) THEN
   IF ( can_rad_mod /= 1 ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 "stomata_model = 4 (DESICA) requires can_rad_mod = 1")
+                 "stomata_model = 5 (DESICA) requires can_rad_mod = 1")
   END IF
 END IF
 
@@ -1183,13 +1225,13 @@ IF ( fsmc_shape == 1 .AND. .NOT. l_use_pft_psi ) THEN
 END IF
 
 IF ( l_som_plant_segments .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.     &
-                                  ( som_psi_aprox_method /= psi_aprox_NR .AND.  &
-                                    som_psi_aprox_method /= psi_aprox_LUT ) .OR.&
+                                  ( som_psi_solver /= psi_solver_newton .AND.   &
+                                    som_psi_solver /= psi_solver_lut ) .OR.     &
                                   ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_plant_segments requires stomata_model=5 or 6, ' //            &
-               'som_psi_aprox_method=2 or 3 and can_rad_mod=1 or 7')
+               'l_som_plant_segments requires stomata_model=4 or 6, ' //            &
+               'som_psi_solver=2 or 3 and can_rad_mod=1 or 7')
 END IF
 
 IF ( l_som_cuticular_floor .AND.                                               &
@@ -1206,7 +1248,7 @@ IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
                                 .NOT. l_use_pft_psi ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_supply_limit requires stomata_model=5 or 6 and ' //           &
+               'l_som_supply_limit requires stomata_model=4 or 6 and ' //           &
                'l_use_pft_psi=T')
 END IF
 
@@ -1348,7 +1390,7 @@ WRITE(lineBuffer,*) ' l_som_skip_search_wellwatered = ',                       &
                     l_som_skip_search_wellwatered
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' l_som_fast = ', l_som_fast
+WRITE(lineBuffer,*) ' som_ci_search = ', som_ci_search
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_supply_limit = ', l_som_supply_limit
@@ -1381,8 +1423,11 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' som_gl_max = ', som_gl_max
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' light_curvature_fvcb = ', light_curvature_fvcb
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 !JBaguley
-WRITE(lineBuffer,*) ' som_psi_aprox_method = ', som_psi_aprox_method
+WRITE(lineBuffer,*) ' som_psi_solver = ', som_psi_solver
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 !JBaguley
@@ -1498,10 +1543,11 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 17 ! was 16, +1 for som_n_ci_golden_iter
-INTEGER, PARAMETER :: n_real = 14 + (n_photo_coef * 5) ! +3 for
+INTEGER, PARAMETER :: n_int = 19 ! was 16, +1 for som_n_ci_golden_iter,
+                                 ! +2 for som_psi_solver/som_ci_search
+INTEGER, PARAMETER :: n_real = 15 + (n_photo_coef * 5) ! +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
-                                  ! som_gl_max
+                                  ! som_gl_max/light_curvature_fvcb
 INTEGER, PARAMETER :: n_log = 38 + npft_max ! +1 for l_som_fast, +1 for
                                   ! l_som_gain_gross, +1 for
                                   ! l_som_cuticular_floor, +1 for
@@ -1523,6 +1569,8 @@ TYPE :: my_namelist
   INTEGER :: som_n_sample !JBaguley
   INTEGER :: som_n_ci_golden_iter
   INTEGER :: som_psi_aprox_method !JBaguley
+  INTEGER :: som_psi_solver
+  INTEGER :: som_ci_search
   INTEGER :: som_profit_model !JBaguley
   INTEGER :: ignition_method
   INTEGER :: photo_acclim_model
@@ -1549,6 +1597,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: som_hc_negligible_tol
   REAL(KIND=real_jlslsm) :: som_leaf_resist_frac
   REAL(KIND=real_jlslsm) :: som_gl_max
+  REAL(KIND=real_jlslsm) :: light_curvature_fvcb
   LOGICAL :: l_som_skip_search_wellwatered
   LOGICAL :: l_som_fast
   LOGICAL :: l_som_supply_limit
@@ -1615,6 +1664,8 @@ IF (mype == 0) THEN
   my_nml % som_n_sample    = som_n_sample  !JBaguley
   my_nml % som_n_ci_golden_iter = som_n_ci_golden_iter
   my_nml % som_psi_aprox_method = som_psi_aprox_method !JBaguley
+  my_nml % som_psi_solver = som_psi_solver
+  my_nml % som_ci_search = som_ci_search
   my_nml % som_profit_model = som_profit_model !JBaguley
   my_nml % ignition_method = ignition_method
   my_nml % photo_acclim_model = photo_acclim_model
@@ -1641,6 +1692,7 @@ IF (mype == 0) THEN
   my_nml % som_hc_negligible_tol = som_hc_negligible_tol
   my_nml % som_leaf_resist_frac = som_leaf_resist_frac
   my_nml % som_gl_max = som_gl_max
+  my_nml % light_curvature_fvcb = light_curvature_fvcb
   my_nml % l_som_skip_search_wellwatered = l_som_skip_search_wellwatered
   my_nml % l_som_fast = l_som_fast
   my_nml % l_som_supply_limit = l_som_supply_limit
@@ -1696,6 +1748,8 @@ IF (mype /= 0) THEN
   som_n_sample    = my_nml % som_n_sample  !JBaguley
   som_n_ci_golden_iter = my_nml % som_n_ci_golden_iter
   som_psi_aprox_method = my_nml % som_psi_aprox_method !JBaguley
+  som_psi_solver = my_nml % som_psi_solver
+  som_ci_search = my_nml % som_ci_search
   som_profit_model = my_nml % som_profit_model !JBaguley
   ignition_method = my_nml % ignition_method
   photo_acclim_model = my_nml % photo_acclim_model
@@ -1722,6 +1776,7 @@ IF (mype /= 0) THEN
   som_hc_negligible_tol = my_nml % som_hc_negligible_tol
   som_leaf_resist_frac = my_nml % som_leaf_resist_frac
   som_gl_max = my_nml % som_gl_max
+  light_curvature_fvcb = my_nml % light_curvature_fvcb
   l_som_skip_search_wellwatered = my_nml % l_som_skip_search_wellwatered
   l_som_fast = my_nml % l_som_fast
   l_som_supply_limit = my_nml % l_som_supply_limit

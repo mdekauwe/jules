@@ -18,6 +18,8 @@ CONTAINS
 !           and Collatz et al. (1991) model for C4 plants
 !   or (ii) Farquhar et al. (1980) model for C3 plants
 !           and Collatz et al. (1991) model for C4 plants.
+!   With photo_model = photo_johnson, (ii) with the electron transport of
+!   Johnson & Berry (2021): je is scaled to ci (see jb_photo_mod).
 !
 ! References:
 ! Collatz et al., 1991, Agr. Forest Meteorol., 54: 107--136,
@@ -41,9 +43,11 @@ USE planet_constants_mod, ONLY: repsilon
 USE jules_surface_mod, ONLY: fwe_c3, fwe_c4
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported parameters
-    photo_collatz, photo_farquhar, stomata_jacobs, stomata_desica,             &
+    photo_collatz, photo_farquhar, photo_johnson, stomata_jacobs,              &
+    stomata_desica,                                                            &
 ! imported scalars that are not changed
-    stomata_model
+    photo_model, stomata_model
+USE jb_photo_mod, ONLY: jb_eta_scale
 
 USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
@@ -300,11 +304,15 @@ CASE ( photo_farquhar )
 !$OMP SCHEDULE(STATIC)                                                         &
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(l,j)                                                             &
-!$OMP SHARED(open_pts,veg_index,open_index,wcarb,vcmax,wlite,ci,ccp,km,je)
+!$OMP SHARED(open_pts,veg_index,open_index,wcarb,vcmax,wlite,ci,ccp,km,je,      &
+!$OMP        photo_model)
   DO j = 1,open_pts
     l = veg_index(open_index(j))
     wcarb(l) = vcmax(l) * ( ci(l) - ccp(l) ) / ( ci(l) + km(l) )
     wlite(l) = je(l) / 4.0 * ( ci(l) - ccp(l) ) / ( ci(l) + 2.0 * ccp(l) )
+    ! Johnson-Berry: J depends on ci through the PS I/PS II flux ratio.
+    IF ( photo_model == photo_johnson )                                        &
+      wlite(l) = wlite(l) * jb_eta_scale( ccp(l), ci(l) )
     wlite(l) = MAX(wlite(l), TINY(1.0e0))
   END DO
 !$OMP END PARALLEL DO

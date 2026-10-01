@@ -487,7 +487,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! unit leaf area (mmol H2O m-2 s-1), applied as a floor on
                  ! the canopy conductance when l_som_cuticular_floor.
 ,g1_tuzet(:)                                                                   &
-                 ! DESICA (stomata_model = 4): slope of gs = g1 fw An / ca (-).
+                 ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
                  ! DESICA: sensitivity of the Tuzet closure (MPa-1).
 ,psi_f_tuzet(:)                                                                &
@@ -1223,10 +1223,12 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  l_use_pft_psi, l_bvoc_emis, l_inferno,        &
                                  l_o3_damage, l_trif_fire, photo_acclim_model, &
                                  photo_act_model, photo_act_pft,               &
-                                 photo_farquhar, photo_model,                  &
+                                 photo_farquhar, photo_johnson, photo_model,   &
                                  stomata_jacobs, stomata_medlyn, stomata_sox,  &
                                  stomata_model, l_spec_veg_z0, l_sugar,        &
-                                 l_scale_resp_pm, l_som_fast, stomata_desica
+                                 l_scale_resp_pm, stomata_desica, som_ci_search,   &
+                                 som_ci_bounded, som_psi_solver,              &
+                                 psi_solver_lut
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs, l_snow_albedo
 
@@ -1323,7 +1325,7 @@ IF ( ANY( ABS( tupp(:) - rmdi ) < EPSILON(1.0) ) ) THEN
 END IF
 
 SELECT CASE ( photo_model )
-CASE ( photo_farquhar )
+CASE ( photo_farquhar, photo_johnson )
   !---------------------------------------------------------------------------
   ! First check parameters that are always required with this model.
   !---------------------------------------------------------------------------
@@ -1884,21 +1886,28 @@ IF ( stomata_model == stomata_sox ) THEN ! SOX
 END IF
 
 !-----------------------------------------------------------------------------
-! Xylem impairment is coded for the stomatal optimisation's flat Ci search:
-! the l_som_fast bounded search and DESICA use the intact PFT curve.
+! Xylem impairment is coded for the stomatal optimisation's flat Ci search
+! with the Taylor or Newton leaf-psi solvers: the bounded search, the lookup
+! table (keyed by PFT) and DESICA use the intact PFT curve.
 !-----------------------------------------------------------------------------
 IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
-  IF ( l_som_fast ) THEN
+  IF ( som_ci_search == som_ci_bounded ) THEN
     ERROR = 1
     CALL ereport(routinename, ERROR,                                           &
     'xylem impairment (pft_xylem_impairment_model /= 0) is not coded for '  // &
-    'l_som_fast')
+    'som_ci_search = 2 (or l_som_fast)')
+  END IF
+  IF ( som_psi_solver == psi_solver_lut ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR,                                           &
+    'xylem impairment (pft_xylem_impairment_model /= 0) is not coded for '  // &
+    'som_psi_solver = 3 (or l_som_fast)')
   END IF
   IF ( stomata_model == stomata_desica ) THEN
     ERROR = 1
     CALL ereport(routinename, ERROR,                                           &
     'xylem impairment (pft_xylem_impairment_model /= 0) is not coded for '  // &
-    'DESICA (stomata_model=4)')
+    'DESICA (stomata_model=5)')
   END IF
 END IF
 

@@ -31,7 +31,8 @@ USE jules_vegetation_mod, ONLY: jules_vegetation, photo_acclim_model,          &
                                 l_veg_compete, l_ht_compete, l_crop,           &
                                 can_rad_mod, can_model, photo_model,           &
                                 photo_collatz, photo_farquhar,                 &
-                                photo_sox_collatz, photo_adapt,photo_acclim,   &
+                                photo_sox_collatz, photo_johnson,              &
+                                photo_adapt,photo_acclim,                      &
                                 photo_adapt_acclim, photo_act_model,           &
                                 photo_act_pft, photo_act_gb, photo_jv_model,   &
                                 jv_scale, jv_ntotal, stomata_model,            &
@@ -119,12 +120,16 @@ CASE ( photo_sox_collatz )
   CALL log_info("init_vegetation",                                             &
                 "C3 plants use the Collatz model of photosynthesis "//         &
                 "as derived for use with the SOX stomata model.")
+CASE ( photo_johnson )
+  CALL log_info("init_vegetation",                                             &
+                "C3 plants use the Farquhar model of photosynthesis with " //  &
+                "Johnson-Berry electron transport.")
 END SELECT
 CALL log_info("init_vegetation",                                               &
               "C4 plants use the Collatz model of photosynthesis.")
 
 ! Report options that are ony allowed with Farquhar photosynthesis.
-IF ( photo_model ==  photo_farquhar ) THEN
+IF ( photo_model ==  photo_farquhar .OR. photo_model == photo_johnson ) THEN
 
   ! Thermal adaptation/acclimation.
   SELECT CASE ( photo_acclim_model )

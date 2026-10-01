@@ -51,7 +51,7 @@ USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY:                                                &
         som_base_parm_ci, som_base_parm_psi, som_n_sample,                     &
         profit_max_profit_model, SOX_profit_model, som_profit_model,          &
-        l_som_fast, som_n_ci_golden_iter,                                     &
+        som_ci_search, som_ci_bounded, som_n_ci_golden_iter,                  &
         l_som_skip_search_wellwatered, som_hc_negligible_tol
 
 USE pftparm, ONLY:                                                             &
@@ -232,7 +232,8 @@ LOGICAL ::                                                                     &
 !-----------------------------------------------------------------------------
 ! Arrays containing results of sampling over the base parameter. Only need
 ! to do so for locations with open stomata.
-! (profit_max_profit_model with l_som_fast uses stom_opt_bounded_search
+! (profit_max_profit_model with som_ci_search = 2 uses
+! stom_opt_bounded_search
 ! instead, which needs none of the sample arrays.)
 !-----------------------------------------------------------------------------
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -244,7 +245,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! pass about to be run.
 
 ! -- Flat-search sample arrays (SOX_profit_model, and profit_max_profit_model
-! -- without l_som_fast) --
+! -- with som_ci_search = 1) --
 REAL(KIND=real_jlslsm) ::                                                      &
  ci_sample(0:som_n_sample, open_pts)                                           &
                             ! Internal CO2 pressure (Pa).
@@ -336,7 +337,7 @@ INTEGER ::                                                                     &
 ,open_pts_flat                                                                &
                             ! Number of points to run the flat search over
                             ! (all of open_index_search, or 0 with
-                            ! l_som_fast).
+                            ! som_ci_search = 2).
 ,open_index_flat(open_pts)
                             ! Compressed subset of open_index for the flat
                             ! search (same convention as open_index_search).
@@ -500,7 +501,7 @@ SELECT CASE ( som_base_parm )
         END IF
       END DO
 
-      IF (l_som_fast) THEN
+      IF (som_ci_search == som_ci_bounded) THEN
         !-------------------------------------------------------------------
         ! Root find for the feasible-range edge, then golden-section within
         ! it - see stom_opt_bounded_search. Never needs the flat search.
@@ -595,7 +596,7 @@ SELECT CASE ( som_base_parm )
 
     CASE (SOX_profit_model)
       !-------------------------------------------------------------------
-      ! SOX_profit_model: unaffected by l_som_fast's Ci search, always a
+      ! SOX_profit_model: unaffected by som_ci_search, always a
       ! single-pass search at som_n_sample resolution over [ccp, ca].
       !-------------------------------------------------------------------
       carbon_gain(:,:) = 0.0
@@ -769,8 +770,10 @@ USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls, xylem_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_psi_impaired_jls
 
 USE jules_vegetation_mod, ONLY:                                                &
-        photo_collatz, photo_farquhar, CW_conductance,                         &
-        SOX_conductance, som_psi_aprox_method
+        photo_collatz, photo_farquhar, photo_johnson, photo_model,             &
+        CW_conductance, SOX_conductance, som_psi_solver
+
+USE jb_photo_mod, ONLY: jb_eta_scale
 
 USE pftparm, ONLY:                                                             &
         leaf_crit, c3, alpha, pft_conductance_model,                           &
@@ -1072,13 +1075,17 @@ CASE ( photo_farquhar )
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(l,j,i)                                                           &
 !$OMP SHARED(open_pts,veg_index,open_index,wcarb_sample,vcmax,wlite_sample,    &
-!$OMP        ci_sample,ccp,km,je,n_sample)
+!$OMP        ci_sample,ccp,km,je,n_sample,photo_model)
   DO j = 1,open_pts
     l = veg_index(open_index(j))
       wcarb_sample(:,j) = vcmax(l) * ( ci_sample(:,j) - ccp(l) )               &
                           / ( ci_sample(:,j) + km(l) )
       wlite_sample(:,j) = je(l) / 4.0 * ( ci_sample(:,j) - ccp(l) )            &
                           / ( ci_sample(:,j) + 2.0 * ccp(l) )
+      ! Johnson-Berry: J depends on ci (see jb_photo_mod).
+      IF ( photo_model == photo_johnson )                                      &
+        wlite_sample(:,j) = wlite_sample(:,j)                                  &
+                            * jb_eta_scale( ccp(l), ci_sample(:,j) )
       wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
 
       ! scaling 29 Apr, MGDK
@@ -1430,7 +1437,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE stom_opt_profit_max_select
 
 !-----------------------------------------------------------------------------
-! Bounded profit-max Ci search (l_som_fast), one open point at a time.
+! Bounded profit-max Ci search (som_ci_search = 2), one open point at a time.
 !
 ! gl rises with Ci (A rises and ca - Ci falls), so E rises and k(psi_leaf)
 ! falls: the feasible samples of the flat grid form a single range
@@ -1439,7 +1446,7 @@ END SUBROUTINE stom_opt_profit_max_select
 !      monotone in Ci, so if A <= 0 at the top of the range every feasible
 !      A is too and the stomata are closed, as for the flat search.
 !   2. ci_b by an Illinois (bracketed regula falsi) root find: with
-!      psi_aprox_LUT on the cap that gl_max and k > kcrit put on gl, which
+!      psi_solver_lut on the cap that gl_max and k > kcrit put on gl, which
 !      needs only photosynthesis (edge_by_gl_cap); otherwise on the
 !      feasibility margin of full evaluations (edge_by_margin). Max A is
 !      A(ci_b): the normalisation the flat grid gets from its feasible
@@ -1464,10 +1471,12 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 USE ereport_mod, ONLY: ereport
 USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
-                                photo_farquhar, CW_conductance,                &
+                                photo_farquhar, photo_johnson, photo_model,    &
+                                CW_conductance,                                &
                                 SOX_conductance,                               &
-                                som_psi_aprox_method, psi_aprox_LUT,           &
+                                som_psi_solver, psi_solver_lut,           &
                                 l_som_plant_segments
+USE jb_photo_mod, ONLY: jb_eta_scale
 USE pftparm, ONLY: c3, alpha, pft_conductance_model, conductance_b_pft,        &
                    conductance_c_pft
 USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
@@ -1537,7 +1546,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 ! otherwise one-point calls of leaf_psi_jls (open index list idx1).
 l_lut = ( pft_conductance_model(pft) == CW_conductance .OR.                    &
           pft_conductance_model(pft) == SOX_conductance ) .AND.                &
-        som_psi_aprox_method == psi_aprox_LUT .AND. .NOT. l_som_plant_segments
+        som_psi_solver == psi_solver_lut .AND. .NOT. l_som_plant_segments
 idx1(:) = 1
 b_curve(:) = conductance_b_pft(pft)
 c_curve(:) = conductance_c_pft(pft)
@@ -1717,6 +1726,7 @@ CONTAINS
   CASE ( photo_farquhar )
     wcarb = vcmax(l) * (ci - ccp(l)) / (ci + km(l))
     wlite = je(l) / 4.0 * (ci - ccp(l)) / (ci + 2.0 * ccp(l))
+    IF (photo_model == photo_johnson) wlite = wlite * jb_eta_scale(ccp(l), ci)
     wlite = MAX(wlite, TINY(1.0e0))
     IF (l_multilayer) wlite = wlite * je_ratio(l)
     wl = MIN(wcarb, wlite)

@@ -169,7 +169,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! Cuticular leaf conductance (mmol H2O m-2 leaf s-1), the floor used when
   ! l_som_cuticular_floor (default 3, SurEau-Ecos Q. ilex, Ruffault 2022).
   gcut_io(npft_max) = 3.0,                                                     &
-  ! DESICA (stomata_model = 4). Tuzet et al. (2003) closure
+  ! DESICA (stomata_model = 5). Tuzet et al. (2003) closure
   ! fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf))), with
   ! gs = g1 fw An / ca; defaults are the CABLE-DESICA evergreen broadleaf
   ! values (De Kauwe et al. 2020). Capacitances per unit leaf area (mmol H2O
