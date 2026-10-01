@@ -686,10 +686,12 @@ INTEGER, PARAMETER :: n_fw_bisect = 12
 INTEGER :: n_pass, i_pass
                             ! Passes of the big-leaf flux calculation.
 REAL(KIND=real_jlslsm) :: fw_lo(land_pts), fw_hi(land_pts),                    &
-                          el_try(land_pts), psi_try(land_pts), k_try(land_pts)
+                          el_try(land_pts), psi_try(land_pts), k_try(land_pts),&
+                          el_hyd(land_pts)
                             ! DESICA bisection bracket on fw, and the trial
                             ! transpiration (mol m-2 s-1), end-of-step
-                            ! psi_leaf (Pa) and plant conductance.
+                            ! psi_leaf (Pa) and plant conductance, and the
+                            ! transpiration the plant can deliver.
 REAL(KIND=real_jlslsm) :: gl_max_lf(land_pts), gl_max_bigleaf(land_pts)
                             ! som_gl_max on the basis each stom_opt_mod call
                             ! works on: per leaf area for the multilayer
@@ -2511,7 +2513,7 @@ CASE ( 1 )
     END DO
     CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,       &
                             lai, ht, psi_root_zone, el_try, .FALSE.,         &
-                            psi_try, k_try )
+                            psi_try, k_try, el_hyd )
     DO m = 1,veg_pts
       l = veg_index(m)
       IF ( fsmc_lim(l) > tuzet_fw(ft, psi_try(l)) ) THEN
@@ -2885,12 +2887,26 @@ END IF
 
 !-----------------------------------------------------------------------------
 ! DESICA: advance psi_leaf and psi_stem for this timestep's transpiration
-! (including any cuticular floor).
+! (including any cuticular floor). Where the plant cannot deliver it
+! without psi_stem or psi_leaf passing their lower bounds, gc is cut to the
+! transpiration it can deliver (A is not re-solved: by then the Tuzet
+! factor has shut the stomata), so the plant never loses water it does not
+! have.
 !-----------------------------------------------------------------------------
 IF ( stomata_model == stomata_desica ) THEN
   CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
+                          lai, ht, psi_root_zone, el, .FALSE.,               &
+                          psi_try, k_try, el_hyd )
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( el_hyd(l) < el(l) ) THEN
+      gc(l) = gc(l) * el_hyd(l) / el(l)
+      el(l) = el_hyd(l)
+    END IF
+  END DO
+  CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
                           lai, ht, psi_root_zone, el, .TRUE.,                &
-                          psi_leaf, leaf_k )
+                          psi_leaf, leaf_k, el_hyd )
 END IF
 
 !-----------------------------------------------------------------------------

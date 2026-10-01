@@ -31,6 +31,11 @@ MODULE desica_jls_mod
 ! (Eqn S4c): psi_leaf first with psi_stem fixed, J from mass conservation,
 ! then psi_stem with psi_soil fixed. Xu et al. use 600 s steps, so the
 ! JULES timestep is sub-stepped to <= 600 s, with E held fixed.
+! The lower bounds on psi (2 P50 for the stem, -20 MPa for the leaf, as
+! CABLE-DESICA) are enforced by capping J and E so that each store stays
+! in balance; DESICA and CABLE clamp psi after the solve, which creates
+! water once a bound is reached. The deliverable E is returned, and
+! sf_stom cuts gc to it.
 !
 ! Differences from Xu et al. (as in DESICA): the gs model is Tuzet, not
 ! the Cowan-Farquhar optimisation (Eqn S3c, S6), and there is no
@@ -162,7 +167,7 @@ END FUNCTION tuzet_fw
 !-----------------------------------------------------------------------------
 SUBROUTINE desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,     &
                               lai, canht, psi_root_zone, el, l_commit,         &
-                              psi_leaf, leaf_k )
+                              psi_leaf, leaf_k, el_hyd )
 
 USE pftparm, ONLY: kmax_pft, conductance_b, conductance_c, p50,               &
                    cap_leaf, cap_stem
@@ -188,14 +193,19 @@ LOGICAL, INTENT(IN) :: l_commit
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   psi_leaf(land_pts),                                                          &
                             ! Leaf water potential at the end of the step (Pa).
-  leaf_k(land_pts)
+  leaf_k(land_pts),                                                            &
                             ! Plant conductance at psi_stem
                             ! (mol m-2 ground s-1 Pa-1).
+  el_hyd(land_pts)
+                            ! Transpiration the plant can deliver over the
+                            ! step (mol m-2 s-1): el, or less where psi_stem
+                            ! or psi_leaf reach their lower bounds.
 
 INTEGER :: l, m, n, n_sub
 REAL(KIND=real_jlslsm) ::                                                      &
   dt, kmax_c, k_plant, k_leaf, k_root, c_leaf, c_stem, psi_h, psi_stem_min,    &
-  pl, ps, pl_new, ps_new, ap, bp, j_sap, q_root, q_sum, j_sum, e
+  pl, ps, pl_new, ps_new, ap, bp, ex, j_sap, j_cap, q_root, q_sum, j_sum,     &
+  e, e_sub, e_sum
 
 n_sub = MAX(1, CEILING(timestep / dt_max))
 dt    = timestep / REAL(n_sub)
@@ -203,6 +213,7 @@ psi_stem_min = 2.0 * p50(ft)        ! As CABLE-DESICA.
 
 psi_leaf(:) = 0.0
 leaf_k(:)   = 0.0
+el_hyd(:)   = MAX(el(:), 0.0)
 
 DO m = 1,veg_pts
   l = veg_index(m)
@@ -232,6 +243,7 @@ DO m = 1,veg_pts
   c_stem = cap_stem(ft) * lai(l)
   q_sum  = 0.0
   j_sum  = 0.0
+  e_sum  = 0.0
 
   DO n = 1,n_sub
     ! Plant conductance on the PFT vulnerability curve at psi_stem
@@ -241,34 +253,70 @@ DO m = 1,veg_pts
     k_leaf  = k_plant / som_leaf_resist_frac
     k_root  = k_plant / (1.0 - som_leaf_resist_frac)
 
-    ! Leaf (Eqn S4c), psi_stem fixed: dpl/dt = ap pl + bp.
+    ! The lower bounds on psi_leaf and psi_stem are met by capping the
+    ! fluxes, not the potentials, so that the stores stay in balance
+    ! (C dpsi = in - out): clamping psi after the solve would let water
+    ! leave a store that no longer falls. For a pool dx/dt = a x + b over dt,
+    ! x ends at x_end for b = a (x_end - x e^(a dt)) / (e^(a dt) - 1).
+
+    ! Leaf (Eqn S4c), psi_stem fixed: dpl/dt = ap pl + bp. If psi_leaf
+    ! would fall below its bound, the pathway cannot deliver E: cut the
+    ! transpiration to what keeps psi_leaf at the bound.
+    e_sub  = e
     ap     = -k_leaf / c_leaf
-    bp     = (k_leaf * (ps - psi_h) - e) / c_leaf
-    pl_new = ((ap * pl + bp) * EXP(ap * dt) - bp) / ap
-    pl_new = MAX(pl_new, psi_leaf_min)
+    ex     = EXP(ap * dt)
+    bp     = (k_leaf * (ps - psi_h) - e_sub) / c_leaf
+    pl_new = ((ap * pl + bp) * ex - bp) / ap
+    IF ( pl_new < psi_leaf_min ) THEN
+      bp     = ap * (psi_leaf_min - pl * ex) / (ex - 1.0)
+      e_sub  = MAX(0.0, k_leaf * (ps - psi_h) - bp * c_leaf)
+      bp     = (k_leaf * (ps - psi_h) - e_sub) / c_leaf
+      pl_new = MAX(((ap * pl + bp) * ex - bp) / ap, psi_leaf_min)
+    END IF
     ! Sap flow from mass conservation of the leaf pool.
-    j_sap  = (pl_new - pl) * c_leaf / dt + e
+    j_sap  = (pl_new - pl) * c_leaf / dt + e_sub
 
     ! Stem (Eqn S4a), psi_soil fixed. Uptake only while the soil is wetter
     ! than the stem, no leak to the soil (Eqn S1a).
     q_root = 0.0
+    j_cap  = j_sap
     IF ( psi_root_zone(l) > ps ) THEN
       ap     = -k_root / c_stem
+      ex     = EXP(ap * dt)
       bp     = (k_root * psi_root_zone(l) - j_sap) / c_stem
-      ps_new = ((ap * ps + bp) * EXP(ap * dt) - bp) / ap
-      q_root = (ps_new - ps) * c_stem / dt + j_sap
+      ps_new = ((ap * ps + bp) * ex - bp) / ap
+      IF ( ps_new < psi_stem_min ) THEN
+        ! The store would empty past its bound: the sap flow is what keeps
+        ! psi_stem at the bound.
+        bp     = ap * (psi_stem_min - ps * ex) / (ex - 1.0)
+        j_cap  = k_root * psi_root_zone(l) - bp * c_stem
+        ps_new = psi_stem_min
+      END IF
+      q_root = (ps_new - ps) * c_stem / dt + MIN(j_sap, j_cap)
     END IF
     IF ( q_root <= 0.0 ) THEN
       q_root = 0.0
-      ps_new = ps - j_sap * dt / c_stem
+      j_cap  = MIN(j_sap, (ps - psi_stem_min) * c_stem / dt)
+      ps_new = ps - MIN(j_sap, j_cap) * dt / c_stem
     END IF
-    ps_new = MAX(ps_new, psi_stem_min)
+    IF ( j_cap < j_sap ) THEN
+      ! Less sap reaches the leaf: re-balance the leaf pool for that flow,
+      ! and cut E further if psi_leaf would pass its bound.
+      j_sap  = MAX(j_cap, 0.0)
+      pl_new = pl + (j_sap - e_sub) * dt / c_leaf
+      IF ( pl_new < psi_leaf_min ) THEN
+        e_sub  = j_sap + (pl - psi_leaf_min) * c_leaf / dt
+        pl_new = psi_leaf_min
+      END IF
+    END IF
 
     pl    = pl_new
     ps    = ps_new
     q_sum = q_sum + q_root
     j_sum = j_sum + j_sap
+    e_sum = e_sum + e_sub
   END DO
+  el_hyd(l) = e_sum / REAL(n_sub)
 
   IF ( l_commit ) THEN
     psi_leaf_desica(l,ft)  = pl
