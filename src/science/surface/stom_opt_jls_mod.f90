@@ -636,8 +636,10 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
 
 USE jules_vegetation_mod, ONLY:                                                &
-        photo_collatz, photo_farquhar, CW_conductance,                         &
-        SOX_conductance, som_psi_aprox_method
+        photo_collatz, photo_farquhar, photo_johnson, photo_model,             &
+        CW_conductance, SOX_conductance, som_psi_aprox_method
+
+USE jb_photo_mod, ONLY: jb_eta_scale
 
 USE pftparm, ONLY:                                                             &
         leaf_crit, c3, alpha, pft_conductance_model,                           &
@@ -922,13 +924,17 @@ CASE ( photo_farquhar )
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(l,j,i)                                                           &
 !$OMP SHARED(open_pts,veg_index,open_index,wcarb_sample,vcmax,wlite_sample,    &
-!$OMP        ci_sample,ccp,km,je,n_sample)
+!$OMP        ci_sample,ccp,km,je,n_sample,photo_model)
   DO j = 1,open_pts
     l = veg_index(open_index(j))
       wcarb_sample(:,j) = vcmax(l) * ( ci_sample(:,j) - ccp(l) )               &
                           / ( ci_sample(:,j) + km(l) )
       wlite_sample(:,j) = je(l) / 4.0 * ( ci_sample(:,j) - ccp(l) )            &
                           / ( ci_sample(:,j) + 2.0 * ccp(l) )
+      ! Johnson-Berry: J depends on ci (see jb_photo_mod).
+      IF ( photo_model == photo_johnson )                                      &
+        wlite_sample(:,j) = wlite_sample(:,j)                                  &
+                            * jb_eta_scale( ccp(l), ci_sample(:,j) )
       wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
 
       ! scaling 29 Apr, MGDK
@@ -1253,10 +1259,12 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 USE ereport_mod, ONLY: ereport
 USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
-                                photo_farquhar, CW_conductance,                &
+                                photo_farquhar, photo_johnson, photo_model,    &
+                                CW_conductance,                                &
                                 SOX_conductance,                               &
                                 som_psi_aprox_method, psi_aprox_LUT,           &
                                 l_som_plant_segments
+USE jb_photo_mod, ONLY: jb_eta_scale
 USE pftparm, ONLY: c3, alpha, pft_conductance_model
 USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
 USE planet_constants_mod, ONLY: repsilon
@@ -1499,6 +1507,7 @@ CONTAINS
   CASE ( photo_farquhar )
     wcarb = vcmax(l) * (ci - ccp(l)) / (ci + km(l))
     wlite = je(l) / 4.0 * (ci - ccp(l)) / (ci + 2.0 * ccp(l))
+    IF (photo_model == photo_johnson) wlite = wlite * jb_eta_scale(ccp(l), ci)
     wlite = MAX(wlite, TINY(1.0e0))
     IF (l_multilayer) wlite = wlite * je_ratio(l)
     wl = MIN(wcarb, wlite)

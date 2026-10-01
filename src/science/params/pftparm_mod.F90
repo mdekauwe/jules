@@ -1109,7 +1109,7 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  l_use_pft_psi, l_bvoc_emis, l_inferno,        &
                                  l_o3_damage, l_trif_fire, photo_acclim_model, &
                                  photo_act_model, photo_act_pft,               &
-                                 photo_farquhar, photo_model,                  &
+                                 photo_farquhar, photo_johnson, photo_model,   &
                                  stomata_jacobs, stomata_medlyn, stomata_sox,  &
                                  stomata_model, l_spec_veg_z0, l_sugar,        &
                                  l_scale_resp_pm
@@ -1209,7 +1209,7 @@ IF ( ANY( ABS( tupp(:) - rmdi ) < EPSILON(1.0) ) ) THEN
 END IF
 
 SELECT CASE ( photo_model )
-CASE ( photo_farquhar )
+CASE ( photo_farquhar, photo_johnson )
   !---------------------------------------------------------------------------
   ! First check parameters that are always required with this model.
   !---------------------------------------------------------------------------

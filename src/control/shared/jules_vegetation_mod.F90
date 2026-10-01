@@ -44,9 +44,13 @@ INTEGER, PARAMETER ::                                                          &
     ! Forest Meteorology, 54, 107-136.
   photo_farquhar = 2,                                                          &
     ! C3 plants use the model of Farquhar et al. ,1980, Planta, 149: 78-90.
-  photo_sox_collatz = 3
+  photo_sox_collatz = 3,                                                       &
     ! C3 plants use the model of Collatz et al.as derived for use with the
     ! SOX stomata model.
+  photo_johnson = 4
+    ! C3 plants use the Farquhar et al. (1980) model with the electron
+    ! transport of Johnson & Berry (2021), Photosynth. Res., 148: 101-136,
+    ! through Cyt b6f. Uses the Farquhar parameters; see jb_photo_mod.
 
 ! Parameters identifying alternative models for the thermal response of
 ! photosynthetic capacity.
@@ -434,6 +438,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! degenerate regime. Set <= 0 to disable. Big-leaf applies it as
       ! som_gl_max * fpar (canopy basis, matching its canopy-scale gl).
 
+REAL(KIND=real_jlslsm) ::                                                      &
+  light_curvature_fvcb = 0.90
+      ! Curvature (theta) of the light response of electron transport in the
+      ! Farquhar model (Eq.4 of Medlyn et al. 2002, who used 0.9). Most
+      ! models use 0.7 (e.g. von Caemmerer 2009, CLM5, FATES, MAESPA). With
+      ! photo_johnson it only enters the conversion of Jmax to Vqmax (see
+      ! jb_photo_mod), and should match the theta Jmax was derived with.
+
 INTEGER ::                                                                     &
   ignition_method = 1,                                                         &
       ! Switch for the calculation method of INFERNO fire ignitions
@@ -549,7 +561,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_fast,                                                               &
     l_som_supply_limit, l_som_plant_segments, l_som_gain_gross,               &
     l_som_cuticular_floor,                                                    &
-    som_leaf_resist_frac, som_gl_max,                                         &
+    som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
     som_psi_aprox_method, som_profit_model,                                   &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
     l_nitrogen, l_vegcan_soilfx, l_trif_crop, l_trif_fire,                     &
@@ -810,7 +822,7 @@ END SELECT
 
 ! Check that the photosynthesis option is reasonable.
 SELECT CASE ( photo_model )
-CASE ( photo_collatz, photo_farquhar, photo_sox_collatz )
+CASE ( photo_collatz, photo_farquhar, photo_sox_collatz, photo_johnson )
   ! These are valid, nothing more to do.
 CASE DEFAULT
   errcode = 101  !  a fatal error
@@ -819,9 +831,16 @@ CASE DEFAULT
 END SELECT
 
 !-----------------------------------------------------------------------------
-! Check options for the Farquhar model.
+! Check options for the Farquhar model. Johnson-Berry uses the same
+! parameters and options.
 !-----------------------------------------------------------------------------
-IF (  photo_model == photo_farquhar ) THEN
+IF (  photo_model == photo_farquhar .OR. photo_model == photo_johnson ) THEN
+
+  IF ( light_curvature_fvcb <= 0.0 .OR. light_curvature_fvcb > 1.0 ) THEN
+    errcode = 101  !  a fatal error
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 "light_curvature_fvcb must be > 0 and <= 1")
+  END IF
 
   ! The Farquhar model of photosynthesis has only been coded for certain
   ! values of can_rad_mod.
@@ -1029,7 +1048,7 @@ IF (  photo_model == photo_farquhar ) THEN
     END IF
   END IF  !  photo_acclim_model == photo_acclim
 
-END IF  !  photo_model == photo_farquhar
+END IF  !  photo_model == photo_farquhar or photo_johnson
 
 ! Check that the stomatal conductance model is reasonable.
 SELECT CASE ( stomata_model )
@@ -1327,6 +1346,9 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' som_gl_max = ', som_gl_max
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' light_curvature_fvcb = ', light_curvature_fvcb
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 !JBaguley
 WRITE(lineBuffer,*) ' som_psi_aprox_method = ', som_psi_aprox_method
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -1445,9 +1467,9 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 17 ! was 16, +1 for som_n_ci_golden_iter
-INTEGER, PARAMETER :: n_real = 14 + (n_photo_coef * 5) ! +3 for
+INTEGER, PARAMETER :: n_real = 15 + (n_photo_coef * 5) ! +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
-                                  ! som_gl_max
+                                  ! som_gl_max/light_curvature_fvcb
 INTEGER, PARAMETER :: n_log = 35 + npft_max ! +1 for l_som_fast, +1 for
                                   ! l_som_gain_gross, +1 for
                                   ! l_som_cuticular_floor, +1 for
@@ -1493,6 +1515,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: som_hc_negligible_tol
   REAL(KIND=real_jlslsm) :: som_leaf_resist_frac
   REAL(KIND=real_jlslsm) :: som_gl_max
+  REAL(KIND=real_jlslsm) :: light_curvature_fvcb
   LOGICAL :: l_som_skip_search_wellwatered
   LOGICAL :: l_som_fast
   LOGICAL :: l_som_supply_limit
@@ -1582,6 +1605,7 @@ IF (mype == 0) THEN
   my_nml % som_hc_negligible_tol = som_hc_negligible_tol
   my_nml % som_leaf_resist_frac = som_leaf_resist_frac
   my_nml % som_gl_max = som_gl_max
+  my_nml % light_curvature_fvcb = light_curvature_fvcb
   my_nml % l_som_skip_search_wellwatered = l_som_skip_search_wellwatered
   my_nml % l_som_fast = l_som_fast
   my_nml % l_som_supply_limit = l_som_supply_limit
@@ -1660,6 +1684,7 @@ IF (mype /= 0) THEN
   som_hc_negligible_tol = my_nml % som_hc_negligible_tol
   som_leaf_resist_frac = my_nml % som_leaf_resist_frac
   som_gl_max = my_nml % som_gl_max
+  light_curvature_fvcb = my_nml % light_curvature_fvcb
   l_som_skip_search_wellwatered = my_nml % l_som_skip_search_wellwatered
   l_som_fast = my_nml % l_som_fast
   l_som_supply_limit = my_nml % l_som_supply_limit

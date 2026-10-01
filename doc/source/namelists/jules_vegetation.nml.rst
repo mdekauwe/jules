@@ -513,7 +513,7 @@ This file sets the vegetation options. It contains one namelist called :nml:lst:
 .. nml:member:: photo_model
 
    :type: integer
-   :permitted: 1 or 2
+   :permitted: 1, 2, 3 or 4
    :default: none
 
    Choice for model of leaf photosynthesis.
@@ -524,8 +524,12 @@ This file sets the vegetation options. It contains one namelist called :nml:lst:
 
    2. | C\ :sub:`3` plants use the model of Farquhar et al. (1980); C\ :sub:`4` plants use the model of Collatz et al. (1992).
 
+   3. | C\ :sub:`3` plants use the Collatz model as derived for the SOX stomatal model (:nml:mem:`stomata_model` = 3).
+
+   4. | As 2, but with the electron transport of Johnson and Berry (2021): the light response of J follows the maximum activity of Cytochrome b\ :sub:`6`\ f (Vqmax), with no empirical curvature, and depends weakly on the chloroplast CO\ :sub:`2` through the ratio of PS I to PS II electron flow. It uses the Farquhar parameters and options. Vqmax at 25 °C is derived from Jmax at 25 °C following Lamour et al. (2026), matching the Farquhar J at the light (1800 µmol m\ :sup:`-2` s\ :sup:`-1`, absorptance 0.85) and CO\ :sub:`2` (800 ppm) of a standard A-C\ :sub:`i` curve, and the initial quantum yield is matched to :nml:mem:`JULES_PFTPARM::alpha_elec_io`. Vqmax takes the temperature response of Jmax. See ``jb_photo_mod``.
+
    .. warning::
-      The Farquhar model can only be used if :nml:mem:`can_rad_mod` = 1, 5 or 6. Code has not been written for other values of :nml:mem:`can_rad_mod`.
+      The Farquhar and Johnson-Berry models can only be used if :nml:mem:`can_rad_mod` = 1, 5, 6 or 7. Code has not been written for other values of :nml:mem:`can_rad_mod`.
 
    .. seealso::
       References:
@@ -533,6 +537,19 @@ This file sets the vegetation options. It contains one namelist called :nml:lst:
       * Collatz et al., 1991, Physiological and environmental regulation of stomatal conductance, photosynthesis, and transpiration - a model that includes a laminar boundary layer, Agricultural and Forest Meteorology, https://doi.org/10.1016/0168-1923(91)90002-8.
       * Collatz et al., 1992, Coupled Photosynthesis-Stomatal Conductance Model for Leaves of C\ :sub:`4` Plants, Australian Journal of Plant Physiology, https://doi.org/10.1071/PP9920519.
       * Farquhar et al., 1980, A biochemical model of photosynthetic CO\ :sub:`2` assimilation in leaves of C\ :sub:`3` species, Planta, https://doi.org/10.1007/BF0038623.
+      * Johnson and Berry, 2021, The role of Cytochrome b\ :sub:`6`\ f in the control of steady-state photosynthesis: a conceptual and quantitative model, Photosynthesis Research, https://doi.org/10.1007/s11120-021-00840-4.
+      * Lamour et al., 2026, Improved model representation of the photosynthetic light reactions reduces estimates of global gross primary productivity, bioRxiv, https://doi.org/10.64898/2026.05.08.723728.
+
+
+.. nml:member:: light_curvature_fvcb
+
+   :type: real
+   :permitted: > 0 and <= 1
+   :default: 0.9
+
+   Only used if :nml:mem:`photo_model` = 2 or 4.
+
+   Curvature (theta) of the non-rectangular hyperbola giving the light response of electron transport in the Farquhar model (Eq. 4 of Medlyn et al., 2002, who used 0.9). Most models and the A-C\ :sub:`i` fitting literature use 0.7. With :nml:mem:`photo_model` = 4 it only enters the conversion of Jmax to the maximum Cyt b\ :sub:`6`\ f activity, and should match the curvature the PFT Jmax values were derived with.
 
 
 .. nml:member:: stomata_model
