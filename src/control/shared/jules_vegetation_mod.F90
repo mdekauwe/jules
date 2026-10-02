@@ -378,6 +378,13 @@ LOGICAL ::                                                                     &
       ! l_som_supply_limit) and psi_leaf is re-solved for the total flux.
 
 LOGICAL ::                                                                     &
+  l_som_gravity = .FALSE.
+      ! When .TRUE., the stomatal optimisation (stomata_model = 4 or 6) takes
+      ! the gravitational drop rho_water g h to the canopy height h off the
+      ! root zone water potential, so the plant path starts from
+      ! psi_root_zone - rho_water g h (0.01 MPa per m), as DESICA's psi_h.
+
+LOGICAL ::                                                                     &
   l_som_plant_segments = .FALSE.
       ! When .TRUE., the plant hydraulics are three segments in series
       ! (root, stem, leaf; as in GDAY gs_opt) instead of one: the segments
@@ -564,7 +571,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
     l_som_supply_limit, l_som_plant_segments, l_som_gain_gross,               &
-    l_som_cuticular_floor,                                                    &
+    l_som_cuticular_floor, l_som_gravity,                                     &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,    &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
@@ -1199,6 +1206,13 @@ IF ( l_som_cuticular_floor .AND.                                               &
                'and can_rad_mod=1 or 7')
 END IF
 
+IF ( l_som_gravity .AND. leaf_flux_mod /= leaf_flux_stom_opt ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_gravity requires stomata_model=4 or 6 (DESICA ' //       &
+               'always includes gravity)')
+END IF
+
 IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
                                 .NOT. l_use_pft_psi ) ) THEN
   errcode = 101
@@ -1360,6 +1374,9 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_cuticular_floor = ', l_som_cuticular_floor
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' l_som_gravity = ', l_som_gravity
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 WRITE(lineBuffer,*) ' som_hc_negligible_tol = ', som_hc_negligible_tol
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -1494,9 +1511,10 @@ INTEGER, PARAMETER :: n_int = 19 ! was 16, +1 for som_n_ci_golden_iter,
 INTEGER, PARAMETER :: n_real = 15 + (n_photo_coef * 5) ! +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 35 + npft_max ! +1 for l_som_fast, +1 for
+INTEGER, PARAMETER :: n_log = 36 + npft_max ! +1 for l_som_fast, +1 for
                                   ! l_som_gain_gross, +1 for
                                   ! l_som_cuticular_floor, +1 for
+                                  ! l_som_gravity, +1 for
                                   ! l_som_skip_search_wellwatered, +1 for
                                   ! l_som_supply_limit, +1 for
                                   ! l_som_plant_segments (trunk vn7.9: 29)
@@ -1548,6 +1566,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_floor
+  LOGICAL :: l_som_gravity
   LOGICAL :: l_nrun_mid_trif
   LOGICAL :: l_trif_init_accum
   LOGICAL :: l_phenol
@@ -1640,6 +1659,7 @@ IF (mype == 0) THEN
   my_nml % l_som_plant_segments = l_som_plant_segments
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
+  my_nml % l_som_gravity = l_som_gravity
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
   my_nml % l_trif_init_accum   = l_trif_init_accum
   my_nml % l_phenol        = l_phenol
@@ -1721,6 +1741,7 @@ IF (mype /= 0) THEN
   l_som_plant_segments = my_nml % l_som_plant_segments
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor
+  l_som_gravity = my_nml % l_som_gravity
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif
   l_trif_init_accum = my_nml % l_trif_init_accum
   l_phenol        = my_nml % l_phenol
