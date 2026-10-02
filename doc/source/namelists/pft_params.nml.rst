@@ -1037,4 +1037,67 @@ ease the direct links to these documents are:
 
       Growth yield for SUGAR model
 
+   .. nml:member:: sug_rm0_io
+
+      :type: real(npft)
+      :default: None
+
+      SUGAR with :nml:mem:`JULES_VEGETATION::sugar_model` = 2: maximum specific maintenance respiration rate at 25 °C (s\ :sup:`-1`). With :nml:mem:`sugar_model` = 2, :nml:mem:`sug_g0_io` is the maximum specific growth rate at 25 °C (s\ :sup:`-1`). Both can be found from the mean specific GPP, the equilibrium pool and the carbon use efficiency as in Jones et al. (2020).
+
+   .. nml:member:: sug_km_io
+
+      :type: real(npft)
+      :default: None
+
+      SUGAR with :nml:mem:`JULES_VEGETATION::sugar_model` = 2: half-saturation NSC fraction, a\ :sub:`Km` times the equilibrium pool (kg kg\ :sup:`-1`).
+
+   .. nml:member:: sug_cveg_io
+
+      :type: real(npft)
+      :default: 0.0
+
+      Prescribed structural carbon for SUGAR (kg carbon m\ :sup:`-2`), used when > 0 and :nml:mem:`JULES_VEGETATION::l_red` = F (e.g. without TRIFFID): wood is the remainder after leaf and root carbon. 0 uses the JULES allometry from canopy height and balanced LAI.
+
+   .. nml:member:: nsc_f_full_io
+
+      :type: real(npft)
+      :default: 0.0
+
+      NSC fraction at which the store is full, for :nml:mem:`JULES_VEGETATION::som_nsc_feedback`. 0 turns the feedback off for the PFT (e.g. grasses with no storage).
+
+   .. nml:member:: nsc_w_min_io
+
+      :type: real(npft)
+      :default: 1.0
+
+      Carbon-gain weight at a full store (:nml:mem:`JULES_VEGETATION::som_nsc_feedback` = 1 or 3).
+
+   .. nml:member:: nsc_w_k_io
+
+      :type: real(npft)
+      :default: 2.0
+
+      Shape of the carbon-gain weight with store fullness (:nml:mem:`JULES_VEGETATION::som_nsc_feedback` = 1 or 3).
+
+   .. nml:member:: nsc_tau_fill_io
+
+      :type: real(npft)
+      :default: 10.0
+
+      Time to fill the store towards :nml:mem:`nsc_f_full_io` in the sink demand (days; :nml:mem:`JULES_VEGETATION::som_nsc_feedback` = 2 or 3). Longer times make the cap bind less tightly.
+
+   .. nml:member:: psi_g50_io
+
+      :type: real(npft)
+      :default: -1.5e6
+
+      Root-zone (predawn) water potential at which SUGAR growth is halved (Pa; :nml:mem:`JULES_VEGETATION::l_sugar_turgor`).
+
+   .. nml:member:: sf_growth_io
+
+      :type: real(npft)
+      :default: 3.0
+
+      Sensitivity of the turgor limit on SUGAR growth (MPa\ :sup:`-1`; :nml:mem:`JULES_VEGETATION::l_sugar_turgor`).
+
 .. |mu| unicode:: &#x03BC; .. u

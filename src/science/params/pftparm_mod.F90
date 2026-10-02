@@ -380,7 +380,17 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Turnover of structural carbon into NSC (KgC/m2/s)
 ,sug_g0(:)                                                                     &
                  ! Specific structural C growth rate (KgC/m2/s)
-,sug_yg(:)
+,sug_yg(:)                                                                     &
+,sug_rm0(:)                                                                    &
+                 ! SUGAR sugar_model = 2 (Jones et al. 2020): maximum specific
+                 ! maintenance respiration rate at 25 degC (s-1).
+,sug_km(:)                                                                     &
+                 ! SUGAR sugar_model = 2: half-saturation NSC mass fraction,
+                 ! aKm * f_NSC (kg kg-1).
+,sug_cveg(:)
+                 ! SUGAR: prescribed structural carbon (kg C m-2) when > 0 and
+                 ! l_red = F; wood is the remainder after leaf and root.
+                 ! 0 = the JULES allometry (height and balanced LAI).
                  ! Growth yield fraction
 
 !-----------------------------------------------------------------------------
@@ -453,6 +463,21 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Cuticular (minimum) leaf conductance to water vapour, per
                  ! unit leaf area (mmol H2O m-2 s-1), applied as a floor on
                  ! the canopy conductance when l_som_cuticular_floor.
+,nsc_f_full(:)                                                                 &
+                 ! SUGAR_stress: f_nsc at which the NSC pool is full (-);
+                 ! 0 = no storage feedback on the optimisation for the PFT.
+,nsc_w_min(:)                                                                  &
+,nsc_w_k(:)                                                                    &
+                 ! SUGAR_stress: gain weight at a full pool, and its shape,
+                 ! w = 1 - (1 - nsc_w_min) MIN(1, f_nsc/nsc_f_full)**nsc_w_k.
+,nsc_tau_fill(:)                                                               &
+                 ! SUGAR_stress: time to fill the pool from empty (s).
+,psi_g50(:)                                                                    &
+,sf_growth(:)                                                                  &
+                 ! SUGAR_stress: turgor limit on SUGAR growth (l_sugar_turgor),
+                 ! 1 / (1 + exp(sf_growth (psi_g50 - psi_root_zone))): root-
+                 ! zone (predawn) water potential of half growth (Pa) and
+                 ! sensitivity (MPa-1).
 ,g1_tuzet(:)                                                                   &
                  ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
@@ -760,10 +785,16 @@ fef_dms(:)  = rmdi
 ALLOCATE( sug_grec(npft))
 ALLOCATE( sug_g0(npft))
 ALLOCATE( sug_yg(npft))
+ALLOCATE( sug_rm0(npft))
+ALLOCATE( sug_km(npft))
+ALLOCATE( sug_cveg(npft))
 
 sug_grec(:) = rmdi
 sug_g0(:)   = rmdi
 sug_yg(:)   = rmdi
+sug_rm0(:)  = rmdi
+sug_km(:)   = rmdi
+sug_cveg(:) = 0.0
 
 ! SOM parameters
 ALLOCATE( leaf_crit(npft))
@@ -777,6 +808,12 @@ ALLOCATE( conductance_b(npft))
 ALLOCATE( conductance_c(npft))
 ALLOCATE( seg_kfac(npft,3))
 ALLOCATE( gcut(npft))
+ALLOCATE( nsc_f_full(npft))
+ALLOCATE( nsc_w_min(npft))
+ALLOCATE( nsc_w_k(npft))
+ALLOCATE( nsc_tau_fill(npft))
+ALLOCATE( psi_g50(npft))
+ALLOCATE( sf_growth(npft))
 ALLOCATE( g1_tuzet(npft))
 ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
@@ -800,6 +837,12 @@ conductance_b(:) = 1.0
 conductance_c(:) = 1.0
 seg_kfac(:,:) = 1.0
 gcut(:) = 3.0
+nsc_f_full(:) = 0.0
+nsc_w_min(:) = 1.0
+nsc_w_k(:) = 2.0
+nsc_tau_fill(:) = 10.0 * 86400.0
+psi_g50(:) = -1.5e6
+sf_growth(:) = 3.0
 g1_tuzet(:) = 4.19
 sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
@@ -1031,6 +1074,12 @@ WRITE(lineBuffer,*)' vsl = ',vsl
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' sug_yg = ',sug_yg
 CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' sug_rm0 = ',sug_rm0
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' sug_km = ',sug_km
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' sug_cveg = ',sug_cveg
+CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' z0v = ',z0v
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' sox_a = ',sox_a
@@ -1077,6 +1126,18 @@ WRITE(lineBuffer,*)' conductance_c = ',conductance_c
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' gcut = ',gcut
 CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_f_full = ',nsc_f_full
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_w_min = ',nsc_w_min
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_w_k = ',nsc_w_k
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_tau_fill = ',nsc_tau_fill
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' psi_g50 = ',psi_g50
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' sf_growth = ',sf_growth
+CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' sf_tuzet = ',sf_tuzet
@@ -1112,6 +1173,7 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  photo_farquhar, photo_johnson, photo_model,   &
                                  stomata_jacobs, stomata_medlyn, stomata_sox,  &
                                  stomata_model, l_spec_veg_z0, l_sugar,        &
+                                 sugar_model, sugar_linear, sugar_mm,          &
                                  l_scale_resp_pm
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs, l_snow_albedo
@@ -1635,9 +1697,20 @@ IF ( l_sugar ) THEN
     ERROR = 1
     CALL jules_print(routinename, "No value for sug_g0")
   END IF
-  IF ( ANY( ABS( sug_grec(:) - rmdi ) < EPSILON(1.0) ) ) THEN
+  IF ( sugar_model == sugar_linear .AND.                                      &
+       ANY( ABS( sug_grec(:) - rmdi ) < EPSILON(1.0) ) ) THEN
     ERROR = 1
     CALL jules_print(routinename, "No value for sug_grec")
+  END IF
+  IF ( sugar_model == sugar_mm .AND.                                          &
+       ANY( ABS( sug_rm0(:) - rmdi ) < EPSILON(1.0) ) ) THEN
+    ERROR = 1
+    CALL jules_print(routinename, "No value for sug_rm0")
+  END IF
+  IF ( sugar_model == sugar_mm .AND.                                          &
+       ANY( ABS( sug_km(:) - rmdi ) < EPSILON(1.0) ) ) THEN
+    ERROR = 1
+    CALL jules_print(routinename, "No value for sug_km")
   END IF
   IF ( ANY( ABS( sug_yg(:) - rmdi ) < EPSILON(1.0) ) ) THEN
     ERROR = 1

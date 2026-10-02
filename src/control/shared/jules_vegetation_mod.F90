@@ -127,6 +127,14 @@ INTEGER, PARAMETER ::                                                          &
 ! optimisation) still works, with a warning: stomata_model is then set
 ! from som_profit_model.
 
+! Parameters identifying the form of the SUGAR NSC model (sugar_model).
+INTEGER, PARAMETER ::                                                          &
+  sugar_linear = 1,                                                            &
+    ! Growth and respiration linear in f_nsc, with recycling (JULES 7.x).
+  sugar_mm = 2
+    ! Michaelis-Menten in the NSC pool, Jones et al. (2020),
+    ! doi:10.5194/bg-17-3589-2020.
+
 ! Parameters identifying alternate models for determaning the net carbon
 ! uptake and stomatal conductance within plants.
 ! These should have unique values. JBaguley
@@ -346,6 +354,23 @@ INTEGER ::                                                                     &
   som_n_ci_golden_iter = 16,                                                  &
       ! Maximum golden-section iterations of the bounded Ci search, on
       ! top of the initial two-point bracket setup.
+  sugar_model = 1,                                                             &
+      ! Form of the SUGAR NSC model (l_sugar):
+      !   1 (sugar_linear) growth and respiration linear in f_nsc, with
+      !     structural carbon recycled to NSC (sug_g0, sug_grec, sug_yg)
+      !   2 (sugar_mm) Jones et al. (2020): growth and maintenance
+      !     respiration saturate with the pool, W/(W + Km), W = f_nsc
+      !     (sug_g0, sug_rm0, sug_km, sug_yg)
+  som_nsc_feedback = 0,                                                        &
+      ! Feedback of the SUGAR NSC pool on the stomatal optimisation (needs
+      ! l_sugar and stomata_model = 4 or 6; see sugar_stress_mod):
+      !   0 none
+      !   1 weight: the carbon gain is scaled by w(f_nsc), falling to
+      !     nsc_w_min_io as the pool fills (nsc_f_full_io)
+      !   2 cap: carbon beyond the plant's sink demand (SUGAR growth and
+      !     respiration plus filling the pool to nsc_f_full_io over
+      !     nsc_tau_fill_io) has no value; can_rad_mod = 1 or 7
+      !   3 both
   som_psi_solver = psi_solver_taylor,                                          &
       ! Leaf water potential from transpiration rate: 1 Taylor series,
       ! 2 Newton-Raphson, 3 lookup table of the supply function.
@@ -368,6 +393,17 @@ LOGICAL ::                                                                     &
       ! unaffected (only the optimisation's gain changes).
 
 LOGICAL ::                                                                     &
+  l_sugar_leaf_flush = .FALSE.,                                                &
+      ! When .TRUE. (sugar_model = 2), new leaf carbon from LAI increases,
+      ! lma cmass max(0, dLAI/dt) smoothed over 5 days, is built from the
+      ! NSC pool (with growth respiration) and counts in the sink demand of
+      ! the som_nsc_feedback cap. With prescribed LAI this gives SUGAR the
+      ! spring leaf-flush sink.
+  l_sugar_turgor = .FALSE.,                                                    &
+      ! When .TRUE., SUGAR structural growth is limited by turgor, from the
+      ! root-zone (predawn) water potential,
+      ! 1/(1 + exp(sf_growth_io (psi_g50_io - psi_root_zone))). Growth
+      ! respiration goes with growth (sugar_model = 2). Needs l_sugar.
   l_som_cuticular_floor = .FALSE.
       ! When .TRUE., leaf water loss never falls below a cuticular floor:
       ! after the profit-max search (and for closed stomata, including at
@@ -441,6 +477,15 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! mol m-2 s-1, generous for most C3 leaves, so it only binds in that
       ! degenerate regime. Set <= 0 to disable. Big-leaf applies it as
       ! som_gl_max * fpar (canopy basis, matching its canopy-scale gl).
+
+REAL(KIND=real_jlslsm) ::                                                      &
+  som_nsc_cap_curv = 1.0
+      ! Curvature of the NSC sink-demand cap (som_nsc_feedback = 2 or 3):
+      ! the gross A that counts is the smaller root of
+      ! theta Ae**2 - (A + S) Ae + A S = 0 (as Collatz co-limitation).
+      ! 1 = hard cap, min(A, S); < 1 lets carbon above the sink demand S keep
+      ! some (declining) value, so the stomata still respond to the weather
+      ! when the cap binds. In (0, 1].
 
 REAL(KIND=real_jlslsm) ::                                                      &
   light_curvature_fvcb = 0.90
@@ -564,8 +609,9 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
     l_som_supply_limit, l_som_plant_segments, l_som_gain_gross,               &
-    l_som_cuticular_floor,                                                    &
-    som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
+    l_som_cuticular_floor, l_sugar_turgor, som_nsc_feedback, sugar_model,     &
+    l_sugar_leaf_flush,                                                       &
+    som_leaf_resist_frac, som_gl_max, light_curvature_fvcb, som_nsc_cap_curv, &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,    &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
     l_nitrogen, l_vegcan_soilfx, l_trif_crop, l_trif_fire,                     &
@@ -1199,6 +1245,55 @@ IF ( l_som_cuticular_floor .AND.                                               &
                'and can_rad_mod=1 or 7')
 END IF
 
+! SUGAR options.
+IF ( l_sugar .AND. sugar_model /= sugar_linear .AND. sugar_model /= sugar_mm ) &
+  THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'sugar_model should be 1 or 2')
+END IF
+
+SELECT CASE ( som_nsc_feedback )
+CASE ( 0 )
+  ! Off, nothing more to check.
+CASE ( 1, 2, 3 )
+  IF ( .NOT. l_sugar .OR. leaf_flux_mod /= leaf_flux_stom_opt ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'som_nsc_feedback > 0 requires l_sugar=T and ' //             &
+                 'stomata_model=4 or 6')
+  END IF
+  IF ( som_nsc_feedback >= 2 .AND. can_rad_mod /= 1 .AND.                     &
+       can_rad_mod /= 7 ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'som_nsc_feedback = 2 or 3 requires can_rad_mod=1 or 7')
+  END IF
+CASE DEFAULT
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'som_nsc_feedback should be 0, 1, 2 or 3')
+END SELECT
+
+IF ( l_sugar_leaf_flush .AND.                                                  &
+     ( .NOT. l_sugar .OR. sugar_model /= sugar_mm ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_sugar_leaf_flush requires l_sugar=T and sugar_model=2')
+END IF
+
+IF ( som_nsc_cap_curv <= 0.0 .OR. som_nsc_cap_curv > 1.0 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'som_nsc_cap_curv must be > 0 and <= 1')
+END IF
+
+IF ( l_sugar_turgor .AND. .NOT. l_sugar ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_sugar_turgor requires l_sugar=T')
+END IF
+
 IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
                                 .NOT. l_use_pft_psi ) ) THEN
   errcode = 101
@@ -1360,6 +1455,21 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_cuticular_floor = ', l_som_cuticular_floor
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' l_sugar_turgor = ', l_sugar_turgor
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_sugar_leaf_flush = ', l_sugar_leaf_flush
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' som_nsc_feedback = ', som_nsc_feedback
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' sugar_model = ', sugar_model
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' som_nsc_cap_curv = ', som_nsc_cap_curv
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 WRITE(lineBuffer,*) ' som_hc_negligible_tol = ', som_hc_negligible_tol
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -1489,12 +1599,16 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 19 ! was 16, +1 for som_n_ci_golden_iter,
-                                 ! +2 for som_psi_solver/som_ci_search
-INTEGER, PARAMETER :: n_real = 15 + (n_photo_coef * 5) ! +4 for
+INTEGER, PARAMETER :: n_int = 21 ! was 16, +1 for som_n_ci_golden_iter,
+                                 ! +2 for som_psi_solver/som_ci_search,
+                                 ! +1 for som_nsc_feedback, +1 for sugar_model
+INTEGER, PARAMETER :: n_real = 16 + (n_photo_coef * 5) ! +5 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
-                                  ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 35 + npft_max ! +1 for l_som_fast, +1 for
+                                  ! som_gl_max/light_curvature_fvcb/
+                                  ! som_nsc_cap_curv
+INTEGER, PARAMETER :: n_log = 37 + npft_max ! +1 for l_sugar_leaf_flush, +1 for
+                                  ! l_sugar_turgor, +1 for
+                                  ! l_som_fast, +1 for
                                   ! l_som_gain_gross, +1 for
                                   ! l_som_cuticular_floor, +1 for
                                   ! l_som_skip_search_wellwatered, +1 for
@@ -1512,6 +1626,8 @@ TYPE :: my_namelist
   INTEGER :: som_base_parm !JBaguley
   INTEGER :: som_n_sample !JBaguley
   INTEGER :: som_n_ci_golden_iter
+  INTEGER :: som_nsc_feedback
+  INTEGER :: sugar_model
   INTEGER :: som_psi_aprox_method !JBaguley
   INTEGER :: som_psi_solver
   INTEGER :: som_ci_search
@@ -1542,12 +1658,15 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: som_leaf_resist_frac
   REAL(KIND=real_jlslsm) :: som_gl_max
   REAL(KIND=real_jlslsm) :: light_curvature_fvcb
+  REAL(KIND=real_jlslsm) :: som_nsc_cap_curv
   LOGICAL :: l_som_skip_search_wellwatered
   LOGICAL :: l_som_fast
   LOGICAL :: l_som_supply_limit
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_floor
+  LOGICAL :: l_sugar_turgor
+  LOGICAL :: l_sugar_leaf_flush
   LOGICAL :: l_nrun_mid_trif
   LOGICAL :: l_trif_init_accum
   LOGICAL :: l_phenol
@@ -1604,6 +1723,8 @@ IF (mype == 0) THEN
   my_nml % som_base_parm   = som_base_parm !JBaguley
   my_nml % som_n_sample    = som_n_sample  !JBaguley
   my_nml % som_n_ci_golden_iter = som_n_ci_golden_iter
+  my_nml % som_nsc_feedback = som_nsc_feedback
+  my_nml % sugar_model = sugar_model
   my_nml % som_psi_aprox_method = som_psi_aprox_method !JBaguley
   my_nml % som_psi_solver = som_psi_solver
   my_nml % som_ci_search = som_ci_search
@@ -1634,12 +1755,15 @@ IF (mype == 0) THEN
   my_nml % som_leaf_resist_frac = som_leaf_resist_frac
   my_nml % som_gl_max = som_gl_max
   my_nml % light_curvature_fvcb = light_curvature_fvcb
+  my_nml % som_nsc_cap_curv = som_nsc_cap_curv
   my_nml % l_som_skip_search_wellwatered = l_som_skip_search_wellwatered
   my_nml % l_som_fast = l_som_fast
   my_nml % l_som_supply_limit = l_som_supply_limit
   my_nml % l_som_plant_segments = l_som_plant_segments
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
+  my_nml % l_sugar_turgor = l_sugar_turgor
+  my_nml % l_sugar_leaf_flush = l_sugar_leaf_flush
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
   my_nml % l_trif_init_accum   = l_trif_init_accum
   my_nml % l_phenol        = l_phenol
@@ -1685,6 +1809,8 @@ IF (mype /= 0) THEN
   som_base_parm   = my_nml % som_base_parm !JBaguley
   som_n_sample    = my_nml % som_n_sample  !JBaguley
   som_n_ci_golden_iter = my_nml % som_n_ci_golden_iter
+  som_nsc_feedback = my_nml % som_nsc_feedback
+  sugar_model = my_nml % sugar_model
   som_psi_aprox_method = my_nml % som_psi_aprox_method !JBaguley
   som_psi_solver = my_nml % som_psi_solver
   som_ci_search = my_nml % som_ci_search
@@ -1715,12 +1841,15 @@ IF (mype /= 0) THEN
   som_leaf_resist_frac = my_nml % som_leaf_resist_frac
   som_gl_max = my_nml % som_gl_max
   light_curvature_fvcb = my_nml % light_curvature_fvcb
+  som_nsc_cap_curv = my_nml % som_nsc_cap_curv
   l_som_skip_search_wellwatered = my_nml % l_som_skip_search_wellwatered
   l_som_fast = my_nml % l_som_fast
   l_som_supply_limit = my_nml % l_som_supply_limit
   l_som_plant_segments = my_nml % l_som_plant_segments
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor
+  l_sugar_turgor = my_nml % l_sugar_turgor
+  l_sugar_leaf_flush = my_nml % l_sugar_leaf_flush
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif
   l_trif_init_accum = my_nml % l_trif_init_accum
   l_phenol        = my_nml % l_phenol

@@ -67,7 +67,9 @@ USE theta_field_sizes, ONLY: t_i_length
 USE jules_surface_types_mod, ONLY: nnpft, ncpft
 
 USE pftparm, ONLY:                                                             &
-        kmax_pft, conductance_b, conductance_c, kcrit, gcut, min_gl_pft
+        kmax_pft, conductance_b, conductance_c, kcrit, gcut, min_gl_pft,       &
+        nsc_f_full, nsc_tau_fill
+USE jules_surface_types_mod, ONLY: npft
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported model ids. JBaguley
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
@@ -82,7 +84,8 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_bvoc_emis, l_fapar_diag, l_trait_phys, l_stem_resp_fix, l_o3_damage,     &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_leaf_resist_frac, som_gl_max, l_som_supply_limit,                      &
-    l_som_cuticular_floor, l_red
+    l_som_cuticular_floor, l_red, som_nsc_feedback, l_sugar_turgor,            &
+    l_sugar_leaf_flush
 
 USE CN_utils_mod, ONLY:                                                        &
 ! imported procedures
@@ -119,7 +122,11 @@ USE ereport_mod, ONLY: ereport
 
 USE veg3_field_mod, ONLY: veg_state_type
 
-USE sugar_mod, ONLY: sugar
+USE sugar_mod, ONLY: sugar, sugar_sink_demand
+USE sugar_stress_mod, ONLY: nsc_gain_weight, turgor_growth_factor,            &
+                            f_turgor_prev, sugar_stress_init,                  &
+                            leaf_flush_update, flush_rate
+USE timestep_mod, ONLY: timestep
 
 
 USE stom_opt_jls_mod, ONLY: stom_opt_mod
@@ -424,6 +431,20 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! WORK Wood Carbon (kg C/m2)
 ,rootc(land_pts)                                                               &
                             ! WORK Root Carbon (kg C/m2).
+,nsc_w(land_pts)                                                               &
+                            ! WORK Weight on the optimisation's carbon gain
+                            !      from the NSC pool (sugar_stress_mod).
+,nsc_cap(land_pts)                                                             &
+                            ! WORK Gross canopy A beyond which carbon has no
+                            !      value (mol CO2 m-2 s-1; HUGE = no cap).
+,nsc_cap_cls(land_pts)                                                         &
+                            ! WORK nsc_cap for one two-leaf class.
+,nsc_cap_none(land_pts)                                                        &
+                            ! WORK No cap (HUGE), for multilayer.
+,lai_bal_nsc                                                                   &
+                            ! WORK Balanced LAI for the NSC cap.
+,f_turg                                                                        &
+                            ! WORK Turgor limit on SUGAR growth.
 ,qs(land_pts)                                                                  &
                             ! WORK Saturated specific humidity
 !                                 !      (kg H2O/kg air).
@@ -1316,6 +1337,49 @@ ELSE
 END IF
 
 !-----------------------------------------------------------------------------
+! NSC feedback on the stomatal optimisation (som_nsc_feedback, see
+! sugar_stress_mod): the gain weight and the sink-demand cap, from the NSC
+! pool of the previous time step (f_nsc) and the previous step's turgor
+! growth factor. The cap is gross canopy A (mol CO2 m-2 ground s-1).
+!-----------------------------------------------------------------------------
+IF ( l_sugar ) CALL sugar_stress_init( land_pts, npft )
+! Leaf flush from this step's LAI (once per step, before the cap uses it).
+IF ( l_sugar_leaf_flush ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( l_trait_phys ) THEN
+      CALL leaf_flush_update( l, ft, lai(l), lma(ft) * cmass, timestep )
+    ELSE
+      CALL leaf_flush_update( l, ft, lai(l), sigl(ft), timestep )
+    END IF
+  END DO
+END IF
+nsc_w(:)        = 1.0
+nsc_cap(:)      = HUGE(1.0_real_jlslsm)
+nsc_cap_none(:) = HUGE(1.0_real_jlslsm)
+IF ( som_nsc_feedback > 0 .AND. nsc_f_full(ft) > 0.0 ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( som_nsc_feedback == 1 .OR. som_nsc_feedback == 3 ) THEN
+      nsc_w(l) = nsc_gain_weight( ft, f_nsc(l) )
+    END IF
+    IF ( som_nsc_feedback >= 2 ) THEN
+      lai_bal_nsc = ( a_ws(ft) * eta_sl(ft) * ht(l) / a_wl(ft) )               &
+                    **( 1.0 / ( b_wl(ft) - 1.0 ) )
+      IF ( l_red ) lai_bal_nsc = veg_state%lai_bal(l,ft)
+      CALL sugar_biomass( ft, l, land_pts, lai(l), lai_bal_nsc, ht(l),         &
+                          veg_state, leafc(l), leafc_bal(l), woodc(l),         &
+                          rootc(l) )
+      nsc_cap(l) = sugar_sink_demand( ft, leafc(l), leafc_bal(l), woodc(l),    &
+                                      rootc(l), f_nsc(l), tstar(l),            &
+                                      f_turgor_prev(l,ft), nsc_f_full(ft),     &
+                                      nsc_tau_fill(ft), flush_rate(l,ft) )     &
+                   / cconu
+    END IF
+  END DO
+END IF
+
+!-----------------------------------------------------------------------------
 ! Calculate fluxes.
 !-----------------------------------------------------------------------------
 
@@ -1812,7 +1876,7 @@ CASE ( 5, 6 )
                     ca, psi_guess, acr, apar, oa, vcmax, kc, ko, ccp, pstar,   &
                     km, dqc, qs, je, tstar, je_sun_ratio, fapar_sun(:,n),      &
                     kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,           &
-                    l_multilayer,                                              &
+                    nsc_w, nsc_cap_none, l_multilayer,                         &
                     ! IN OUT
                     rd_sun,                                                    &
                     ! OUT
@@ -1828,7 +1892,7 @@ CASE ( 5, 6 )
                     ca, psi_guess, acr, apar, oa, vcmax, kc, ko, ccp, pstar,   &
                     km, dqc, qs, je, tstar,  je_shd_ratio, fapar_shd(:,n),     &
                     kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,           &
-                    l_multilayer,                                              &
+                    nsc_w, nsc_cap_none, l_multilayer,                         &
                     ! IN OUT
                     rd_shd,                                                    &
                     ! OUT
@@ -2463,7 +2527,7 @@ CASE ( 1 )
                 ca, psi_root_zone, acrc, apar, oa, vcmaxc, kc, ko, ccp, pstar,&
                 km, dqc, qs, je, tstar, je_dummy, fapar_dummy,               &
                 kmax_bigleaf, kcrit_bigleaf, gl_max_eff, ipar,               &
-                l_multilayer,                                                &
+                nsc_w, nsc_cap, l_multilayer,                                &
               ! IN OUT
                 rdc,                                                           &
               ! OUT
@@ -2681,6 +2745,11 @@ CASE ( 7 )
       l = veg_index(m)
       share_sup(l) = kmax_sun_2l(l) /                                          &
                      MAX(kmax_sun_2l(l) + kmax_shd_2l(l), TINY(1.0))
+      ! The NSC cap is shared by N-weighted leaf area, as vcmax/jmax.
+      nsc_cap_cls(l) = nsc_cap(l)
+      IF ( nsc_cap(l) < HUGE(1.0_real_jlslsm) )                                &
+        nsc_cap_cls(l) = nsc_cap(l) * nw_sun_2l(l)                             &
+                         / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
     END DO
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
                              share_sup, dqc, tstar, pstar, gl_max_sun_2l,      &
@@ -2694,7 +2763,7 @@ CASE ( 7 )
               kc, ko, ccp, pstar,                                              &
               km, dqc, qs, je_sun, tstar, je_dummy, fapar_dummy,               &
               kmax_sun_2l, kcrit_sun_2l, gl_max_eff, ipar,                     &
-              l_multilayer,                                                    &
+              nsc_w, nsc_cap_cls, l_multilayer,                                &
             ! IN OUT
               rd_sun,                                                          &
             ! OUT
@@ -2735,6 +2804,10 @@ CASE ( 7 )
       l = veg_index(m)
       share_sup(l) = kmax_shd_2l(l) /                                          &
                      MAX(kmax_sun_2l(l) + kmax_shd_2l(l), TINY(1.0))
+      nsc_cap_cls(l) = nsc_cap(l)
+      IF ( nsc_cap(l) < HUGE(1.0_real_jlslsm) )                                &
+        nsc_cap_cls(l) = nsc_cap(l) * nw_shd_2l(l)                             &
+                         / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
     END DO
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
                              share_sup, dqc, tstar, pstar, gl_max_shd_2l,      &
@@ -2748,7 +2821,7 @@ CASE ( 7 )
               kc, ko, ccp, pstar,                                              &
               km, dqc, qs, je_shd, tstar, je_dummy, fapar_dummy,               &
               kmax_shd_2l, kcrit_shd_2l, gl_max_eff, ipar,                     &
-              l_multilayer,                                                    &
+              nsc_w, nsc_cap_cls, l_multilayer,                                &
             ! IN OUT
               rd_shd,                                                          &
             ! OUT
@@ -2952,7 +3025,7 @@ can_averaging_fac(:) =                                                         &
 !$OMP PARALLEL DO                                                              &
 !$OMP SCHEDULE(STATIC)                                                         &
 !$OMP DEFAULT(SHARED)                                                          &
-!$OMP PRIVATE(m,l,stemc,lma_tmp,fstem,stem_resp_scaling)
+!$OMP PRIVATE(m,l,stemc,lma_tmp,fstem,stem_resp_scaling,f_turg)
 DO m = 1,veg_pts
   l = veg_index(m)
 
@@ -3066,33 +3139,28 @@ DO m = 1,veg_pts
     !-------------------------------------------------------------------------
     ! Calculate carbon contents of leaf root and wood
     !-------------------------------------------------------------------------
-    IF ( l_trait_phys ) THEN
-
-      leafc(l)     = lma(ft) * lai(l) * cmass
-      leafc_bal(l) = lma(ft) * lai_bal(l) * cmass
-
-      IF ( l_red ) THEN
-        rootc(l) = veg_state%rootC(l,ft)
-        woodc(l) = veg_state%woodC(l,ft)
-      ELSE
-        rootc(l) = lma(ft) * lai_bal(l) * cmass
-        woodc(l) = a_ws(ft) * eta_sl(ft) * ht(l) * lai_bal(l)
-      END IF ! ( l_red )
-
+    CALL sugar_biomass( ft, l, land_pts, lai(l), lai_bal(l), ht(l),            &
+                        veg_state, leafc(l), leafc_bal(l), woodc(l),           &
+                        rootc(l) )
+    !-------------------------------------------------------------------------
+    ! Turgor limit on SUGAR growth from the root-zone water potential, the
+    ! model's predawn proxy (l_sugar_turgor): stem growth happens mostly at
+    ! night when turgor recovers, and growth-cessation thresholds are given
+    ! for predawn psi. Kept for the next step's NSC cap.
+    !-------------------------------------------------------------------------
+    IF ( l_sugar_turgor ) THEN
+      f_turg = turgor_growth_factor( ft, psi_root_zone(l) )
     ELSE
-
-      leafc(l)     = sigl(ft) * lai(l)
-      leafc_bal(l) = sigl(ft) * lai_bal(l)
-      rootc(l) = lma(ft) * lai_bal(l) * cmass
-      woodc(l) = a_ws(ft) * eta_sl(ft) * ht(l) * lai_bal(l)
-
-    END IF ! ( l_trait_phys )
+      f_turg = 1.0
+    END IF
+    f_turgor_prev(l,ft) = f_turg
     !---------------------------------------------------------------------------
     ! Calculate respration using SUGAR model
     !---------------------------------------------------------------------------
     CALL sugar(ft, leafc(l), leafc_bal(l) , woodc(l), rootc(l), f_nsc(l),      &
                resp_l(l), resp_w(l), resp_r(l), resp_p_m(l), resp_p_g(l),      &
-               resp_p(l), growth_sug(l), tstar(l), gpp(l))
+               resp_p(l), growth_sug(l), tstar(l), gpp(l), f_turg,            &
+               MERGE( flush_rate(l,ft), 0.0_real_jlslsm, l_sugar_leaf_flush ))
 
   ELSE
     IF ( lai(l) > EPSILON(0.0) ) THEN
@@ -3208,6 +3276,60 @@ END IF
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
 END SUBROUTINE sf_stom
+
+!#############################################################################
+!#############################################################################
+
+SUBROUTINE sugar_biomass( ft, l, land_pts, lai, lai_bal, ht, veg_state,        &
+                          leafc, leafc_bal, woodc, rootc )
+
+! Leaf (phenological and balanced), wood and root carbon for SUGAR, with the
+! root carbon equal to the balanced leaf carbon (or the RED pools).
+
+USE jules_vegetation_mod, ONLY: l_trait_phys, l_red
+USE pftparm, ONLY: lma, sigl, a_ws, eta_sl, sug_cveg
+USE jules_surface_mod, ONLY: cmass
+USE veg3_field_mod, ONLY: veg_state_type
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: ft, l, land_pts
+    ! PFT, land point, number of land points.
+REAL(KIND=real_jlslsm), INTENT(IN) :: lai, lai_bal, ht
+    ! Leaf area index, balanced LAI, canopy height (m).
+TYPE(veg_state_type), INTENT(IN) :: veg_state
+REAL(KIND=real_jlslsm), INTENT(OUT) :: leafc, leafc_bal, woodc, rootc
+    ! Carbon contents (kg C m-2).
+
+IF ( l_trait_phys ) THEN
+
+  leafc     = lma(ft) * lai * cmass
+  leafc_bal = lma(ft) * lai_bal * cmass
+
+  IF ( l_red ) THEN
+    rootc = veg_state%rootC(l,ft)
+    woodc = veg_state%woodC(l,ft)
+  ELSE
+    rootc = lma(ft) * lai_bal * cmass
+    woodc = a_ws(ft) * eta_sl(ft) * ht * lai_bal
+  END IF ! ( l_red )
+
+ELSE
+
+  leafc     = sigl(ft) * lai
+  leafc_bal = sigl(ft) * lai_bal
+  rootc = lma(ft) * lai_bal * cmass
+  woodc = a_ws(ft) * eta_sl(ft) * ht * lai_bal
+
+END IF ! ( l_trait_phys )
+
+! Prescribed structural carbon (sug_cveg > 0, e.g. without TRIFFID/RED):
+! wood is the remainder after the leaf and root carbon.
+IF ( .NOT. l_red .AND. sug_cveg(ft) > 0.0 ) THEN
+  woodc = MAX( sug_cveg(ft) - leafc_bal - rootc, 0.0_real_jlslsm )
+END IF
+
+END SUBROUTINE sugar_biomass
 
 !#############################################################################
 !#############################################################################

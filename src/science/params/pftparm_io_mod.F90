@@ -165,6 +165,18 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! Cuticular leaf conductance (mmol H2O m-2 leaf s-1), the floor used when
   ! l_som_cuticular_floor (default 3, SurEau-Ecos Q. ilex, Ruffault 2022).
   gcut_io(npft_max) = 3.0,                                                     &
+  ! SUGAR_stress (sugar_stress_mod). NSC storage feedback on the stomatal
+  ! optimisation: f_nsc at which the pool is full (0 = no feedback for the
+  ! PFT), the gain weight at a full pool and its shape (som_nsc_feedback = 1
+  ! or 3), and the time to fill the pool (days, som_nsc_feedback = 2 or 3).
+  nsc_f_full_io(npft_max) = 0.0,                                               &
+  nsc_w_min_io(npft_max) = 1.0,                                                &
+  nsc_w_k_io(npft_max) = 2.0,                                                  &
+  nsc_tau_fill_io(npft_max) = 10.0,                                            &
+  ! Turgor limit on SUGAR growth (l_sugar_turgor): root-zone (predawn) water
+  ! potential of half growth (Pa) and the sensitivity (MPa-1).
+  psi_g50_io(npft_max) = -1.5e6,                                               &
+  sf_growth_io(npft_max) = 3.0,                                                &
   ! DESICA (stomata_model = 5). Tuzet et al. (2003) closure
   ! fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf))), with
   ! gs = g1 fw An / ca; defaults are the CABLE-DESICA evergreen broadleaf
@@ -188,6 +200,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
   vint_io(npft_max) = rmdi,                                                    &
   vsl_io(npft_max) = rmdi,                                                     &
   sug_yg_io(npft_max) = rmdi,                                                  &
+  sug_rm0_io(npft_max) = rmdi,                                                 &
+  sug_km_io(npft_max) = rmdi,                                                  &
+  sug_cveg_io(npft_max) = 0.0,                                                 &
   leaf_crit_io(npft_max) = rmdi,                                               & ! JBaguley
   z0hm_pft_io(npft_max) = rmdi,                                                &
   z0hm_classic_pft_io(npft_max) = rmdi,                                        &
@@ -245,6 +260,8 @@ NAMELIST  / jules_pftparm/                                                     &
   p50_root_io,     p50_stem_io,      p50_leaf_io,                              &
   p88_root_io,     p88_stem_io,      p88_leaf_io,                              &
   gcut_io,                                                                     &
+  nsc_f_full_io,   nsc_w_min_io,     nsc_w_k_io,                               &
+  nsc_tau_fill_io, psi_g50_io,       sf_growth_io,                             &
   g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
   cap_leaf_io,     cap_stem_io,                                                &
   q10_leaf_io,      r_grow_io,                                &
@@ -252,6 +269,7 @@ NAMELIST  / jules_pftparm/                                                     &
   tef_io,          tleaf_of_io,      tlow_io,                                  &
   tupp_io,         vint_io,          vsl_io,                                   &
   sug_yg_io,       leaf_crit_io,     z0hm_pft_io,                              & !JBaguley
+  sug_rm0_io,      sug_km_io,        sug_cveg_io,                              &
   z0hm_classic_pft_io,               z0v_io,                                   &
   sox_a_io,        sox_p50_io,       sox_rp_min_io
 
@@ -289,7 +307,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 4 * npft_max ! = the INTEGER arrays in my_namelist
-INTEGER, PARAMETER :: n_real = 129 * npft_max ! = the REAL arrays in my_namelist
+INTEGER, PARAMETER :: n_real = 138 * npft_max ! = the REAL arrays in my_namelist
 
 TYPE :: my_namelist
   SEQUENCE
@@ -394,6 +412,12 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: p88_io(npft_max) ! JBaguley
   REAL(KIND=real_jlslsm) :: seg_frac_root_io(npft_max)
   REAL(KIND=real_jlslsm) :: gcut_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_f_full_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_w_min_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_w_k_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_tau_fill_io(npft_max)
+  REAL(KIND=real_jlslsm) :: psi_g50_io(npft_max)
+  REAL(KIND=real_jlslsm) :: sf_growth_io(npft_max)
   REAL(KIND=real_jlslsm) :: g1_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: sf_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_f_tuzet_io(npft_max)
@@ -419,6 +443,9 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: vint_io(npft_max)
   REAL(KIND=real_jlslsm) :: vsl_io(npft_max)
   REAL(KIND=real_jlslsm) :: sug_yg_io(npft_max)
+  REAL(KIND=real_jlslsm) :: sug_rm0_io(npft_max)
+  REAL(KIND=real_jlslsm) :: sug_km_io(npft_max)
+  REAL(KIND=real_jlslsm) :: sug_cveg_io(npft_max)
   REAL(KIND=real_jlslsm) :: leaf_crit_io(npft_max) ! JBaguley
   REAL(KIND=real_jlslsm) :: z0hm_pft_io(npft_max)
   REAL(KIND=real_jlslsm) :: z0hm_classic_pft_io(npft_max)
@@ -545,6 +572,12 @@ IF (mype == 0) THEN
   my_nml % p88_io         = p88_io ! JBaguley
   my_nml % seg_frac_root_io = seg_frac_root_io
   my_nml % gcut_io        = gcut_io
+  my_nml % nsc_f_full_io  = nsc_f_full_io
+  my_nml % nsc_w_min_io   = nsc_w_min_io
+  my_nml % nsc_w_k_io     = nsc_w_k_io
+  my_nml % nsc_tau_fill_io = nsc_tau_fill_io
+  my_nml % psi_g50_io     = psi_g50_io
+  my_nml % sf_growth_io   = sf_growth_io
   my_nml % g1_tuzet_io    = g1_tuzet_io
   my_nml % sf_tuzet_io    = sf_tuzet_io
   my_nml % psi_f_tuzet_io = psi_f_tuzet_io
@@ -570,6 +603,9 @@ IF (mype == 0) THEN
   my_nml % vint_io        = vint_io
   my_nml % vsl_io         = vsl_io
   my_nml % sug_yg_io      = sug_yg_io
+  my_nml % sug_rm0_io     = sug_rm0_io
+  my_nml % sug_km_io      = sug_km_io
+  my_nml % sug_cveg_io    = sug_cveg_io
   my_nml % leaf_crit_io   = leaf_crit_io
   my_nml % z0hm_pft_io    = z0hm_pft_io
   my_nml % z0hm_classic_pft_io = z0hm_classic_pft_io
@@ -684,6 +720,12 @@ IF (mype /= 0) THEN
   p88_io          = my_nml % p88_io ! JBaguley
   seg_frac_root_io = my_nml % seg_frac_root_io
   gcut_io         = my_nml % gcut_io
+  nsc_f_full_io   = my_nml % nsc_f_full_io
+  nsc_w_min_io    = my_nml % nsc_w_min_io
+  nsc_w_k_io      = my_nml % nsc_w_k_io
+  nsc_tau_fill_io = my_nml % nsc_tau_fill_io
+  psi_g50_io      = my_nml % psi_g50_io
+  sf_growth_io    = my_nml % sf_growth_io
   g1_tuzet_io     = my_nml % g1_tuzet_io
   sf_tuzet_io     = my_nml % sf_tuzet_io
   psi_f_tuzet_io  = my_nml % psi_f_tuzet_io
@@ -709,6 +751,9 @@ IF (mype /= 0) THEN
   vint_io         = my_nml % vint_io
   vsl_io          = my_nml % vsl_io
   sug_yg_io       = my_nml % sug_yg_io
+  sug_rm0_io      = my_nml % sug_rm0_io
+  sug_km_io       = my_nml % sug_km_io
+  sug_cveg_io     = my_nml % sug_cveg_io
   leaf_crit_io    = my_nml % leaf_crit_io
   z0hm_pft_io     = my_nml % z0hm_pft_io
   z0hm_classic_pft_io = my_nml % z0hm_classic_pft_io
@@ -740,6 +785,8 @@ USE pftparm, ONLY:                                                             &
   psi_open,        min_rootc_pft,    root_psi_crit,                            & ! JBaguley
   root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
   gcut,            g1_tuzet,         sf_tuzet,                                 &
+  nsc_f_full,      nsc_w_min,        nsc_w_k,                                  &
+  nsc_tau_fill,    psi_g50,          sf_growth,                                &
   psi_f_tuzet,     cap_leaf,         cap_stem,                                 &
 #endif
   a_wl,            a_ws,             aef,                                      &
@@ -784,6 +831,7 @@ USE pftparm, ONLY:                                                             &
   rootd_ft,        sigl,             tef,                                      & !JBaguley
   tleaf_of,        tlow,             tupp,                                     &
   vint,            vsl,              sug_yg,                                   &
+  sug_rm0,         sug_km,           sug_cveg,                                 &
   leaf_crit,       z0v,                                                        & !JBaguley
   sox_a,           sox_p50,          sox_rp_min
 
@@ -893,6 +941,13 @@ calc_rz_psi(:)      = calc_rz_psi_io(1:npft) ! JBaguley
 fsmc_mod(:)         = fsmc_mod_io(1:npft)
 min_gl_pft(:)       = min_gl_pft_io(1:npft) ! JBaguley
 gcut(:)             = gcut_io(1:npft)
+nsc_f_full(:)       = nsc_f_full_io(1:npft)
+nsc_w_min(:)        = nsc_w_min_io(1:npft)
+nsc_w_k(:)          = nsc_w_k_io(1:npft)
+! days -> s
+nsc_tau_fill(:)     = nsc_tau_fill_io(1:npft) * 86400.0
+psi_g50(:)          = psi_g50_io(1:npft)
+sf_growth(:)        = sf_growth_io(1:npft)
 g1_tuzet(:)         = g1_tuzet_io(1:npft)
 sf_tuzet(:)         = sf_tuzet_io(1:npft)
 psi_f_tuzet(:)      = psi_f_tuzet_io(1:npft)
@@ -962,6 +1017,9 @@ fef_dms(:)      = fef_dms_io(1:npft)
 sug_g0(:)       = sug_g0_io(1:npft)
 sug_grec(:)     = sug_grec_io(1:npft)
 sug_yg(:)       = sug_yg_io(1:npft)
+sug_rm0(:)      = sug_rm0_io(1:npft)
+sug_km(:)       = sug_km_io(1:npft)
+sug_cveg(:)     = sug_cveg_io(1:npft)
 
 ! stomatal optimisation model JBaguley
 leaf_crit(:)    = leaf_crit_io(1:npft)

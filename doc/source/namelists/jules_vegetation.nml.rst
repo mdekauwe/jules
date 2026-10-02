@@ -804,6 +804,56 @@ This file sets the vegetation options. It contains one namelist called :nml:lst:
              are as expected, and provide feedback where deficiencies
              are identified.
 
+.. nml:member:: sugar_model
+
+   :type: integer
+   :permitted: 1 or 2
+   :default: 1
+
+   Only used if :nml:mem:`l_sugar` = T. Form of the SUGAR model.
+
+   1. | Growth and respiration linear in the NSC mass fraction, with structural carbon recycled to NSC (:nml:mem:`JULES_PFTPARM::sug_g0_io`, :nml:mem:`JULES_PFTPARM::sug_grec_io`, :nml:mem:`JULES_PFTPARM::sug_yg_io`).
+
+   2. | :ref:`Jones et al. (2020)<References_vegetation>`: growth and maintenance respiration saturate with the pool, W/(W + K\ :sub:`m`), where W is the NSC carbon relative to structural carbon; growth respiration is (1 - Y\ :sub:`g`)/Y\ :sub:`g` of growth (:nml:mem:`JULES_PFTPARM::sug_g0_io` as the maximum specific growth rate, :nml:mem:`JULES_PFTPARM::sug_rm0_io`, :nml:mem:`JULES_PFTPARM::sug_km_io`, :nml:mem:`JULES_PFTPARM::sug_yg_io`). Respiration cannot run away when the pool fills.
+
+.. nml:member:: som_nsc_feedback
+
+   :type: integer
+   :permitted: 0, 1, 2 or 3
+   :default: 0
+
+   Feedback of the SUGAR NSC pool on the stomatal optimisation. Needs :nml:mem:`l_sugar` = T and :nml:mem:`stomata_model` = 4 or 6. Only for PFTs with :nml:mem:`JULES_PFTPARM::nsc_f_full_io` > 0.
+
+   0. | None.
+
+   1. | Weight: the carbon gain is scaled by w = 1 - (1 - :nml:mem:`JULES_PFTPARM::nsc_w_min_io`) min(1, f/:nml:mem:`JULES_PFTPARM::nsc_f_full_io`)\ :sup:`k`, so carbon is worth less as the pool fills. Only moves the optimum where the hydraulic cost is not negligible.
+
+   2. | Cap: gross photosynthesis beyond the plant's sink demand (SUGAR growth and respiration, the leaf flush, and filling the pool to :nml:mem:`JULES_PFTPARM::nsc_f_full_io` over :nml:mem:`JULES_PFTPARM::nsc_tau_fill_io`) has no value, so the stomata close when the store is full. Requires :nml:mem:`can_rad_mod` = 1 or 7.
+
+   3. | Both.
+
+.. nml:member:: som_nsc_cap_curv
+
+   :type: real
+   :permitted: > 0 and <= 1
+   :default: 1.0
+
+   Curvature of the sink-demand cap (:nml:mem:`som_nsc_feedback` = 2 or 3), as for Collatz co-limitation. 1 is a hard cap; values below 1 let carbon above the sink demand keep a declining value, so the stomata still respond to the weather when the cap binds.
+
+.. nml:member:: l_sugar_turgor
+
+   :type: logical
+   :default: F
+
+   Only used if :nml:mem:`l_sugar` = T. Limits SUGAR structural growth (and its growth respiration) by turgor, using the root-zone (predawn) water potential: 1/(1 + exp(:nml:mem:`JULES_PFTPARM::sf_growth_io` (:nml:mem:`JULES_PFTPARM::psi_g50_io` - psi))). Best used with :nml:mem:`som_nsc_feedback` = 2 or 3: without a sink limit the pool can grow without bound when growth stops.
+
+.. nml:member:: l_sugar_leaf_flush
+
+   :type: logical
+   :default: F
+
+   Only used if :nml:mem:`l_sugar` = T and :nml:mem:`sugar_model` = 2. New leaf carbon from LAI increases (leaf carbon per LAI times max(0, dLAI/dt), smoothed over 5 days) is built from the NSC pool, with growth respiration, and counts in the sink demand of the cap. With prescribed LAI this gives SUGAR the spring leaf-flush sink.
+
 .. nml:member:: l_red
 
    :type: logical

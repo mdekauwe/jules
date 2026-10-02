@@ -34,7 +34,7 @@ SUBROUTINE stom_opt_mod (                                                      &
         pft_photo_model, veg_index,                                            &
         ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,           &
         km, dq, qs, je, t_leaf, je_ratio, fapar_lf, kmax, kcrit,               &
-        gl_max, ipar, l_multilayer,                                            &
+        gl_max, ipar, nsc_w, nsc_cap, l_multilayer,                            &
 ! IN OUT
         rd,                                                                    &
 ! OUT
@@ -50,12 +50,13 @@ USE jules_vegetation_mod, ONLY:                                                &
         som_base_parm_ci, som_base_parm_psi, som_n_sample,                     &
         profit_max_profit_model, SOX_profit_model, som_profit_model,          &
         som_ci_search, som_ci_bounded, som_n_ci_golden_iter,                  &
-        l_som_skip_search_wellwatered, som_hc_negligible_tol
+        l_som_skip_search_wellwatered, som_hc_negligible_tol, som_nsc_cap_curv
 
 USE pftparm, ONLY:                                                             &
         min_gl_pft, kcrit_fractional_loss
 
 USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls
+USE sugar_stress_mod, ONLY: nsc_gain_value
 
 LOGICAL, INTENT(IN) :: l_multilayer
 
@@ -131,7 +132,13 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! basis as gl: per leaf area for multilayer,
                             ! canopy for big-leaf). Samples with gl above it
                             ! are infeasible. <= 0 disables the cap.
-,ipar(land_pts)
+,ipar(land_pts)                                                                &
+,nsc_w(land_pts)                                                               &
+                            ! Weight on the carbon gain from the NSC pool
+                            ! (1 = none; som_nsc_feedback, sugar_stress_mod).
+,nsc_cap(land_pts)
+                            ! Gross A beyond which carbon has no value, same
+                            ! basis as al (HUGE = none; sugar_stress_mod).
 
 !-----------------------------------------------------------------------------
 ! IN OUT real variables
@@ -374,7 +381,13 @@ SELECT CASE ( som_base_parm )
         IF (l_som_skip_search_wellwatered .AND.                                &
             psi_e_fp(1,j) <= psi_root_zone(l) + TINY(psi_root_zone(l)) .AND.   &
             kl_e_fp(1,j) > kcrit(l) .AND.                                      &
-            (gl_max(l) <= 0.0 .OR. gl_e_fp(1,j) <= gl_max(l))) THEN
+            (gl_max(l) <= 0.0 .OR. gl_e_fp(1,j) <= gl_max(l)) .AND.            &
+            (nsc_cap(l) >= HUGE(nsc_cap(l)) .OR.                              &
+             (som_nsc_cap_curv >= 1.0 .AND.                                    &
+              al_e_fp(1,j) + rd(l) <= nsc_cap(l)))) THEN
+          ! (The NSC cap must not act at the near-ca point: a hard cap that
+          ! binds there makes the gain flat above it, and a soft cap lowers
+          ! the gain everywhere, so the optimum is below ca.)
           hc_at_maxstress(j) = (kmax(l) - kl_e_fp(1,j)) /                      &
                                 (kmax(l) - kcrit(l))
           l_fastpath(j) = hc_at_maxstress(j) < som_hc_negligible_tol
@@ -415,7 +428,8 @@ SELECT CASE ( som_base_parm )
               pft_photo_model, veg_index,                                     &
               rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,&
               km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,      &
-              gl_max, l_multilayer, som_n_sample, som_n_ci_golden_iter,       &
+              gl_max, nsc_w, nsc_cap,                                         &
+              l_multilayer, som_n_sample, som_n_ci_golden_iter,               &
           ! OUT
               ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                        &
               el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                     &
@@ -466,7 +480,7 @@ SELECT CASE ( som_base_parm )
             land_pts, open_pts_flat, open_index_flat, veg_index,              &
             som_n_sample,                                                     &
             al_sample, kl_sample, psi_sample, gl_sample, psi_root_zone, kcrit,&
-            gl_max, rd,                                                       &
+            gl_max, rd, nsc_w, nsc_cap,                                       &
         ! OUT
             l_good_sample_flat, carbon_gain, hydraulic_cost, profit,          &
             optimal_index_flat                                               &
@@ -556,12 +570,12 @@ SELECT CASE ( som_base_parm )
       ! Get the maximum xylem conductance for each land point.
       max_kl = MAXVAL(kl_SOX(1:,:), MASK = l_good_sample, DIM = 1)
 
-      ! CG = An
-      carbon_gain(:,:) = al_sample(:,:)
-
       ! Loop over land points with open stomata
       DO j = 1, open_pts
           l = veg_index(open_index(j))
+          ! CG = An (weighted and capped by the NSC feedback, if any)
+          carbon_gain(:,j) = nsc_gain_value(al_sample(:,j), 0.0_real_jlslsm, &
+                                            rd(l), nsc_w(l), nsc_cap(l))
           ! HC = 1 - k/ki_max
           hydraulic_cost(:,j) = 1 - (kl_SOX(:,j)-kcrit(l))                     &
                                     /(max_kl(j)-kcrit(l))
@@ -1100,7 +1114,7 @@ SUBROUTINE stom_opt_profit_max_select(                                        &
 ! IN
         land_pts, open_pts, open_index, veg_index, n_sample,                  &
         al_sample, kl_sample, psi_sample, gl_sample, psi_root_zone, kcrit,    &
-        gl_max, rd,                                                           &
+        gl_max, rd, nsc_w, nsc_cap,                                           &
 ! OUT
         l_good_sample, carbon_gain, hydraulic_cost, profit, optimal_index     &
 )
@@ -1108,6 +1122,7 @@ SUBROUTINE stom_opt_profit_max_select(                                        &
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY: l_som_gain_gross
+USE sugar_stress_mod, ONLY: nsc_gain_value
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts                                                                    &
@@ -1124,9 +1139,12 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
 , psi_root_zone(land_pts)                                                     &
 , kcrit(land_pts)                                                             &
 , gl_max(land_pts)                                                            &
-, rd(land_pts)
+, rd(land_pts)                                                                &
                             ! Dark respiration; added back to An for the
                             ! gross-A gain (l_som_gain_gross).
+, nsc_w(land_pts)                                                             &
+, nsc_cap(land_pts)
+                            ! NSC gain weight and cap (sugar_stress_mod).
 
 LOGICAL, INTENT(OUT) :: l_good_sample(n_sample, open_pts)
 
@@ -1198,8 +1216,10 @@ DO j = 1, open_pts
   ! every sample out; carbon_gain/hydraulic_cost/profit are left at the 0.0
   ! they were initialised to, and MAXLOC below returns 0 for this point).
   IF (max_al(j) > 0.0) THEN
-    ! CG = An/max(An)
-    carbon_gain(:,j) = (al_sample(:,j) + gain_off(j)) / max_al(j)
+    ! CG = An/max(An), with the NSC weight and cap (sugar_stress_mod); the
+    ! normalisation stays the uncapped, unweighted max(An).
+    carbon_gain(:,j) = nsc_gain_value(al_sample(:,j), gain_off(j), rd(l),   &
+                                      nsc_w(l), nsc_cap(l)) / max_al(j)
 
     ! HC = (ki_max - k)/(ki_max - k_crit). max_kl(j) > kcrit(l) is
     ! guaranteed here because l_good_sample already required
@@ -1251,7 +1271,7 @@ SUBROUTINE stom_opt_bounded_search(                                            &
         land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,       &
         rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,       &
         km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,             &
-        gl_max, l_multilayer, n_top, n_iter,                                   &
+        gl_max, nsc_w, nsc_cap, l_multilayer, n_top, n_iter,                   &
 ! OUT
         ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g   &
 )
@@ -1273,6 +1293,7 @@ USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
 USE xylem_hydraulics_CW_jls_mod, ONLY: supply_lut_psi, supply_lut_e_crit,       &
                                        supply_lut_f
+USE sugar_stress_mod, ONLY: nsc_gain_value
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts, pft, open_pts, open_index(land_pts), pft_photo_model,             &
@@ -1283,7 +1304,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   apar(land_pts), oi(land_pts), vcmax(land_pts), kc(land_pts), ko(land_pts),  &
   ccp(land_pts), pstar(land_pts), km(land_pts), dq(land_pts), je(land_pts),   &
   t_leaf(land_pts), je_ratio(land_pts), fapar_lf(land_pts), ipar(land_pts),   &
-  kmax(land_pts), kcrit(land_pts), gl_max(land_pts)
+  kmax(land_pts), kcrit(land_pts), gl_max(land_pts),                         &
+  nsc_w(land_pts), nsc_cap(land_pts)
 
 LOGICAL, INTENT(IN) :: l_multilayer
 
@@ -1437,7 +1459,8 @@ DO j = 1, open_pts
   psi_g(j) = best_psi
   el_g(j) = best_el
   kl_g(j) = best_kl
-  carbon_gain_g(j) = (best_al + g_off) / max_al
+  carbon_gain_g(j) = nsc_gain_value(best_al, g_off, rd(l), nsc_w(l),         &
+                                    nsc_cap(l)) / max_al
   hydraulic_cost_g(j) = (max_kl - best_kl) / (max_kl - kcrit(l))
 END DO
 
@@ -1630,7 +1653,8 @@ CONTAINS
   ! Profit = CG - HC, as stom_opt_profit_max_select.
   REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in)
   REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in
-  profit = (al_in + g_off) / max_al - (max_kl - kl_in) / (max_kl - kcrit(l))
+  profit = nsc_gain_value(al_in, g_off, rd(l), nsc_w(l), nsc_cap(l)) / max_al &
+           - (max_kl - kl_in) / (max_kl - kcrit(l))
   END FUNCTION profit
 
   ! Profit of the latest evaluation (-HUGE if infeasible), kept if best.
