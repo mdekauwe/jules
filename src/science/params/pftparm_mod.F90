@@ -453,6 +453,15 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Cuticular (minimum) leaf conductance to water vapour, per
                  ! unit leaf area (mmol H2O m-2 s-1), applied as a floor on
                  ! the canopy conductance when l_som_cuticular_floor.
+,psi_nsl_onset(:)                                                              &
+                 ! Leaf water potential (Pa) below which the nonstomatal
+                 ! limitation starts (l_som_nsl). 0 (default) gives Dewar et
+                 ! al. (2022) Eqn 3(b); the turgor loss point is an optional
+                 ! variant.
+,psi_nsl0(:)                                                                   &
+                 ! Leaf water potential (Pa) at which the nonstomatal
+                 ! limitation reduces photosynthesis to zero (l_som_nsl);
+                 ! psi_0 of Dewar et al. (2022). Must be < psi_nsl_onset.
 ,g1_tuzet(:)                                                                   &
                  ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
@@ -777,6 +786,8 @@ ALLOCATE( conductance_b(npft))
 ALLOCATE( conductance_c(npft))
 ALLOCATE( seg_kfac(npft,3))
 ALLOCATE( gcut(npft))
+ALLOCATE( psi_nsl_onset(npft))
+ALLOCATE( psi_nsl0(npft))
 ALLOCATE( g1_tuzet(npft))
 ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
@@ -800,6 +811,8 @@ conductance_b(:) = 1.0
 conductance_c(:) = 1.0
 seg_kfac(:,:) = 1.0
 gcut(:) = 3.0
+psi_nsl_onset(:) = 0.0
+psi_nsl0(:) = -3.0e6
 g1_tuzet(:) = 4.19
 sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
@@ -1076,6 +1089,10 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' conductance_c = ',conductance_c
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' gcut = ',gcut
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' psi_nsl_onset = ',psi_nsl_onset
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' psi_nsl0 = ',psi_nsl0
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
 CALL jules_print('pftparm',lineBuffer)
