@@ -462,6 +462,15 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! closure, ~50% closure (Pa).
 ,cap_leaf(:)                                                                   &
 ,cap_stem(:)                                                                   &
+,cap_stem_k(:)                                                                 &
+                 ! Stem store (l_som_plant_capacitance): conductance between
+                 ! the store and the xylem (mol m-2 leaf s-1 Pa-1; 0 = no
+                 ! storage resistance).
+,cap_stem_dry_frac(:)                                                          &
+,cap_stem_psi_brk(:)                                                           &
+                 ! Two-phase capacitance (Salomon et al. 2020): cap_stem
+                 ! falls to cap_stem_dry_frac of its value below the store
+                 ! potential cap_stem_psi_brk (Pa).
                  ! DESICA: leaf and stem water capacitance per unit leaf area
                  ! (mol H2O m-2 leaf Pa-1).
 ,kcrit_fractional_loss(:)                                                      &
@@ -782,6 +791,9 @@ ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
 ALLOCATE( cap_leaf(npft))
 ALLOCATE( cap_stem(npft))
+ALLOCATE( cap_stem_k(npft))
+ALLOCATE( cap_stem_dry_frac(npft))
+ALLOCATE( cap_stem_psi_brk(npft))
 ALLOCATE( conductance_b_seg(npft,3))
 ALLOCATE( conductance_c_seg(npft,3))
 
@@ -805,6 +817,9 @@ sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
 cap_leaf(:) = 83.3e-9
 cap_stem(:) = 3000.0e-9
+cap_stem_k(:) = 0.0
+cap_stem_dry_frac(:) = 1.0
+cap_stem_psi_brk(:) = -1.1e6
 conductance_b_seg(:,:) = 1.0
 conductance_c_seg(:,:) = 1.0
 
@@ -1086,6 +1101,12 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' cap_leaf = ',cap_leaf
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' cap_stem = ',cap_stem
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' cap_stem_k = ',cap_stem_k
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' cap_stem_dry_frac = ',cap_stem_dry_frac
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' cap_stem_psi_brk = ',cap_stem_psi_brk
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' seg_kfac = ',seg_kfac
 CALL jules_print('pftparm',lineBuffer)

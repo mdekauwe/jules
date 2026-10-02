@@ -82,7 +82,8 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_bvoc_emis, l_fapar_diag, l_trait_phys, l_stem_resp_fix, l_o3_damage,     &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_leaf_resist_frac, som_gl_max, l_som_supply_limit,                      &
-    l_som_cuticular_floor, l_som_gravity, l_som_plant_capacitance, l_red
+    l_som_cuticular_floor, l_som_gravity, l_som_plant_capacitance,           &
+    som_cap_form, l_red
 
 USE CN_utils_mod, ONLY:                                                        &
 ! imported procedures
@@ -123,7 +124,8 @@ USE sugar_mod, ONLY: sugar
 
 
 USE stom_opt_jls_mod, ONLY: stom_opt_mod, stom_opt_at_e
-USE som_capacitance_jls_mod, ONLY: som_cap_store, som_cap_psi_leaf
+USE som_capacitance_jls_mod, ONLY: som_cap_store, som_cap_psi_leaf,           &
+                                   som_cap_supply_set, som_cap_supply_off
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
 
@@ -2486,6 +2488,9 @@ CASE ( 1 )
        CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,        &
                                 share_sup, dqc, tstar, pstar,                  &
                                 gl_max_bigleaf, gl_max_eff )
+       IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                  &
+         CALL som_cap_supply_set( ft, land_pts, veg_pts, veg_index, timestep, &
+                                  lai, psi_root_zone, share_sup )
 
        CALL stom_opt_mod (                                                  &
               ! IN
@@ -2501,6 +2506,8 @@ CASE ( 1 )
                 ci, anetc, el, flux_o3, fo3, gc, psi_leaf,                     &
                 carbon_gain, hydraulic_cost, leaf_k                            &
         )
+       IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                  &
+         CALL som_cap_supply_off()
 
       CASE DEFAULT
         errcode = 101  !  a hard error
@@ -2512,9 +2519,14 @@ CASE ( 1 )
 
   !---------------------------------------------------------------------------
   ! Stem water store (l_som_plant_capacitance; som_capacitance_jls_mod), big
-  ! leaf: as for the two-leaf model below, with one class.
+  ! leaf: as for the two-leaf model below, with one class. Form 2 has
+  ! already used the store in the optimisation; only the inputs for the
+  ! commit are stored.
   !---------------------------------------------------------------------------
-  IF ( l_som_plant_capacitance ) THEN
+  IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                       &
+    CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,      &
+                              psi_root_zone )
+  IF ( l_som_plant_capacitance .AND. som_cap_form == 1 ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
       kmax_cap(l,1)    = kmax_bigleaf(l)
@@ -2761,6 +2773,9 @@ CASE ( 7 )
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
                              share_sup, dqc, tstar, pstar, gl_max_sun_2l,      &
                              gl_max_eff )
+    IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                     &
+      CALL som_cap_supply_set( ft, land_pts, veg_pts, veg_index, timestep,    &
+                               lai, psi_root_zone, share_sup )
 
     CALL stom_opt_mod (                                                        &
             ! IN
@@ -2777,6 +2792,8 @@ CASE ( 7 )
               ci_sun_2l, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun, gl_sun,  &
               psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun                         &
       )
+    IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                     &
+      CALL som_cap_supply_off()
 
     ! Closed leaves get min_gl_pft from stom_opt_mod as a canopy value;
     ! share it by leaf area so the two classes together give big-leaf's
@@ -2815,6 +2832,9 @@ CASE ( 7 )
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
                              share_sup, dqc, tstar, pstar, gl_max_shd_2l,      &
                              gl_max_eff )
+    IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                     &
+      CALL som_cap_supply_set( ft, land_pts, veg_pts, veg_index, timestep,    &
+                               lai, psi_root_zone, share_sup )
 
     CALL stom_opt_mod (                                                        &
             ! IN
@@ -2831,6 +2851,8 @@ CASE ( 7 )
               ci_shd_2l, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd, gl_shd,  &
               psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd                         &
       )
+    IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                     &
+      CALL som_cap_supply_off()
 
     DO i = 1,clos_pts
       l = veg_index(clos_index(i))
@@ -2854,9 +2876,14 @@ CASE ( 7 )
   ! the store sets the transpiration that holds it there (capped at the
   ! class's gl_max), and gl, ci and A are re-solved at that E
   ! (stom_opt_at_e).
-  ! Closed classes keep their flux and equilibrate with the store.
+  ! Closed classes keep their flux and equilibrate with the store. Form 2
+  ! has already used the store in the optimisation; only the inputs for the
+  ! commit are stored.
   !---------------------------------------------------------------------------
-  IF ( l_som_plant_capacitance ) THEN
+  IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                       &
+    CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,      &
+                              psi_root_zone )
+  IF ( l_som_plant_capacitance .AND. som_cap_form == 1 ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
       kmax_cap(l,1)    = kmax_sun_2l(l)

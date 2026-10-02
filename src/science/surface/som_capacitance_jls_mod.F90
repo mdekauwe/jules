@@ -41,6 +41,18 @@ MODULE som_capacitance_jls_mod
 ! The state is psi_stem_desica (Pa, dumped); C is cap_stem * LAI (mol m-2
 ! ground Pa-1); conductances are mol m-2 ground s-1 Pa-1 and E is
 ! mol m-2 ground s-1, as in the profit max.
+!
+! Two optional refinements from the Puechabon Q. ilex measurements:
+! - Storage resistance (cap_stem_k > 0; Salomon et al. 2017, R_S): the
+!   store hangs off the xylem node between the root and leaf sides through
+!   a conductance k_s * LAI. Over a step (implicit) it then acts as a source
+!   at psi_s with conductance k_e = 1 / (1/k_s + dt/C) onto the node, and
+!   releases F = k_e (psi_s - psi_x); with no resistance k_e = C/dt and the
+!   node is the store.
+! - Two-phase capacitance (cap_stem_dry_frac < 1; Salomon et al. 2020):
+!   C falls to cap_stem_dry_frac of cap_stem below the store potential
+!   cap_stem_psi_brk (smooth step, 0.1 MPa wide), from psi_s at the start of
+!   the step.
 ! *********************************************************************
 
 USE um_types, ONLY: real_jlslsm
@@ -48,7 +60,22 @@ USE um_types, ONLY: real_jlslsm
 IMPLICIT NONE
 
 PRIVATE
-PUBLIC :: som_cap_store, som_cap_psi_leaf, som_cap_commit
+PUBLIC :: som_cap_store, som_cap_psi_leaf, som_cap_commit,                    &
+          som_cap_supply_set, som_cap_supply_off, som_cap_supply,             &
+          som_cap_supply_on
+
+! Form 2 (som_cap_form = 2): the optimiser's supply curve comes from the
+! store. sf_stom sets these for the leaf class being optimised
+! (som_cap_supply_set) and leaf_psi_jls then calls som_cap_supply.
+LOGICAL, SAVE :: som_cap_supply_on = .FALSE.
+INTEGER, SAVE :: sup_ft = 0
+REAL(KIND=real_jlslsm), SAVE :: sup_dt = 0.0
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE ::                                   &
+  sup_ke(:), sup_ps_n(:), sup_psi_soil(:)
+                            ! Class share of the store's effective
+                            ! conductance k_e (mol m-2 s-1 Pa-1), the store
+                            ! psi at the start of the step and the root-zone
+                            ! psi (Pa).
 
 REAL(KIND=real_jlslsm), PARAMETER :: lai_min = 1.0e-3
                             ! Below this LAI there is no store.
@@ -210,18 +237,49 @@ END FUNCTION q_root
 !-----------------------------------------------------------------------------
 SUBROUTINE store_state( ft, l, lai, psi_soil, ps_n, c_store )
 
-USE pftparm, ONLY: cap_stem
+USE pftparm, ONLY: cap_stem, cap_stem_dry_frac, cap_stem_psi_brk
 USE desica_jls_mod, ONLY: psi_stem_desica
 
 INTEGER, INTENT(IN) :: ft, l
 REAL(KIND=real_jlslsm), INTENT(IN) :: lai, psi_soil
 REAL(KIND=real_jlslsm), INTENT(OUT) :: ps_n, c_store
 
+REAL(KIND=real_jlslsm), PARAMETER :: w_brk = 0.1e6
+                            ! Width of the two-phase step (Pa).
+REAL(KIND=real_jlslsm) :: x
+
 ps_n = psi_stem_desica(l,ft)
 IF ( ps_n >= 0.0 ) ps_n = MIN(psi_soil, 0.0)
 c_store = cap_stem(ft) * lai
+IF ( cap_stem_dry_frac(ft) < 1.0 ) THEN
+  x = MAX(MIN((ps_n - cap_stem_psi_brk(ft)) / w_brk, 50.0), -50.0)
+  c_store = c_store * ( cap_stem_dry_frac(ft)                                 &
+                        + (1.0 - cap_stem_dry_frac(ft)) / (1.0 + EXP(-x)) )
+END IF
 
 END SUBROUTINE store_state
+
+!-----------------------------------------------------------------------------
+! Effective conductance (mol m-2 s-1 Pa-1) of the store onto the xylem node
+! over a step dt: C/dt without storage resistance, else 1/(1/k_s + dt/C)
+! with k_s = cap_stem_k * LAI.
+!-----------------------------------------------------------------------------
+REAL(KIND=real_jlslsm) FUNCTION store_ke( ft, c_store, lai, dt )
+
+USE pftparm, ONLY: cap_stem_k
+
+INTEGER, INTENT(IN) :: ft
+REAL(KIND=real_jlslsm), INTENT(IN) :: c_store, lai, dt
+
+store_ke = 0.0
+IF ( c_store <= 0.0 ) RETURN
+IF ( cap_stem_k(ft) > 0.0 .AND. lai > 0.0 ) THEN
+  store_ke = 1.0 / ( 1.0 / (cap_stem_k(ft) * lai) + dt / c_store )
+ELSE
+  store_ke = c_store / dt
+END IF
+
+END FUNCTION store_ke
 
 !-----------------------------------------------------------------------------
 ! sf_stom: the transpiration e_cls (mol m-2 ground s-1) of each of n_cls
@@ -247,7 +305,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: e_cls(land_pts,n_cls),                  &
                                        psi_s_new(land_pts)
 
 INTEGER :: l, m, ic, it, errcode
-REAL(KIND=real_jlslsm) :: ps_n, c_store, psi_soil, kmax_c, lo, hi, ps, f, e_sum
+REAL(KIND=real_jlslsm) :: ps_n, c_store, psi_soil, kmax_c, lo, hi, ps, f,      &
+                          e_sum, ke
 
 CALL desica_alloc( land_pts )
 IF ( pft_conductance_model(ft) /= 1 ) THEN
@@ -265,8 +324,10 @@ DO m = 1,veg_pts
   psi_s_new(l) = ps_n
   IF ( lai(l) < lai_min .OR. c_store <= 0.0 ) CYCLE
   kmax_c = SUM(kmax_cls(l,:))
+  ke = store_ke( ft, c_store, lai(l), timestep )
 
-  ! f(ps) = C (ps - ps_n) / dt - Q(ps) + sum_c E_c(ps) rises with ps.
+  ! ps is the xylem node (the store itself without storage resistance).
+  ! f(ps) = k_e (ps - ps_n) - Q(ps) + sum_c E_c(ps) rises with ps.
   ! hi: Q = 0 and the store term >= 0, so f >= 0. lo: below every
   ! psi_tgt E_c = 0 and the store term <= 0, so f <= 0.
   hi = MAX(psi_soil, ps_n)
@@ -278,8 +339,7 @@ DO m = 1,veg_pts
       e_sum = e_sum + MIN(e_down( ft, kmax_cls(l,ic), ps, psi_tgt(l,ic) ),    &
                           e_cap(l,ic))
     END DO
-    f = c_store * (ps - ps_n) / timestep - q_root( ft, kmax_c, psi_soil, ps ) &
-        + e_sum
+    f = ke * (ps - ps_n) - q_root( ft, kmax_c, psi_soil, ps ) + e_sum
     IF ( f > 0.0 ) THEN
       hi = ps
     ELSE
@@ -355,7 +415,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: timestep, t_stom(land_pts)
 REAL(KIND=real_jlslsm), INTENT(OUT) :: q_soil(land_pts)
 
 INTEGER :: l, m, it
-REAL(KIND=real_jlslsm) :: t, ps_n, c_store, psi_soil, kmax_c, lo, hi, ps, f
+REAL(KIND=real_jlslsm) :: t, ps_n, c_store, psi_soil, kmax_c, lo, hi, ps, f,   &
+                          ke
 
 CALL desica_alloc( land_pts )
 q_soil(:) = 0.0
@@ -371,19 +432,19 @@ DO m = 1,npts
     q_soil(l) = t
   ELSE
     kmax_c = kmax_pft(ft) * lai_desica(l,ft)
-    ! f(ps) = C (ps - ps_n) / dt - Q(ps) + T rises with ps; f(hi) >= 0.
+    ke = store_ke( ft, c_store, lai_desica(l,ft), timestep )
+    ! ps is the xylem node; the store releases F = k_e (ps_n - ps).
+    ! f(ps) = k_e (ps - ps_n) - Q(ps) + T rises with ps; f(hi) >= 0.
     hi = MAX(psi_soil, ps_n)
-    lo = MAX(ps_n - t * timestep / c_store, MIN(psi_floor(ft,1), psi_soil))
+    lo = MAX(ps_n - t / ke, MIN(psi_floor(ft,1), psi_soil))
     lo = MIN(lo, hi)
-    f  = c_store * (lo - ps_n) / timestep - q_root( ft, kmax_c, psi_soil, lo ) &
-         + t
+    f  = ke * (lo - ps_n) - q_root( ft, kmax_c, psi_soil, lo ) + t
     IF ( f > 0.0 ) THEN
       ps = lo
     ELSE
       DO it = 1,n_bisect
         ps = 0.5 * (lo + hi)
-        f  = c_store * (ps - ps_n) / timestep                                  &
-             - q_root( ft, kmax_c, psi_soil, ps ) + t
+        f  = ke * (ps - ps_n) - q_root( ft, kmax_c, psi_soil, ps ) + t
         IF ( f > 0.0 ) THEN
           hi = ps
         ELSE
@@ -392,7 +453,10 @@ DO m = 1,npts
       END DO
       ps = 0.5 * (lo + hi)
     END IF
-    q_soil(l) = MAX(t + c_store * (ps - ps_n) / timestep, 0.0)
+    q_soil(l) = MAX(t + ke * (ps - ps_n), 0.0)
+    ! The store loses F dt: psi_s' = ps_n - F dt / C (= ps without storage
+    ! resistance).
+    ps = ps_n + ke * (ps - ps_n) * timestep / c_store
   END IF
 
   q_soil(l) = q_soil(l) * mol_h2o
@@ -403,5 +467,188 @@ DO m = 1,npts
 END DO
 
 END SUBROUTINE som_cap_commit
+
+
+!-----------------------------------------------------------------------------
+! Form 2: set the store seen by the optimiser for one leaf class (share of
+! the store's capacitance; the class's own kmax carries its share of the
+! root side), or switch it off.
+!-----------------------------------------------------------------------------
+SUBROUTINE som_cap_supply_set( ft, land_pts, veg_pts, veg_index, timestep,    &
+                               lai, psi_root_zone, share )
+
+USE desica_jls_mod, ONLY: desica_alloc
+
+INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: timestep, lai(land_pts),                &
+                                      psi_root_zone(land_pts), share(land_pts)
+
+INTEGER :: l, m
+REAL(KIND=real_jlslsm) :: ps_n, c_store
+
+CALL desica_alloc( land_pts )
+IF ( .NOT. ALLOCATED(sup_ke) ) THEN
+  ALLOCATE( sup_ke(land_pts), sup_ps_n(land_pts), sup_psi_soil(land_pts) )
+END IF
+sup_ke(:)       = 0.0
+sup_ps_n(:)     = 0.0
+sup_psi_soil(:) = 0.0
+DO m = 1,veg_pts
+  l = veg_index(m)
+  sup_psi_soil(l) = MIN(psi_root_zone(l), 0.0)
+  CALL store_state( ft, l, lai(l), sup_psi_soil(l), ps_n, c_store )
+  sup_ps_n(l) = ps_n
+  IF ( lai(l) >= lai_min )                                                    &
+    sup_ke(l) = store_ke( ft, c_store, lai(l), timestep ) * share(l)
+END DO
+sup_ft = ft
+sup_dt = timestep
+som_cap_supply_on = .TRUE.
+
+END SUBROUTINE som_cap_supply_set
+
+SUBROUTINE som_cap_supply_off()
+som_cap_supply_on = .FALSE.
+END SUBROUTINE som_cap_supply_off
+
+!-----------------------------------------------------------------------------
+! Form 2 supply curve (called by leaf_psi_jls in place of the steady-state
+! solvers): for each sampled transpiration E of a class with whole-plant
+! kmax, the xylem node psi_x at the store from
+!   k_e (psi_x - psi_s) = Q_root(psi_x) - E               (implicit, Newton)
+! (k_e = C/dt without storage resistance, when psi_x is the store's
+! end-of-step psi), then the leaf through the leaf side at E (Newton per
+! segment), and the conductance the hydraulic cost uses, k = -dE/dpsi_leaf,
+! carried down as in leaf_psi_segments_jls from
+! dpsi_x/dE = -1 / (k_e + k_root(psi_x)). C -> 0 gives the steady-state
+! series model (dpsi_x/dE = -1 / k_root).
+!-----------------------------------------------------------------------------
+SUBROUTINE som_cap_supply( pft, n_e_leaf, land_pts, open_pnts, veg_index,     &
+                           open_index, e_leaf, kmax, leaf_psi, leaf_k )
+
+USE jules_vegetation_mod, ONLY: l_som_plant_segments
+
+INTEGER, INTENT(IN) :: pft, n_e_leaf, land_pts, open_pnts
+INTEGER, INTENT(IN) :: veg_index(land_pts), open_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: e_leaf(n_e_leaf, open_pnts),            &
+                                      kmax(land_pts)
+REAL(KIND=real_jlslsm), INTENT(OUT) :: leaf_psi(n_e_leaf, open_pnts),         &
+                                       leaf_k(n_e_leaf, open_pnts)
+
+INTEGER, PARAMETER :: max_it = 40
+REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12, tol = 1.0e-7
+
+INTEGER :: i, j, l, it, iseg, iseg1, ft
+REAL(KIND=real_jlslsm) :: e, ps, hi, lo, g, kr, kmx_r, c_dt, d, psi_in,      &
+                          psi_out, kmx, k_in, k_out, e_cur, bs, cs, pfl,      &
+                          a, b, step, g_lo
+
+ft = sup_ft
+iseg1 = 2
+IF ( .NOT. l_som_plant_segments ) iseg1 = 3
+
+DO j = 1,open_pnts
+  l = veg_index(open_index(j))
+  c_dt  = sup_ke(l)
+  kmx_r = kmax(l) * seg_fac(ft,1)
+  CALL seg_curve( ft, 1, bs, cs )
+  hi = MAX(sup_psi_soil(l), sup_ps_n(l))
+  pfl = MIN(psi_floor(ft,1), sup_psi_soil(l))
+  ps = sup_ps_n(l)
+  IF ( c_dt <= 0.0 ) ps = sup_psi_soil(l)
+  DO i = 1,n_e_leaf
+    e = MAX(e_leaf(i,j), 0.0)
+    ! Node: g(ps) = k_e (ps - ps_n) - Q(ps) + E rises with ps. Safeguarded
+    ! Newton on the bracket [pfl, hi] (g(hi) >= 0), starting from the
+    ! previous sample's ps; bisection whenever a step leaves the bracket.
+    ! If g(pfl) > 0 the root and store cannot supply E: ps = pfl.
+    a = pfl
+    b = hi
+    g_lo = c_dt * (a - sup_ps_n(l)) - q_root( ft, kmax(l), sup_psi_soil(l), a ) &
+           + e
+    IF ( g_lo > 0.0 ) THEN
+      ps = pfl
+    ELSE
+      ps = MIN(MAX(ps, a), b)
+      DO it = 1,max_it
+        IF ( ps < sup_psi_soil(l) ) THEN
+          kr = kmx_r * EXP( -(MAX(ps, pfl)/bs)**cs )
+        ELSE
+          kr = 0.0
+        END IF
+        g = c_dt * (ps - sup_ps_n(l)) - q_root( ft, kmax(l), sup_psi_soil(l), ps ) &
+            + e
+        IF ( g > 0.0 ) THEN
+          b = ps
+        ELSE
+          a = ps
+        END IF
+        IF ( ABS(g) <= tol * MAX(e, kmx_r * 1.0e3) .OR. b - a < 1.0 ) EXIT
+        IF ( c_dt + kr > 0.0 ) THEN
+          step = ps - g / (c_dt + kr)
+        ELSE
+          step = a - 1.0
+        END IF
+        IF ( step <= a .OR. step >= b ) step = 0.5 * (a + b)
+        ps = step
+      END DO
+    END IF
+    IF ( ps < sup_psi_soil(l) ) THEN
+      kr = kmx_r * EXP( -(MAX(ps, pfl)/bs)**cs )
+    ELSE
+      kr = 0.0
+    END IF
+    d = -1.0 / MAX(c_dt + kr, k_floor * kmx_r)
+
+    ! Leaf side at E, from the store.
+    psi_in = ps
+    DO iseg = iseg1,3
+      kmx = kmax(l) * seg_fac(ft,iseg)
+      CALL seg_curve( ft, iseg, bs, cs )
+      k_in = MAX(kmx * EXP( -(MAX(psi_in, psi_floor(ft,iseg))/bs)**cs ),      &
+                 k_floor * kmx)
+      ! Outlet: h(po) = seg_flow(psi_in, po) - E falls with po; bracket
+      ! [floor, psi_in] (h(psi_in) = -E <= 0), safeguarded Newton. If the
+      ! segment cannot carry E even to its floor, the outlet is the floor.
+      a = MIN(psi_floor(ft,iseg), psi_in)
+      b = psi_in
+      IF ( e <= 0.0 ) THEN
+        psi_out = psi_in
+      ELSE IF ( seg_flow( ft, iseg, kmx, psi_in, a ) <= e ) THEN
+        psi_out = a
+      ELSE
+        psi_out = MIN(MAX(psi_in - e / k_in, a), b)
+        DO it = 1,max_it
+          e_cur = seg_flow( ft, iseg, kmx, psi_in, psi_out )
+          IF ( e_cur > e ) THEN
+            a = psi_out
+          ELSE
+            b = psi_out
+          END IF
+          IF ( ABS(e - e_cur) <= tol * e .OR. b - a < 1.0 ) EXIT
+          k_out = MAX(kmx * EXP( -(MAX(psi_out, psi_floor(ft,iseg))/bs)**cs ),&
+                      k_floor * kmx)
+          step = psi_out - (e - e_cur) / k_out
+          IF ( step <= a .OR. step >= b ) step = 0.5 * (a + b)
+          psi_out = step
+        END DO
+      END IF
+      k_out = MAX(kmx * EXP( -(MAX(psi_out, psi_floor(ft,iseg))/bs)**cs ),    &
+                  k_floor * kmx)
+      d = (k_in * d - 1.0) / k_out
+      psi_in = psi_out
+    END DO
+    CALL seg_curve( ft, 1, bs, cs )
+
+    leaf_psi(i,j) = psi_in
+    IF ( d < 0.0 .AND. ABS(d) < HUGE(1.0_real_jlslsm) ) THEN
+      leaf_k(i,j) = -1.0 / d
+    ELSE
+      leaf_k(i,j) = 0.0
+    END IF
+  END DO
+END DO
+
+END SUBROUTINE som_cap_supply
 
 END MODULE som_capacitance_jls_mod

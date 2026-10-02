@@ -378,6 +378,15 @@ LOGICAL ::                                                                     &
       ! through the root segment, sets the transpiration that holds the leaf
       ! there. Root uptake, not transpiration, is taken from the soil.
 
+INTEGER ::                                                                     &
+  som_cap_form = 2
+      ! How the stem store (l_som_plant_capacitance) enters the stomata:
+      ! 1 the optimisation is steady state (from the root zone) and sets the
+      !   accepted psi_leaf; the store sets the E that holds it there.
+      ! 2 the optimiser's supply curve comes from the store: for each trial
+      !   E the store's end-of-step psi (implicit, refilled through the root
+      !   side) and the leaf side; the store buffers the hydraulic cost.
+
 LOGICAL ::                                                                     &
   l_plant_water_store = .FALSE.
       ! Derived (not a namelist option): the plant has a water store whose
@@ -589,6 +598,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_fast,                                                               &
     l_som_supply_limit, l_som_plant_segments, l_som_gain_gross,               &
     l_som_cuticular_floor, l_som_gravity, l_som_plant_capacitance,           &
+    som_cap_form,                                                             &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,    &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
@@ -1240,6 +1250,13 @@ IF ( l_som_plant_capacitance .AND.                                             &
                'can_rad_mod=1 or 7')
 END IF
 
+IF ( l_som_plant_capacitance .AND.                                             &
+     som_cap_form /= 1 .AND. som_cap_form /= 2 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'som_cap_form must be 1 or 2')
+END IF
+
 l_plant_water_store = ( stomata_model == stomata_desica .OR.                   &
                         l_som_plant_capacitance )
 
@@ -1410,6 +1427,9 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_plant_capacitance = ', l_som_plant_capacitance
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' som_cap_form = ', som_cap_form
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 WRITE(lineBuffer,*) ' som_hc_negligible_tol = ', som_hc_negligible_tol
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -1539,8 +1559,9 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 19 ! was 16, +1 for som_n_ci_golden_iter,
-                                 ! +2 for som_psi_solver/som_ci_search
+INTEGER, PARAMETER :: n_int = 20 ! was 16, +1 for som_n_ci_golden_iter,
+                                 ! +2 for som_psi_solver/som_ci_search,
+                                 ! +1 for som_cap_form
 INTEGER, PARAMETER :: n_real = 15 + (n_photo_coef * 5) ! +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
@@ -1602,6 +1623,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_cuticular_floor
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_plant_capacitance
+  INTEGER :: som_cap_form
   LOGICAL :: l_nrun_mid_trif
   LOGICAL :: l_trif_init_accum
   LOGICAL :: l_phenol
@@ -1696,6 +1718,7 @@ IF (mype == 0) THEN
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_plant_capacitance = l_som_plant_capacitance
+  my_nml % som_cap_form = som_cap_form
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
   my_nml % l_trif_init_accum   = l_trif_init_accum
   my_nml % l_phenol        = l_phenol
@@ -1779,6 +1802,7 @@ IF (mype /= 0) THEN
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor
   l_som_gravity = my_nml % l_som_gravity
   l_som_plant_capacitance = my_nml % l_som_plant_capacitance
+  som_cap_form = my_nml % som_cap_form
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif
   l_trif_init_accum = my_nml % l_trif_init_accum
   l_phenol        = my_nml % l_phenol

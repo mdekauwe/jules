@@ -143,6 +143,7 @@ USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,             &
                                 l_som_plant_segments
 USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls, leaf_psi_lut_jls
 USE xylem_hydraulics_SOX_jls_mod, ONLY: leaf_psi_SOX_jls
+USE som_capacitance_jls_mod, ONLY: som_cap_supply_on, som_cap_supply
 
 USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
@@ -189,6 +190,16 @@ REAL(KIND=jprb)               :: zhook_handle
 CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+! Stem water store seen by the optimiser (l_som_plant_capacitance,
+! som_cap_form = 2): the supply curve comes from the store, set by sf_stom
+! for the leaf class being optimised.
+IF ( som_cap_supply_on ) THEN
+  CALL som_cap_supply( pft, n_e_leaf, land_pts, open_pnts, veg_index,         &
+                       open_index, e_leaf, kmax, leaf_psi, leaf_k )
+  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+  RETURN
+END IF
 
 SELECT CASE ( pft_conductance_model(pft) )
 

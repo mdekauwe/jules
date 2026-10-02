@@ -176,6 +176,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
   psi_f_tuzet_io(npft_max) = -2.05e6,                                          &
   cap_leaf_io(npft_max) = 83.3,                                                &
   cap_stem_io(npft_max) = 3000.0,                                              &
+  cap_stem_k_io(npft_max) = 0.0,                                               &
+  cap_stem_dry_frac_io(npft_max) = 1.0,                                        &
+  cap_stem_psi_brk_io(npft_max) = -1.1e6,                                      &
   q10_leaf_io(npft_max) = rmdi,                                                &
   r_grow_io(npft_max) = rmdi,                                                  &
   rmass_io(npft_max) = rmdi,                                                   & ! JBaguley
@@ -246,7 +249,8 @@ NAMELIST  / jules_pftparm/                                                     &
   p88_root_io,     p88_stem_io,      p88_leaf_io,                              &
   gcut_io,                                                                     &
   g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
-  cap_leaf_io,     cap_stem_io,                                                &
+  cap_leaf_io,     cap_stem_io,      cap_stem_k_io,                            &
+  cap_stem_dry_frac_io,              cap_stem_psi_brk_io,                      &
   q10_leaf_io,      r_grow_io,                                &
   rmass_io,        rootd_ft_io,      sigl_io,                                  & !JBaguley
   tef_io,          tleaf_of_io,      tlow_io,                                  &
@@ -289,7 +293,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 4 * npft_max ! = the INTEGER arrays in my_namelist
-INTEGER, PARAMETER :: n_real = 129 * npft_max ! = the REAL arrays in my_namelist
+INTEGER, PARAMETER :: n_real = 132 * npft_max ! = the REAL arrays in my_namelist
 
 TYPE :: my_namelist
   SEQUENCE
@@ -399,6 +403,9 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: psi_f_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: cap_leaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: cap_stem_io(npft_max)
+  REAL(KIND=real_jlslsm) :: cap_stem_k_io(npft_max)
+  REAL(KIND=real_jlslsm) :: cap_stem_dry_frac_io(npft_max)
+  REAL(KIND=real_jlslsm) :: cap_stem_psi_brk_io(npft_max)
   REAL(KIND=real_jlslsm) :: seg_frac_stem_io(npft_max)
   REAL(KIND=real_jlslsm) :: seg_frac_leaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: p50_root_io(npft_max)
@@ -550,6 +557,9 @@ IF (mype == 0) THEN
   my_nml % psi_f_tuzet_io = psi_f_tuzet_io
   my_nml % cap_leaf_io    = cap_leaf_io
   my_nml % cap_stem_io    = cap_stem_io
+  my_nml % cap_stem_k_io  = cap_stem_k_io
+  my_nml % cap_stem_dry_frac_io = cap_stem_dry_frac_io
+  my_nml % cap_stem_psi_brk_io  = cap_stem_psi_brk_io
   my_nml % seg_frac_stem_io = seg_frac_stem_io
   my_nml % seg_frac_leaf_io = seg_frac_leaf_io
   my_nml % p50_root_io    = p50_root_io
@@ -689,6 +699,9 @@ IF (mype /= 0) THEN
   psi_f_tuzet_io  = my_nml % psi_f_tuzet_io
   cap_leaf_io     = my_nml % cap_leaf_io
   cap_stem_io     = my_nml % cap_stem_io
+  cap_stem_k_io   = my_nml % cap_stem_k_io
+  cap_stem_dry_frac_io = my_nml % cap_stem_dry_frac_io
+  cap_stem_psi_brk_io  = my_nml % cap_stem_psi_brk_io
   seg_frac_stem_io = my_nml % seg_frac_stem_io
   seg_frac_leaf_io = my_nml % seg_frac_leaf_io
   p50_root_io     = my_nml % p50_root_io
@@ -741,6 +754,7 @@ USE pftparm, ONLY:                                                             &
   root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
   gcut,            g1_tuzet,         sf_tuzet,                                 &
   psi_f_tuzet,     cap_leaf,         cap_stem,                                 &
+  cap_stem_k,      cap_stem_dry_frac, cap_stem_psi_brk,                        &
 #endif
   a_wl,            a_ws,             aef,                                      &
   act_jmax,        act_vcmax,        albsnc_max,                               &
@@ -899,6 +913,12 @@ psi_f_tuzet(:)      = psi_f_tuzet_io(1:npft)
 ! mmol m-2 leaf MPa-1 -> mol m-2 leaf Pa-1, as for kmax_pft.
 cap_leaf(:)         = cap_leaf_io(1:npft) * 1.0e-9
 cap_stem(:)         = cap_stem_io(1:npft) * 1.0e-9
+! Store-to-xylem conductance, mmol m-2 leaf s-1 MPa-1 -> mol m-2 Pa-1 (0:
+! no storage resistance), and the two-phase capacitance (Salomon et al.
+! 2020): the dry-phase fraction of cap_stem and the break (Pa).
+cap_stem_k(:)       = cap_stem_k_io(1:npft) * 1.0e-9
+cap_stem_dry_frac(:) = cap_stem_dry_frac_io(1:npft)
+cap_stem_psi_brk(:) = cap_stem_psi_brk_io(1:npft)
 min_rootc_pft(:)    = min_rootc_pft_io(1:npft) ! JBaguley
 psi_close(:)        = psi_close_io(1:npft)
 psi_open(:)         = psi_open_io(1:npft)
