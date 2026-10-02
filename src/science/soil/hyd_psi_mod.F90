@@ -244,7 +244,7 @@ END FUNCTION sthu_from_hh
 
 SUBROUTINE bound_soil_psi(npnts,nshyd,surft_pts,surft_index,ft,                &
                           min_psi, max_psi, psi,                               &
-                          sthu, sthu_at_min_psi)
+                          sthu, sthu_at_max_psi)
 !-----------------------------------------------------------------------------
 ! Description:
 !   Applies boundry condtions to soil water potential.
@@ -258,15 +258,15 @@ SUBROUTINE bound_soil_psi(npnts,nshyd,surft_pts,surft_index,ft,                &
 !     The dry soil approximation follows that outlined in S.W.
 !     Webb 2000. For the purpose of computation efficiency the
 !     implementation asumes that the soil moisture content
-!     of the matching point is known (sthu_at_min_psi). Given
+!     of the matching point is known (sthu_at_max_psi). Given
 !     this the derivtive in equation seven of S.W. Webb 2000
 !     is equal to the gradient of a straight line between the
-!     two points (0, log_10(ds_psi)) and (sthu_at_min_psi,
-!     log_10(min_psi)):
+!     two points (0, log_10(ds_psi)) and (sthu_at_max_psi,
+!     log_10(max_psi)):
 !
-!      d log_10(P_cap)      log_10(ds_psi) - log_10(min_psi)
+!      d log_10(P_cap)      log_10(ds_psi) - log_10(max_psi)
 !     ----------------  =  ----------------------------------
-!          d S_l                    sthu_at_min_psi
+!          d S_l                    sthu_at_max_psi
 !
 ! Code Description:
 !   Language: Fortran 90.
@@ -307,7 +307,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 !                     !    each layer as a fraction of
 !                     !    saturation. Only used
 !                     !    if l_ds_correction is True
-,sthu_at_min_psi(npnts,nshyd)
+,sthu_at_max_psi(npnts,nshyd)
                       ! Unfrozen soil moisture content of
 !                     !    each layer as a fraction of
 !                     !    saturation bellow which the dry soil
@@ -358,7 +358,7 @@ DO n = 1,nshyd
     DO j = 1,surft_pts
       i = surft_index(j)
       if(psi(i,n) < min_psi(i,n)) THEN
-        psi(i,n) = ds_psi * (min_psi(i,n) / ds_psi)**(sthu(i,n)/sthu_at_min_psi(i,n))
+        psi(i,n) = ds_psi * (min_psi(i,n) / ds_psi)**(sthu(i,n)/sthu_at_max_psi(i,n))
       end if
     END DO
 !$OMP END DO NOWAIT

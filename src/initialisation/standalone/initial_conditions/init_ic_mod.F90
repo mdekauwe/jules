@@ -1003,6 +1003,16 @@ DO i = 1, nvars_required
     !      CASE ( 'snow_liq' )
     !      CASE ( 'tsnow' )
 
+    !Xylem impairment state: intact (0 sets the intact curve in
+    !init_vars_tmp); -1 = LAI / wood not yet seen.
+  CASE ( 'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',               &
+         'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',              &
+         'ximpair_npp_prev', 'ximpair_plc_dam', 'ximpair_renew_mean',         &
+         'ximpair_renew_wt' )
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  CASE ( 'ximpair_lai_prev', 'ximpair_wood_prev' )
+    CALL dict_set(defaults_dict, identifiers(i), -1.0)
+
   CASE DEFAULT
     CALL log_info("get_default_ic_values",                                     &
                    "No default value defined. Value must be defined in namelist - " &

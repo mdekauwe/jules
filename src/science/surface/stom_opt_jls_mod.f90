@@ -55,7 +55,7 @@ USE jules_vegetation_mod, ONLY:                                                &
         l_som_skip_search_wellwatered, som_hc_negligible_tol
 
 USE pftparm, ONLY:                                                             &
-        min_glw_pft, kcrit_fractional_loss
+        min_gl_pft, kcrit_fractional_loss
 
 USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls, leaf_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
@@ -375,7 +375,7 @@ al(:)      = -rd(:)
 el(:)      = 0.0
 flux_o3(:) = 0.0
 fo3(:)     = 0.0
-gl(:)      = min_glw_pft(pft)
+gl(:)      = min_gl_pft(pft)
 psi_leaf(:)= psi_root_zone(:)
 leaf_k(:)  = kmax
 

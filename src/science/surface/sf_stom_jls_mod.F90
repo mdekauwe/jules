@@ -69,7 +69,7 @@ USE theta_field_sizes, ONLY: t_i_length
 USE jules_surface_types_mod, ONLY: nnpft, ncpft
 
 USE pftparm, ONLY:                                                             &
-        kmax_pft, conductance_b_pft, conductance_c_pft, kcrit, gcut, min_glw_pft
+        kmax_pft, conductance_b_pft, conductance_c_pft, kcrit, gcut, min_gl_pft
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported model ids. JBaguley
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
@@ -2864,7 +2864,7 @@ CASE ( 7 )
               psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun                         &
       )
 
-    ! Closed leaves get min_glw_pft from stom_opt_mod as a canopy value;
+    ! Closed leaves get min_gl_pft from stom_opt_mod as a canopy value;
     ! share it by leaf area so the two classes together give big-leaf's
     ! (half each when there is no leaf area).
     DO i = 1,clos_pts
@@ -3024,7 +3024,7 @@ END SELECT  ! can_rad_mod
 
 !-----------------------------------------------------------------------------
 ! DESICA: as the stomatal optimisation, no stomatal loss with no light
-! (gc = min_glw_pft, as stom_opt_mod's closed points), and the canopy
+! (gc = min_gl_pft, as stom_opt_mod's closed points), and the canopy
 ! transpiration (as in stom_opt_mod_ci) for the cuticular floor below and
 ! the plant hydraulics after it. psi_leaf/leaf_k here are only the
 ! steady-state values the floor block expects; desica_hydraulics replaces
@@ -3033,7 +3033,7 @@ END SELECT  ! can_rad_mod
 IF ( stomata_model == stomata_desica ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
-    IF ( apar(l) == 0.0 ) gc(l) = min_glw_pft(ft)
+    IF ( apar(l) == 0.0 ) gc(l) = min_gl_pft(ft)
     el(l)       = MAX(dqc(l), 0.0) * pstar(l) / repsilon * gc(l)               &
                   / (rmol * tstar(l))
     psi_leaf(l) = psi_root_zone(l)

@@ -23,7 +23,8 @@ USE jules_fields_mod, ONLY: toppdm, soilecosse, trifctltype
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
-    ximpair_npp_prev, ximpair_lai_prev, ximpair_wood_prev
+    ximpair_npp_prev, ximpair_lai_prev, ximpair_wood_prev, ximpair_plc_dam,    &
+    ximpair_renew_mean, ximpair_renew_wt
 
 USE model_grid_mod, ONLY:                                                      &
   global_land_pts, grid_area_ij, latitude, longitude, l_coord_latlon,          &
@@ -396,6 +397,24 @@ DO i = 1,nvars
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(ximpair_wood_prev(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'ximpair_plc_dam' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(ximpair_plc_dam(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'ximpair_renew_mean' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(ximpair_renew_mean(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'ximpair_renew_wt' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(ximpair_renew_wt(:,n), global_data_2d(:,n))
     END DO
 
     !Case if nsoilt == 1, so it is OK to hardwire the 2nd dimension to 1
@@ -1054,7 +1073,8 @@ DO i = 1,nvars
            'psi_leaf_desica', 'psi_stem_desica',                               &
            'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',              &
            'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',             &
-           'ximpair_npp_prev', 'ximpair_lai_prev', 'ximpair_wood_prev' )
+           'ximpair_npp_prev', 'ximpair_lai_prev', 'ximpair_wood_prev',  &
+           'ximpair_plc_dam', 'ximpair_renew_mean', 'ximpair_renew_wt' )
       CALL file_write_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 
     CASE ( 'cropdvi', 'croprootc', 'cropharvc', 'cropreservec',                &

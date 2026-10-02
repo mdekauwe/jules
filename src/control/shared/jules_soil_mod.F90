@@ -125,7 +125,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ds_psi = -609032185.8
       ! Negative soil water potential at zero saturation for dry soil
       ! aproximation (cm). Default value from M. Schneider and
-      ! K.-U. Goss 2012 page 67. Conversion factor for cm to MPa
+      ! K.-U. Goss 2012 paragraph 7. Conversion factor for cm to MPa
       ! taken from CABLE drysoil aproximation.
       ! log(-psi(cm)) = 6.8
       ! psi(cm) = -10^6.8

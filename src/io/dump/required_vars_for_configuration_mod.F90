@@ -289,6 +289,9 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   CALL add_to_list( 'ximpair_npp_prev', nvars, identifiers )
   CALL add_to_list( 'ximpair_lai_prev', nvars, identifiers )
   CALL add_to_list( 'ximpair_wood_prev', nvars, identifiers )
+  CALL add_to_list( 'ximpair_plc_dam', nvars, identifiers )
+  CALL add_to_list( 'ximpair_renew_mean', nvars, identifiers )
+  CALL add_to_list( 'ximpair_renew_wt', nvars, identifiers )
 END IF
 
 IF ( stomata_model == stomata_desica ) THEN

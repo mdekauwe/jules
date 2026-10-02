@@ -35,7 +35,7 @@ LOGICAL ::                                                                     &
 REAL(KIND=real_jlslsm) ::                                                      &
   canht_ft_io(npft_max) = rmdi,                                                &
   lai_io(npft_max) = rmdi,                                                     &
-  min_glw_pft_io(npft_max) = rmdi,                                              & ! JBaguley
+  min_gl_pft_io(npft_max) = rmdi,                                              & ! JBaguley
   min_rootc_pft_io(npft_max) = rmdi,                                           & ! JBaguley
   psi_close_io(npft_max) = rmdi,                                               &
   psi_open_io(npft_max) = rmdi,                                                &
@@ -182,7 +182,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   cap_stem_io(npft_max) = 3000.0,                                              &
   q10_leaf_io(npft_max) = rmdi,                                                &
   r_grow_io(npft_max) = rmdi,                                                  &
-  r_Cmass_frac_io(npft_max) = rmdi,                                                   & ! JBaguley
+  rmass_io(npft_max) = rmdi,                                                   & ! JBaguley
   rootd_ft_io(npft_max) = rmdi,                                                &
   sigl_io(npft_max) = rmdi,                                                    &
   tef_io(npft_max) = rmdi,                                                     &
@@ -205,7 +205,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ximpair_tau_rec_io(npft_max) = rmdi,                                         &
   ximpair_psi_refill_io(npft_max) = rmdi,                                      &
   ximpair_wood_alloc_io(npft_max) = rmdi,                                      &
-  ximpair_leaf_sens_io(npft_max) = rmdi
+  ximpair_leaf_sens_io(npft_max) = rmdi,                                       &
+  ximpair_rec_years_io(npft_max) = rmdi
 !---------------------------------------------------------------------
 ! Set up a namelist for reading and writing these arrays
 !---------------------------------------------------------------------
@@ -213,7 +214,7 @@ NAMELIST  / jules_pftparm/                                                     &
 #if !defined(UM_JULES)
   calc_rz_psi_io,  canht_ft_io,      lai_io,                                   & ! JBaguley
   fsmc_mod_io,     psi_close_io,     psi_open_io,                              &
-  min_glw_pft_io,   min_rootc_pft_io, root_psi_crit_io,                         & ! JBaguley
+  min_gl_pft_io,   min_rootc_pft_io, root_psi_crit_io,                         & ! JBaguley
   root_radi_pft_io,rootc_density_pft_io,                                       & ! JBaguley
 #endif
   a_wl_io,         a_ws_io,          aef_io,                                   &
@@ -260,7 +261,7 @@ NAMELIST  / jules_pftparm/                                                     &
   g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
   cap_leaf_io,     cap_stem_io,                                                &
   q10_leaf_io,      r_grow_io,                                                 &
-  r_Cmass_frac_io,        rootd_ft_io,      sigl_io,                                  & !JBaguley
+  rmass_io,        rootd_ft_io,      sigl_io,                                  & !JBaguley
   tef_io,          tleaf_of_io,      tlow_io,                                  &
   tupp_io,         vint_io,          vsl_io,                                   &
   sug_yg_io,       leaf_crit_io,     z0hm_pft_io,                              & !JBaguley
@@ -270,7 +271,8 @@ NAMELIST  / jules_pftparm/                                                     &
   ximpair_threshold_fraction_io,     ximpair_psi_driver_io,                    &
   ximpair_reset_mmdd_io,             ximpair_tau_rec_io,                       &
   ximpair_psi_refill_io,             ximpair_wood_alloc_io,                    &
-  ximpair_growth_basis_io,           ximpair_leaf_sens_io
+  ximpair_growth_basis_io,           ximpair_leaf_sens_io,                     &
+  ximpair_rec_years_io
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM_IO'
 
@@ -308,9 +310,9 @@ INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (4 + 4 xylem
                                            ! impairment)
-INTEGER, PARAMETER :: n_real = 136 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 137 * npft_max ! = the REAL arrays in
                                              ! my_namelist: 124 + 5 DESICA +
-                                             ! 7 xylem impairment
+                                             ! 8 xylem impairment
 
 TYPE :: my_namelist
   SEQUENCE
@@ -434,7 +436,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: p88_leaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: q10_leaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: r_grow_io(npft_max)
-  REAL(KIND=real_jlslsm) :: r_Cmass_frac_io(npft_max) ! JBaguley
+  REAL(KIND=real_jlslsm) :: rmass_io(npft_max) ! JBaguley
   REAL(KIND=real_jlslsm) :: rootd_ft_io(npft_max)
   REAL(KIND=real_jlslsm) :: sigl_io(npft_max)
   REAL(KIND=real_jlslsm) :: tef_io(npft_max)
@@ -458,6 +460,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: ximpair_psi_refill_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_wood_alloc_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_leaf_sens_io(npft_max)
+  REAL(KIND=real_jlslsm) :: ximpair_rec_years_io(npft_max)
 END TYPE my_namelist
 
 TYPE (my_namelist) :: my_nml
@@ -596,7 +599,7 @@ IF (mype == 0) THEN
   my_nml % p88_leaf_io    = p88_leaf_io
   my_nml % q10_leaf_io    = q10_leaf_io
   my_nml % r_grow_io      = r_grow_io
-  my_nml % r_Cmass_frac_io       = r_Cmass_frac_io ! JBaguley
+  my_nml % rmass_io       = rmass_io ! JBaguley
   my_nml % rootd_ft_io    = rootd_ft_io
   my_nml % sigl_io        = sigl_io
   my_nml % tef_io         = tef_io
@@ -620,6 +623,7 @@ IF (mype == 0) THEN
   my_nml % ximpair_psi_refill_io = ximpair_psi_refill_io
   my_nml % ximpair_wood_alloc_io = ximpair_wood_alloc_io
   my_nml % ximpair_leaf_sens_io = ximpair_leaf_sens_io
+  my_nml % ximpair_rec_years_io = ximpair_rec_years_io
 END IF
 
 CALL mpl_bcast(my_nml,1,mpl_nml_type,0,my_comm,icode)
@@ -746,7 +750,7 @@ IF (mype /= 0) THEN
   p88_leaf_io     = my_nml % p88_leaf_io
   q10_leaf_io     = my_nml % q10_leaf_io
   r_grow_io       = my_nml % r_grow_io
-  r_Cmass_frac_io        = my_nml % r_Cmass_frac_io ! JBaguley
+  rmass_io        = my_nml % rmass_io ! JBaguley
   rootd_ft_io     = my_nml % rootd_ft_io
   sigl_io         = my_nml % sigl_io
   tef_io          = my_nml % tef_io
@@ -770,6 +774,7 @@ IF (mype /= 0) THEN
   ximpair_psi_refill_io = my_nml % ximpair_psi_refill_io
   ximpair_wood_alloc_io = my_nml % ximpair_wood_alloc_io
   ximpair_leaf_sens_io = my_nml % ximpair_leaf_sens_io
+  ximpair_rec_years_io = my_nml % ximpair_rec_years_io
 END IF
 
 CALL mpl_type_free(mpl_nml_type,icode)
@@ -792,7 +797,7 @@ USE pftparm, ONLY:                                                             &
 #if !defined(UM_JULES)
   calc_rz_psi,     fsmc_mod,         psi_close,                                & ! JBaguley
   psi_open,        min_rootc_pft,    root_psi_crit,                            & ! JBaguley
-  root_radi_pft,   rootc_density_pft, min_glw_pft,                              & ! JBaguley
+  root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
   gcut,            g1_tuzet,         sf_tuzet,                                 &
   psi_f_tuzet,     cap_leaf,         cap_stem,                                 &
 #endif
@@ -835,7 +840,7 @@ USE pftparm, ONLY:                                                             &
   omegal,          omegau,           omnir,                                    &
   omnirl,          omniru,           orient,                                   &
   P50,             P88,                                                        & ! JBaguley
-  q10_leaf,        r_grow,           r_Cmass_frac,                                    &
+  q10_leaf,        r_grow,           rmass,                                    &
   rootd_ft,        sigl,             tef,                                      & !JBaguley
   tleaf_of,        tlow,             tupp,                                     &
   vint,            vsl,              sug_yg,                                   &
@@ -846,7 +851,7 @@ USE pftparm, ONLY:                                                             &
   ximpair_psi_driver,                ximpair_reset_mmdd,                       &
   ximpair_tau_rec,                   ximpair_psi_refill,                       &
   ximpair_wood_alloc,                ximpair_growth_basis,                     &
-  ximpair_leaf_sens
+  ximpair_leaf_sens,                 ximpair_rec_years
 
 
 
@@ -930,7 +935,7 @@ nmass(:)        = nmass_io(1:npft)
 nr(:)           = nr_io(1:npft)
 nsw(:)          = nsw_io(1:npft)
 q10_leaf(:)     = q10_leaf_io(1:npft)
-r_Cmass_frac(:) = r_Cmass_frac_io(1:npft) ! JBaguley
+rmass(:)        = rmass_io(1:npft) ! JBaguley
 vint(:)         = vint_io(1:npft)
 vsl(:)          = vsl_io(1:npft)
 
@@ -952,8 +957,11 @@ tleaf_of(:)     = tleaf_of_io(1:npft)
 #if !defined(UM_JULES)
 calc_rz_psi(:)      = calc_rz_psi_io(1:npft) ! JBaguley
 fsmc_mod(:)         = fsmc_mod_io(1:npft)
-min_glw_pft(:)       = min_glw_pft_io(1:npft) ! JBaguley
-gcut(:)             = gcut_io(1:npft)
+! Keep the pftparm_alloc default (0) where not given: rmdi here would set
+! the closed-stomata conductance to ~ -1e9.
+WHERE (ABS(min_gl_pft_io(1:npft) - rmdi) > EPSILON(1.0))                       &
+  min_gl_pft(:) = min_gl_pft_io(1:npft) ! JBaguley
+gcut(:)            = gcut_io(1:npft)
 g1_tuzet(:)         = g1_tuzet_io(1:npft)
 sf_tuzet(:)         = sf_tuzet_io(1:npft)
 psi_f_tuzet(:)      = psi_f_tuzet_io(1:npft)
@@ -1027,7 +1035,9 @@ sug_yg(:)       = sug_yg_io(1:npft)
 ! stomatal optimisation model JBaguley
 leaf_crit(:)    = leaf_crit_io(1:npft)
 pft_conductance_model(:) = pft_conductance_model_io(1:npft)
-pft_xylem_impairment_model(:) = pft_xylem_impairment_model_io(1:npft)
+! Impairment is off (pftparm_alloc default 0) unless given in the namelist.
+WHERE (pft_xylem_impairment_model_io(1:npft) /= imdi)                          &
+  pft_xylem_impairment_model(:) = pft_xylem_impairment_model_io(1:npft)
 kcrit_fractional_loss(:) = kcrit_fractional_loss_io(1:npft)
 ! kmax_pft_io is in mmol m-2 s-1 MPa-1; the model works in
 ! mol m-2 s-1 Pa-1: x 1e-3 (mmol -> mol) x 1e-6 (MPa-1 -> Pa-1)
@@ -1059,6 +1069,8 @@ DO i = 1, npft
     ximpair_wood_alloc(i) = ximpair_wood_alloc_io(i)
   IF (ABS(ximpair_leaf_sens_io(i) - rmdi) > EPSILON(1.0))                      &
     ximpair_leaf_sens(i) = ximpair_leaf_sens_io(i)
+  IF (ABS(ximpair_rec_years_io(i) - rmdi) > EPSILON(1.0))                      &
+    ximpair_rec_years(i) = ximpair_rec_years_io(i)
 END DO
 
 ! ---------------------------------------------------------------------

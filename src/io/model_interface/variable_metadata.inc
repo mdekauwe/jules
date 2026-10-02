@@ -9784,4 +9784,43 @@ DATA metadata(755) / var_metadata(                                             &
 ! Units
     "kg m-2"                                                               &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_plc_dam (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(756) / var_metadata(                                             &
+! String identifier
+    'ximpair_plc_dam',                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Loss of conductivity at the last xylem damage",                &
+! Units
+    "-"                                                               &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_renew_mean (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(757) / var_metadata(                                             &
+! String identifier
+    'ximpair_renew_mean',                                           &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Running mean renewed xylem fraction (slow recovery)",          &
+! Units
+    "s-1"                                                             &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_renew_wt (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(758) / var_metadata(                                             &
+! String identifier
+    'ximpair_renew_wt',                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Weight of the running mean renewed xylem fraction",            &
+! Units
+    "-"                                                               &
+  ) /
 #endif

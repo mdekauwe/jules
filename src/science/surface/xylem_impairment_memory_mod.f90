@@ -39,8 +39,16 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock(:,:)
 ! growth recovery terms; -1 = not yet seen.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lai_prev(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_wood_prev(:,:)
-! ximpair_npp_prev, ximpair_lock, ximpair_lai_prev and ximpair_wood_prev are
-! written to and read from dumps (ximpair_memory_alloc allocates them).
+
+! Slow recovery (ximpair_rec_years > 0): loss of conductivity at the last
+! damage, which sets the recovery rate, and the running mean (s-1) of the
+! renewed fraction with its weight (for the start-up bias correction).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_plc_dam(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_renew_mean(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_renew_wt(:,:)
+! ximpair_npp_prev, ximpair_lock, ximpair_lai_prev, ximpair_wood_prev,
+! ximpair_plc_dam, ximpair_renew_mean and ximpair_renew_wt are written to and
+! read from dumps (ximpair_memory_alloc allocates them).
 
 CONTAINS
 
@@ -69,6 +77,18 @@ END IF
 IF (.NOT. ALLOCATED(ximpair_wood_prev)) THEN
   ALLOCATE(ximpair_wood_prev(n_land_pts, npft))
   ximpair_wood_prev(:,:) = -1.0
+END IF
+IF (.NOT. ALLOCATED(ximpair_plc_dam)) THEN
+  ALLOCATE(ximpair_plc_dam(n_land_pts, npft))
+  ximpair_plc_dam(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(ximpair_renew_mean)) THEN
+  ALLOCATE(ximpair_renew_mean(n_land_pts, npft))
+  ximpair_renew_mean(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(ximpair_renew_wt)) THEN
+  ALLOCATE(ximpair_renew_wt(n_land_pts, npft))
+  ximpair_renew_wt(:,:) = 0.0
 END IF
 
 END SUBROUTINE ximpair_memory_alloc
@@ -477,6 +497,23 @@ END SUBROUTINE leaf_psi_impaired_memory
 !                            3: TRIFFID gross wood production, the rise in
 !                               allometric wood carbon plus g_wood turnover
 !                               (needs l_triffid; no free parameter).
+!
+! Slow recovery (ximpair_rec_years > 0). Applied directly, the renewed
+! fractions above recover the damage within ~1 year, as new leaf area and
+! wood are compared only with the current (small) sapwood. Instead, new
+! xylem replaces the damaged conduits over ximpair_rec_years years of growth
+! (sapwood turnover; growth recovers over 3-5 years after drought, e.g.
+! Anderegg et al. 2015, Kannenberg et al. 2019). The fraction renewed this
+! timestep, f = f_lai + f_growth, is scaled by its running mean, <f>
+! (e-folding time ximpair_rec_years, bias-corrected at the start), to the
+! growth g = f / (<f> * 1 year) in units of a typical year's growth, and the
+! loss of conductivity falls linearly with growth,
+!   PLC' = MAX(PLC - PLC_dam * g / ximpair_rec_years, 0),
+! with PLC_dam the loss at the last damage (reset each time damage raises
+! PLC). So the loss recovers in ximpair_rec_years years of typical growth
+! after the last damage, with the seasonal timing of leaf flush / growth,
+! and more slowly after years of low growth.
+!
 ! Also (per PFT, off by default): refilling with timescale ximpair_tau_rec
 ! while psi_x > ximpair_psi_refill, and an annual reset on
 ! ximpair_reset_mmdd.
@@ -496,7 +533,7 @@ SUBROUTINE update_xylem_impairment_memory ( n_land_pts                         &
 USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
                    eta_sl, ximpair_psi_driver, ximpair_reset_mmdd,             &
                    ximpair_tau_rec, ximpair_psi_refill, ximpair_wood_alloc,    &
-                   ximpair_growth_basis, a_wl, a_ws, b_wl
+                   ximpair_growth_basis, ximpair_rec_years, a_wl, a_ws, b_wl
 USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 ximpair_driver_root, l_ximpair_rec_lai,        &
                                 l_ximpair_rec_growth, l_triffid
@@ -542,8 +579,12 @@ INTEGER :: j, l, errcode
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_x(n_land_pts), k_x(n_land_pts), kmax_pts(n_land_pts),                   &
   kcrit_pts(n_land_pts), b_pts(n_land_pts), c_pts(n_land_pts),                &
-  f_renew(n_land_pts), c_new(n_land_pts), wood(n_land_pts)
-REAL(KIND=real_jlslsm) :: f_rec
+  f_renew(n_land_pts), c_new(n_land_pts), wood(n_land_pts),                  &
+  f_new(n_land_pts), growth(n_land_pts), kcap_old(n_land_pts),                &
+  plc(n_land_pts)
+REAL(KIND=real_jlslsm) :: f_rec, a_mean
+LOGICAL :: l_slow
+                            ! Slow recovery (ximpair_rec_years > 0).
 
 REAL(KIND=real_jlslsm), PARAMETER :: lai_min = 1.0e-3
                             ! Minimum LAI for the recovery terms.
@@ -552,6 +593,7 @@ REAL(KIND=real_jlslsm), PARAMETER :: c_per_mol_co2 = 12.0e-3
 
 ! TRIFFID turnover rates (g_wood) are per 360-day year.
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_trif_year = 360.0 * 86400.0
+REAL(KIND=real_jlslsm), PARAMETER :: sec_per_year = 365.25 * 86400.0
 
                             ! LAI at the previous update, per PFT, for
                             ! l_ximpair_rec_lai. NOTE: not held in the dump,
@@ -585,8 +627,12 @@ b_pts(:)     = conductance_b_pft(pft)
 c_pts(:)     = conductance_c_pft(pft)
 
 !-----------------------------------------------------------------------------
-! Recovery.
+! Recovery. With slow recovery the renewed fractions are summed in f_new
+! and applied below; otherwise each is applied directly.
 !-----------------------------------------------------------------------------
+l_slow = ximpair_rec_years(pft) > 0.0
+f_new(:) = 0.0
+
 IF (l_ximpair_rec_lai) THEN
   IF (.NOT. ALLOCATED(ximpair_lai_prev)) THEN
     ALLOCATE(ximpair_lai_prev(n_land_pts, npft))
@@ -595,8 +641,12 @@ IF (l_ximpair_rec_lai) THEN
   DO l = 1, n_land_pts
     IF (ximpair_lai_prev(l,pft) >= 0.0 .AND. lai(l) > ximpair_lai_prev(l,pft) .AND.            &
         lai(l) > lai_min) THEN
-      kcap(l) = ( MAX(ximpair_lai_prev(l,pft), 0.0) * kcap(l)                          &
-                  + (lai(l) - ximpair_lai_prev(l,pft)) * kmax_pts(l) ) / lai(l)
+      IF (l_slow) THEN
+        f_new(l) = (lai(l) - ximpair_lai_prev(l,pft)) / lai(l)
+      ELSE
+        kcap(l) = ( MAX(ximpair_lai_prev(l,pft), 0.0) * kcap(l)                        &
+                    + (lai(l) - ximpair_lai_prev(l,pft)) * kmax_pts(l) ) / lai(l)
+      END IF
     END IF
     ximpair_lai_prev(l,pft) = lai(l)
   END DO
@@ -651,7 +701,35 @@ IF (l_ximpair_rec_growth) THEN
                / MAX(eta_sl(pft) * canht(:) * lai(:),                          &
                      eta_sl(pft) * MAX(canht(:), 1.0) * lai_min)
   f_renew(:) = MIN(f_renew(:), 1.0)
-  kcap(:) = kcap(:) + (kmax_pts(:) - kcap(:)) * f_renew(:)
+  IF (l_slow) THEN
+    f_new(:) = f_new(:) + f_renew(:)
+  ELSE
+    kcap(:) = kcap(:) + (kmax_pts(:) - kcap(:)) * f_renew(:)
+  END IF
+END IF
+
+IF (l_slow .AND. (l_ximpair_rec_lai .OR. l_ximpair_rec_growth)) THEN
+  CALL ximpair_memory_alloc( n_land_pts )
+  ! Running mean of the renewed fraction (s-1), and its weight.
+  a_mean = MIN(REAL(timestep_len) / (ximpair_rec_years(pft) * sec_per_year), &
+               1.0)
+  ximpair_renew_mean(:,pft) = ximpair_renew_mean(:,pft)                        &
+                + a_mean * (f_new(:) / REAL(timestep_len)                      &
+                            - ximpair_renew_mean(:,pft))
+  ximpair_renew_wt(:,pft) = ximpair_renew_wt(:,pft)                            &
+                + a_mean * (1.0 - ximpair_renew_wt(:,pft))
+  ! Growth this timestep in units of a typical year's growth.
+  WHERE (ximpair_renew_mean(:,pft) > 0.0 .AND. ximpair_renew_wt(:,pft) > 0.0)
+    growth(:) = f_new(:) * ximpair_renew_wt(:,pft)                             &
+                / (ximpair_renew_mean(:,pft) * sec_per_year)
+  ELSEWHERE
+    growth(:) = 0.0
+  END WHERE
+  ! Linear recovery of the loss of conductivity.
+  plc(:) = 1.0 - kcap(:) / kmax_pts(:)
+  plc(:) = MAX(plc(:) - ximpair_plc_dam(:,pft) * growth(:)                     &
+                        / ximpair_rec_years(pft), 0.0)
+  kcap(:) = kmax_pts(:) * (1.0 - plc(:))
 END IF
 
 IF (ximpair_tau_rec(pft) > 0.0) THEN
@@ -672,6 +750,7 @@ END IF
 ! Damage: the cap can not exceed the intact conductance at the damage
 ! driver. Only points with open stomata (i.e. under tension) are damaged.
 !-----------------------------------------------------------------------------
+kcap_old(:) = kcap(:)
 CALL leaf_conductance_jls( pft, n_land_pts, psi_x, kmax_pts, kcrit_pts,        &
                            b_pts, c_pts, k_x )
 DO j = 1, n_open_pts
@@ -680,6 +759,14 @@ DO j = 1, n_open_pts
 END DO
 
 kcap(:) = MAX(MIN(kcap(:), kmax_pts(:)), kcrit_pts(:))
+
+! Slow recovery restarts from the loss at the latest damage.
+IF (l_slow) THEN
+  CALL ximpair_memory_alloc( n_land_pts )
+  WHERE (kcap(:) < kcap_old(:))
+    ximpair_plc_dam(:,pft) = 1.0 - kcap(:) / kmax_pts(:)
+  END WHERE
+END IF
 
 IF (.NOT. ALLOCATED(ximpair_lock)) THEN
   ALLOCATE(ximpair_lock(n_land_pts, npft))

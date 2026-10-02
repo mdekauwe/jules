@@ -172,7 +172,7 @@ hw_sw(:)                                                                       &
                  ! Stem nitrogen concentration (kg N/kg C)
 ,q10_leaf(:)                                                                   &
                  ! Factor for leaf respiration.
-,r_Cmass_frac(:)                                                               &
+,rmass(:)                                                                      &
                  ! Root carbon dry weight (kg C/kg root) JBaguley
 ,vint(:)                                                                       &
                  ! Y intercept of the Narea to Vcmax relationship
@@ -259,7 +259,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Soil evaporation enhancement factor (no units).
 ,infil_f(:)                                                                    &
                  ! Infiltration enhancement factor.
-,min_glw_pft(:)                                                                 & ! JBaguley
+,min_gl_pft(:)                                                                 & ! JBaguley
                  ! Minimum leaf conductance to H2O (m/s)
 ,min_rootc_pft(:)                                                              & ! JBaguley
                  ! Minimum root C mass per unit area (kg m-2) for each pft.
@@ -532,11 +532,18 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Fraction of canopy net assimilation that goes into new
                  !  conducting xylem, for recovery from xylem impairment with
                  !  l_ximpair_rec_growth.
-,ximpair_leaf_sens(:)
+,ximpair_leaf_sens(:)                                                          &
                  ! Sensitivity of the canopy to lasting xylem damage
                  !  (l_ximpair_leaf_loss): the phenological state is capped
                  !  at 1 - ximpair_leaf_sens * (1 - k_cap/kmax). 1 keeps leaf
                  !  area in proportion to the conducting capacity, 0 disables.
+,ximpair_rec_years(:)
+                 ! Years of typical growth for the leaf-area and growth
+                 !  recovery terms (l_ximpair_rec_lai, l_ximpair_rec_growth)
+                 !  to recover the loss of conductivity: the loss falls
+                 !  linearly, by (loss at the last damage) / ximpair_rec_years
+                 !  per year of typical growth. <= 0 applies the renewed
+                 !  fraction directly (fast recovery).
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -670,7 +677,7 @@ ALLOCATE( nmass(npft))
 ALLOCATE( nr(npft))
 ALLOCATE( nsw(npft))
 ALLOCATE( q10_leaf(npft))
-ALLOCATE( r_Cmass_frac(npft))
+ALLOCATE( rmass(npft))
 ALLOCATE( vint(npft))
 ALLOCATE( vsl(npft))
 
@@ -680,7 +687,7 @@ nmass(:)        = rmdi
 nr(:)           = rmdi
 nsw(:)          = rmdi
 q10_leaf(:)     = rmdi
-r_Cmass_frac(:)        = 0.49 !JBaguley
+rmass(:)        = 0.49 !JBaguley
 vint(:)         = rmdi
 vsl(:)          = rmdi
 
@@ -723,7 +730,7 @@ ALLOCATE( glmin(npft))
 ALLOCATE( gsoil_f(npft))
 ALLOCATE( infil_f(npft))
 ALLOCATE( min_rootc_pft(npft)) ! JBaguley
-ALLOCATE( min_glw_pft(npft)) ! JBaguley
+ALLOCATE( min_gl_pft(npft)) ! JBaguley
 ALLOCATE( psi_close(npft))
 ALLOCATE( psi_open(npft))
 ALLOCATE( root_psi_crit(npft))  ! JBaguley
@@ -748,7 +755,7 @@ psi_open(:)     = rmdi
 rootd_ft(:)     = rmdi
 z0v(:)          = rmdi
 calc_rz_psi(:)       = .FALSE. ! JBaguley
-min_glw_pft(:)        = 0.0 ! JBaguley
+min_gl_pft(:)        = 0.0 ! JBaguley
 min_rootc_pft(:)     = 1.0 ! JBaguley M.Williams etal 2001
 root_psi_crit(:)     =-0.1e6 ! JBaguley
 root_radi_pft(:)     = 0.0005 ! JBaguley M.Williams etal 2001
@@ -863,6 +870,7 @@ ALLOCATE( ximpair_tau_rec(npft))
 ALLOCATE( ximpair_psi_refill(npft))
 ALLOCATE( ximpair_wood_alloc(npft))
 ALLOCATE( ximpair_leaf_sens(npft))
+ALLOCATE( ximpair_rec_years(npft))
 
 leaf_crit(:) = 0.0
 pft_conductance_model(:) = 0
@@ -899,6 +907,7 @@ ximpair_tau_rec(:) = 0.0
 ximpair_psi_refill(:) = -0.5e6
 ximpair_wood_alloc(:) = 0.25
 ximpair_leaf_sens(:) = 0.0
+ximpair_rec_years(:) = 0.0
 
 ! SOX parameters
 ALLOCATE( sox_a(npft))
@@ -1137,7 +1146,7 @@ CALL jules_print('pftparm',lineBuffer)
 ! kmax_pft_io is in mmol m-2 s-1 MPa-1.
 WRITE(lineBuffer,*)' calc_rz_psi = ',calc_rz_psi
 CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' min_glw_pft = ',min_glw_pft
+WRITE(lineBuffer,*)' min_gl_pft = ',min_gl_pft
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' min_rootc_pft = ',min_rootc_pft
 CALL jules_print('pftparm',lineBuffer)
@@ -1147,7 +1156,7 @@ WRITE(lineBuffer,*)' root_radi_pft = ',root_radi_pft
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' rootc_density_pft = ',rootc_density_pft
 CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' r_Cmass_frac = ',r_Cmass_frac
+WRITE(lineBuffer,*)' rmass = ',rmass
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' leaf_crit = ',leaf_crit
 CALL jules_print('pftparm',lineBuffer)
@@ -1200,6 +1209,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_wood_alloc = ',ximpair_wood_alloc
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_leaf_sens = ',ximpair_leaf_sens
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' ximpair_rec_years = ',ximpair_rec_years
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_psi_driver = ',ximpair_psi_driver
 CALL jules_print('pftparm',lineBuffer)
@@ -1793,9 +1804,9 @@ IF ( ANY( fsmc_mod(:) == 2 ) ) THEN
     ERROR = 1
     CALL jules_print(routinename, "No value for rootc_density_pft")
   END IF
-  IF ( ANY( r_Cmass_frac(:) < EPSILON(1.0) ) .OR. ANY( r_Cmass_frac(:) > 1.0 ) ) THEN
+  IF ( ANY( rmass(:) < EPSILON(1.0) ) .OR. ANY( rmass(:) > 1.0 ) ) THEN
     ERROR = 1
-    CALL jules_print(routinename, "r_Cmass_frac must be larger than zero and at most one")
+    CALL jules_print(routinename, "rmass must be larger than zero and at most one")
   END IF
 END IF
 
