@@ -48,7 +48,25 @@ INTEGER ::                                                                     &
   c3_io(npft_max) = imdi,                                                      &
   irrig_pft_io(npft_max) = imdi,                                               &
   orient_io(npft_max) = imdi,                                                  &
-  pft_conductance_model_io(npft_max) = imdi                                      ! JBaguley
+  pft_conductance_model_io(npft_max) = imdi,                                     & ! JBaguley
+  seg_root_vc_io(npft_max) = 0
+      ! Root segment vulnerability curve (l_som_plant_segments):
+      !   0: from p50_root_io / p88_root_io as given
+      !   1: from p50_root_io alone, following Christoffersen et al.
+      !      (2016, Geosci. Model Dev. 9: 4227-4255; TFS v.1-Hydro), who use
+      !      the inverse polynomial of Manzoni et al. (2013a) for the
+      !      fraction of maximum xylem conductivity (their Eqn 4),
+      !        FMC_x(psi_x) = ( 1 + (psi_x / P50_x)^a_x )^-1,
+      !      with the slope of the PLC curve at P50 from their tropical
+      !      synthesis (Table 1),
+      !        S = 54.4 (-P50 [MPa])^-1.17   (% MPa-1).
+      !      For this FMC the PLC slope at P50 is 100 a / (4 |P50|), so
+      !        a = 4 |P50| S / 100 = 2.176 |P50|^-0.17,
+      !      and FMC = 0.12 at P88 = P50 (1/0.12 - 1)^(1/a). The segment's
+      !      cumulative Weibull then passes through this P50 and P88 (exact
+      !      there, approximate in the tails). p88_root_io must be unset.
+      !      NOTE: S is fitted to bench-dehydration data for tropical
+      !      upland trees, extrapolated here to roots.
 
 REAL(KIND=real_jlslsm) ::                                                      &
   a_wl_io(npft_max) = rmdi,                                                    &
@@ -215,6 +233,7 @@ NAMELIST  / jules_pftparm/                                                     &
   can_struct_a_io, catch0_io,        ccleaf_max_io,                            &
   ccleaf_min_io,   ccwood_max_io,    ccwood_min_io,                            &
   ci_st_io,        pft_conductance_model_io,                                   & ! JBaguley
+  seg_root_vc_io,                                                              &
   dcatch_dlai_io,  deact_jmax_io,    deact_vcmax_io,                           &
   dfp_dcuo_io,     dgl_dm_io,        dgl_dt_io,                                &
   dqcrit_io,       ds_jmax_io,       ds_vcmax_io,                              &
@@ -288,7 +307,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
-INTEGER, PARAMETER :: n_int = 4 * npft_max ! = the INTEGER arrays in my_namelist
+INTEGER, PARAMETER :: n_int = 5 * npft_max ! = the INTEGER arrays in my_namelist
 INTEGER, PARAMETER :: n_real = 129 * npft_max ! = the REAL arrays in my_namelist
 
 TYPE :: my_namelist
@@ -297,6 +316,7 @@ TYPE :: my_namelist
   INTEGER :: irrig_pft_io(npft_max)
   INTEGER :: orient_io(npft_max)
   INTEGER :: pft_conductance_model_io(npft_max) ! JBaguley
+  INTEGER :: seg_root_vc_io(npft_max)
   REAL(KIND=real_jlslsm) :: a_wl_io(npft_max)
   REAL(KIND=real_jlslsm) :: a_ws_io(npft_max)
   REAL(KIND=real_jlslsm) :: act_jmax_io(npft_max)
@@ -473,6 +493,7 @@ IF (mype == 0) THEN
   my_nml % ccwood_max_io  = ccwood_max_io
   my_nml % ci_st_io       = ci_st_io
   my_nml % pft_conductance_model_io = pft_conductance_model_io ! JBaguley
+  my_nml % seg_root_vc_io = seg_root_vc_io
   my_nml % dcatch_dlai_io = dcatch_dlai_io
   my_nml % deact_jmax_io  = deact_jmax_io
   my_nml % deact_vcmax_io = deact_vcmax_io
@@ -612,6 +633,7 @@ IF (mype /= 0) THEN
   ccwood_max_io   = my_nml % ccwood_max_io
   ci_st_io        = my_nml % ci_st_io
   pft_conductance_model_io = my_nml % pft_conductance_model_io ! JBaguley
+  seg_root_vc_io = my_nml % seg_root_vc_io
   dcatch_dlai_io  = my_nml % dcatch_dlai_io
   deact_jmax_io   = my_nml % deact_jmax_io
   deact_vcmax_io  = my_nml % deact_vcmax_io
@@ -802,6 +824,7 @@ INTEGER(KIND=jpim) :: i = 0
 INTEGER :: errcode
 INTEGER :: iseg
 REAL(KIND=real_jlslsm) :: seg_frac(3), p50_seg(3), p88_seg(3)
+REAL(KIND=real_jlslsm) :: a_root   ! Christoffersen root curve shape (seg_root_vc_io = 1)
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -1092,6 +1115,21 @@ DO i = 1, npft
   END IF
   DO iseg = 1,3
     seg_kfac(i,iseg) = SUM(seg_frac(:)) / seg_frac(iseg)
+    ! Root curve from P50 alone (seg_root_vc_io = 1; see its declaration).
+    IF ( iseg == 1 .AND. seg_root_vc_io(i) == 1 ) THEN
+      IF ( ABS(p50_seg(1) - rmdi) < EPSILON(1.0) .OR.                          &
+           ABS(p88_seg(1) - rmdi) >= EPSILON(1.0) ) THEN
+        errcode = 101
+        CALL ereport(RoutineName, errcode,                                     &
+                     'seg_root_vc_io = 1 needs p50_root_io set and '        // &
+                     'p88_root_io unset.')
+      END IF
+      a_root = 2.176 * ( ABS(p50_seg(1)) * 1.0e-6 )**(-0.17)
+      p88_seg(1) = p50_seg(1) * ( 1.0 / 0.12 - 1.0 )**( 1.0 / a_root )
+    ELSE IF ( iseg == 1 .AND. seg_root_vc_io(i) /= 0 ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode, 'seg_root_vc_io should be 0 or 1.')
+    END IF
     IF ( ABS(p50_seg(iseg) - rmdi) < EPSILON(1.0) ) p50_seg(iseg) = P50(i)
     IF ( ABS(p88_seg(iseg) - rmdi) < EPSILON(1.0) ) p88_seg(iseg) = P88(i)
     IF ( pft_conductance_model(i) == 1 ) THEN
