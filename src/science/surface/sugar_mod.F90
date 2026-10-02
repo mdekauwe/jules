@@ -51,7 +51,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
  tstar                                                                         &
     ! IN Surface temperature (K)
 ,gpp                                                                           &
-    ! IN Gross Primary Productivity (kg C/m2)
+    ! IN Gross Primary Productivity (kg C/m2/s)
 ,leafc                                                                         &
     ! IN (Phenological) Leaf carbon (kg C/m2)
 ,leafc_bal                                                                     &
@@ -509,10 +509,15 @@ c_veg_bal  = leafc_bal + woodc + rootc
 ! Flux correction
 ! - need to recalculate fluxes to match corrected f_nsc increment
 !-----------------------------------------------------------------------------
-! Calculate average f_nsc value over timestep that corresponds to increment
+! Calculate average f_nsc value over timestep that corresponds to increment.
+! This is the root of the rate equation of update_NSC_pool,
+!   df_nsc/timestep = ((1 - f)(gpp - r0 f c_veg) - (g0 f - grec0 (1 - f)) c_veg)
+!                     / c_veg_bal,
+! so gpp is divided by c_veg_bal, as there (it was divided by c_veg, which
+! differs whenever lai /= lai_bal).
 a = r0 * c_veg / c_veg_bal
-b = -(r0 + g0 + grec0) * c_veg / c_veg_bal - gpp / c_veg
-c = gpp / c_veg + grec0 * c_veg / c_veg_bal - df_nsc / timestep
+b = -(r0 + g0 + grec0) * c_veg / c_veg_bal - gpp / c_veg_bal
+c = gpp / c_veg_bal + grec0 * c_veg / c_veg_bal - df_nsc / timestep
 f_nsc_av = ( -b - ( b**2.0 - 4.0 * a * c )**0.5 ) / ( 2.0 * a )
 
 ! Recalculate fluxes with average f_nsc
