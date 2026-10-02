@@ -414,6 +414,13 @@ LOGICAL ::                                                                     &
       ! l_som_supply_limit) and psi_leaf is re-solved for the total flux.
 
 LOGICAL ::                                                                     &
+  l_som_gravity = .FALSE.
+      ! When .TRUE., the stomatal optimisation (stomata_model = 4 or 6) takes
+      ! the gravitational drop rho_water g h to the canopy height h off the
+      ! root zone water potential, so the plant path starts from
+      ! psi_root_zone - rho_water g h (0.01 MPa per m), as DESICA's psi_h.
+
+LOGICAL ::                                                                     &
   l_som_plant_segments = .FALSE.
       ! When .TRUE., the plant hydraulics are three segments in series
       ! (root, stem, leaf; as in GDAY gs_opt) instead of one: the segments
@@ -432,6 +439,16 @@ LOGICAL ::                                                                     &
       ! as a cap on gl (with gl_max), so on steps where the soil can't meet
       ! the demand gs and A are re-derived by the optimiser and stay
       ! consistent with the water actually used; other steps are unchanged.
+LOGICAL ::                                                                     &
+  l_som_root_supply = .FALSE.
+      ! When .TRUE., the stomatal optimisation can only choose transpiration
+      ! the roots can take up with the root held at root_psi_crit:
+      !   E <= sum_layers soil_to_root_k * MAX(psi_soil - root_psi_crit, 0)
+      !        / (rho_water g),
+      ! so uptake falls as the soil (and rhizosphere conductance) dries and
+      ! stops at root_psi_crit, which bounds the soil water potential the
+      ! plant can produce. Uses the same cap on gl as l_som_supply_limit
+      ! (with which it combines, taking the smaller supply).
 LOGICAL ::                                                                     &
   l_som_fast = .FALSE.
       ! Deprecated namelist input: .TRUE. sets som_ci_search = 2 (bounded)
@@ -608,9 +625,10 @@ NAMELIST  / jules_vegetation/                                                  &
     som_base_parm, som_n_sample, som_n_ci_golden_iter,                        &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
-    l_som_supply_limit, l_som_plant_segments, l_som_gain_gross,               &
-    l_som_cuticular_floor, l_sugar_turgor, som_nsc_feedback, sugar_model,     &
-    l_sugar_leaf_flush,                                                       &
+    l_som_supply_limit, l_som_root_supply, l_som_plant_segments,              &
+    l_som_gain_gross,                                                          &
+    l_som_cuticular_floor, l_som_gravity, l_sugar_turgor, som_nsc_feedback,    &
+    sugar_model, l_sugar_leaf_flush,                                           &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb, som_nsc_cap_curv, &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,    &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
@@ -1294,11 +1312,26 @@ IF ( l_sugar_turgor .AND. .NOT. l_sugar ) THEN
                'l_sugar_turgor requires l_sugar=T')
 END IF
 
+IF ( l_som_gravity .AND. leaf_flux_mod /= leaf_flux_stom_opt ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_gravity requires stomata_model=4 or 6 (DESICA ' //       &
+               'always includes gravity)')
+END IF
+
 IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
                                 .NOT. l_use_pft_psi ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_som_supply_limit requires stomata_model=4 or 6 and ' //           &
+               'l_use_pft_psi=T')
+END IF
+
+IF ( l_som_root_supply .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.        &
+                               .NOT. l_use_pft_psi ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_root_supply requires stomata_model=4 or 6 and ' //       &
                'l_use_pft_psi=T')
 END IF
 
@@ -1446,6 +1479,9 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_supply_limit = ', l_som_supply_limit
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' l_som_root_supply = ', l_som_root_supply
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 WRITE(lineBuffer,*) ' l_som_plant_segments = ', l_som_plant_segments
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -1468,6 +1504,9 @@ WRITE(lineBuffer,*) ' sugar_model = ', sugar_model
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' som_nsc_cap_curv = ', som_nsc_cap_curv
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_som_gravity = ', l_som_gravity
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' som_hc_negligible_tol = ', som_hc_negligible_tol
@@ -1606,13 +1645,15 @@ INTEGER, PARAMETER :: n_real = 16 + (n_photo_coef * 5) ! +5 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb/
                                   ! som_nsc_cap_curv
-INTEGER, PARAMETER :: n_log = 37 + npft_max ! +1 for l_sugar_leaf_flush, +1 for
-                                  ! l_sugar_turgor, +1 for
-                                  ! l_som_fast, +1 for
+INTEGER, PARAMETER :: n_log = 39 + npft_max ! +1 for l_sugar_leaf_flush, +1 for
+                                  ! l_sugar_turgor, +1 for l_som_root_supply,
+                                  ! +1 for l_som_fast, +1 for
                                   ! l_som_gain_gross, +1 for
                                   ! l_som_cuticular_floor, +1 for
+                                  ! l_som_gravity, +1 for
                                   ! l_som_skip_search_wellwatered, +1 for
                                   ! l_som_supply_limit, +1 for
+                                  ! l_som_root_supply, +1 for
                                   ! l_som_plant_segments (trunk vn7.9: 29)
 
 TYPE :: my_namelist
@@ -1662,11 +1703,13 @@ TYPE :: my_namelist
   LOGICAL :: l_som_skip_search_wellwatered
   LOGICAL :: l_som_fast
   LOGICAL :: l_som_supply_limit
+  LOGICAL :: l_som_root_supply
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_floor
   LOGICAL :: l_sugar_turgor
   LOGICAL :: l_sugar_leaf_flush
+  LOGICAL :: l_som_gravity
   LOGICAL :: l_nrun_mid_trif
   LOGICAL :: l_trif_init_accum
   LOGICAL :: l_phenol
@@ -1759,11 +1802,13 @@ IF (mype == 0) THEN
   my_nml % l_som_skip_search_wellwatered = l_som_skip_search_wellwatered
   my_nml % l_som_fast = l_som_fast
   my_nml % l_som_supply_limit = l_som_supply_limit
+  my_nml % l_som_root_supply = l_som_root_supply
   my_nml % l_som_plant_segments = l_som_plant_segments
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
   my_nml % l_sugar_turgor = l_sugar_turgor
   my_nml % l_sugar_leaf_flush = l_sugar_leaf_flush
+  my_nml % l_som_gravity = l_som_gravity
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
   my_nml % l_trif_init_accum   = l_trif_init_accum
   my_nml % l_phenol        = l_phenol
@@ -1845,11 +1890,13 @@ IF (mype /= 0) THEN
   l_som_skip_search_wellwatered = my_nml % l_som_skip_search_wellwatered
   l_som_fast = my_nml % l_som_fast
   l_som_supply_limit = my_nml % l_som_supply_limit
+  l_som_root_supply = my_nml % l_som_root_supply
   l_som_plant_segments = my_nml % l_som_plant_segments
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor
   l_sugar_turgor = my_nml % l_sugar_turgor
   l_sugar_leaf_flush = my_nml % l_sugar_leaf_flush
+  l_som_gravity = my_nml % l_som_gravity
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif
   l_trif_init_accum = my_nml % l_trif_init_accum
   l_phenol        = my_nml % l_phenol

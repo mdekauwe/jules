@@ -84,8 +84,8 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_bvoc_emis, l_fapar_diag, l_trait_phys, l_stem_resp_fix, l_o3_damage,     &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_leaf_resist_frac, som_gl_max, l_som_supply_limit,                      &
-    l_som_cuticular_floor, l_red, som_nsc_feedback, l_sugar_turgor,            &
-    l_sugar_leaf_flush
+    l_som_cuticular_floor, l_som_gravity, l_red, som_nsc_feedback,             &
+    l_sugar_turgor, l_sugar_leaf_flush
 
 USE CN_utils_mod, ONLY:                                                        &
 ! imported procedures
@@ -133,7 +133,8 @@ USE stom_opt_jls_mod, ONLY: stom_opt_mod
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
 
-USE planet_constants_mod, ONLY: repsilon
+USE planet_constants_mod, ONLY: repsilon, g
+USE water_constants_mod, ONLY: rho_water
 USE desica_jls_mod, ONLY: desica_fw, desica_hydraulics, tuzet_fw,             &
                           desica_store_inputs
 USE timestep_mod, ONLY: timestep
@@ -716,6 +717,11 @@ REAL(KIND=real_jlslsm) :: fw_lo(land_pts), fw_hi(land_pts),                    &
                             ! transpiration (mol m-2 s-1), end-of-step
                             ! psi_leaf (Pa) and plant conductance, and the
                             ! transpiration the plant can deliver.
+REAL(KIND=real_jlslsm) :: psi_src(land_pts)
+                            ! Water potential at the base of the plant path
+                            ! seen by the stomatal optimisation (Pa):
+                            ! psi_root_zone, less the gravitational drop
+                            ! rho_water g ht when l_som_gravity.
 REAL(KIND=real_jlslsm) :: gl_max_lf(land_pts), gl_max_bigleaf(land_pts)
                             ! som_gl_max on the basis each stom_opt_mod call
                             ! works on: per leaf area for the multilayer
@@ -875,6 +881,23 @@ REAL(KIND=jprb)               :: zhook_handle
 CHARACTER(LEN=*), PARAMETER :: RoutineName='SF_STOM'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+!-----------------------------------------------------------------------------
+! Gravity (l_som_gravity). Lifting water to the top of the canopy costs
+! rho_water g ht (0.01 MPa per m) on top of the frictional drop, so the
+! stomatal optimisation draws on psi_root_zone - rho_water g ht, as in
+! DESICA's psi_h (Xu et al. 2016, Eqn S2a). The whole canopy is put at the
+! canopy height, the conservative end for the multilayer scheme. Applied as
+! a shift of the source, the vulnerability curve is evaluated on the
+! shifted potentials, i.e. at the pressure in the upper xylem.
+!-----------------------------------------------------------------------------
+psi_src(:) = psi_root_zone(:)
+IF ( l_som_gravity .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    psi_src(l) = psi_root_zone(l) - rho_water * g * MAX(ht(l), 0.0)
+  END DO
+END IF
 
 !-----------------------------------------------------------------------------
 ! Initialisation.
@@ -1533,18 +1556,18 @@ CASE ( 5, 6 )
 
     ! Initialise the first guess for the (shared) canopy water potential to
     ! the root zone water potential
-    psi_guess(:) = psi_root_zone(:)
+    psi_guess(:) = psi_src(:)
 
     ! Initial bracket for the psi_guess root-find (see the psi_brk_lo
-    ! declaration). lo end: far enough below psi_root_zone (5 |b|, the same
+    ! declaration). lo end: far enough below psi_src (5 |b|, the same
     ! floor leaf_psi_CW_jls applies) that xylem conductance is ~0, so every
     ! leaf sample is infeasible, the stomata close, el = 0 and hence
-    ! psi_guess_new = psi_root_zone - known analytically, no evaluation
-    ! needed: r = psi_root_zone - psi_brk_lo > 0. hi end: psi_root_zone
+    ! psi_guess_new = psi_src - known analytically, no evaluation
+    ! needed: r = psi_src - psi_brk_lo > 0. hi end: psi_src
     ! itself, where r <= 0 always (el >= 0); its r comes from iteration 1.
-    psi_brk_lo(:) = psi_root_zone(:) - 5.0 * ABS(conductance_b(ft))
-    r_brk_lo(:)   = psi_root_zone(:) - psi_brk_lo(:)
-    psi_brk_hi(:) = psi_root_zone(:)
+    psi_brk_lo(:) = psi_src(:) - 5.0 * ABS(conductance_b(ft))
+    r_brk_lo(:)   = psi_src(:) - psi_brk_lo(:)
+    psi_brk_hi(:) = psi_src(:)
     r_brk_hi(:)   = 0.0
     side_brk(:)   = 0
 
@@ -2017,8 +2040,8 @@ CASE ( 5, 6 )
 
         ! Split the whole-plant resistance between the two segments in
         ! series. Each layer's leaf is solved from psi_guess (not
-        ! psi_root_zone) through kmax_leaf_lyr, and psi_guess itself is
-        ! solved here from psi_root_zone through the canopy-integrated
+        ! psi_src) through kmax_leaf_lyr, and psi_guess itself is
+        ! solved here from psi_src through the canopy-integrated
         ! conductance. Previously both segments used the full whole-plant
         ! conductance (kmax_per_lyr per layer, kmax_canopy here), so the
         ! root->leaf path carried twice big-leaf's resistance per unit leaf
@@ -2049,7 +2072,7 @@ CASE ( 5, 6 )
         END DO
 
         CALL leaf_psi_jls( ft, 1, land_pts, veg_pts, veg_index,               &
-                           veg_pts_index, e_leaf_equiv, psi_root_zone,        &
+                           veg_pts_index, e_leaf_equiv, psi_src,              &
                            MAX(kmax_canopy(:), TINY(1.0_real_jlslsm)),        &
                            kcrit_canopy,                                      &
                          ! OUT
@@ -2524,7 +2547,7 @@ CASE ( 1 )
               ! IN
                 land_pts, som_base_parm, ft, open_pts, open_index,           &
                 pft_photo_model, veg_index,                                  &
-                ca, psi_root_zone, acrc, apar, oa, vcmaxc, kc, ko, ccp, pstar,&
+                ca, psi_src, acrc, apar, oa, vcmaxc, kc, ko, ccp, pstar,      &
                 km, dqc, qs, je, tstar, je_dummy, fapar_dummy,               &
                 kmax_bigleaf, kcrit_bigleaf, gl_max_eff, ipar,               &
                 nsc_w, nsc_cap, l_multilayer,                                &
@@ -2759,7 +2782,7 @@ CASE ( 7 )
             ! IN
               land_pts, som_base_parm, ft, open_pts, open_index,               &
               pft_photo_model, veg_index,                                      &
-              ca, psi_root_zone, acr_sun_2l, apar_sun_2l, oa, vcmax_sun_2l,    &
+              ca, psi_src, acr_sun_2l, apar_sun_2l, oa, vcmax_sun_2l,          &
               kc, ko, ccp, pstar,                                              &
               km, dqc, qs, je_sun, tstar, je_dummy, fapar_dummy,               &
               kmax_sun_2l, kcrit_sun_2l, gl_max_eff, ipar,                     &
@@ -2817,7 +2840,7 @@ CASE ( 7 )
             ! IN
               land_pts, som_base_parm, ft, open_pts, open_index,               &
               pft_photo_model, veg_index,                                      &
-              ca, psi_root_zone, acr_shd_2l, apar_shd_2l, oa, vcmax_shd_2l,    &
+              ca, psi_src, acr_shd_2l, apar_shd_2l, oa, vcmax_shd_2l,          &
               kc, ko, ccp, pstar,                                              &
               km, dqc, qs, je_shd, tstar, je_dummy, fapar_dummy,               &
               kmax_shd_2l, kcrit_shd_2l, gl_max_eff, ipar,                     &
@@ -2951,7 +2974,7 @@ IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
   END DO
   IF ( ANY(l_cut(veg_index(1:veg_pts))) ) THEN
     CALL leaf_psi_jls( ft, n_cut, land_pts, veg_pts, veg_index,                &
-                       veg_pts_index, e_cut, psi_root_zone,                    &
+                       veg_pts_index, e_cut, psi_src,                          &
                        kmax_cut, kcrit_cut,                                    &
                      ! OUT
                        psi_cut, k_cut )
@@ -2960,7 +2983,7 @@ IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
       IF ( .NOT. l_cut(l) ) CYCLE
       DO i_cut = n_cut,1,-1
         IF ( k_cut(i_cut,m) > kcrit_cut(l) .AND.                               &
-             psi_cut(i_cut,m) <= psi_root_zone(l) ) EXIT
+             psi_cut(i_cut,m) <= psi_src(l) ) EXIT
       END DO
       ! Only raise the flux: the stomatal optimum itself was feasible.
       IF ( i_cut >= 1 ) THEN
@@ -3684,7 +3707,7 @@ SUBROUTINE apply_supply_limit( land_pts, veg_pts, veg_index, e_supply, share,  &
 
 USE c_rmol, ONLY: rmol
 USE planet_constants_mod, ONLY: repsilon
-USE jules_vegetation_mod, ONLY: l_som_supply_limit
+USE jules_vegetation_mod, ONLY: l_som_supply_limit, l_som_root_supply
 
 IMPLICIT NONE
 
@@ -3714,7 +3737,7 @@ REAL(KIND=real_jlslsm) :: gl_sup
 INTEGER :: l, m
 
 gl_max_out(:) = gl_max_in(:)
-IF ( .NOT. l_som_supply_limit ) RETURN
+IF ( .NOT. ( l_som_supply_limit .OR. l_som_root_supply ) ) RETURN
 
 DO m = 1,veg_pts
   l = veg_index(m)

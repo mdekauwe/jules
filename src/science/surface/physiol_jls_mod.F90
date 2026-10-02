@@ -111,7 +111,9 @@ USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 
 USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
-  l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit
+  l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit, l_som_root_supply
+USE planet_constants_mod, ONLY: g
+USE pftparm, ONLY: root_psi_crit
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
@@ -635,9 +637,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Transpiration the soil can supply this timestep (kg m-2 s-1): this
       ! tile's smc (the moisture limit sf_evap applies to esoil) per
       ! timestep. Negative when the limit is off.
-  fsoil_sup
+  fsoil_sup,                                                                   &
       ! Fraction of the ground below the canopy seen by soil evaporation,
       ! as soil_evap computes it (exp(-0.5 LAI)).
+  e_root_sup
+      ! Root uptake limit (l_som_root_supply, kg m-2 s-1).
 
 LOGICAL :: l_getprofile     ! Switch IN to albpft
 
@@ -1270,6 +1274,28 @@ DO n = 1,npft
                       + fsoil_sup * rho_water * dzsoil(1)                      &
                         * MAX(0.0, sthu_surft(l,m,1)) * smvcst_soilt(l,m,1) )  &
                     / timestep
+    END DO
+  END IF
+
+  ! Root uptake limit (l_som_root_supply): the uptake the roots can make
+  ! with the root held at root_psi_crit, summed over the layers (the raw
+  ! smc_ext uptake weights; soil_to_root_k is per metre of head). It falls
+  ! as the soil and rhizosphere dry, and is zero once every layer is at or
+  ! below root_psi_crit. Combined with l_som_supply_limit if both are set.
+  IF ( l_som_root_supply .AND. n <= npft ) THEN
+    DO k_sup = 1,surft_pts(n)
+      l = surft_index(k_sup,n)
+      e_root_sup = 0.0
+      DO kl_sup = 1,sm_levels
+        e_root_sup = e_root_sup + soil_root_k_soilt(l,m,kl_sup)                &
+                     * MAX(soil_wp_soilt(l,m,kl_sup) - root_psi_crit(n), 0.0)  &
+                     / (rho_water * g)
+      END DO
+      IF ( e_supply(l) < 0.0 ) THEN
+        e_supply(l) = e_root_sup
+      ELSE
+        e_supply(l) = MIN(e_supply(l), e_root_sup)
+      END IF
     END DO
   END IF
 
