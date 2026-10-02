@@ -3585,7 +3585,7 @@ SUBROUTINE apply_supply_limit( land_pts, veg_pts, veg_index, e_supply, share,  &
 
 USE c_rmol, ONLY: rmol
 USE planet_constants_mod, ONLY: repsilon
-USE jules_vegetation_mod, ONLY: l_som_supply_limit
+USE jules_vegetation_mod, ONLY: l_som_supply_limit, l_som_root_supply
 
 IMPLICIT NONE
 
@@ -3615,7 +3615,7 @@ REAL(KIND=real_jlslsm) :: gl_sup
 INTEGER :: l, m
 
 gl_max_out(:) = gl_max_in(:)
-IF ( .NOT. l_som_supply_limit ) RETURN
+IF ( .NOT. ( l_som_supply_limit .OR. l_som_root_supply ) ) RETURN
 
 DO m = 1,veg_pts
   l = veg_index(m)
