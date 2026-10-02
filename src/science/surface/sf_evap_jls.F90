@@ -51,8 +51,10 @@ USE jules_irrig_mod, ONLY: l_irrig_dmd
 
 USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 USE jules_surface_types_mod, ONLY: lake, npft
-USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
+USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica,              &
+                                l_plant_water_store
 USE desica_jls_mod, ONLY: desica_commit, desica_cut_uptake
+USE som_capacitance_jls_mod, ONLY: som_cap_commit
 USE ereport_mod, ONLY: ereport
 
 USE jules_science_fixes_mod, ONLY: l_fix_neg_snow
@@ -255,10 +257,12 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='SF_EVAP'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-l_desica = ( stomata_model == stomata_desica )
+! DESICA or the profit-max stem store (l_som_plant_capacitance).
+l_desica = l_plant_water_store
 IF ( l_desica .AND. ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
   errcode = 101
-  CALL ereport('sf_evap', errcode, 'stomata_model = 5 (DESICA) water '     //  &
+  CALL ereport('sf_evap', errcode, 'Plant water store (DESICA, or '       //  &
+               'l_som_plant_capacitance) water '                           //  &
                'accounting is coded for nsoilt = 1, no l_irrig_dmd and '   //  &
                'no l_aggregate')
 END IF
@@ -744,8 +748,13 @@ IF ( l_desica ) THEN
         t_stom(l,n) = esoil_surft(l,n) * sf_diag%resfs_stom(l,n) / resfs(l,n)
       END IF
     END DO
-    CALL desica_commit( n, land_pts, surft_pts(n), surft_index(:,n),          &
-                        timestep, t_stom(:,n), q_ds )
+    IF ( stomata_model == stomata_desica ) THEN
+      CALL desica_commit( n, land_pts, surft_pts(n), surft_index(:,n),        &
+                          timestep, t_stom(:,n), q_ds )
+    ELSE
+      CALL som_cap_commit( n, land_pts, surft_pts(n), surft_index(:,n),       &
+                           timestep, t_stom(:,n), q_ds )
+    END IF
     DO k = 1,surft_pts(n)
       l = surft_index(k,n)
       esoil_ext(l,n) = esoil_surft(l,n) - t_stom(l,n) + q_ds(l)

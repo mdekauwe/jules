@@ -75,7 +75,7 @@ PRIVATE
 PUBLIC :: desica_alloc, desica_fw, desica_hydraulics, tuzet_fw,                &
           desica_store_inputs, desica_commit, desica_cut_uptake,               &
           psi_leaf_desica, psi_stem_desica, flux_root_desica, flux_sap_desica, &
-          dw_plant_desica
+          dw_plant_desica, lai_desica, psi_soil_desica
 
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE ::                                   &
   psi_leaf_desica(:,:),                                                        &

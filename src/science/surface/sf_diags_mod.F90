@@ -252,7 +252,7 @@ USE jules_surface_types_mod, ONLY: npft
 USE model_domain_mod, ONLY: model_type, mt_single_column, mt_lfric
 USE nlsizes_namelist_mod, ONLY: ntiles
 USE stash_array_mod, ONLY: sf
-USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
+USE jules_vegetation_mod, ONLY: l_plant_water_store
 USE yomhook, ONLY: lhook, dr_hook
 USE parkind1, ONLY: jprb, jpim
 
@@ -526,7 +526,7 @@ END IF
 ! The stomatal share of the evaporation is also needed by DESICA, which
 ! takes the root uptake rather than the transpiration from the soil.
 IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR.                        &
-    stomata_model == stomata_desica) THEN
+    l_plant_water_store) THEN
   ALLOCATE(sf_diag%resfs_stom(land_points,ntiles))
 ELSE
   ALLOCATE(sf_diag%resfs_stom(1,1))

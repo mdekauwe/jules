@@ -15,7 +15,7 @@ IMPLICIT NONE
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='STOM_OPT_JLS_MOD'
 
 PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_bounded_search
-PUBLIC stom_opt_mod
+PUBLIC stom_opt_mod, stom_opt_at_e
 
 CONTAINS
 
@@ -620,6 +620,105 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE stom_opt_mod
 
+! *****************************************************************************
+! Leaf fluxes at a prescribed transpiration (l_som_plant_capacitance): the
+! ci, net assimilation al and conductance gl at which the leaf transpires
+! e_target, from the same photosynthesis and gl(ci) as stom_opt_mod_ci.
+! E rises with ci, so the ci grid of stom_opt_mod_ci over [ccp, ca] is
+! searched for the bracket, refined with a second grid inside it, and
+! interpolated linearly in E. Above the grid's largest E (ci next to ca)
+! that sample is returned. Hydraulics are not used here.
+! *****************************************************************************
+SUBROUTINE stom_opt_at_e(                                                      &
+        land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,       &
+        rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp,              &
+        pstar, km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax,         &
+        kcrit, l_multilayer, e_target,                                         &
+        ci, al, gl, el                                                         &
+)
+
+USE jules_vegetation_mod, ONLY: som_n_sample
+
+IMPLICIT NONE
+
+LOGICAL, INTENT(IN) :: l_multilayer
+INTEGER, INTENT(IN) :: land_pts, pft, open_pts, open_index(land_pts),         &
+                       pft_photo_model, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  rd(land_pts), ca(land_pts), psi_root_zone(land_pts), acr(land_pts),          &
+  apar(land_pts), oi(land_pts), vcmax(land_pts), kc(land_pts), ko(land_pts),   &
+  ccp(land_pts), pstar(land_pts), km(land_pts), dq(land_pts), qs(land_pts),    &
+  je(land_pts), t_leaf(land_pts), je_ratio(land_pts), fapar_lf(land_pts),      &
+  ipar(land_pts), kmax(land_pts), kcrit(land_pts), e_target(land_pts)
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  ci(land_pts), al(land_pts), gl(land_pts), el(land_pts)
+
+INTEGER :: ipass, i, j, l, ib(open_pts)
+REAL(KIND=real_jlslsm) :: ci_lo(land_pts), ci_hi(land_pts), w
+REAL(KIND=real_jlslsm), DIMENSION(0:som_n_sample, open_pts) ::                &
+  ci_s, al_s, gl_s, kl_s, psi_s, el_s
+
+ci(:) = ca(:)
+al(:) = -rd(:)
+gl(:) = 0.0
+el(:) = 0.0
+IF ( open_pts == 0 ) RETURN
+
+ci_lo(:) = MAX(ccp(:), 0.0)
+ci_hi(:) = ca(:)
+DO ipass = 1,2
+  CALL stom_opt_mod_ci(                                                        &
+      land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,         &
+      som_n_sample, ci_lo, ci_hi,                                              &
+      rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,         &
+      km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,           &
+      l_multilayer,                                                            &
+      ci_s, al_s, gl_s, kl_s, psi_s, el_s, l_no_hydraulics = .TRUE. )
+  DO j = 1,open_pts
+    l = veg_index(open_index(j))
+    ! First sample at or above the target (samples 1:n, ci rising).
+    ib(j) = som_n_sample
+    DO i = 1,som_n_sample
+      IF ( el_s(i,j) >= e_target(l) ) THEN
+        ib(j) = i
+        EXIT
+      END IF
+    END DO
+    IF ( ipass == 1 ) THEN
+      i = MAX(ib(j), 2)
+      ci_lo(l) = ci_s(i-1,j)
+      ci_hi(l) = ci_s(i,j)
+      IF ( ib(j) == som_n_sample .AND. el_s(som_n_sample,j) < e_target(l) )   &
+        ci_lo(l) = ci_s(som_n_sample,j)
+    END IF
+  END DO
+END DO
+
+DO j = 1,open_pts
+  l = veg_index(open_index(j))
+  i = ib(j)
+  IF ( el_s(i,j) < e_target(l) .OR. i == 1 ) THEN
+    w = 1.0
+  ELSE
+    w = (e_target(l) - el_s(i-1,j))                                            &
+        / MAX(el_s(i,j) - el_s(i-1,j), TINY(1.0_real_jlslsm))
+  END IF
+  IF ( i == 1 ) THEN
+    ci(l) = ci_s(1,j)
+    al(l) = al_s(1,j)
+    gl(l) = gl_s(1,j)
+    el(l) = el_s(1,j)
+  ELSE
+    ci(l) = ci_s(i-1,j) + w * (ci_s(i,j) - ci_s(i-1,j))
+    al(l) = al_s(i-1,j) + w * (al_s(i,j) - al_s(i-1,j))
+    gl(l) = gl_s(i-1,j) + w * (gl_s(i,j) - gl_s(i-1,j))
+    el(l) = el_s(i-1,j) + w * (el_s(i,j) - el_s(i-1,j))
+  END IF
+  gl(l) = MAX(gl(l), 0.0)
+END DO
+
+END SUBROUTINE stom_opt_at_e
+
 !-----------------------------------------------------------------------------
 ! Stomatal optimisation model that iterates over leaf ci
 !-----------------------------------------------------------------------------
@@ -631,7 +730,9 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
         pstar, km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax,         &
         kcrit, l_multilayer,                                                  &
 ! OUT
-        ci_sample, al_sample, gl_sample, kl_sample, psi_sample,el_sample       &
+        ci_sample, al_sample, gl_sample, kl_sample, psi_sample,el_sample,      &
+! IN, optional
+        l_no_hydraulics                                                        &
 )
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
@@ -658,6 +759,9 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 LOGICAL, INTENT(IN) :: l_multilayer
+LOGICAL, INTENT(IN), OPTIONAL :: l_no_hydraulics
+                            ! .TRUE.: photosynthesis and E only, no leaf
+                            ! psi (psi_sample, kl_sample are not set).
 
 !-----------------------------------------------------------------------------
 ! IN integer variables
@@ -1044,6 +1148,8 @@ el_sample(:,:) = MAX(0.0, el_sample(:,:))
 !       the (1:n_sample,:) sections instead makes the actual and dummy
 !       argument shapes match exactly, so entry 0 is left untouched and
 !       entries 1:n_sample line up correctly.
+psi_sample(1:,:) = 0.0
+IF ( .NOT. PRESENT(l_no_hydraulics) ) THEN
 CALL leaf_psi_jls( pft,                                                        &
                    n_sample,                                               &
                    land_pts,                                                   &
@@ -1058,6 +1164,7 @@ CALL leaf_psi_jls( pft,                                                        &
                    psi_sample(1:n_sample,:),                               &
                    kl_sample(1:n_sample,:)                                 &
   )
+END IF
 
 ! Reset entry 0 to the closed-stomata state. The whole-column (:,j)
 ! photosynthesis/conductance calculations above also evaluated entry 0 at

@@ -368,6 +368,23 @@ LOGICAL ::                                                                     &
       ! unaffected (only the optimisation's gain changes).
 
 LOGICAL ::                                                                     &
+  l_som_plant_capacitance = .FALSE.
+      ! When .TRUE., profit max (stomata_model = 4; big leaf or two leaf)
+      ! has a stem water store between the root side and the leaf side of
+      ! the plant (the segments with l_som_plant_segments, else the PFT
+      ! curve split by som_leaf_resist_frac), with capacitance cap_stem_io
+      ! (som_capacitance_jls_mod). The optimisation is unchanged (steady state from the root
+      ! zone) and sets the accepted leaf water potential; the store, refilled
+      ! through the root segment, sets the transpiration that holds the leaf
+      ! there. Root uptake, not transpiration, is taken from the soil.
+
+LOGICAL ::                                                                     &
+  l_plant_water_store = .FALSE.
+      ! Derived (not a namelist option): the plant has a water store whose
+      ! root uptake differs from its transpiration (DESICA, or
+      ! l_som_plant_capacitance). Set in check_jules_vegetation.
+
+LOGICAL ::                                                                     &
   l_som_cuticular_floor = .FALSE.
       ! When .TRUE., leaf water loss never falls below a cuticular floor:
       ! after the profit-max search (and for closed stomata, including at
@@ -571,7 +588,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
     l_som_supply_limit, l_som_plant_segments, l_som_gain_gross,               &
-    l_som_cuticular_floor, l_som_gravity,                                     &
+    l_som_cuticular_floor, l_som_gravity, l_som_plant_capacitance,           &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,    &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
@@ -1213,6 +1230,19 @@ IF ( l_som_gravity .AND. leaf_flux_mod /= leaf_flux_stom_opt ) THEN
                'always includes gravity)')
 END IF
 
+IF ( l_som_plant_capacitance .AND.                                             &
+     ( leaf_flux_mod /= leaf_flux_stom_opt .OR.                               &
+       som_profit_model /= profit_max_profit_model .OR.                       &
+       ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_plant_capacitance requires stomata_model=4 and ' //      &
+               'can_rad_mod=1 or 7')
+END IF
+
+l_plant_water_store = ( stomata_model == stomata_desica .OR.                   &
+                        l_som_plant_capacitance )
+
 IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
                                 .NOT. l_use_pft_psi ) ) THEN
   errcode = 101
@@ -1377,6 +1407,9 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_gravity = ', l_som_gravity
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' l_som_plant_capacitance = ', l_som_plant_capacitance
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 WRITE(lineBuffer,*) ' som_hc_negligible_tol = ', som_hc_negligible_tol
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -1511,7 +1544,8 @@ INTEGER, PARAMETER :: n_int = 19 ! was 16, +1 for som_n_ci_golden_iter,
 INTEGER, PARAMETER :: n_real = 15 + (n_photo_coef * 5) ! +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 36 + npft_max ! +1 for l_som_fast, +1 for
+INTEGER, PARAMETER :: n_log = 37 + npft_max ! +1 for l_som_plant_capacitance,
+                                  ! +1 for l_som_fast, +1 for
                                   ! l_som_gain_gross, +1 for
                                   ! l_som_cuticular_floor, +1 for
                                   ! l_som_gravity, +1 for
@@ -1567,6 +1601,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_floor
   LOGICAL :: l_som_gravity
+  LOGICAL :: l_som_plant_capacitance
   LOGICAL :: l_nrun_mid_trif
   LOGICAL :: l_trif_init_accum
   LOGICAL :: l_phenol
@@ -1660,6 +1695,7 @@ IF (mype == 0) THEN
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
   my_nml % l_som_gravity = l_som_gravity
+  my_nml % l_som_plant_capacitance = l_som_plant_capacitance
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
   my_nml % l_trif_init_accum   = l_trif_init_accum
   my_nml % l_phenol        = l_phenol
@@ -1742,6 +1778,7 @@ IF (mype /= 0) THEN
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor
   l_som_gravity = my_nml % l_som_gravity
+  l_som_plant_capacitance = my_nml % l_som_plant_capacitance
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif
   l_trif_init_accum = my_nml % l_trif_init_accum
   l_phenol        = my_nml % l_phenol

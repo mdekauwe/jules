@@ -82,7 +82,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_bvoc_emis, l_fapar_diag, l_trait_phys, l_stem_resp_fix, l_o3_damage,     &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_leaf_resist_frac, som_gl_max, l_som_supply_limit,                      &
-    l_som_cuticular_floor, l_som_gravity, l_red
+    l_som_cuticular_floor, l_som_gravity, l_som_plant_capacitance, l_red
 
 USE CN_utils_mod, ONLY:                                                        &
 ! imported procedures
@@ -122,7 +122,8 @@ USE veg3_field_mod, ONLY: veg_state_type
 USE sugar_mod, ONLY: sugar
 
 
-USE stom_opt_jls_mod, ONLY: stom_opt_mod
+USE stom_opt_jls_mod, ONLY: stom_opt_mod, stom_opt_at_e
+USE som_capacitance_jls_mod, ONLY: som_cap_store, som_cap_psi_leaf
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
 
@@ -762,6 +763,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Maximum stomatal conductance of each leaf class (m s-1).
   ci_sun_2l(land_pts), ci_shd_2l(land_pts),                                    &
       ! Internal CO2 of each leaf class (Pa).
+  kmax_cap(land_pts,2), psi_tgt_cap(land_pts,2), e_star_cap(land_pts,2),       &
+  e_cap_cap(land_pts,2), e_cls_cap(land_pts,2), psi_s_cap(land_pts),           &
+      ! Stem store (l_som_plant_capacitance), per leaf class (sun, shade):
+      ! kmax, accepted psi_leaf, steady-state E, E at gl_max, E with the
+      ! store (mol m-2 ground s-1), and the store psi at the end of the step.
+  ci_cap(land_pts), al_cap(land_pts), gl_cap(land_pts), el_cap(land_pts),      &
+      ! Leaf fluxes at the store's E (stom_opt_at_e).
   f_sun_2l,                                                                    &
       ! Sunlit fraction of LAI.
   dnw_2l
@@ -2503,6 +2511,51 @@ CASE ( 1 )
   END DO   ! End of iteration loop
 
   !---------------------------------------------------------------------------
+  ! Stem water store (l_som_plant_capacitance; som_capacitance_jls_mod), big
+  ! leaf: as for the two-leaf model below, with one class.
+  !---------------------------------------------------------------------------
+  IF ( l_som_plant_capacitance ) THEN
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      kmax_cap(l,1)    = kmax_bigleaf(l)
+      psi_tgt_cap(l,1) = psi_leaf(l)
+      e_star_cap(l,1)  = el(l)
+      e_cap_cap(l,1)   = class_e_cap( el(l), gc(l), gl_max_bigleaf(l) )
+    END DO
+    CALL som_cap_store( ft, land_pts, veg_pts, veg_index, 1, timestep,        &
+                        lai, psi_root_zone, kmax_cap(:,1:1),                   &
+                        psi_tgt_cap(:,1:1), e_star_cap(:,1:1),                 &
+                        e_cap_cap(:,1:1), e_cls_cap(:,1:1), psi_s_cap )
+    open_pts = 0
+    DO i = 1,veg_pts
+      l = veg_index(i)
+      IF ( e_star_cap(l,1) > TINY(1.0) ) THEN
+        open_pts = open_pts + 1
+        open_index(open_pts) = i
+      ELSE
+        psi_leaf(l) = psi_s_cap(l)
+      END IF
+    END DO
+    CALL stom_opt_at_e( land_pts, ft, open_pts, open_index, pft_photo_model,  &
+                        veg_index, rdc, ca, psi_root_zone, acrc, apar, oa,    &
+                        vcmaxc, kc, ko, ccp, pstar, km, dqc, qs, je, tstar,   &
+                        je_dummy, fapar_dummy, ipar, kmax_bigleaf,            &
+                        kcrit_bigleaf, l_multilayer, e_cls_cap(:,1),          &
+                        ci_cap, al_cap, gl_cap, el_cap )
+    DO i = 1,open_pts
+      l = veg_index(open_index(i))
+      ci(l)       = ci_cap(l)
+      anetc(l)    = al_cap(l)
+      gc(l)       = gl_cap(l)
+      el(l)       = el_cap(l)
+      psi_leaf(l) = som_cap_psi_leaf( ft, kmax_bigleaf(l), psi_s_cap(l),     &
+                                      el(l) )
+    END DO
+    CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,      &
+                              psi_root_zone )
+  END IF
+
+  !---------------------------------------------------------------------------
   ! Calculate canopy-level fluxes.
   !---------------------------------------------------------------------------
   SELECT CASE (leaf_flux_mod)
@@ -2796,6 +2849,92 @@ CASE ( 7 )
   END DO   ! End of iteration loop
 
   !---------------------------------------------------------------------------
+  ! Stem water store (l_som_plant_capacitance; som_capacitance_jls_mod),
+  ! two leaf. The optimisation above sets each class's accepted psi_leaf;
+  ! the store sets the transpiration that holds it there (capped at the
+  ! class's gl_max), and gl, ci and A are re-solved at that E
+  ! (stom_opt_at_e).
+  ! Closed classes keep their flux and equilibrate with the store.
+  !---------------------------------------------------------------------------
+  IF ( l_som_plant_capacitance ) THEN
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      kmax_cap(l,1)    = kmax_sun_2l(l)
+      kmax_cap(l,2)    = kmax_shd_2l(l)
+      psi_tgt_cap(l,1) = psi_leaf_sun(l)
+      psi_tgt_cap(l,2) = psi_leaf_shd(l)
+      e_star_cap(l,1)  = el_sun(l)
+      e_star_cap(l,2)  = el_shd(l)
+      e_cap_cap(l,1)   = class_e_cap( el_sun(l), gl_sun(l), gl_max_sun_2l(l) )
+      e_cap_cap(l,2)   = class_e_cap( el_shd(l), gl_shd(l), gl_max_shd_2l(l) )
+    END DO
+    CALL som_cap_store( ft, land_pts, veg_pts, veg_index, 2, timestep,        &
+                        lai, psi_root_zone, kmax_cap, psi_tgt_cap,             &
+                        e_star_cap, e_cap_cap, e_cls_cap, psi_s_cap )
+
+    ! Sunlit class.
+    open_pts = 0
+    DO i = 1,veg_pts
+      l = veg_index(i)
+      IF ( e_star_cap(l,1) > TINY(1.0) ) THEN
+        open_pts = open_pts + 1
+        open_index(open_pts) = i
+      ELSE
+        psi_leaf_sun(l) = psi_s_cap(l)
+      END IF
+    END DO
+    CALL stom_opt_at_e( land_pts, ft, open_pts, open_index, pft_photo_model,  &
+                        veg_index, rd_sun, ca, psi_root_zone, acr_sun_2l,     &
+                        apar_sun_2l, oa, vcmax_sun_2l, kc, ko, ccp, pstar,    &
+                        km, dqc, qs, je_sun, tstar, je_dummy, fapar_dummy,    &
+                        ipar, kmax_sun_2l, kcrit_sun_2l, l_multilayer,        &
+                        e_cls_cap(:,1), ci_cap, al_cap, gl_cap, el_cap )
+    DO i = 1,open_pts
+      l = veg_index(open_index(i))
+      ci_sun_2l(l)    = ci_cap(l)
+      anetl_sun(l)    = al_cap(l)
+      gl_sun(l)       = gl_cap(l)
+      el_sun(l)       = el_cap(l)
+      psi_leaf_sun(l) = som_cap_psi_leaf( ft, kmax_sun_2l(l), psi_s_cap(l),   &
+                                          el_sun(l) )
+    END DO
+
+    ! Shaded class.
+    open_pts = 0
+    DO i = 1,veg_pts
+      l = veg_index(i)
+      IF ( e_star_cap(l,2) > TINY(1.0) ) THEN
+        open_pts = open_pts + 1
+        open_index(open_pts) = i
+      ELSE
+        psi_leaf_shd(l) = psi_s_cap(l)
+      END IF
+    END DO
+    CALL stom_opt_at_e( land_pts, ft, open_pts, open_index, pft_photo_model,  &
+                        veg_index, rd_shd, ca, psi_root_zone, acr_shd_2l,     &
+                        apar_shd_2l, oa, vcmax_shd_2l, kc, ko, ccp, pstar,    &
+                        km, dqc, qs, je_shd, tstar, je_dummy, fapar_dummy,    &
+                        ipar, kmax_shd_2l, kcrit_shd_2l, l_multilayer,        &
+                        e_cls_cap(:,2), ci_cap, al_cap, gl_cap, el_cap )
+    DO i = 1,open_pts
+      l = veg_index(open_index(i))
+      ci_shd_2l(l)    = ci_cap(l)
+      anetl_shd(l)    = al_cap(l)
+      gl_shd(l)       = gl_cap(l)
+      el_shd(l)       = el_cap(l)
+      psi_leaf_shd(l) = som_cap_psi_leaf( ft, kmax_shd_2l(l), psi_s_cap(l),   &
+                                          el_shd(l) )
+    END DO
+
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      gc(l) = gl_sun(l) + gl_shd(l)
+    END DO
+    CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,      &
+                              psi_root_zone )
+  END IF
+
+  !---------------------------------------------------------------------------
   ! Canopy totals and leaf-area-weighted means.
   !---------------------------------------------------------------------------
   DO m = 1,veg_pts
@@ -2917,8 +3056,11 @@ IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
         IF ( gl_cut_eff(l) * REAL(i_cut) / REAL(n_cut) > gc(l) ) THEN
           gc(l)       = gl_cut_eff(l) * REAL(i_cut) / REAL(n_cut)
           el(l)       = e_cut(i_cut,m)
-          psi_leaf(l) = psi_cut(i_cut,m)
-          leaf_k(l)   = k_cut(i_cut,m)
+          ! With a stem store the leaf follows the store (sf_stom above).
+          IF ( .NOT. l_som_plant_capacitance ) THEN
+            psi_leaf(l) = psi_cut(i_cut,m)
+            leaf_k(l)   = k_cut(i_cut,m)
+          END IF
         END IF
       END IF
     END DO
@@ -3230,6 +3372,23 @@ END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
+CONTAINS
+
+!-----------------------------------------------------------------------------
+! E of a leaf class at its gl_max (E is proportional to gl at fixed dq): no
+! cap for gl_max <= 0, and 0 for a class that does not transpire.
+!-----------------------------------------------------------------------------
+REAL(KIND=real_jlslsm) FUNCTION class_e_cap( e, g, g_max )
+REAL(KIND=real_jlslsm), INTENT(IN) :: e, g, g_max
+IF ( e <= TINY(1.0) ) THEN
+  class_e_cap = 0.0
+ELSE IF ( g_max <= 0.0 .OR. g <= TINY(1.0) ) THEN
+  class_e_cap = HUGE(1.0_real_jlslsm)
+ELSE
+  class_e_cap = e * g_max / g
+END IF
+END FUNCTION class_e_cap
+
 END SUBROUTINE sf_stom
 
 !#############################################################################
