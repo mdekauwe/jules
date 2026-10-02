@@ -430,6 +430,16 @@ LOGICAL ::                                                                     &
       ! the demand gs and A are re-derived by the optimiser and stay
       ! consistent with the water actually used; other steps are unchanged.
 LOGICAL ::                                                                     &
+  l_som_root_supply = .FALSE.
+      ! When .TRUE., the stomatal optimisation can only choose transpiration
+      ! the roots can take up with the root held at root_psi_crit:
+      !   E <= sum_layers soil_to_root_k * MAX(psi_soil - root_psi_crit, 0)
+      !        / (rho_water g),
+      ! so uptake falls as the soil (and rhizosphere conductance) dries and
+      ! stops at root_psi_crit, which bounds the soil water potential the
+      ! plant can produce. Uses the same cap on gl as l_som_supply_limit
+      ! (with which it combines, taking the smaller supply).
+LOGICAL ::                                                                     &
   l_som_fast = .FALSE.
       ! Deprecated namelist input: .TRUE. sets som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table).
@@ -596,7 +606,8 @@ NAMELIST  / jules_vegetation/                                                  &
     som_base_parm, som_n_sample, som_n_ci_golden_iter,                        &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
-    l_som_supply_limit, l_som_plant_segments, l_som_gain_gross,               &
+    l_som_supply_limit, l_som_root_supply, l_som_plant_segments,              &
+    l_som_gain_gross,                                                          &
     l_som_cuticular_floor, l_som_gravity, l_som_plant_capacitance,           &
     som_cap_form,                                                             &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
@@ -1268,6 +1279,14 @@ IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
                'l_use_pft_psi=T')
 END IF
 
+IF ( l_som_root_supply .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.        &
+                               .NOT. l_use_pft_psi ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_root_supply requires stomata_model=4 or 6 and ' //       &
+               'l_use_pft_psi=T')
+END IF
+
 IF ( l_aggregate .AND. ANY(l_vegdrag_pft) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -1410,6 +1429,9 @@ WRITE(lineBuffer,*) ' som_ci_search = ', som_ci_search
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_supply_limit = ', l_som_supply_limit
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_som_root_supply = ', l_som_root_supply
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_plant_segments = ', l_som_plant_segments
@@ -1565,13 +1587,14 @@ INTEGER, PARAMETER :: n_int = 20 ! was 16, +1 for som_n_ci_golden_iter,
 INTEGER, PARAMETER :: n_real = 15 + (n_photo_coef * 5) ! +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 37 + npft_max ! +1 for l_som_plant_capacitance,
+INTEGER, PARAMETER :: n_log = 38 + npft_max ! +1 for l_som_plant_capacitance,
                                   ! +1 for l_som_fast, +1 for
                                   ! l_som_gain_gross, +1 for
                                   ! l_som_cuticular_floor, +1 for
                                   ! l_som_gravity, +1 for
                                   ! l_som_skip_search_wellwatered, +1 for
                                   ! l_som_supply_limit, +1 for
+                                  ! l_som_root_supply, +1 for
                                   ! l_som_plant_segments (trunk vn7.9: 29)
 
 TYPE :: my_namelist
@@ -1618,6 +1641,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_skip_search_wellwatered
   LOGICAL :: l_som_fast
   LOGICAL :: l_som_supply_limit
+  LOGICAL :: l_som_root_supply
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_floor
@@ -1713,6 +1737,7 @@ IF (mype == 0) THEN
   my_nml % l_som_skip_search_wellwatered = l_som_skip_search_wellwatered
   my_nml % l_som_fast = l_som_fast
   my_nml % l_som_supply_limit = l_som_supply_limit
+  my_nml % l_som_root_supply = l_som_root_supply
   my_nml % l_som_plant_segments = l_som_plant_segments
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
@@ -1797,6 +1822,7 @@ IF (mype /= 0) THEN
   l_som_skip_search_wellwatered = my_nml % l_som_skip_search_wellwatered
   l_som_fast = my_nml % l_som_fast
   l_som_supply_limit = my_nml % l_som_supply_limit
+  l_som_root_supply = my_nml % l_som_root_supply
   l_som_plant_segments = my_nml % l_som_plant_segments
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor
