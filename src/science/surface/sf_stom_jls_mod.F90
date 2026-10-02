@@ -2490,7 +2490,7 @@ CASE ( 1 )
                                 gl_max_bigleaf, gl_max_eff )
        IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                  &
          CALL som_cap_supply_set( ft, land_pts, veg_pts, veg_index, timestep, &
-                                  lai, psi_root_zone, share_sup )
+                                  lai, psi_src, share_sup )
 
        CALL stom_opt_mod (                                                  &
               ! IN
@@ -2525,7 +2525,7 @@ CASE ( 1 )
   !---------------------------------------------------------------------------
   IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                       &
     CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,      &
-                              psi_root_zone )
+                              psi_src )
   IF ( l_som_plant_capacitance .AND. som_cap_form == 1 ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -2535,7 +2535,7 @@ CASE ( 1 )
       e_cap_cap(l,1)   = class_e_cap( el(l), gc(l), gl_max_bigleaf(l) )
     END DO
     CALL som_cap_store( ft, land_pts, veg_pts, veg_index, 1, timestep,        &
-                        lai, psi_root_zone, kmax_cap(:,1:1),                   &
+                        lai, psi_src, kmax_cap(:,1:1),                   &
                         psi_tgt_cap(:,1:1), e_star_cap(:,1:1),                 &
                         e_cap_cap(:,1:1), e_cls_cap(:,1:1), psi_s_cap )
     open_pts = 0
@@ -2549,7 +2549,7 @@ CASE ( 1 )
       END IF
     END DO
     CALL stom_opt_at_e( land_pts, ft, open_pts, open_index, pft_photo_model,  &
-                        veg_index, rdc, ca, psi_root_zone, acrc, apar, oa,    &
+                        veg_index, rdc, ca, psi_src, acrc, apar, oa,    &
                         vcmaxc, kc, ko, ccp, pstar, km, dqc, qs, je, tstar,   &
                         je_dummy, fapar_dummy, ipar, kmax_bigleaf,            &
                         kcrit_bigleaf, l_multilayer, e_cls_cap(:,1),          &
@@ -2564,7 +2564,7 @@ CASE ( 1 )
                                       el(l) )
     END DO
     CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,      &
-                              psi_root_zone )
+                              psi_src )
   END IF
 
   !---------------------------------------------------------------------------
@@ -2775,7 +2775,7 @@ CASE ( 7 )
                              gl_max_eff )
     IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                     &
       CALL som_cap_supply_set( ft, land_pts, veg_pts, veg_index, timestep,    &
-                               lai, psi_root_zone, share_sup )
+                               lai, psi_src, share_sup )
 
     CALL stom_opt_mod (                                                        &
             ! IN
@@ -2834,7 +2834,7 @@ CASE ( 7 )
                              gl_max_eff )
     IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                     &
       CALL som_cap_supply_set( ft, land_pts, veg_pts, veg_index, timestep,    &
-                               lai, psi_root_zone, share_sup )
+                               lai, psi_src, share_sup )
 
     CALL stom_opt_mod (                                                        &
             ! IN
@@ -2882,7 +2882,7 @@ CASE ( 7 )
   !---------------------------------------------------------------------------
   IF ( l_som_plant_capacitance .AND. som_cap_form == 2 )                       &
     CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,      &
-                              psi_root_zone )
+                              psi_src )
   IF ( l_som_plant_capacitance .AND. som_cap_form == 1 ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -2896,7 +2896,7 @@ CASE ( 7 )
       e_cap_cap(l,2)   = class_e_cap( el_shd(l), gl_shd(l), gl_max_shd_2l(l) )
     END DO
     CALL som_cap_store( ft, land_pts, veg_pts, veg_index, 2, timestep,        &
-                        lai, psi_root_zone, kmax_cap, psi_tgt_cap,             &
+                        lai, psi_src, kmax_cap, psi_tgt_cap,             &
                         e_star_cap, e_cap_cap, e_cls_cap, psi_s_cap )
 
     ! Sunlit class.
@@ -2911,7 +2911,7 @@ CASE ( 7 )
       END IF
     END DO
     CALL stom_opt_at_e( land_pts, ft, open_pts, open_index, pft_photo_model,  &
-                        veg_index, rd_sun, ca, psi_root_zone, acr_sun_2l,     &
+                        veg_index, rd_sun, ca, psi_src, acr_sun_2l,     &
                         apar_sun_2l, oa, vcmax_sun_2l, kc, ko, ccp, pstar,    &
                         km, dqc, qs, je_sun, tstar, je_dummy, fapar_dummy,    &
                         ipar, kmax_sun_2l, kcrit_sun_2l, l_multilayer,        &
@@ -2938,7 +2938,7 @@ CASE ( 7 )
       END IF
     END DO
     CALL stom_opt_at_e( land_pts, ft, open_pts, open_index, pft_photo_model,  &
-                        veg_index, rd_shd, ca, psi_root_zone, acr_shd_2l,     &
+                        veg_index, rd_shd, ca, psi_src, acr_shd_2l,     &
                         apar_shd_2l, oa, vcmax_shd_2l, kc, ko, ccp, pstar,    &
                         km, dqc, qs, je_shd, tstar, je_dummy, fapar_dummy,    &
                         ipar, kmax_shd_2l, kcrit_shd_2l, l_multilayer,        &
@@ -2958,7 +2958,7 @@ CASE ( 7 )
       gc(l) = gl_sun(l) + gl_shd(l)
     END DO
     CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,      &
-                              psi_root_zone )
+                              psi_src )
   END IF
 
   !---------------------------------------------------------------------------
