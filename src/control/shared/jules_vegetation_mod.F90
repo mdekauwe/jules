@@ -759,11 +759,12 @@ SELECT CASE ( can_rad_mod )
 CASE ( 1, 4, 5, 6 )
   ! These are valid, so nothing to do.
 CASE ( 7 )
-  ! Two-leaf (sunlit/shaded big-leaf) canopy: stomatal optimisation only.
-  IF ( leaf_flux_mod /= leaf_flux_stom_opt ) THEN
+  ! Two-leaf (sunlit/shaded big-leaf) canopy: the stomatal optimisation or
+  ! the empirical models through leaf_limits (Jacobs, Medlyn, g1_psi).
+  IF ( stomata_model == stomata_sox .OR. stomata_model == stomata_desica ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 'can_rad_mod=7 requires stomata_model=4 or 7')
+                 'can_rad_mod=7 requires stomata_model=1, 2, 4, 6 or 7')
   END IF
 CASE DEFAULT
   errcode = 101
