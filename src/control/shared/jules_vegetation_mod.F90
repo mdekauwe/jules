@@ -437,21 +437,23 @@ REAL(KIND=real_jlslsm) ::                                                      &
 INTEGER ::                                                                     &
   leaf_aero_model = 0
       ! With l_leaf_temp, the leaves' aerodynamic environment:
-      ! 0: the leaves exchange directly with the level-1 air (t_c = tair,
-      !    q_c = q1), at the level-1 wind speed (as the two-leaf and MAESPA
-      !    leaf models).
-      ! 1: through a canopy air space coupled to level 1 by JULES's ra, at
-      !    the level-1 wind speed. At FR-Pue (forcing at 12 m over a 5.5 m
-      !    canopy) ra is 30-45 s m-1 and the canopy air ~8 K warmer than
-      !    the air at midday in summer, against an observed radiometric
-      !    surface temperature 2-3 K above the air.
-      ! 2: CABLE's canopy aerodynamics (Raupach, 1994; Raupach et al., 1997,
+      ! 0: as the two-leaf model two_leaf_at_WTC (Wang & Leuning, 1998;
+      !    Leuning et al., 1995): the leaves exchange directly with the
+      !    level-1 air (t_c = tair, q_c = q1), at the level-1 wind speed.
+      ! 1: CABLE's canopy aerodynamics (Raupach, 1994; Raupach et al., 1997,
       !    CSIRO SCAM): the canopy air coupled to level 1 by rt1 from the
       !    roughness-sublayer theory (6-9 s m-1 at FR-Pue for 2-3 m s-1 at
       !    12 m, neutral), with the wind at the canopy top, u* / (u*/u_h),
       !    declining as exp(-coexp L/2) into the canopy. u* and rt1 follow
       !    CABLE's Monin-Obukhov stability, iterated (4 times, as CABLE's
-      !    niter) on the leaves' sensible and latent heat.
+      !    niter) on the leaves' sensible and latent heat. Use with
+      !    leaf_shelter = 2 for CABLE's shelrb.
+      ! 2: through a canopy air space coupled to level 1 by JULES's ra
+      !    (neutral: physiol sets rib = 0), at the level-1 wind speed; for
+      !    comparison. At FR-Pue (forcing at 12 m over a 5.5 m canopy) ra is
+      !    30-45 s m-1 and the canopy air ~8 K warmer than the air at
+      !    midday in summer, against an observed radiometric surface
+      !    temperature 2-3 K above the air.
 LOGICAL ::                                                                     &
   l_leaf_temp_gc_eq = .TRUE.
       ! With l_leaf_temp, return to the surface energy balance the canopy

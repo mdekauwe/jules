@@ -809,7 +809,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Extinction coefficient of the wind with leaf area in the canopy.
   z0m_a(land_pts), zref_a(land_pts), rt1ab_a(land_pts), zrd_a(land_pts),       &
   usc_a(land_pts), usuh_a(land_pts),                                           &
-      ! CABLE canopy geometry (leaf_aero_model = 2).
+      ! CABLE canopy geometry (leaf_aero_model = 1).
   gc_cap, r_eq
       ! Cap and resistance for the transpiration-equivalent gc
       ! (l_leaf_temp_gc_eq).
@@ -2693,7 +2693,7 @@ CASE ( 7 )
   IF ( l_leaf_temp ) THEN
     wind_ext(:) = 0.0
     zref_a(:)   = 0.0
-    IF ( leaf_aero_model == 2 ) THEN
+    IF ( leaf_aero_model == 1 ) THEN
       CALL leaf_aero_geom( land_pts, veg_pts, veg_index, lai, canht, z1_wind,  &
                            z0m_a, zref_a, rt1ab_a, zrd_a, usc_a, usuh_a,       &
                            wind_ext )
@@ -2720,10 +2720,9 @@ CASE ( 7 )
       END IF
       ! Canopy air - level 1 resistance (leaf_aero_model).
       SELECT CASE ( leaf_aero_model )
-      CASE ( 1 )
-        ra_lt(l) = ra(l)
-      CASE ( 2 )
-        ! rt1 is computed in leaf_temp_update (ra if there is no canopy).
+      CASE ( 1, 2 )
+        ! 2: JULES's ra. 1: CABLE's rt1, computed in leaf_temp_update (ra
+        ! where there is no canopy).
         ra_lt(l) = ra(l)
       CASE DEFAULT
         ra_lt(l) = 0.0
@@ -3441,7 +3440,7 @@ SUBROUTINE leaf_aero_geom( land_pts, veg_pts, veg_index, lai, canht, z1,       &
 
 ! CABLE canopy geometry (cable_roughness; Raupach, 1994, BLM 71: 211-216;
 ! Raupach et al., 1997, CSIRO SCAM) for the leaf energy balance
-! (l_leaf_temp, leaf_aero_model = 2): displacement d and roughness z0m from
+! (l_leaf_temp, leaf_aero_model = 1): displacement d and roughness z0m from
 ! the leaf area, the reference height zref above d, u*/u_h (usuh), the wind
 ! extinction coefficient coexp, the roughness-sublayer terms of rt1 (rt1ab =
 ! rt1usa + rt1usb, times 1/u*), and zrd = zruffs - d and usc (1 if zref is
@@ -3709,7 +3708,7 @@ SUBROUTINE leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
 ! leaf area), and the radiative conductance grn.
 !
 ! The canopy air is coupled to level 1 through ra (from leaf_aero_model:
-! 0, so t_c = tair and q_c = q1; JULES's ra; or CABLE's rt1):
+! 0, so t_c = tair and q_c = q1; 1, CABLE's rt1; 2, JULES's ra):
 !   q_c = q1 + ra (LE_sun + LE_shd) / (rho lc),
 !   t_c = tair + ra (H_sun + H_shd) / (rho cp).
 ! The balance is solved for these conductances: LE is linear in q_c, so q_c
@@ -3738,7 +3737,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   gl_shd(land_pts),                                                            &
   z0m_a(land_pts), zref_a(land_pts), rt1ab_a(land_pts), zrd_a(land_pts),       &
   usc_a(land_pts), usuh_a(land_pts)
-      ! CABLE canopy geometry (leaf_aero_model = 2; see leaf_aero_geom).
+      ! CABLE canopy geometry (leaf_aero_model = 1; see leaf_aero_geom).
 
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
   t_sun(land_pts), t_shd(land_pts), t_c(land_pts), q_c(land_pts)
@@ -3767,7 +3766,7 @@ REAL(KIND=real_jlslsm), PARAMETER :: tol_tc = 0.01
       ! Tolerance on t_c (K).
 
 INTEGER, PARAMETER :: n_mo_cable = 4
-      ! Monin-Obukhov iterations for leaf_aero_model = 2 (CABLE niter).
+      ! Monin-Obukhov iterations for leaf_aero_model = 1 (CABLE niter).
 
 REAL(KIND=real_jlslsm) ::                                                      &
   t_lo(veg_pts), t_hi(veg_pts), r_lo(veg_pts), r_hi(veg_pts), t_try(veg_pts),  &
@@ -3778,7 +3777,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 LOGICAL :: l_done(veg_pts)
 INTEGER :: l, m, it, side(veg_pts), it_mo, n_mo
 
-IF ( leaf_aero_model == 2 ) THEN
+IF ( leaf_aero_model == 1 ) THEN
   n_mo = n_mo_cable
 ELSE
   n_mo = 1
@@ -3789,7 +3788,7 @@ zeta(:) = 0.0
 
 DO it_mo = 1,n_mo
 
-IF ( leaf_aero_model == 2 ) THEN
+IF ( leaf_aero_model == 1 ) THEN
   !---------------------------------------------------------------------------
   ! CABLE (comp_friction_vel, cable_canopy): u* from the wind at zref with
   ! the stability functions, the canopy-top wind u_h = u* / (u*/u_h), and
@@ -3893,7 +3892,7 @@ END DO
 ! Stability for the next iteration (CABLE): zref/L from the canopy sensible
 ! heat and the buoyancy of the latent heat, -k g zref (H + 0.07 LE) /
 ! (rho cp T u*^3). Only the leaves' fluxes: the soil's are not known here.
-IF ( leaf_aero_model == 2 .AND. it_mo < n_mo ) THEN
+IF ( leaf_aero_model == 1 .AND. it_mo < n_mo ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( zref_a(l) <= 0.0 ) CYCLE
