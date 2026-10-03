@@ -1307,9 +1307,11 @@ REAL(KIND=real_jlslsm), PARAMETER ::                                           &
                             ! needs a margin test, not just a Ci tolerance).
   golden_ratio = 0.6180339887498949_real_jlslsm
 INTEGER, PARAMETER :: max_edge_iter = 20
-INTEGER, PARAMETER :: n_nsl_iter = 14
-                            ! Bisection steps for the nonstomatal limitation
-                            ! factor f (l_som_nsl): f to 2**-14 ~ 6e-5.
+INTEGER, PARAMETER :: n_nsl_iter = 12
+                            ! Maximum Illinois steps for the nonstomatal
+                            ! limitation factor f (l_som_nsl).
+REAL(KIND=real_jlslsm), PARAMETER :: nsl_tol = 1.0e-3
+                            ! Tolerance on f - f(psi_leaf(f)) (l_som_nsl).
 
 INTEGER :: i, j, l, side, idx1(land_pts)
 LOGICAL :: l_lut, ok_u, l_edge
@@ -1465,8 +1467,8 @@ CONTAINS
   !---------------------------------------------------------------------------
   SUBROUTINE eval_ci(ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci
-  REAL(KIND=real_jlslsm) :: ag0, f_lo, f_hi, f_mid
-  INTEGER :: it
+  REAL(KIND=real_jlslsm) :: ag0, f_lo, f_hi, f_new, g_lo, g_hi, g_new
+  INTEGER :: it, side
 
   last_ci = ci
   al0_u = photo_al(ci)
@@ -1475,25 +1477,43 @@ CONTAINS
   !-------------------------------------------------------------------------
   ! Nonstomatal limitation (l_som_nsl): gross photosynthesis scaled by
   ! f(psi_leaf), with psi_leaf from the transpiration that f * A gives. For
-  ! fixed Ci, f(psi_leaf(f)) is non-increasing in f, so f - f(psi_leaf(f))
-  ! has a single root on [0, 1]: bisection, keeping the low end (where
-  ! f <= f(psi_leaf(f))). Rd is not scaled.
+  ! fixed Ci, f(psi_leaf(f)) is non-increasing in f, so
+  ! g(f) = f - f(psi_leaf(f)) is increasing with a single root on [0, 1]:
+  ! g(1) > 0 here (the unlimited state, just evaluated), and at f = 0 there
+  ! is no transpiration, psi_leaf = psi_root_zone, so g(0) = -f(psi_root)
+  ! needs no hydraulics. Illinois (regula falsi) to |g| < nsl_tol, usually
+  ! in 3-5 steps. Rd is not scaled.
   !-------------------------------------------------------------------------
   IF ( l_som_nsl ) THEN
     IF ( nsl_factor(psi_u) < 1.0 ) THEN
-      ag0 = al0_u + rd(l)
-      f_lo = 0.0
+      ag0  = al0_u + rd(l)
       f_hi = 1.0
-      DO it = 1, n_nsl_iter
-        f_mid = 0.5 * (f_lo + f_hi)
-        CALL hydraulic_state(ci, f_mid * ag0 - rd(l))
-        IF ( nsl_factor(psi_u) >= f_mid ) THEN
-          f_lo = f_mid
-        ELSE
-          f_hi = f_mid
-        END IF
-      END DO
-      CALL hydraulic_state(ci, f_lo * ag0 - rd(l))
+      g_hi = 1.0 - nsl_factor(psi_u)
+      f_lo = 0.0
+      g_lo = -nsl_factor(psi_root_zone(l))
+      IF ( g_lo >= 0.0 ) THEN
+        ! The soil alone stops photosynthesis (psi_root <= psi_nsl0).
+        CALL hydraulic_state(ci, -rd(l))
+      ELSE
+        side = 0
+        f_new = f_lo
+        DO it = 1, n_nsl_iter
+          f_new = f_lo - g_lo * (f_hi - f_lo) / (g_hi - g_lo)
+          CALL hydraulic_state(ci, f_new * ag0 - rd(l))
+          g_new = f_new - nsl_factor(psi_u)
+          IF ( ABS(g_new) < nsl_tol ) EXIT
+          IF ( g_new < 0.0 ) THEN
+            f_lo = f_new; g_lo = g_new
+            IF ( side == -1 ) g_hi = 0.5 * g_hi
+            side = -1
+          ELSE
+            f_hi = f_new; g_hi = g_new
+            IF ( side == 1 ) g_lo = 0.5 * g_lo
+            side = 1
+          END IF
+        END DO
+        ! (The state left by hydraulic_state is that of f_new.)
+      END IF
     END IF
   END IF
 
