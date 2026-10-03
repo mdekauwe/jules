@@ -9589,4 +9589,17 @@ DATA metadata(740) / var_metadata(                                             &
 ! Units
     "m s-1"                                                                    &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for psi_soil_pd (stomata_model = 6 prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(741) / var_metadata(                                             &
+! String identifier
+    'psi_soil_pd',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Pre-dawn water potential for g1 (prognostic; 0 = start at the soil)",     &
+! Units
+    "MPa"                                                                      &
+  ) /
 #endif

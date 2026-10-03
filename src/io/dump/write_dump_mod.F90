@@ -22,6 +22,7 @@ USE jules_fields_mod, ONLY: crop_vars, psparms, ainfo, trif_vars, progs,       &
 USE jules_fields_mod, ONLY: toppdm, soilecosse, trifctltype
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
+USE g1_psi_jls_mod, ONLY: g1_psi_alloc, psi_soil_pd
 
 USE model_grid_mod, ONLY:                                                      &
   global_land_pts, grid_area_ij, latitude, longitude, l_coord_latlon,          &
@@ -345,6 +346,12 @@ DO i = 1,nvars
     CALL desica_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(psi_stem_desica(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'psi_soil_pd' )
+    CALL g1_psi_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(psi_soil_pd(:,n), global_data_2d(:,n))
     END DO
 
     !Case if nsoilt == 1, so it is OK to hardwire the 2nd dimension to 1
@@ -1000,7 +1007,7 @@ DO i = 1,nvars
       ! If it is a variable with one levels dimension, write the appropriate
       ! number of levels to global_data_2d.
     CASE ( 'canht', 'lai', 'years_since_harvest', 'harvest_doy', 'f_nsc',     &
-           'psi_leaf_desica', 'psi_stem_desica' )
+           'psi_leaf_desica', 'psi_stem_desica', 'psi_soil_pd' )
       CALL file_write_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 
     CASE ( 'cropdvi', 'croprootc', 'cropharvc', 'cropreservec',                &

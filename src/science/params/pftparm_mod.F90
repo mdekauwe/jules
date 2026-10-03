@@ -466,6 +466,15 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Leaf water potential (Pa) at which the nonstomatal
                  ! limitation reduces photosynthesis to zero (l_som_nsl);
                  ! psi_0 of Dewar et al. (2022). Must be < psi_nsl_onset.
+,g1b_stomata(:)                                                                &
+                 ! stomata_model = 6: sensitivity of g1 to pre-dawn water
+                 ! potential, g1 = g1_stomata exp(g1b_stomata (psi_pd -
+                 ! g1_psi_ref)) (MPa-1; Zhou et al. 2013, De Kauwe et al.
+                 ! 2015 Eqn. 3).
+,g1_psi_ref(:)                                                                 &
+                 ! stomata_model = 6: reference pre-dawn water potential at
+                 ! which g1 = g1_stomata, roughly the well-watered value
+                 ! (MPa).
 ,g1_tuzet(:)                                                                   &
                  ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
@@ -794,6 +803,8 @@ ALLOCATE( psi_nsl_onset(npft))
 ALLOCATE( psi_nsl0(npft))
 ALLOCATE( fsmc_q(npft))
 ALLOCATE( g1_tuzet(npft))
+ALLOCATE( g1b_stomata(npft))
+ALLOCATE( g1_psi_ref(npft))
 ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
 ALLOCATE( cap_leaf(npft))
@@ -820,6 +831,8 @@ psi_nsl_onset(:) = 0.0
 psi_nsl0(:) = -3.0e6
 fsmc_q(:) = 1.0
 g1_tuzet(:) = 4.19
+g1b_stomata(:) = 0.82
+g1_psi_ref(:) = -0.3
 sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
 cap_leaf(:) = 83.3e-9
@@ -1102,6 +1115,10 @@ WRITE(lineBuffer,*)' psi_nsl0 = ',psi_nsl0
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' fsmc_q = ',fsmc_q
 CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' g1b_stomata = ',g1b_stomata
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' g1_psi_ref = ',g1_psi_ref
+CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' sf_tuzet = ',sf_tuzet
@@ -1136,6 +1153,7 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  photo_act_model, photo_act_pft,               &
                                  photo_farquhar, photo_johnson, photo_model,   &
                                  stomata_jacobs, stomata_medlyn, stomata_sox,  &
+                                 stomata_g1_psi,                               &
                                  stomata_model, l_spec_veg_z0, l_sugar,        &
                                  l_scale_resp_pm
 
@@ -1295,7 +1313,7 @@ CASE ( stomata_jacobs )
     ERROR = 1
     CALL jules_print(routinename, "No value for f0")
   END IF
-CASE ( stomata_medlyn )
+CASE ( stomata_medlyn, stomata_g1_psi )
   IF ( ANY( ABS( g1_stomata(:) - rmdi ) < EPSILON(1.0) ) ) THEN
     ERROR = 1
     CALL jules_print(routinename, "No value for g1_stomata")

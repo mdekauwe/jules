@@ -18,6 +18,7 @@ USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, ainfo, trif_vars,      &
                             jules_vars, fluxes, rivers, water_resources
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
+USE g1_psi_jls_mod, ONLY: g1_psi_alloc, psi_soil_pd
 
 
 USE model_grid_mod, ONLY:                                                      &
@@ -209,7 +210,7 @@ DO i = 1,nvars
       CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:nsoilt))
 
     CASE ( 'canht', 'lai', 'years_since_harvest' , 'f_nsc',                    &
-           'psi_leaf_desica', 'psi_stem_desica' )
+           'psi_leaf_desica', 'psi_stem_desica', 'psi_soil_pd' )
       CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 
     CASE ( 'plantNumDensity' )
@@ -555,6 +556,12 @@ DO i = 1,nvars
     CALL desica_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), psi_stem_desica(:,n))
+    END DO
+
+  CASE ( 'psi_soil_pd' )
+    CALL g1_psi_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), psi_soil_pd(:,n))
     END DO
 
   CASE ( 'plantNumDensity' )

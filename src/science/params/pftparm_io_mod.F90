@@ -209,6 +209,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! m-2 leaf MPa-1); leaf default from Xu et al. (2016) Table S3
   ! (1.5e-3 kg m-2 MPa-1), stem default ~Q. ilex (SurEau, Ruffault 2022).
   g1_tuzet_io(npft_max) = 4.19,                                                &
+  g1b_stomata_io(npft_max) = 0.82,                                             &
+  g1_psi_ref_io(npft_max) = -0.3,                                              &
   sf_tuzet_io(npft_max) = 2.0,                                                 &
   psi_f_tuzet_io(npft_max) = -2.05e6,                                          &
   cap_leaf_io(npft_max) = 83.3,                                                &
@@ -285,7 +287,7 @@ NAMELIST  / jules_pftparm/                                                     &
   gcut_io,         psi_nsl_onset_io, psi_nsl0_io,                              &
   fsmc_q_io,                                                                   &
   g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
-  cap_leaf_io,     cap_stem_io,                                                &
+  cap_leaf_io,     cap_stem_io,      g1b_stomata_io,   g1_psi_ref_io,          &
   q10_leaf_io,      r_grow_io,                                &
   rmass_io,        rootd_ft_io,      sigl_io,                                  & !JBaguley
   tef_io,          tleaf_of_io,      tlow_io,                                  &
@@ -328,7 +330,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 5 * npft_max ! = the INTEGER arrays in my_namelist
-INTEGER, PARAMETER :: n_real = 132 * npft_max ! = the REAL arrays in my_namelist
+INTEGER, PARAMETER :: n_real = 134 * npft_max ! = the REAL arrays in my_namelist
 
 TYPE :: my_namelist
   SEQUENCE
@@ -438,6 +440,8 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: psi_nsl0_io(npft_max)
   REAL(KIND=real_jlslsm) :: fsmc_q_io(npft_max)
   REAL(KIND=real_jlslsm) :: g1_tuzet_io(npft_max)
+  REAL(KIND=real_jlslsm) :: g1b_stomata_io(npft_max)
+  REAL(KIND=real_jlslsm) :: g1_psi_ref_io(npft_max)
   REAL(KIND=real_jlslsm) :: sf_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_f_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: cap_leaf_io(npft_max)
@@ -593,6 +597,8 @@ IF (mype == 0) THEN
   my_nml % psi_nsl0_io    = psi_nsl0_io
   my_nml % fsmc_q_io      = fsmc_q_io
   my_nml % g1_tuzet_io    = g1_tuzet_io
+  my_nml % g1b_stomata_io = g1b_stomata_io
+  my_nml % g1_psi_ref_io  = g1_psi_ref_io
   my_nml % sf_tuzet_io    = sf_tuzet_io
   my_nml % psi_f_tuzet_io = psi_f_tuzet_io
   my_nml % cap_leaf_io    = cap_leaf_io
@@ -736,6 +742,8 @@ IF (mype /= 0) THEN
   psi_nsl0_io     = my_nml % psi_nsl0_io
   fsmc_q_io       = my_nml % fsmc_q_io
   g1_tuzet_io     = my_nml % g1_tuzet_io
+  g1b_stomata_io  = my_nml % g1b_stomata_io
+  g1_psi_ref_io   = my_nml % g1_psi_ref_io
   sf_tuzet_io     = my_nml % sf_tuzet_io
   psi_f_tuzet_io  = my_nml % psi_f_tuzet_io
   cap_leaf_io     = my_nml % cap_leaf_io
@@ -793,6 +801,7 @@ USE pftparm, ONLY:                                                             &
   gcut,            psi_nsl_onset,    psi_nsl0,         fsmc_q,                 &
   g1_tuzet,        sf_tuzet,                                                   &
   psi_f_tuzet,     cap_leaf,         cap_stem,                                 &
+  g1b_stomata,     g1_psi_ref,                                                 &
 #endif
   a_wl,            a_ws,             aef,                                      &
   act_jmax,        act_vcmax,        albsnc_max,                               &
@@ -963,6 +972,8 @@ IF ( l_som_nsl .AND. ( ANY(psi_nsl_onset(:) > 0.0) .OR.                       &
                'l_som_nsl needs psi_nsl0_io < psi_nsl_onset_io <= 0.')
 END IF
 g1_tuzet(:)         = g1_tuzet_io(1:npft)
+g1b_stomata(:)      = g1b_stomata_io(1:npft)
+g1_psi_ref(:)       = g1_psi_ref_io(1:npft)
 sf_tuzet(:)         = sf_tuzet_io(1:npft)
 psi_f_tuzet(:)      = psi_f_tuzet_io(1:npft)
 ! mmol m-2 leaf MPa-1 -> mol m-2 leaf Pa-1, as for kmax_pft.

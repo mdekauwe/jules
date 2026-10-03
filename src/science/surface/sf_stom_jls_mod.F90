@@ -74,7 +74,7 @@ USE jules_vegetation_mod, ONLY:                                                &
 ! imported parameters
     photo_collatz, photo_farquhar, photo_sox_collatz, photo_johnson,           &
     stomata_medlyn, stomata_sox, stomata_desica, stomata_profit_max,           &
-    stomata_sox_profit,                                                        &
+    stomata_sox_profit, stomata_g1_psi,                                        &
     photo_adapt, photo_acclim, photo_adapt_acclim,                             &
     photo_act_model, photo_act_pft, photo_act_gb, n_photo_coef,                &
 ! imported scalars that are not changed
@@ -131,6 +131,7 @@ USE water_constants_mod, ONLY: rho_water
 USE desica_jls_mod, ONLY: desica_fw, desica_hydraulics, tuzet_fw,             &
                           desica_store_inputs
 USE timestep_mod, ONLY: timestep
+USE g1_psi_jls_mod, ONLY: g1_psi_factor
 
 
 
@@ -678,11 +679,13 @@ REAL(KIND=real_jlslsm) :: fsmc_unity(land_pts)
 REAL(KIND=real_jlslsm) :: fsmc(land_pts)
                             ! Soil water factor applied to the leaf fluxes:
                             ! fsmc_in, or 1.0 for stomata_desica (stress acts
-                            ! through psi_leaf only).
+                            ! through psi_leaf only) and stomata_g1_psi
+                            ! (stress acts through g1 only).
 REAL(KIND=real_jlslsm) :: fsmc_lim(land_pts)
                             ! fsmc passed to leaf_limits: fsmc, or the Tuzet
-                            ! factor fw for stomata_desica (leaf_limits sets
-                            ! ci from it).
+                            ! factor fw for stomata_desica, or the g1 factor
+                            ! g1 / g1_stomata for stomata_g1_psi
+                            ! (leaf_limits sets ci from it).
 REAL(KIND=real_jlslsm) :: gl_cut_ds
                             ! DESICA canopy cuticular conductance (m s-1).
 INTEGER, PARAMETER :: n_fw_bisect = 12
@@ -764,8 +767,17 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Internal CO2 of each leaf class (Pa).
   f_sun_2l,                                                                    &
       ! Sunlit fraction of LAI.
-  dnw_2l
+  dnw_2l,                                                                      &
       ! Layer integral of exp(-kpar*L) over dlai.
+  acr_lf_2l(land_pts), apar_lf_2l(land_pts), vcmax_lf_2l(land_pts),           &
+  je_lf_2l(land_pts), rd_lf_2l(land_pts),                                      &
+      ! Empirical stomatal models (leaf_flux_fsmc): absorbed PAR (mol m-2 s-1
+      ! and W m-2), Vcmax, electron flux and dark respiration of one leaf
+      ! class per unit leaf area of that class.
+  lai_c_2l
+      ! Leaf area of the class being calculated (m2 leaf m-2 ground).
+INTEGER :: i_cls_2l
+      ! Leaf class (1 sunlit, 2 shaded) in the leaf_flux_fsmc two-leaf loop.
                             ! kmax_pft(ft)/kcrit(ft) broadcast onto a
                             ! land_pts array for the big-leaf (l_multilayer
                             ! = .FALSE.) call to stom_opt_mod, whose kmax/
@@ -1025,6 +1037,7 @@ CALL qsat(qs,tstar,pstar,land_pts)
 ! (The stomatal optimisation keeps the dq_min it had when selected with
 ! leaf_flux_mod = 2 and stomata_model = 2.)
 IF ( ( stomata_model == stomata_medlyn ) .OR. ( stomata_model == stomata_sox ) &
+     .OR. ( stomata_model == stomata_g1_psi )                                  &
      .OR. ( stomata_model == stomata_profit_max )                              &
      .OR. ( stomata_model == stomata_sox_profit ) ) THEN
   ! Avoid dq=0 as this would cause the model to blow up.
@@ -1329,9 +1342,15 @@ END SELECT  !  pft_photo_model
 !-----------------------------------------------------------------------------
 ! Soil water factor for the leaf fluxes. DESICA: no fsmc, the stomata close
 ! on psi_leaf through the Tuzet factor, from psi_leaf of the last timestep.
+! g1_psi: no fsmc, g1 falls with the pre-dawn water potential (see
+! g1_psi_jls_mod).
 !-----------------------------------------------------------------------------
 IF ( stomata_model == stomata_desica ) THEN
   CALL desica_fw( ft, land_pts, veg_pts, veg_index, psi_root_zone, fsmc_lim )
+  fsmc(:) = 1.0
+ELSE IF ( stomata_model == stomata_g1_psi ) THEN
+  CALL g1_psi_factor( ft, land_pts, veg_pts, veg_index, ipar, psi_root_zone,  &
+                      fsmc_lim )
   fsmc(:) = 1.0
 ELSE
   fsmc(:)     = fsmc_in(:)
@@ -2587,10 +2606,14 @@ CASE ( 7 )
   ! the classes by N-weighted leaf area; each class draws from psi_root_zone
   ! on its own parallel path.
   !---------------------------------------------------------------------------
-  IF ( leaf_flux_mod /= leaf_flux_stom_opt ) THEN
+  ! Empirical stomatal models (Jacobs, Medlyn, g1_psi: leaf_flux_fsmc) run
+  ! each class through leaf_limits and leaf; see below.
+  IF ( leaf_flux_mod /= leaf_flux_stom_opt .AND.                               &
+       ( stomata_model == stomata_sox .OR.                                     &
+         stomata_model == stomata_desica ) ) THEN
     errcode = 101  !  a hard error
     CALL ereport(RoutineName, errcode,                                         &
-                 'can_rad_mod = 7 is only coded for leaf_flux_mod = 2')
+                 'can_rad_mod = 7 is not coded for SOX or DESICA')
   END IF
 
   ! Top-leaf photosynthetic parameters.
@@ -2641,14 +2664,16 @@ CASE ( 7 )
     ! shade leaves without changing the canopy total (cf. the multilayer
     ! leaf-segment profile). CABLE itself uses kmax_pft * scalex, which
     ! lowers the canopy total by fpar/LAI.
-    kmax_sun_2l(l) = kmax_pft(ft) * lai(l) * nw_sun_2l(l)                      &
-                     / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
-    kmax_shd_2l(l) = kmax_pft(ft) * lai(l) * nw_shd_2l(l)                      &
-                     / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
-    kcrit_sun_2l(l) = kmax_sun_2l(l) * (kcrit(ft) / kmax_pft(ft))
-    kcrit_shd_2l(l) = kmax_shd_2l(l) * (kcrit(ft) / kmax_pft(ft))
-    gl_max_sun_2l(l) = som_gl_max * nw_sun_2l(l)
-    gl_max_shd_2l(l) = som_gl_max * nw_shd_2l(l)
+    IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
+      kmax_sun_2l(l) = kmax_pft(ft) * lai(l) * nw_sun_2l(l)                    &
+                       / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
+      kmax_shd_2l(l) = kmax_pft(ft) * lai(l) * nw_shd_2l(l)                    &
+                       / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
+      kcrit_sun_2l(l) = kmax_sun_2l(l) * (kcrit(ft) / kmax_pft(ft))
+      kcrit_shd_2l(l) = kmax_shd_2l(l) * (kcrit(ft) / kmax_pft(ft))
+      gl_max_sun_2l(l) = som_gl_max * nw_sun_2l(l)
+      gl_max_shd_2l(l) = som_gl_max * nw_shd_2l(l)
+    END IF
 
     ! Radiation to photosystem II of each class (cf. i2 = alpha_elec*acr).
     i2_sun(l) = alpha_elec(ft) * acr_sun_2l(l)
@@ -2666,6 +2691,119 @@ CASE ( 7 )
   END IF
 
   l_multilayer = .FALSE.
+
+  IF ( leaf_flux_mod == leaf_flux_fsmc ) THEN
+
+  !---------------------------------------------------------------------------
+  ! Empirical stomatal models (leaf_flux_fsmc). Each class is one leaf per
+  ! unit leaf area of the class (the class totals over the class LAI; the
+  ! rates are homogeneous of degree one in light, Vcmax, Je and Rd), run
+  ! through leaf_limits and leaf as big-leaf runs its top leaf, then scaled
+  ! by the class LAI. So glmin and the closed-stomata conductance are per
+  ! unit leaf area, as in the multilayer schemes. The soil water factor is
+  ! as big-leaf: fsmc_lim to leaf_limits, fsmc on the leaf fluxes.
+  !---------------------------------------------------------------------------
+  DO k = 1,iter
+
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      ra_rc(l) = ra(l) * gc(l)
+      dqc(l)   = dq(l) / (1.0 + ra_rc(l))
+    END DO
+
+    DO i_cls_2l = 1,2
+
+      DO m = 1,veg_pts
+        l = veg_index(m)
+        IF ( i_cls_2l == 1 ) THEN
+          lai_c_2l      = lai_sun_2l(l)
+          apar_lf_2l(l) = apar_sun_2l(l)
+          acr_lf_2l(l)  = acr_sun_2l(l)
+          vcmax_lf_2l(l) = vcmax(l) * nw_sun_2l(l)
+          rd_lf_2l(l)   = rd(l) * nw_sun_2l(l)
+          je_lf_2l(l)   = 0.0
+          IF ( pft_photo_model == photo_farquhar ) je_lf_2l(l) = je_sun(l)
+        ELSE
+          lai_c_2l      = lai_shd_2l(l)
+          apar_lf_2l(l) = apar_shd_2l(l)
+          acr_lf_2l(l)  = acr_shd_2l(l)
+          vcmax_lf_2l(l) = vcmax(l) * nw_shd_2l(l)
+          rd_lf_2l(l)   = rd(l) * nw_shd_2l(l)
+          je_lf_2l(l)   = 0.0
+          IF ( pft_photo_model == photo_farquhar ) je_lf_2l(l) = je_shd(l)
+        END IF
+        IF ( lai_c_2l > EPSILON(0.0) ) THEN
+          apar_lf_2l(l)  = apar_lf_2l(l)  / lai_c_2l
+          acr_lf_2l(l)   = acr_lf_2l(l)   / lai_c_2l
+          vcmax_lf_2l(l) = vcmax_lf_2l(l) / lai_c_2l
+          rd_lf_2l(l)    = rd_lf_2l(l)    / lai_c_2l
+          je_lf_2l(l)    = je_lf_2l(l)    / lai_c_2l
+        ELSE
+          ! No leaves in this class: closed (apar = 0) and no fluxes.
+          apar_lf_2l(l)  = 0.0
+          acr_lf_2l(l)   = 0.0
+          vcmax_lf_2l(l) = 0.0
+          rd_lf_2l(l)    = 0.0
+          je_lf_2l(l)    = 0.0
+        END IF
+      END DO
+
+      CALL leaf_limits (ft, land_pts, pft_photo_model, veg_pts, veg_index      &
+      ,                 acr_lf_2l, apar_lf_2l, ca, ccp, dqc, fsmc_lim         &
+      ,                 je_lf_2l, kc, km, ko, oa, pstar, vcmax_lf_2l          &
+      ,                 clos_pts, open_pts, clos_index, open_index            &
+      ,                 ci, wcarb, wexpt, wlite)
+
+      CALL leaf (clos_pts, ft, land_pts, open_pts, pft_photo_model             &
+      ,          veg_pts, clos_index, open_index, veg_index                    &
+      ,          ca, ci, fsmc, o3mol, ra, tstar, wcarb, wexpt, wlite, rd_lf_2l &
+      ,          anetl, flux_o3_l, fo3_l, gl)
+
+      DO m = 1,veg_pts
+        l = veg_index(m)
+        IF ( i_cls_2l == 1 ) THEN
+          anetl_sun(l)     = anetl(l) * lai_sun_2l(l)
+          gl_sun(l)        = gl(l) * lai_sun_2l(l)
+          rd_sun(l)        = rd_lf_2l(l) * lai_sun_2l(l)
+          ci_sun_2l(l)     = ci(l)
+          flux_o3_l_sun(l) = flux_o3_l(l) * lai_sun_2l(l)
+          fo3_l_sun(l)     = fo3_l(l)
+        ELSE
+          anetl_shd(l)     = anetl(l) * lai_shd_2l(l)
+          gl_shd(l)        = gl(l) * lai_shd_2l(l)
+          rd_shd(l)        = rd_lf_2l(l) * lai_shd_2l(l)
+          ci_shd_2l(l)     = ci(l)
+          flux_o3_l_shd(l) = flux_o3_l(l) * lai_shd_2l(l)
+          fo3_l_shd(l)     = fo3_l(l)
+        END IF
+      END DO
+
+    END DO  ! i_cls_2l
+
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      gc(l) = gl_sun(l) + gl_shd(l)
+    END DO
+
+  END DO   ! End of iteration loop
+
+  ! No plant hydraulics in these models: zero the hydraulic outputs so the
+  ! canopy totals below give el = leaf_k = psi_leaf = 0, as big-leaf.
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    el_sun(l)       = 0.0
+    el_shd(l)       = 0.0
+    leaf_k_sun(l)   = 0.0
+    leaf_k_shd(l)   = 0.0
+    psi_leaf_sun(l) = 0.0
+    psi_leaf_shd(l) = 0.0
+    CG_sun(l)       = 0.0
+    CG_shd(l)       = 0.0
+    HC_sun(l)       = 0.0
+    HC_shd(l)       = 0.0
+  END DO
+
+  ELSE   ! leaf_flux_stom_opt
 
   !---------------------------------------------------------------------------
   ! Iterate for the canopy humidity deficit, starting from the previous
@@ -2794,6 +2932,8 @@ CASE ( 7 )
     END DO
 
   END DO   ! End of iteration loop
+
+  END IF  ! leaf_flux_mod
 
   !---------------------------------------------------------------------------
   ! Canopy totals and leaf-area-weighted means.
