@@ -684,7 +684,7 @@ REAL(KIND=real_jlslsm) :: fsmc(land_pts)
 REAL(KIND=real_jlslsm) :: fsmc_lim(land_pts)
                             ! fsmc passed to leaf_limits: fsmc, or the Tuzet
                             ! factor fw for stomata_desica, or the g1 factor
-                            ! exp(g1b_stomata psi_pd) for stomata_g1_psi
+                            ! g1 / g1_stomata for stomata_g1_psi
                             ! (leaf_limits sets ci from it).
 REAL(KIND=real_jlslsm) :: gl_cut_ds
                             ! DESICA canopy cuticular conductance (m s-1).

@@ -90,7 +90,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Soil water factor. For stomata_desica, the
                             ! Tuzet leaf water potential factor fw instead;
                             ! for stomata_g1_psi, the pre-dawn water
-                            ! potential factor on g1, exp(g1b_stomata psi_pd).
+                            ! potential factor on g1 (g1 / g1_stomata).
 ,je(land_field)                                                                &
                             ! Electron transport rate (mol m-2 s-1)
 ,kc(land_field)                                                                &
@@ -150,7 +150,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 
 REAL(KIND=real_jlslsm), PARAMETER :: fg1_close = 0.01
                             ! stomata_g1_psi: stomata closed below this
-                            ! fraction of the well-watered g1.
+                            ! fraction of g1_stomata.
 
 LOGICAL ::                                                                     &
   l_closed(land_field)      ! Logical to mark closed points to help
@@ -220,7 +220,8 @@ DO j = 1,veg_pts
   ELSE IF ( stomata_model == stomata_g1_psi ) THEN
 
     ! Medlyn et al. (2011) with g1 reduced by the pre-dawn water potential,
-    ! g1 = g1_stomata exp(g1b_stomata psi_pd) (De Kauwe et al. 2015, Eqn. 3),
+    ! g1 = g1_stomata exp(g1b_stomata (psi_pd - g1_psi_ref)) (De Kauwe et al.
+    ! 2015, Eqn. 3),
     ! the factor passed in fsmc (see g1_psi_jls_mod). ci as Eqn.13 of
     ! Medlyn et al. (2012) below.
     g1_eff = g1_stomata(ft) * fsmc(l)

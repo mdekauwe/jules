@@ -455,8 +455,13 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! the canopy conductance when l_som_cuticular_floor.
 ,g1b_stomata(:)                                                                &
                  ! stomata_model = 6: sensitivity of g1 to pre-dawn water
-                 ! potential, g1 = g1_stomata exp(g1b_stomata psi_pd)
-                 ! (MPa-1; Zhou et al. 2013, De Kauwe et al. 2015 Eqn. 3).
+                 ! potential, g1 = g1_stomata exp(g1b_stomata (psi_pd -
+                 ! g1_psi_ref)) (MPa-1; Zhou et al. 2013, De Kauwe et al.
+                 ! 2015 Eqn. 3).
+,g1_psi_ref(:)                                                                 &
+                 ! stomata_model = 6: reference pre-dawn water potential at
+                 ! which g1 = g1_stomata, roughly the well-watered value
+                 ! (MPa).
 ,g1_tuzet(:)                                                                   &
                  ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
@@ -783,6 +788,7 @@ ALLOCATE( seg_kfac(npft,3))
 ALLOCATE( gcut(npft))
 ALLOCATE( g1_tuzet(npft))
 ALLOCATE( g1b_stomata(npft))
+ALLOCATE( g1_psi_ref(npft))
 ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
 ALLOCATE( cap_leaf(npft))
@@ -807,6 +813,7 @@ seg_kfac(:,:) = 1.0
 gcut(:) = 3.0
 g1_tuzet(:) = 4.19
 g1b_stomata(:) = 0.82
+g1_psi_ref(:) = -0.3
 sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
 cap_leaf(:) = 83.3e-9
@@ -1084,6 +1091,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' gcut = ',gcut
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1b_stomata = ',g1b_stomata
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' g1_psi_ref = ',g1_psi_ref
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
 CALL jules_print('pftparm',lineBuffer)

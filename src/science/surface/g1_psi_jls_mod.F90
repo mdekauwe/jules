@@ -11,10 +11,12 @@ MODULE g1_psi_jls_mod
 ! potential (stomata_model = 6), following Zhou et al. (2013) and Eqn. 3 of
 ! De Kauwe et al. (2015):
 !
-!   g1 = g1_stomata exp(g1b_stomata psi_pd)
+!   g1 = g1_stomata exp(g1b_stomata (psi_pd - g1_psi_ref))
 !
-! with psi_pd (MPa) the pre-dawn water potential and g1_stomata the
-! well-watered g1. As De Kauwe et al. (2015), psi_pd is taken as the root
+! with psi_pd (MPa) the pre-dawn water potential and g1_stomata the g1 at
+! the reference pre-dawn water potential g1_psi_ref (default -0.3 MPa,
+! roughly the well-watered value). The factor exceeds 1 where psi_pd is
+! wetter than g1_psi_ref. As De Kauwe et al. (2015), psi_pd is taken as the root
 ! zone soil water potential, assuming that leaf and soil equilibrate
 ! overnight (no night-time transpiration).
 !
@@ -25,7 +27,7 @@ MODULE g1_psi_jls_mod
 ! no dark step for a day (polar summer) it is updated anyway.
 !
 ! There is no soil moisture factor (fsmc) on photosynthesis: water stress
-! acts through g1 only. sf_stom passes the factor exp(g1b_stomata psi_pd)
+! acts through g1 only. sf_stom passes the factor g1 / g1_stomata
 ! to leaf_limits in place of fsmc, as for DESICA.
 !
 ! psi_soil_pd is dumped ('psi_soil_pd', MPa). A value >= 0 (e.g. an initial
@@ -78,12 +80,13 @@ END SUBROUTINE g1_psi_alloc
 
 !-----------------------------------------------------------------------------
 ! Update the pre-dawn water potential and return the g1 factor
-! exp(g1b_stomata psi_pd) (0-1) that multiplies g1_stomata in leaf_limits.
+! exp(g1b_stomata (psi_pd - g1_psi_ref)) that multiplies g1_stomata in
+! leaf_limits.
 !-----------------------------------------------------------------------------
 SUBROUTINE g1_psi_factor( ft, land_pts, veg_pts, veg_index, ipar,             &
                           psi_root_zone, fg1 )
 
-USE pftparm, ONLY: g1b_stomata
+USE pftparm, ONLY: g1b_stomata, g1_psi_ref
 USE timestep_mod, ONLY: timestep
 
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
@@ -92,7 +95,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: ipar(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: psi_root_zone(land_pts)
                             ! Root zone water potential (Pa).
 REAL(KIND=real_jlslsm), INTENT(OUT) :: fg1(land_pts)
-                            ! g1 / g1_stomata (0-1).
+                            ! g1 / g1_stomata.
 
 INTEGER :: l, m
 
@@ -110,7 +113,7 @@ DO m = 1,veg_pts
   ELSE
     time_since_dark(l,ft) = time_since_dark(l,ft) + timestep
   END IF
-  fg1(l) = EXP(g1b_stomata(ft) * psi_soil_pd(l,ft))
+  fg1(l) = EXP(g1b_stomata(ft) * (psi_soil_pd(l,ft) - g1_psi_ref(ft)))
 END DO
 
 END SUBROUTINE g1_psi_factor
