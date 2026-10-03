@@ -446,14 +446,28 @@ INTEGER ::                                                                     &
       !    12 m, neutral), with the wind at the canopy top, u* / (u*/u_h),
       !    declining as exp(-coexp L/2) into the canopy. u* and rt1 follow
       !    CABLE's Monin-Obukhov stability, iterated (4 times, as CABLE's
-      !    niter) on the leaves' sensible and latent heat. Use with
-      !    leaf_shelter = 2 for CABLE's shelrb.
+      !    niter) on the leaves' sensible and latent heat (the soil's are
+      !    not known in the leaf solve). The top-leaf boundary-layer
+      !    conductance is CABLE's gbvtop (Pohlhausen 0.7, viscosity of air;
+      !    floor 0.05 mol m-2 s-1) and u* uses CABLE's 1 m s-1 minimum wind.
+      !    Use with leaf_shelter = 2 for CABLE's shelrb; see also
+      !    l_leaf_coexp_lai.
       ! 2: through a canopy air space coupled to level 1 by JULES's ra
       !    (neutral: physiol sets rib = 0), at the level-1 wind speed; for
       !    comparison. At FR-Pue (forcing at 12 m over a 5.5 m canopy) ra is
       !    30-45 s m-1 and the canopy air ~8 K warmer than the air at
       !    midday in summer, against an observed radiometric surface
       !    temperature 2-3 K above the air.
+LOGICAL ::                                                                     &
+  l_leaf_coexp_lai = .FALSE.
+      ! With l_leaf_temp and leaf_aero_model = 1, apply the in-canopy wind
+      ! extinction coefficient coexp to normalised height, as it is derived
+      ! (Raupach, 1994; CSIRO SCAM eq. 3.14: u(z) = u_h exp(-coexp (1 -
+      ! z/h))), i.e. coexp / LAI per unit cumulative leaf area. .FALSE.
+      ! applies coexp per unit leaf area, as CABLE's gbhu does, which for
+      ! LAI > 1 attenuates the wind LAI times too fast (at LAI 5 the
+      ! forced-convection conductance of the canopy is 0.17 of the top
+      ! leaf's times the leaf area, against 0.59 with .TRUE.).
 LOGICAL ::                                                                     &
   l_leaf_temp_gc_eq = .TRUE.
       ! With l_leaf_temp, return to the surface energy balance the canopy
@@ -644,7 +658,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_fast,                                                               &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
     l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
-    leaf_shelter, leaf_aero_model,                                             &
+    leaf_shelter, leaf_aero_model, l_leaf_coexp_lai,                           &
     l_som_gain_gross,                                                          &
     l_som_cuticular_floor, l_som_gravity,                                     &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
@@ -1326,6 +1340,12 @@ IF ( l_leaf_temp .AND. ( leaf_shelter <= 0.0 .OR. leaf_aero_model < 0 .OR.   &
                '0, 1 or 2')
 END IF
 
+IF ( l_leaf_temp .AND. l_leaf_coexp_lai .AND. leaf_aero_model /= 1 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_leaf_coexp_lai is only used with leaf_aero_model = 1')
+END IF
+
 IF ( l_leaf_temp .AND. leaf_width <= 0.0 ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -1503,6 +1523,8 @@ IF ( l_leaf_temp ) THEN
   CALL jules_print('jules_vegetation_mod',lineBuffer)
   WRITE(lineBuffer,*) ' leaf_shelter = ', leaf_shelter
   CALL jules_print('jules_vegetation_mod',lineBuffer)
+  WRITE(lineBuffer,*) ' l_leaf_coexp_lai = ', l_leaf_coexp_lai
+  CALL jules_print('jules_vegetation_mod',lineBuffer)
 END IF
 
 WRITE(lineBuffer,*) ' l_som_plant_segments = ', l_som_plant_segments
@@ -1651,7 +1673,9 @@ INTEGER, PARAMETER :: n_int = 21 ! +2 leaf_temp_iter/leaf_aero_model, was 16, +1
 INTEGER, PARAMETER :: n_real = 17 + (n_photo_coef * 5) ! +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 40 + npft_max ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast, +1 for
+INTEGER, PARAMETER :: n_log = 41 + npft_max ! +1 l_leaf_coexp_lai,
+                                  ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
+                                  ! +1 for
                                   ! l_som_gain_gross, +1 for
                                   ! l_som_cuticular_floor, +1 for
                                   ! l_som_gravity, +1 for
@@ -1713,6 +1737,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_nsl
   LOGICAL :: l_leaf_temp
   LOGICAL :: l_leaf_temp_gc_eq
+  LOGICAL :: l_leaf_coexp_lai
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_floor
@@ -1810,6 +1835,7 @@ IF (mype == 0) THEN
   my_nml % l_som_nsl = l_som_nsl
   my_nml % l_leaf_temp = l_leaf_temp
   my_nml % l_leaf_temp_gc_eq = l_leaf_temp_gc_eq
+  my_nml % l_leaf_coexp_lai = l_leaf_coexp_lai
   my_nml % leaf_aero_model = leaf_aero_model
   my_nml % leaf_shelter = leaf_shelter
   my_nml % leaf_temp_iter = leaf_temp_iter
@@ -1900,6 +1926,7 @@ IF (mype /= 0) THEN
   l_som_nsl = my_nml % l_som_nsl
   l_leaf_temp = my_nml % l_leaf_temp
   l_leaf_temp_gc_eq = my_nml % l_leaf_temp_gc_eq
+  l_leaf_coexp_lai = my_nml % l_leaf_coexp_lai
   leaf_aero_model = my_nml % leaf_aero_model
   leaf_shelter = my_nml % leaf_shelter
   leaf_temp_iter = my_nml % leaf_temp_iter
