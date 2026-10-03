@@ -450,6 +450,20 @@ LOGICAL ::                                                                     &
       ! plant can produce. Uses the same cap on gl as l_som_supply_limit
       ! (with which it combines, taking the smaller supply).
 LOGICAL ::                                                                     &
+  l_som_nsl = .FALSE.
+      ! When .TRUE., a water-potential driven nonstomatal limitation (NSL)
+      ! of photosynthesis in the profit-max optimisation (stomata_model = 4,
+      ! som_ci_search = 2): gross photosynthesis is scaled by
+      !   f = 1 - (psi_leaf - psi_nsl_onset) / (psi_nsl0 - psi_nsl_onset),
+      !   clipped to [0, 1]
+      ! (pft_params psi_nsl_onset_io, psi_nsl0_io). With psi_nsl_onset = 0
+      ! (default) this is Dewar et al. (2022, New Phytol 233: 639) Eqn 3(b),
+      ! A = (1 - psi_leaf / psi_0) A0, which acts at every psi_leaf; an onset
+      ! at the turgor loss point is an optional variant (no limitation, and
+      ! so no marginal cost, above it). f and psi_leaf are solved together for each Ci, and the
+      ! limitation reduces both the optimiser's gain and the actual
+      ! photosynthesis.
+LOGICAL ::                                                                     &
   l_som_fast = .FALSE.
       ! Deprecated namelist input: .TRUE. sets som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table).
@@ -625,7 +639,7 @@ NAMELIST  / jules_vegetation/                                                  &
     som_base_parm, som_n_sample, som_n_ci_golden_iter,                        &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
-    l_som_supply_limit, l_som_root_supply, l_som_plant_segments,              &
+    l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
     l_som_gain_gross,                                                          &
     l_som_cuticular_floor, l_som_gravity, l_sugar_turgor, som_nsc_feedback,    &
     sugar_model, l_sugar_leaf_flush,                                           &
@@ -1335,6 +1349,13 @@ IF ( l_som_root_supply .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.        &
                'l_use_pft_psi=T')
 END IF
 
+IF ( l_som_nsl .AND. ( stomata_model /= stomata_profit_max .OR.               &
+                       som_ci_search /= som_ci_bounded ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_nsl requires stomata_model=4 and som_ci_search=2')
+END IF
+
 IF ( l_aggregate .AND. ANY(l_vegdrag_pft) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -1480,6 +1501,9 @@ WRITE(lineBuffer,*) ' l_som_supply_limit = ', l_som_supply_limit
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_root_supply = ', l_som_root_supply
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_som_nsl = ', l_som_nsl
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_plant_segments = ', l_som_plant_segments
@@ -1645,15 +1669,15 @@ INTEGER, PARAMETER :: n_real = 16 + (n_photo_coef * 5) ! +5 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb/
                                   ! som_nsc_cap_curv
-INTEGER, PARAMETER :: n_log = 39 + npft_max ! +1 for l_sugar_leaf_flush, +1 for
-                                  ! l_sugar_turgor, +1 for l_som_root_supply,
-                                  ! +1 for l_som_fast, +1 for
+INTEGER, PARAMETER :: n_log = 40 + npft_max ! +1 for l_sugar_leaf_flush, +1 for
+                                  ! l_sugar_turgor, +1 for l_som_fast, +1 for
                                   ! l_som_gain_gross, +1 for
                                   ! l_som_cuticular_floor, +1 for
                                   ! l_som_gravity, +1 for
                                   ! l_som_skip_search_wellwatered, +1 for
                                   ! l_som_supply_limit, +1 for
-                                  ! l_som_root_supply, +1 for
+                                  ! l_som_root_supply, +1 for l_som_nsl,
+                                  ! +1 for
                                   ! l_som_plant_segments (trunk vn7.9: 29)
 
 TYPE :: my_namelist
@@ -1704,6 +1728,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_fast
   LOGICAL :: l_som_supply_limit
   LOGICAL :: l_som_root_supply
+  LOGICAL :: l_som_nsl
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_floor
@@ -1803,6 +1828,7 @@ IF (mype == 0) THEN
   my_nml % l_som_fast = l_som_fast
   my_nml % l_som_supply_limit = l_som_supply_limit
   my_nml % l_som_root_supply = l_som_root_supply
+  my_nml % l_som_nsl = l_som_nsl
   my_nml % l_som_plant_segments = l_som_plant_segments
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
@@ -1891,6 +1917,7 @@ IF (mype /= 0) THEN
   l_som_fast = my_nml % l_som_fast
   l_som_supply_limit = my_nml % l_som_supply_limit
   l_som_root_supply = my_nml % l_som_root_supply
+  l_som_nsl = my_nml % l_som_nsl
   l_som_plant_segments = my_nml % l_som_plant_segments
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor
