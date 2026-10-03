@@ -453,6 +453,10 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Cuticular (minimum) leaf conductance to water vapour, per
                  ! unit leaf area (mmol H2O m-2 s-1), applied as a floor on
                  ! the canopy conductance when l_som_cuticular_floor.
+,g1b_stomata(:)                                                                &
+                 ! stomata_model = 6: sensitivity of g1 to pre-dawn water
+                 ! potential, g1 = g1_stomata exp(g1b_stomata psi_pd)
+                 ! (MPa-1; Zhou et al. 2013, De Kauwe et al. 2015 Eqn. 3).
 ,g1_tuzet(:)                                                                   &
                  ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
@@ -778,6 +782,7 @@ ALLOCATE( conductance_c(npft))
 ALLOCATE( seg_kfac(npft,3))
 ALLOCATE( gcut(npft))
 ALLOCATE( g1_tuzet(npft))
+ALLOCATE( g1b_stomata(npft))
 ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
 ALLOCATE( cap_leaf(npft))
@@ -801,6 +806,7 @@ conductance_c(:) = 1.0
 seg_kfac(:,:) = 1.0
 gcut(:) = 3.0
 g1_tuzet(:) = 4.19
+g1b_stomata(:) = 0.82
 sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
 cap_leaf(:) = 83.3e-9
@@ -1077,6 +1083,8 @@ WRITE(lineBuffer,*)' conductance_c = ',conductance_c
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' gcut = ',gcut
 CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' g1b_stomata = ',g1b_stomata
+CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' sf_tuzet = ',sf_tuzet
@@ -1111,6 +1119,7 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  photo_act_model, photo_act_pft,               &
                                  photo_farquhar, photo_johnson, photo_model,   &
                                  stomata_jacobs, stomata_medlyn, stomata_sox,  &
+                                 stomata_g1_psi,                               &
                                  stomata_model, l_spec_veg_z0, l_sugar,        &
                                  l_scale_resp_pm
 
@@ -1270,7 +1279,7 @@ CASE ( stomata_jacobs )
     ERROR = 1
     CALL jules_print(routinename, "No value for f0")
   END IF
-CASE ( stomata_medlyn )
+CASE ( stomata_medlyn, stomata_g1_psi )
   IF ( ANY( ABS( g1_stomata(:) - rmdi ) < EPSILON(1.0) ) ) THEN
     ERROR = 1
     CALL jules_print(routinename, "No value for g1_stomata")

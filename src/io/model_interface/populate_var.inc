@@ -18,6 +18,7 @@ USE jules_fields_mod, ONLY: toppdm
 USE imgn_drive_mod, ONLY: imgn_drive
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
+USE g1_psi_jls_mod, ONLY: g1_psi_alloc, psi_soil_pd
 
 USE ancil_info, ONLY:                                                          &
   dim_cslayer, land_pts, nsurft, nsoilt
@@ -1965,6 +1966,16 @@ CASE ( 'psi_stem_desica' )
     CALL cube_get_data(cube_land, psi_stem_desica(:,:))
   ELSE
     psi_stem_desica(:,:) = const_val
+  END IF
+
+  ! stomata_model = 6 pre-dawn water potential (MPa); 0 = start at the soil.
+CASE ( 'psi_soil_pd' )
+  CALL g1_psi_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, psi_soil_pd(:,:))
+  ELSE
+    psi_soil_pd(:,:) = const_val
   END IF
 
   !-----------------------------------------------------------------------------

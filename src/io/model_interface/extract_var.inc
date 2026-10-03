@@ -21,6 +21,7 @@ USE gridbox_mean_mod, ONLY:                                                    &
   surftiles_to_gbm, soiltiles_to_gbm
 
 USE timestep_mod, ONLY: timestep
+USE g1_psi_jls_mod, ONLY: psi_soil_pd
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
                           flux_sap_desica, dw_plant_desica
 USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
@@ -3654,6 +3655,12 @@ CASE ( 'psi_leaf_desica' )
 CASE ( 'psi_stem_desica' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(psi_stem_desica) ) workspace_pft(:,:) = psi_stem_desica
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'psi_soil_pd' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(psi_soil_pd) ) workspace_pft(:,:) = psi_soil_pd
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

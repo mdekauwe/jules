@@ -44,7 +44,7 @@ USE jules_surface_mod, ONLY: fwe_c3, fwe_c4
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported parameters
     photo_collatz, photo_farquhar, photo_johnson, stomata_jacobs,              &
-    stomata_desica,                                                            &
+    stomata_desica, stomata_g1_psi,                                            &
 ! imported scalars that are not changed
     photo_model, stomata_model
 USE jb_photo_mod, ONLY: jb_eta_scale
@@ -88,7 +88,9 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! (kg H2O/kg air).
 ,fsmc(land_field)                                                              &
                             ! Soil water factor. For stomata_desica, the
-                            ! Tuzet leaf water potential factor fw instead.
+                            ! Tuzet leaf water potential factor fw instead;
+                            ! for stomata_g1_psi, the pre-dawn water
+                            ! potential factor on g1, exp(g1b_stomata psi_pd).
 ,je(land_field)                                                                &
                             ! Electron transport rate (mol m-2 s-1)
 ,kc(land_field)                                                                &
@@ -138,10 +140,17 @@ INTEGER ::                                                                     &
  ,j,l                       ! Loop counters.
 
 REAL(KIND=real_jlslsm) ::                                                      &
-  vpd_factor
+  vpd_factor                                                                   &
                             ! Factor used in the calculation of humidity
                             ! deficit (kPa) from the deficit expressed in
                             ! terms of specific humidity.
+ ,g1_eff
+                            ! g1 of the Medlyn model (kPa**0.5): g1_stomata,
+                            ! or g1_stomata fsmc for stomata_g1_psi.
+
+REAL(KIND=real_jlslsm), PARAMETER :: fg1_close = 0.01
+                            ! stomata_g1_psi: stomata closed below this
+                            ! fraction of the well-watered g1.
 
 LOGICAL ::                                                                     &
   l_closed(land_field)      ! Logical to mark closed points to help
@@ -166,7 +175,7 @@ vpd_factor = 1.0 / ( repsilon * 1.0e3 )
 !$OMP PARALLEL DO IF(veg_pts > 1)                                              &
 !$OMP SCHEDULE(STATIC)                                                         &
 !$OMP DEFAULT(NONE)                                                            &
-!$OMP PRIVATE(j,l)                                                             &
+!$OMP PRIVATE(j,l,g1_eff)                                                      &
 !$OMP SHARED(veg_pts,veg_index,ft,                                             &
 !$OMP        ccp,vcmax,ci,ca,f0,dq,dqcrit,l_closed,fsmc,apar,g1_stomata,       &
 !$OMP        stomata_model,pstar,vpd_factor,g1_tuzet)
@@ -203,6 +212,23 @@ DO j = 1,veg_pts
     END IF
 
     IF (ci(l) <= ccp(l) .OR. apar(l) == 0.0) THEN
+      l_closed(l) = .TRUE.
+    ELSE
+      l_closed(l) = .FALSE.
+    END IF
+
+  ELSE IF ( stomata_model == stomata_g1_psi ) THEN
+
+    ! Medlyn et al. (2011) with g1 reduced by the pre-dawn water potential,
+    ! g1 = g1_stomata exp(g1b_stomata psi_pd) (De Kauwe et al. 2015, Eqn. 3),
+    ! the factor passed in fsmc (see g1_psi_jls_mod). ci as Eqn.13 of
+    ! Medlyn et al. (2012) below.
+    g1_eff = g1_stomata(ft) * fsmc(l)
+    ci(l) = ca(l) * g1_eff                                                     &
+              / ( g1_eff + SQRT( dq(l) * pstar(l) * vpd_factor ) )
+
+    ! Flag where the stomata are closed.
+    IF (fsmc(l) < fg1_close .OR. apar(l) == 0.0) THEN
       l_closed(l) = .TRUE.
     ELSE
       l_closed(l) = .FALSE.

@@ -172,6 +172,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! m-2 leaf MPa-1); leaf default from Xu et al. (2016) Table S3
   ! (1.5e-3 kg m-2 MPa-1), stem default ~Q. ilex (SurEau, Ruffault 2022).
   g1_tuzet_io(npft_max) = 4.19,                                                &
+  g1b_stomata_io(npft_max) = 0.82,                                             &
   sf_tuzet_io(npft_max) = 2.0,                                                 &
   psi_f_tuzet_io(npft_max) = -2.05e6,                                          &
   cap_leaf_io(npft_max) = 83.3,                                                &
@@ -246,7 +247,7 @@ NAMELIST  / jules_pftparm/                                                     &
   p88_root_io,     p88_stem_io,      p88_leaf_io,                              &
   gcut_io,                                                                     &
   g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
-  cap_leaf_io,     cap_stem_io,                                                &
+  cap_leaf_io,     cap_stem_io,      g1b_stomata_io,                           &
   q10_leaf_io,      r_grow_io,                                &
   rmass_io,        rootd_ft_io,      sigl_io,                                  & !JBaguley
   tef_io,          tleaf_of_io,      tlow_io,                                  &
@@ -289,7 +290,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 4 * npft_max ! = the INTEGER arrays in my_namelist
-INTEGER, PARAMETER :: n_real = 129 * npft_max ! = the REAL arrays in my_namelist
+INTEGER, PARAMETER :: n_real = 130 * npft_max ! = the REAL arrays in my_namelist
 
 TYPE :: my_namelist
   SEQUENCE
@@ -395,6 +396,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: seg_frac_root_io(npft_max)
   REAL(KIND=real_jlslsm) :: gcut_io(npft_max)
   REAL(KIND=real_jlslsm) :: g1_tuzet_io(npft_max)
+  REAL(KIND=real_jlslsm) :: g1b_stomata_io(npft_max)
   REAL(KIND=real_jlslsm) :: sf_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_f_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: cap_leaf_io(npft_max)
@@ -546,6 +548,7 @@ IF (mype == 0) THEN
   my_nml % seg_frac_root_io = seg_frac_root_io
   my_nml % gcut_io        = gcut_io
   my_nml % g1_tuzet_io    = g1_tuzet_io
+  my_nml % g1b_stomata_io = g1b_stomata_io
   my_nml % sf_tuzet_io    = sf_tuzet_io
   my_nml % psi_f_tuzet_io = psi_f_tuzet_io
   my_nml % cap_leaf_io    = cap_leaf_io
@@ -685,6 +688,7 @@ IF (mype /= 0) THEN
   seg_frac_root_io = my_nml % seg_frac_root_io
   gcut_io         = my_nml % gcut_io
   g1_tuzet_io     = my_nml % g1_tuzet_io
+  g1b_stomata_io  = my_nml % g1b_stomata_io
   sf_tuzet_io     = my_nml % sf_tuzet_io
   psi_f_tuzet_io  = my_nml % psi_f_tuzet_io
   cap_leaf_io     = my_nml % cap_leaf_io
@@ -741,6 +745,7 @@ USE pftparm, ONLY:                                                             &
   root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
   gcut,            g1_tuzet,         sf_tuzet,                                 &
   psi_f_tuzet,     cap_leaf,         cap_stem,                                 &
+  g1b_stomata,                                                                 &
 #endif
   a_wl,            a_ws,             aef,                                      &
   act_jmax,        act_vcmax,        albsnc_max,                               &
@@ -894,6 +899,7 @@ fsmc_mod(:)         = fsmc_mod_io(1:npft)
 min_gl_pft(:)       = min_gl_pft_io(1:npft) ! JBaguley
 gcut(:)             = gcut_io(1:npft)
 g1_tuzet(:)         = g1_tuzet_io(1:npft)
+g1b_stomata(:)      = g1b_stomata_io(1:npft)
 sf_tuzet(:)         = sf_tuzet_io(1:npft)
 psi_f_tuzet(:)      = psi_f_tuzet_io(1:npft)
 ! mmol m-2 leaf MPa-1 -> mol m-2 leaf Pa-1, as for kmax_pft.

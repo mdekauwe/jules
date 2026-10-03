@@ -74,7 +74,7 @@ USE jules_vegetation_mod, ONLY:                                                &
 ! imported parameters
     photo_collatz, photo_farquhar, photo_sox_collatz, photo_johnson,           &
     stomata_medlyn, stomata_sox, stomata_desica, stomata_profit_max,           &
-    stomata_sox_profit,                                                        &
+    stomata_sox_profit, stomata_g1_psi,                                        &
     photo_adapt, photo_acclim, photo_adapt_acclim,                             &
     photo_act_model, photo_act_pft, photo_act_gb, n_photo_coef,                &
 ! imported scalars that are not changed
@@ -131,6 +131,7 @@ USE water_constants_mod, ONLY: rho_water
 USE desica_jls_mod, ONLY: desica_fw, desica_hydraulics, tuzet_fw,             &
                           desica_store_inputs
 USE timestep_mod, ONLY: timestep
+USE g1_psi_jls_mod, ONLY: g1_psi_factor
 
 
 
@@ -678,11 +679,13 @@ REAL(KIND=real_jlslsm) :: fsmc_unity(land_pts)
 REAL(KIND=real_jlslsm) :: fsmc(land_pts)
                             ! Soil water factor applied to the leaf fluxes:
                             ! fsmc_in, or 1.0 for stomata_desica (stress acts
-                            ! through psi_leaf only).
+                            ! through psi_leaf only) and stomata_g1_psi
+                            ! (stress acts through g1 only).
 REAL(KIND=real_jlslsm) :: fsmc_lim(land_pts)
                             ! fsmc passed to leaf_limits: fsmc, or the Tuzet
-                            ! factor fw for stomata_desica (leaf_limits sets
-                            ! ci from it).
+                            ! factor fw for stomata_desica, or the g1 factor
+                            ! exp(g1b_stomata psi_pd) for stomata_g1_psi
+                            ! (leaf_limits sets ci from it).
 REAL(KIND=real_jlslsm) :: gl_cut_ds
                             ! DESICA canopy cuticular conductance (m s-1).
 INTEGER, PARAMETER :: n_fw_bisect = 12
@@ -1025,6 +1028,7 @@ CALL qsat(qs,tstar,pstar,land_pts)
 ! (The stomatal optimisation keeps the dq_min it had when selected with
 ! leaf_flux_mod = 2 and stomata_model = 2.)
 IF ( ( stomata_model == stomata_medlyn ) .OR. ( stomata_model == stomata_sox ) &
+     .OR. ( stomata_model == stomata_g1_psi )                                  &
      .OR. ( stomata_model == stomata_profit_max )                              &
      .OR. ( stomata_model == stomata_sox_profit ) ) THEN
   ! Avoid dq=0 as this would cause the model to blow up.
@@ -1329,9 +1333,15 @@ END SELECT  !  pft_photo_model
 !-----------------------------------------------------------------------------
 ! Soil water factor for the leaf fluxes. DESICA: no fsmc, the stomata close
 ! on psi_leaf through the Tuzet factor, from psi_leaf of the last timestep.
+! g1_psi: no fsmc, g1 falls with the pre-dawn water potential (see
+! g1_psi_jls_mod).
 !-----------------------------------------------------------------------------
 IF ( stomata_model == stomata_desica ) THEN
   CALL desica_fw( ft, land_pts, veg_pts, veg_index, psi_root_zone, fsmc_lim )
+  fsmc(:) = 1.0
+ELSE IF ( stomata_model == stomata_g1_psi ) THEN
+  CALL g1_psi_factor( ft, land_pts, veg_pts, veg_index, ipar, psi_root_zone,  &
+                      fsmc_lim )
   fsmc(:) = 1.0
 ELSE
   fsmc(:)     = fsmc_in(:)
