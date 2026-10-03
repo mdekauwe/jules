@@ -538,7 +538,8 @@ INTEGER :: i, j, l
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
   DO i = 1, n_e_leaf
-    leaf_psi(i,j) = supply_lut_psi(pft, root_zone_psi(l), e_leaf(i,j) / kmax(l))
+    leaf_psi(i,j) = supply_lut_psi(pft, root_zone_psi(l),                    &
+                    e_leaf(i,j) / MAX(kmax(l), TINY(1.0_real_jlslsm)))
     leaf_k(i,j) = kmax(l) * supply_lut_f(pft, leaf_psi(i,j))
   END DO
 END DO
@@ -605,16 +606,18 @@ INTEGER, INTENT(IN) :: pft
 REAL(KIND=real_jlslsm), INTENT(IN) :: psi_root, kcrit_frac
 REAL(KIND=real_jlslsm) :: e_crit
 
-REAL(KIND=real_jlslsm) :: psi_crit
+REAL(KIND=real_jlslsm) :: psi_crit, r
 
 CALL build_supply_lut(pft)
-! f(psi_crit) = kcrit_frac
+! f(psi_crit) = kcrit_frac, kept inside (0, 1) (e.g. kcrit >= kmax would
+! otherwise give a NaN).
+r = MIN(MAX(kcrit_frac, 1.0e-6_real_jlslsm), 1.0_real_jlslsm - 1.0e-6_real_jlslsm)
 IF ( lut_sox(pft) ) THEN
   psi_crit = conductance_b(pft)                                                &
-             * (1.0 / kcrit_frac - 1.0)**(1.0 / conductance_c(pft))
+             * (1.0 / r - 1.0)**(1.0 / conductance_c(pft))
 ELSE
   psi_crit = conductance_b(pft)                                                &
-             * (-LOG(kcrit_frac))**(1.0 / conductance_c(pft))
+             * (-LOG(r))**(1.0 / conductance_c(pft))
 END IF
 e_crit = MAX(lut_s_at(pft, psi_crit) - lut_s_at(pft, psi_root), 0.0)
 

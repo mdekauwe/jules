@@ -66,7 +66,17 @@ INTEGER ::                                                                     &
       !      cumulative Weibull then passes through this P50 and P88 (exact
       !      there, approximate in the tails). p88_root_io must be unset.
       !      NOTE: S is fitted to bench-dehydration data for tropical
-      !      upland trees, extrapolated here to roots.
+      !      upland trees, extrapolated here to roots; for resistant P50
+      !      it gives much shallower curves than measured roots (see 2).
+      !   2: from p50_root_io alone, with P88 from a fit to root
+      !      vulnerability curves in the Xylem Functional Traits database
+      !      (Choat et al. 2012 and updates; download 2026-09-28; root
+      !      organ, air-injection methods excluded, n = 93):
+      !        |P88| = 2.61 |P50|^0.70   (MPa),
+      !      e.g. P50 -3 -> P88 -5.6, P50 -5 -> -8.1, P50 -8.5 -> -11.7 MPa
+      !      (cf. the one Q. ilex root curve, Madrid, P50 -4.98 / P88 -9.61).
+      !      The segment's cumulative Weibull passes through this P50/P88.
+      !      p88_root_io must be unset.
 
 REAL(KIND=real_jlslsm) ::                                                      &
   a_wl_io(npft_max) = rmdi,                                                    &
@@ -189,6 +199,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! point is an optional variant.
   psi_nsl_onset_io(npft_max) = rmdi,                                           &
   psi_nsl0_io(npft_max) = rmdi,                                                &
+  ! Curvature exponent of the soil moisture stress factor (missing = 1,
+  ! linear).
+  fsmc_q_io(npft_max) = rmdi,                                                  &
   ! DESICA (stomata_model = 5). Tuzet et al. (2003) closure
   ! fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf))), with
   ! gs = g1 fw An / ca; defaults are the CABLE-DESICA evergreen broadleaf
@@ -270,6 +283,7 @@ NAMELIST  / jules_pftparm/                                                     &
   p50_root_io,     p50_stem_io,      p50_leaf_io,                              &
   p88_root_io,     p88_stem_io,      p88_leaf_io,                              &
   gcut_io,         psi_nsl_onset_io, psi_nsl0_io,                              &
+  fsmc_q_io,                                                                   &
   g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
   cap_leaf_io,     cap_stem_io,                                                &
   q10_leaf_io,      r_grow_io,                                &
@@ -314,7 +328,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 5 * npft_max ! = the INTEGER arrays in my_namelist
-INTEGER, PARAMETER :: n_real = 131 * npft_max ! = the REAL arrays in my_namelist
+INTEGER, PARAMETER :: n_real = 132 * npft_max ! = the REAL arrays in my_namelist
 
 TYPE :: my_namelist
   SEQUENCE
@@ -422,6 +436,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: gcut_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_nsl_onset_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_nsl0_io(npft_max)
+  REAL(KIND=real_jlslsm) :: fsmc_q_io(npft_max)
   REAL(KIND=real_jlslsm) :: g1_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: sf_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_f_tuzet_io(npft_max)
@@ -576,6 +591,7 @@ IF (mype == 0) THEN
   my_nml % gcut_io        = gcut_io
   my_nml % psi_nsl_onset_io = psi_nsl_onset_io
   my_nml % psi_nsl0_io    = psi_nsl0_io
+  my_nml % fsmc_q_io      = fsmc_q_io
   my_nml % g1_tuzet_io    = g1_tuzet_io
   my_nml % sf_tuzet_io    = sf_tuzet_io
   my_nml % psi_f_tuzet_io = psi_f_tuzet_io
@@ -718,6 +734,7 @@ IF (mype /= 0) THEN
   gcut_io         = my_nml % gcut_io
   psi_nsl_onset_io = my_nml % psi_nsl_onset_io
   psi_nsl0_io     = my_nml % psi_nsl0_io
+  fsmc_q_io       = my_nml % fsmc_q_io
   g1_tuzet_io     = my_nml % g1_tuzet_io
   sf_tuzet_io     = my_nml % sf_tuzet_io
   psi_f_tuzet_io  = my_nml % psi_f_tuzet_io
@@ -773,7 +790,7 @@ USE pftparm, ONLY:                                                             &
   calc_rz_psi,     fsmc_mod,         psi_close,                                & ! JBaguley
   psi_open,        min_rootc_pft,    root_psi_crit,                            & ! JBaguley
   root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
-  gcut,            psi_nsl_onset,    psi_nsl0,                                 &
+  gcut,            psi_nsl_onset,    psi_nsl0,         fsmc_q,                 &
   g1_tuzet,        sf_tuzet,                                                   &
   psi_f_tuzet,     cap_leaf,         cap_stem,                                 &
 #endif
@@ -934,6 +951,11 @@ WHERE (ABS(psi_nsl_onset_io(1:npft) - rmdi) > EPSILON(1.0))                  &
   psi_nsl_onset(:) = psi_nsl_onset_io(1:npft)
 WHERE (ABS(psi_nsl0_io(1:npft) - rmdi) > EPSILON(1.0))                       &
   psi_nsl0(:) = psi_nsl0_io(1:npft)
+WHERE (ABS(fsmc_q_io(1:npft) - rmdi) > EPSILON(1.0)) fsmc_q(:) = fsmc_q_io(1:npft)
+IF ( ANY(fsmc_q(:) <= 0.0) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode, 'fsmc_q_io must be > 0.')
+END IF
 IF ( l_som_nsl .AND. ( ANY(psi_nsl_onset(:) > 0.0) .OR.                       &
                        ANY(psi_nsl0(:) >= psi_nsl_onset(:)) ) ) THEN
   errcode = 101
@@ -1140,19 +1162,26 @@ DO i = 1, npft
   DO iseg = 1,3
     seg_kfac(i,iseg) = SUM(seg_frac(:)) / seg_frac(iseg)
     ! Root curve from P50 alone (seg_root_vc_io = 1; see its declaration).
-    IF ( iseg == 1 .AND. seg_root_vc_io(i) == 1 ) THEN
+    IF ( iseg == 1 .AND. ( seg_root_vc_io(i) == 1 .OR.                         &
+                           seg_root_vc_io(i) == 2 ) ) THEN
       IF ( ABS(p50_seg(1) - rmdi) < EPSILON(1.0) .OR.                          &
            ABS(p88_seg(1) - rmdi) >= EPSILON(1.0) ) THEN
         errcode = 101
         CALL ereport(RoutineName, errcode,                                     &
-                     'seg_root_vc_io = 1 needs p50_root_io set and '        // &
+                     'seg_root_vc_io = 1 or 2 needs p50_root_io set and '   // &
                      'p88_root_io unset.')
       END IF
-      a_root = 2.176 * ( ABS(p50_seg(1)) * 1.0e-6 )**(-0.17)
-      p88_seg(1) = p50_seg(1) * ( 1.0 / 0.12 - 1.0 )**( 1.0 / a_root )
+      IF ( seg_root_vc_io(i) == 1 ) THEN
+        ! Christoffersen et al. (2016)
+        a_root = 2.176 * ( ABS(p50_seg(1)) * 1.0e-6 )**(-0.17)
+        p88_seg(1) = p50_seg(1) * ( 1.0 / 0.12 - 1.0 )**( 1.0 / a_root )
+      ELSE
+        ! XFT root fit, |P88| = 2.61 |P50|^0.70 (MPa)
+        p88_seg(1) = -2.61e6 * ( ABS(p50_seg(1)) * 1.0e-6 )**0.70
+      END IF
     ELSE IF ( iseg == 1 .AND. seg_root_vc_io(i) /= 0 ) THEN
       errcode = 101
-      CALL ereport(RoutineName, errcode, 'seg_root_vc_io should be 0 or 1.')
+      CALL ereport(RoutineName, errcode, 'seg_root_vc_io should be 0, 1 or 2.')
     END IF
     IF ( ABS(p50_seg(iseg) - rmdi) < EPSILON(1.0) ) p50_seg(iseg) = P50(i)
     IF ( ABS(p88_seg(iseg) - rmdi) < EPSILON(1.0) ) p88_seg(iseg) = P88(i)

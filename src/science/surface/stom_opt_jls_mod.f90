@@ -1515,7 +1515,8 @@ CONTAINS
   el_u = MAX(0.0, vpd * gl_u / pstar(l) * pstar(l) / (rmol * t_leaf(l)))
 
   IF ( l_lut ) THEN
-    psi_u = supply_lut_psi(pft, psi_root_zone(l), el_u / kmax(l))
+    psi_u = supply_lut_psi(pft, psi_root_zone(l),                              &
+                           el_u / MAX(kmax(l), TINY(1.0_real_jlslsm)))
     kl_u = kmax(l) * supply_lut_f(pft, psi_u)
   ELSE
     el1(1,1) = el_u
@@ -1600,7 +1601,8 @@ CONTAINS
   g_cap = HUGE(1.0_real_jlslsm)
   IF ( gl_max(l) > 0.0 ) g_cap = gl_max(l)
   IF ( conv_e > 0.0 ) g_cap = MIN(g_cap, kmax(l)                              &
-       * supply_lut_e_crit(pft, psi_root_zone(l), kcrit(l) / kmax(l)) / conv_e)
+       * supply_lut_e_crit(pft, psi_root_zone(l),                              &
+                           kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm))) / conv_e)
   IF ( g_cap >= HUGE(1.0_real_jlslsm) ) RETURN
 
   rk = ratio * rmol * t_leaf(l)

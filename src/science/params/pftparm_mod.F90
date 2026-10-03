@@ -458,6 +458,10 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! limitation starts (l_som_nsl). 0 (default) gives Dewar et
                  ! al. (2022) Eqn 3(b); the turgor loss point is an optional
                  ! variant.
+,fsmc_q(:)                                                                     &
+                 ! Curvature exponent q of the soil moisture stress factor
+                 ! of each layer, fsmc = ((x - x_close)/(x_open - x_close))^q
+                 ! (fsmc_layer); 1 (default) is the standard linear factor.
 ,psi_nsl0(:)                                                                   &
                  ! Leaf water potential (Pa) at which the nonstomatal
                  ! limitation reduces photosynthesis to zero (l_som_nsl);
@@ -788,6 +792,7 @@ ALLOCATE( seg_kfac(npft,3))
 ALLOCATE( gcut(npft))
 ALLOCATE( psi_nsl_onset(npft))
 ALLOCATE( psi_nsl0(npft))
+ALLOCATE( fsmc_q(npft))
 ALLOCATE( g1_tuzet(npft))
 ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
@@ -813,6 +818,7 @@ seg_kfac(:,:) = 1.0
 gcut(:) = 3.0
 psi_nsl_onset(:) = 0.0
 psi_nsl0(:) = -3.0e6
+fsmc_q(:) = 1.0
 g1_tuzet(:) = 4.19
 sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
@@ -1093,6 +1099,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' psi_nsl_onset = ',psi_nsl_onset
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' psi_nsl0 = ',psi_nsl0
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' fsmc_q = ',fsmc_q
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
 CALL jules_print('pftparm',lineBuffer)
