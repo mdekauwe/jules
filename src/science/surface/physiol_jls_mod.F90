@@ -570,6 +570,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,pstar_land(land_pts)                                                          &
                             ! WORK Surface pressure (Pa).
 ,ipar_land(land_pts)                                                           &
+                            ! WORK Incident PAR (W/m2).
 ,tair_land(land_pts)                                                           &
                             ! Level-1 air temperature on land points (K).
 ,lw_down_land(land_pts)                                                        &
@@ -578,7 +579,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Level-1 wind speed on land points (m s-1).
 ,z1_uv_land(land_pts)                                                          &
                             ! Level-1 wind height on land points (m).
-                            ! WORK Incident PAR (W/m2).
 ,q1_land(land_pts)                                                             &
                             ! WORK ecific humidity at level 1
 ,ra(land_pts)                                                                  &

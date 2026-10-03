@@ -805,6 +805,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Canopy dark respiration at tstar, for the stem and root respiration.
   ra_lt(land_pts),                                                             &
       ! Canopy air - level 1 resistance for the leaf energy balance (s m-1).
+  t_g_lt(land_pts), qs_g_lt(land_pts),                                         &
+      ! First-guess canopy leaf temperature (K) and its saturated humidity
+      ! (kg kg-1), for the first-guess canopy air humidity.
+  zeta_lt(land_pts),                                                           &
+      ! zref/L of the canopy (leaf_aero_model = 1), carried between passes.
   wind_ext(land_pts),                                                          &
       ! Extinction coefficient of the wind with leaf area in the canopy.
   z0m_a(land_pts), zref_a(land_pts), rt1ab_a(land_pts), zrd_a(land_pts),       &
@@ -2706,6 +2711,8 @@ CASE ( 7 )
                           wlws_sun_lt, wlws_shd_lt, frad_sun_lt, frad_shd_lt,  &
                           ff_sun_lt, ff_shd_lt )
     n_pass_2l = leaf_temp_iter
+    t_g_lt(:)  = tstar(:)
+    zeta_lt(:) = 0.0
     ! Store the tstar-based canopy respiration for the stem and root
     ! respiration, which stay at tstar.
     DO m = 1,veg_pts
@@ -2718,20 +2725,45 @@ CASE ( 7 )
         t_sun_lt(l) = t_leaf_sun(l)
         t_shd_lt(l) = t_leaf_shd(l)
       END IF
+      IF ( lai(l) > EPSILON(0.0) ) THEN
+        t_g_lt(l) = ( lai_sun_2l(l) * t_sun_lt(l)                              &
+                      + lai_shd_2l(l) * t_shd_lt(l) ) / lai(l)
+      END IF
       ! Canopy air - level 1 resistance (leaf_aero_model).
       SELECT CASE ( leaf_aero_model )
-      CASE ( 1, 2 )
-        ! 2: JULES's ra. 1: CABLE's rt1, computed in leaf_temp_update (ra
-        ! where there is no canopy).
+      CASE ( 1 )
+        ! CABLE's rt1, computed in leaf_temp_update (ra where there is no
+        ! canopy); here neutral, for the first guess of q_c.
+        IF ( zref_a(l) > 0.0 ) THEN
+          ra_lt(l) = MAX( 5.0, rt1ab_a(l) * LOG(zref_a(l) / z0m_a(l))          &
+                               / ( 0.4 * MAX(u_wind(l), 1.0) ) )
+        ELSE
+          ra_lt(l) = ra(l)
+        END IF
+      CASE ( 2 )
+        ! JULES's ra.
         ra_lt(l) = ra(l)
       CASE DEFAULT
         ra_lt(l) = 0.0
       END SELECT
       t_c_lt(l) = tair(l)
-      ! Canopy air humidity from last timestep's conductance (as dqc).
-      q_c_lt(l) = ( q1(l) + ra_lt(l) * gc(l) * qs(l) )                         &
+    END DO
+    ! Canopy air humidity from last timestep's conductance and leaf
+    ! temperatures (q1 for leaf_aero_model = 0).
+    CALL qsat(qs_g_lt, t_g_lt, pstar, land_pts)
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      q_c_lt(l) = ( q1(l) + ra_lt(l) * gc(l) * qs_g_lt(l) )                    &
                   / ( 1.0 + ra_lt(l) * gc(l) )
     END DO
+    IF ( leaf_aero_model == 1 ) THEN
+      ! The neutral rt1 above is for the first guess only: leaf_temp_update
+      ! takes ra where there is no canopy.
+      DO m = 1,veg_pts
+        l = veg_index(m)
+        ra_lt(l) = ra(l)
+      END DO
+    END IF
     ! Respiration below uses rd and the classes start from it.
     ccp_sun_lt(:) = ccp(:)
     ccp_shd_lt(:) = ccp(:)
@@ -2949,7 +2981,8 @@ CASE ( 7 )
                              wlws_sun_lt, wlws_shd_lt, frad_sun_lt,            &
                              frad_shd_lt, ff_sun_lt, ff_shd_lt, z0m_a, zref_a, &
                              rt1ab_a, zrd_a, usc_a, usuh_a, gl_sun,            &
-                             gl_shd, t_sun_lt, t_shd_lt, t_c_lt, q_c_lt )
+                             gl_shd, zeta_lt, t_sun_lt, t_shd_lt, t_c_lt,      &
+                             q_c_lt )
     END IF
 
   END DO   ! End of iteration loop
@@ -3020,7 +3053,10 @@ CASE ( 7 )
           IF ( r_eq > 0.0 ) THEN
             gc(l) = 1.0 / r_eq
             IF ( gc_cap > 0.0 ) gc(l) = MIN(gc(l), gc_cap)
-          ELSE IF ( gc_cap > 0.0 ) THEN
+          ELSE IF ( gc_cap > 0.0 .AND. dq(l) > 0.0 ) THEN
+            ! Demand above what any gc gives: the cap. (With dq <= 0 the
+            ! tile balance has condensation at any gc; keep the optimised
+            ! gc rather than condensing through stomata at the cap.)
             gc(l) = gc_cap
           END IF
         END IF
@@ -3446,6 +3482,11 @@ SUBROUTINE leaf_aero_geom( land_pts, veg_pts, veg_index, lai, canht, z1,       &
 ! rt1usa + rt1usb, times 1/u*), and zrd = zruffs - d and usc (1 if zref is
 ! above the roughness sublayer) for rt1usc. z1 is taken as height above the
 ! ground. Points without a canopy get zref = 0 (and are skipped).
+! coexp is returned per unit cumulative leaf area: as CABLE's gbhu uses it,
+! or with l_leaf_coexp_lai as derived, per normalised height (divided by
+! the leaf area).
+
+USE jules_vegetation_mod, ONLY: l_leaf_coexp_lai
 
 IMPLICIT NONE
 
@@ -3487,6 +3528,7 @@ DO m = 1,veg_pts
                                  - vonk / usuh(l) ) ) * h
   zref(l)  = MAX( 3.5 + z0m(l), z1(l) - disp, h - disp )
   coexp(l) = usuh(l) / ( vonk * ccw_c * ( 1.0 - dh ) )
+  IF ( l_leaf_coexp_lai ) coexp(l) = coexp(l) / lai(l)
 
   term2    = EXP( 2.0 * csw * lai(l) * ( 1.0 - disp / h ) )
   term3    = a33**2 * ctl * 2.0 * csw * lai(l)
@@ -3690,7 +3732,7 @@ SUBROUTINE leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
                              sw_sun, sw_shd, wlw_sun, wlw_shd, wlws_sun,       &
                              wlws_shd, frad_sun, frad_shd, ff_sun, ff_shd,     &
                              z0m_a, zref_a, rt1ab_a, zrd_a, usc_a, usuh_a,     &
-                             gl_sun, gl_shd, t_sun, t_shd, t_c, q_c )
+                             gl_sun, gl_shd, zeta_a, t_sun, t_shd, t_c, q_c )
 
 ! Two-leaf leaf energy balance (l_leaf_temp): sunlit and shaded leaf
 ! temperatures, and canopy air temperature and humidity, for the stomatal
@@ -3740,11 +3782,19 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
       ! CABLE canopy geometry (leaf_aero_model = 1; see leaf_aero_geom).
 
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+  zeta_a(land_pts),                                                            &
+      ! zref/L (leaf_aero_model = 1): the start of the Monin-Obukhov
+      ! iteration, and the last iterate on output, so successive passes in
+      ! a timestep continue the iteration (0 for the first).
   t_sun(land_pts), t_shd(land_pts), t_c(land_pts), q_c(land_pts)
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
   vonk = 0.40, grav = 9.81, zetneg = -15.0, zetpos = 1.0, rt_min = 5.0,        &
       ! CABLE constants: von Karman, gravity, limits on zref/L, minimum rt1.
+  umin_cable = 1.0, apol = 0.70, prandt = 0.71, gbv_min = 0.05,                &
+      ! CABLE constants: minimum wind at zref for u* (m s-1), Pohlhausen
+      ! coefficient (single-sided plate), Prandtl number, minimum
+      ! boundary-layer conductance of the top leaf (mol m-2 s-1).
   eps_leaf = 0.96,                                                             &
       ! Leaf emissivity (Wang & Leuning, 1998, Table 3).
   eps_soil = 0.94,                                                             &
@@ -3772,7 +3822,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   t_lo(veg_pts), t_hi(veg_pts), r_lo(veg_pts), r_hi(veg_pts), t_try(veg_pts),  &
   t_try1(veg_pts), p_v(veg_pts), qs0_v(veg_pts), qs1_v(veg_pts),               &
   ts_v(veg_pts), tsh_v(veg_pts), qc_v(veg_pts), h_v(veg_pts), le_v(veg_pts),   &
-  hb_v(veg_pts), leb_v(veg_pts), zeta(veg_pts), res, ra_m(land_pts),           &
+  hb_v(veg_pts), leb_v(veg_pts), res, ra_m(land_pts),                          &
   u_m(land_pts), us, rt1usc, zr
 LOGICAL :: l_done(veg_pts)
 INTEGER :: l, m, it, side(veg_pts), it_mo, n_mo
@@ -3784,7 +3834,6 @@ ELSE
 END IF
 ra_m(:) = ra(:)
 u_m(:)  = u_wind(:)
-zeta(:) = 0.0
 
 DO it_mo = 1,n_mo
 
@@ -3798,13 +3847,13 @@ IF ( leaf_aero_model == 1 ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( zref_a(l) <= 0.0 ) CYCLE          ! no canopy: keep ra, u_wind
-    us = vonk * MAX(u_wind(l), u_min)                                          &
-         / ( LOG(zref_a(l) / z0m_a(l)) - psim(zeta(m))                         &
-             + psim(zeta(m) * z0m_a(l) / zref_a(l)) )
+    us = vonk * MAX(u_wind(l), umin_cable)                                     &
+         / ( LOG(zref_a(l) / z0m_a(l)) - psim(zeta_a(l))                       &
+             + psim(zeta_a(l) * z0m_a(l) / zref_a(l)) )
     us = MIN(MAX(1.0e-6, us), 10.0)
     zr = zrd_a(l)
-    rt1usc = usc_a(l) * ( LOG(zref_a(l) / zr) - psis(zeta(m))                 &
-                          + psis(zeta(m) * zr / zref_a(l)) ) / vonk
+    rt1usc = usc_a(l) * ( LOG(zref_a(l) / zr) - psis(zeta_a(l))                &
+                          + psis(zeta_a(l) * zr / zref_a(l)) ) / vonk
     ra_m(l) = MAX(rt_min, ( rt1ab_a(l) + rt1usc ) / us)
     u_m(l)  = us / usuh_a(l)
   END DO
@@ -3892,14 +3941,15 @@ END DO
 ! Stability for the next iteration (CABLE): zref/L from the canopy sensible
 ! heat and the buoyancy of the latent heat, -k g zref (H + 0.07 LE) /
 ! (rho cp T u*^3). Only the leaves' fluxes: the soil's are not known here.
-IF ( leaf_aero_model == 1 .AND. it_mo < n_mo ) THEN
+! Also after the last iteration, for the next pass to start from.
+IF ( leaf_aero_model == 1 ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( zref_a(l) <= 0.0 ) CYCLE
     us = u_m(l) * usuh_a(l)
-    zeta(m) = -vonk * grav * zref_a(l) * ( h_v(m) + 0.07 * le_v(m) )          &
+    zeta_a(l) = -vonk * grav * zref_a(l) * ( h_v(m) + 0.07 * le_v(m) )         &
               / ( pstar(l) / ( r * tair(l) ) * cp * tair(l) * us**3 )
-    zeta(m) = MIN(MAX(zeta(m), zetneg), zetpos)
+    zeta_a(l) = MIN(MAX(zeta_a(l), zetneg), zetpos)
   END DO
 END IF
 
@@ -3962,7 +4012,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: res, ts_new, tsh_new, qc_new, h_out,  &
 REAL(KIND=real_jlslsm) ::                                                      &
   cp_mol, cmolar, lhv, slope, gamma_p, sig_t4, eps_air, grn1, gbhw, rho, c_q,  &
   rn(2), gh(2), gbh(2), a(2), b(2), le, dt, t_x(2), h_tot, lai_x(2), gl_x(2),  &
-  t_old(2), frad(2), ff(2), gbhf, gsw, gbw, gw, den, grashof, ra_x
+  t_old(2), frad(2), ff(2), gbhf, gsw, gbw, gw, den, grashof, ra_x, visc
 INTEGER :: ic
 
 cp_mol  = cp * rmol / r
@@ -3974,8 +4024,18 @@ gamma_p = cp_mol * pstar(l) / lhv
 sig_t4  = sbcon * tc**4
 eps_air = lw_down(l) / sig_t4
 grn1    = 4.0 * eps_leaf * sbcon * tc**3 / cp_mol
-gbhw    = 0.003 * SQRT(MAX(u_m(l), u_min) / leaf_width) * cmolar             &
+IF ( leaf_aero_model == 1 ) THEN
+  ! CABLE's gbvtop (Raupach et al., 1997, eq. 3.12), with the kinematic
+  ! viscosity of air (cable_air) and the floor CABLE applies.
+  visc  = 1.0e-5 * MAX(1.0, 1.35 + 0.0092 * (tc - zerodegc))
+  gbhw  = cmolar * apol * visc / prandt / leaf_width                           &
+          * SQRT(MAX(u_m(l), u_min) * leaf_width / visc)                       &
+          * prandt**(1.0 / 3.0) / leaf_shelter
+  gbhw  = MAX(gbv_min, gbhw)
+ELSE
+  gbhw  = 0.003 * SQRT(MAX(u_m(l), u_min) / leaf_width) * cmolar               &
           / leaf_shelter
+END IF
 rho     = pstar(l) / ( r * tair(l) )
 
 lai_x = [ lai_sun(l), lai_shd(l) ]
