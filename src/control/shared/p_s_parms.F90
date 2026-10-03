@@ -121,6 +121,11 @@ TYPE :: psparms_data_type
   REAL(KIND=real_jlslsm), ALLOCATABLE :: gc_stom_pft(:,:)
     ! Canopy stomatal conductance for water of each PFT, before the soil
     ! evaporation term is added (m s-1)
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: t_leaf_sun_pft(:,:)
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: t_leaf_shd_pft(:,:)
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: t_can_pft(:,:)
+    ! Sunlit, shaded and canopy (leaf-area weighted) leaf temperature of
+    ! each PFT used by photosynthesis (K): tstar unless l_leaf_temp.
   REAL(KIND=real_jlslsm), ALLOCATABLE :: leaf_k_pft(:,:)
     ! Percentage loss of conductance at the leaf relative to the
     ! maximum conductance. (unitless) JBaguley
@@ -166,6 +171,9 @@ TYPE :: psparms_type
   REAL(KIND=real_jlslsm), POINTER :: hydraulic_cost_pft(:,:) ! JBaguley
   REAL(KIND=real_jlslsm), POINTER :: leaf_k_pft(:,:) ! JBaguley
   REAL(KIND=real_jlslsm), POINTER :: gc_stom_pft(:,:)
+  REAL(KIND=real_jlslsm), POINTER :: t_leaf_sun_pft(:,:)
+  REAL(KIND=real_jlslsm), POINTER :: t_leaf_shd_pft(:,:)
+  REAL(KIND=real_jlslsm), POINTER :: t_can_pft(:,:)
 END TYPE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='P_S_PARMS'
@@ -223,6 +231,9 @@ ALLOCATE(psparms_data%carbon_gain_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%hydraulic_cost_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%leaf_k_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%gc_stom_pft(land_pts,npft))
+ALLOCATE(psparms_data%t_leaf_sun_pft(land_pts,npft))
+ALLOCATE(psparms_data%t_leaf_shd_pft(land_pts,npft))
+ALLOCATE(psparms_data%t_can_pft(land_pts,npft))
 
 psparms_data%bexp_soilt(:,:,:)        = 0.0
 psparms_data%sathh_soilt(:,:,:)       = 0.0
@@ -244,6 +255,9 @@ psparms_data%carbon_gain_pft(:,:)     = 0.0 ! JBaguley
 psparms_data%hydraulic_cost_pft(:,:)  = 0.0 ! JBaguley
 psparms_data%leaf_k_pft(:,:) = 0.0 ! JBaguley
 psparms_data%gc_stom_pft(:,:) = 0.0
+psparms_data%t_leaf_sun_pft(:,:) = 0.0
+psparms_data%t_leaf_shd_pft(:,:) = 0.0
+psparms_data%t_can_pft(:,:) = 0.0
 
 ! Plant and soil parameters
 ALLOCATE(psparms_data%albsoil_soilt(land_pts,nsoilt))
@@ -358,6 +372,9 @@ DEALLOCATE(psparms_data%carbon_gain_pft) ! JBaguley
 DEALLOCATE(psparms_data%hydraulic_cost_pft) ! JBaguley
 DEALLOCATE(psparms_data%leaf_k_pft) ! JBaguley
 DEALLOCATE(psparms_data%gc_stom_pft)
+DEALLOCATE(psparms_data%t_leaf_sun_pft)
+DEALLOCATE(psparms_data%t_leaf_shd_pft)
+DEALLOCATE(psparms_data%t_can_pft)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -428,6 +445,9 @@ psparms%carbon_gain_pft => psparms_data%carbon_gain_pft ! JBaguley
 psparms%hydraulic_cost_pft => psparms_data%hydraulic_cost_pft ! JBaguley
 psparms%leaf_k_pft => psparms_data%leaf_k_pft ! JBaguley
 psparms%gc_stom_pft => psparms_data%gc_stom_pft
+psparms%t_leaf_sun_pft => psparms_data%t_leaf_sun_pft
+psparms%t_leaf_shd_pft => psparms_data%t_leaf_shd_pft
+psparms%t_can_pft => psparms_data%t_can_pft
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -494,6 +514,9 @@ NULLIFY(psparms%carbon_gain_pft) ! JBaguley
 NULLIFY(psparms%hydraulic_cost_pft) ! JBaguley
 NULLIFY(psparms%leaf_k_pft) ! JBaguley
 NULLIFY(psparms%gc_stom_pft)
+NULLIFY(psparms%t_leaf_sun_pft)
+NULLIFY(psparms%t_leaf_shd_pft)
+NULLIFY(psparms%t_can_pft)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN

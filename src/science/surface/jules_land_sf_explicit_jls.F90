@@ -98,6 +98,7 @@ SUBROUTINE jules_land_sf_explicit (                                            &
  !p_s_parms (out) JBaguley
  soil_wp_soilt,soil_k_soilt,soil_root_k_soilt,psi_root_zone_pft,psi_leaf_pft,  &
  cica_ratio_pft,leaf_k_pft,gc_stom_pft,                                        &
+ t_leaf_sun_pft,t_leaf_shd_pft,t_can_pft,                                      &
  !urban_param (IN)
  wrr_gb,                                                                       &
  !Fluxes (IN OUT)
@@ -687,6 +688,13 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,leaf_k_pft(land_pts,npft)                                                     &
 ,gc_stom_pft(land_pts,npft)
                             ! Canopy stomatal conductance of each PFT (m s-1)
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+ t_leaf_sun_pft(land_pts,npft)                                                 &
+,t_leaf_shd_pft(land_pts,npft)                                                 &
+,t_can_pft(land_pts,npft)
+                            ! Sunlit, shaded and canopy leaf temperature of
+                            ! each PFT used by photosynthesis (K); last
+                            ! timestep's on input.
 
 !crop_vars_mod (IN)
 REAL(KIND=real_jlslsm), INTENT(IN) :: rootc_cpft(land_pts,ncpft)
@@ -1279,6 +1287,8 @@ CALL physiol (                                                                 &
   !p_s_parms (OUT) JBaguley
   soil_wp_soilt,soil_k_soilt,soil_root_k_soilt,psi_root_zone_pft,psi_leaf_pft, &
   cica_ratio_pft,leaf_k_pft,                                                   &
+  !leaf temperature (IN: drivers; OUT: sunlit/shaded/canopy)
+  tl_1,lw_down,t_leaf_sun_pft,t_leaf_shd_pft,t_can_pft,                        &
   !ancil_info
   l_soil_point,                                                                &
   !jules_surface_types (IN)

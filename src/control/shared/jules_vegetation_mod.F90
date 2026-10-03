@@ -414,6 +414,52 @@ LOGICAL ::                                                                     &
       ! plant can produce. Uses the same cap on gl as l_som_supply_limit
       ! (with which it combines, taking the smaller supply).
 LOGICAL ::                                                                     &
+  l_leaf_temp = .FALSE.
+      ! When .TRUE., the two-leaf canopy (can_rad_mod = 7) solves a leaf
+      ! energy balance for the sunlit and the shaded leaf (Penman-Monteith;
+      ! Leuning et al., 1995; Wang & Leuning, 1998) and runs photosynthesis
+      ! and the stomatal optimisation of each at its own leaf temperature,
+      ! instead of both at the surface temperature tstar. The tile energy
+      ! balance is unchanged (it still solves one tstar from gc).
+REAL(KIND=real_jlslsm) ::                                                      &
+  leaf_width = 0.05
+      ! Characteristic leaf width (m), for the leaf boundary layer
+      ! conductance (l_leaf_temp).
+INTEGER ::                                                                     &
+  leaf_temp_iter = 3
+      ! Number of passes of the two-leaf stomatal optimisation with
+      ! l_leaf_temp (each pass is one stom_opt_mod call per leaf, then a
+      ! leaf temperature update). iter (3) without l_leaf_temp.
+REAL(KIND=real_jlslsm) ::                                                      &
+  leaf_shelter = 1.0
+      ! With l_leaf_temp, sheltering factor dividing the forced-convection
+      ! leaf boundary-layer conductance (CABLE shelrb; 2 in CABLE).
+INTEGER ::                                                                     &
+  leaf_aero_model = 0
+      ! With l_leaf_temp, the leaves' aerodynamic environment:
+      ! 0: the leaves exchange directly with the level-1 air (t_c = tair,
+      !    q_c = q1), at the level-1 wind speed (as the two-leaf and MAESPA
+      !    leaf models).
+      ! 1: through a canopy air space coupled to level 1 by JULES's ra, at
+      !    the level-1 wind speed. At FR-Pue (forcing at 12 m over a 5.5 m
+      !    canopy) ra is 30-45 s m-1 and the canopy air ~8 K warmer than
+      !    the air at midday in summer, against an observed radiometric
+      !    surface temperature 2-3 K above the air.
+      ! 2: CABLE's canopy aerodynamics (Raupach, 1994; Raupach et al., 1997,
+      !    CSIRO SCAM): the canopy air coupled to level 1 by rt1 from the
+      !    roughness-sublayer theory (6-9 s m-1 at FR-Pue for 2-3 m s-1 at
+      !    12 m, neutral), with the wind at the canopy top, u* / (u*/u_h),
+      !    declining as exp(-coexp L/2) into the canopy. u* and rt1 follow
+      !    CABLE's Monin-Obukhov stability, iterated (4 times, as CABLE's
+      !    niter) on the leaves' sensible and latent heat.
+LOGICAL ::                                                                     &
+  l_leaf_temp_gc_eq = .TRUE.
+      ! With l_leaf_temp, return to the surface energy balance the canopy
+      ! conductance that gives the transpiration chosen by the stomatal
+      ! optimisation (at the leaf temperatures) at the surface temperature,
+      ! rather than the sum of the leaf stomatal conductances. Keeps the
+      ! water used consistent with the hydraulics and the supply limits.
+LOGICAL ::                                                                     &
   l_som_nsl = .FALSE.
       ! When .TRUE., a water-potential driven nonstomatal limitation (NSL)
       ! of photosynthesis in the profit-max optimisation (stomata_model = 4,
@@ -595,6 +641,8 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
+    l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
+    leaf_shelter, leaf_aero_model,                                             &
     l_som_gain_gross,                                                          &
     l_som_cuticular_floor, l_som_gravity,                                     &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
@@ -1254,6 +1302,34 @@ IF ( l_som_root_supply .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.        &
                'l_use_pft_psi=T')
 END IF
 
+IF ( l_leaf_temp .AND. ( can_rad_mod /= 7 .OR.                               &
+                         leaf_flux_mod /= leaf_flux_stom_opt ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_leaf_temp is only coded for can_rad_mod=7 with ' //          &
+               'stomata_model=4 or 6')
+END IF
+
+IF ( l_leaf_temp .AND. leaf_temp_iter < 1 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_leaf_temp needs leaf_temp_iter >= 1')
+END IF
+
+IF ( l_leaf_temp .AND. ( leaf_shelter <= 0.0 .OR. leaf_aero_model < 0 .OR.   &
+                         leaf_aero_model > 2 ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_leaf_temp needs leaf_shelter > 0 and leaf_aero_model ' //    &
+               '0, 1 or 2')
+END IF
+
+IF ( l_leaf_temp .AND. leaf_width <= 0.0 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_leaf_temp needs leaf_width > 0')
+END IF
+
 IF ( l_som_nsl .AND. ( stomata_model /= stomata_profit_max .OR.               &
                        som_ci_search /= som_ci_bounded ) ) THEN
   errcode = 101
@@ -1411,6 +1487,22 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_nsl = ', l_som_nsl
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' l_leaf_temp = ', l_leaf_temp
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+IF ( l_leaf_temp ) THEN
+  WRITE(lineBuffer,*) ' leaf_width = ', leaf_width
+  CALL jules_print('jules_vegetation_mod',lineBuffer)
+  WRITE(lineBuffer,*) ' leaf_temp_iter = ', leaf_temp_iter
+  CALL jules_print('jules_vegetation_mod',lineBuffer)
+  WRITE(lineBuffer,*) ' l_leaf_temp_gc_eq = ', l_leaf_temp_gc_eq
+  CALL jules_print('jules_vegetation_mod',lineBuffer)
+  WRITE(lineBuffer,*) ' leaf_aero_model = ', leaf_aero_model
+  CALL jules_print('jules_vegetation_mod',lineBuffer)
+  WRITE(lineBuffer,*) ' leaf_shelter = ', leaf_shelter
+  CALL jules_print('jules_vegetation_mod',lineBuffer)
+END IF
+
 WRITE(lineBuffer,*) ' l_som_plant_segments = ', l_som_plant_segments
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -1552,12 +1644,12 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 19 ! was 16, +1 for som_n_ci_golden_iter,
+INTEGER, PARAMETER :: n_int = 21 ! +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
-INTEGER, PARAMETER :: n_real = 15 + (n_photo_coef * 5) ! +4 for
+INTEGER, PARAMETER :: n_real = 17 + (n_photo_coef * 5) ! +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 38 + npft_max ! +1 for l_som_fast, +1 for
+INTEGER, PARAMETER :: n_log = 40 + npft_max ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast, +1 for
                                   ! l_som_gain_gross, +1 for
                                   ! l_som_cuticular_floor, +1 for
                                   ! l_som_gravity, +1 for
@@ -1573,6 +1665,8 @@ TYPE :: my_namelist
   INTEGER :: triffid_period
   INTEGER :: can_model
   INTEGER :: can_rad_mod
+  INTEGER :: leaf_temp_iter
+  INTEGER :: leaf_aero_model
   INTEGER :: ilayers
   INTEGER :: leaf_flux_mod !JBaguley
   INTEGER :: som_base_parm !JBaguley
@@ -1608,11 +1702,15 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: som_leaf_resist_frac
   REAL(KIND=real_jlslsm) :: som_gl_max
   REAL(KIND=real_jlslsm) :: light_curvature_fvcb
+  REAL(KIND=real_jlslsm) :: leaf_width
+  REAL(KIND=real_jlslsm) :: leaf_shelter
   LOGICAL :: l_som_skip_search_wellwatered
   LOGICAL :: l_som_fast
   LOGICAL :: l_som_supply_limit
   LOGICAL :: l_som_root_supply
   LOGICAL :: l_som_nsl
+  LOGICAL :: l_leaf_temp
+  LOGICAL :: l_leaf_temp_gc_eq
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_floor
@@ -1708,6 +1806,12 @@ IF (mype == 0) THEN
   my_nml % l_som_supply_limit = l_som_supply_limit
   my_nml % l_som_root_supply = l_som_root_supply
   my_nml % l_som_nsl = l_som_nsl
+  my_nml % l_leaf_temp = l_leaf_temp
+  my_nml % l_leaf_temp_gc_eq = l_leaf_temp_gc_eq
+  my_nml % leaf_aero_model = leaf_aero_model
+  my_nml % leaf_shelter = leaf_shelter
+  my_nml % leaf_temp_iter = leaf_temp_iter
+  my_nml % leaf_width = leaf_width
   my_nml % l_som_plant_segments = l_som_plant_segments
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
@@ -1792,6 +1896,12 @@ IF (mype /= 0) THEN
   l_som_supply_limit = my_nml % l_som_supply_limit
   l_som_root_supply = my_nml % l_som_root_supply
   l_som_nsl = my_nml % l_som_nsl
+  l_leaf_temp = my_nml % l_leaf_temp
+  l_leaf_temp_gc_eq = my_nml % l_leaf_temp_gc_eq
+  leaf_aero_model = my_nml % leaf_aero_model
+  leaf_shelter = my_nml % leaf_shelter
+  leaf_temp_iter = my_nml % leaf_temp_iter
+  leaf_width = my_nml % leaf_width
   l_som_plant_segments = my_nml % l_som_plant_segments
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor

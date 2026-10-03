@@ -177,8 +177,9 @@ END TYPE var_metadata
 ! or output. The CABLE land surface model adds 10 prognostics for tiled
 ! soil/snow prognostics.
 ! soil/snow prognostics.
-INTEGER, PARAMETER :: n_vars = 740 ! upstream 723 + 10 stomatal optimisation
+INTEGER, PARAMETER :: n_vars = 743 ! upstream 723 + 10 stomatal optimisation
                                     ! + 6 DESICA + gc_stom_pft
+                                    ! + 3 leaf temperatures
 TYPE(var_metadata) :: metadata(n_vars)
 
 ! Include the metadata DATA statement
