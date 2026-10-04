@@ -384,8 +384,10 @@ SELECT CASE ( som_base_parm )
 
         IF (l_fastpath(j)) THEN
           ci(l) = MAX(0.0, ci_e_fp(1,j))
-          al(l) = MAX(0.0, al_e_fp(1,j))
+          al(l) = MAX(-rd(l), al_e_fp(1,j))
           gl(l) = MAX(0.0, gl_e_fp(1,j))
+          ! gl = 0 means closed: al = -rd, as in set_closed.
+          IF (gl(l) <= 0.0) al(l) = -rd(l)
           psi_leaf(l) = psi_e_fp(1,j)
           el(l) = el_e_fp(1,j)
           leaf_k(l) = kl_e_fp(1,j)
@@ -478,13 +480,15 @@ SELECT CASE ( som_base_parm )
           l = veg_index(open_index_flat(j))
           ci(l) = MAX(0.0, ci_sample(optimal_index_flat(j),j))
           ! Closed state (index 0) keeps al = -rd, as for points that
-          ! were never open; an open optimum is clipped at 0 as before.
+          ! were never open; an open optimum is clipped at -rd (as closed).
           IF (optimal_index_flat(j) == 0) THEN
             al(l) = al_sample(0,j)
           ELSE
-            al(l) = MAX(0.0, al_sample(optimal_index_flat(j),j))
+            al(l) = MAX(-rd(l), al_sample(optimal_index_flat(j),j))
           END IF
           gl(l) = MAX(0.0, gl_sample(optimal_index_flat(j),j))
+          ! gl = 0 means closed: al = -rd, as in set_closed.
+          IF (gl(l) <= 0.0) al(l) = -rd(l)
           psi_leaf(l) = psi_sample(optimal_index_flat(j),j)
           el(l) = el_sample(optimal_index_flat(j),j)
           leaf_k(l) = kl_sample(optimal_index_flat(j),j)
@@ -586,9 +590,11 @@ SELECT CASE ( som_base_parm )
         IF (optimal_index == 0) THEN
           al(l) = al_sample(0,j)
         ELSE
-          al(l) = MAX(0.0, al_sample(optimal_index,j))
+          al(l) = MAX(-rd(l), al_sample(optimal_index,j))
         END IF
         gl(l) = MAX(0.0, gl_sample(optimal_index,j))
+        ! gl = 0 means closed: al = -rd, as in set_closed.
+        IF (gl(l) <= 0.0) al(l) = -rd(l)
         psi_leaf(l) = psi_sample(optimal_index,j)
         el(l) = el_sample(optimal_index,j)
         leaf_k(l) = kl_sample(optimal_index,j)
@@ -1447,8 +1453,10 @@ DO j = 1, open_pts
   END IF
 
   ci_g(j) = MAX(0.0, best_ci)
-  al_g(j) = MAX(0.0, best_al)
+  al_g(j) = MAX(-rd(l), best_al)
   gl_g(j) = MAX(0.0, best_gl)
+  ! gl = 0 means closed: al = -rd, as in set_closed.
+  IF (gl_g(j) <= 0.0) al_g(j) = -rd(l)
   psi_g(j) = best_psi
   el_g(j) = best_el
   kl_g(j) = best_kl
