@@ -859,6 +859,7 @@ USE jules_surface_types_mod, ONLY: npft
 
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 l_som_root_supply, l_som_vcmax_psi
+USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
 
@@ -1011,6 +1012,18 @@ IF ( l_som_root_supply ) THEN
     CALL ereport(RoutineName, errcode,                                         &
                  'l_som_root_supply needs min_rootc_pft_io, root_radi_pft_io ' &
                  // 'and rootc_density_pft_io > 0.')
+  END IF
+  ! With the soil psi bound on (l_bound_soil_wp), a hard clamp at psi_close
+  ! means no layer is seen drier than psi_close. If psi_close were above
+  ! root_psi_crit, root supply (psi - root_psi_crit > 0) would never run
+  ! out. Keep psi_close <= root_psi_crit; never tie them.
+  IF ( l_bound_soil_wp ) THEN
+    IF ( ANY(psi_close(:) > root_psi_crit(:)) ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode,                                       &
+                   'l_som_root_supply with l_bound_soil_wp needs '            //&
+                   'psi_close_io <= root_psi_crit_io for every PFT.')
+    END IF
   END IF
 END IF
 #endif
