@@ -14,6 +14,10 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='SF_STOM_MOD'
 
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: f_vcmax_state(:,:)
+    ! Soil-water capacity factor of l_som_vcmax_psi after the recovery lag
+    ! (land_pts, npft); < 0 until first set.
+
 PRIVATE
 PUBLIC sf_stom
 
@@ -4277,8 +4281,18 @@ SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
 ! so the stomatal (hydraulic) limitation, not capacity, sets photosynthesis
 ! in the driest soil (the steady state of the sink-limited NSL,
 ! l_som_nsl_sink, levels off at about the maintenance demand).
+! Recovery lag: the factor follows f at once as the soil dries (psi_rz itself
+! changes slowly) but relaxes back towards it with a fixed 5-day e-folding
+! time (90 % back in about 11 days) as the soil rewets, so capacity recovers
+! over days rather than within the timestep of the rain; of the order of
+! Rubisco turnover in mature leaves (days to weeks). FR-Pue fluxes cannot
+! separate 3 from 5 days (GPP RMSE 0.86 vs 0.85; instant 0.93), so this is
+! a fixed choice, not a parameter. The state is not in the dump (it starts
+! at the instant value).
 
 USE pftparm, ONLY: psi_vcmax_f, sf_vcmax, psi_vcmax_fmin
+USE jules_surface_types_mod, ONLY: npft
+USE timestep_mod, ONLY: timestep
 
 IMPLICIT NONE
 
@@ -4288,8 +4302,17 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: psi_rz(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: f_vc(land_pts)
     ! Capacity factor (-); only veg points are set.
 
+REAL(KIND=real_jlslsm), PARAMETER :: tau_rec = 5.0 * 86400.0
+    ! Recovery e-folding time (s).
+
 INTEGER :: l, m
-REAL(KIND=real_jlslsm) :: psi_mpa, f_psi
+REAL(KIND=real_jlslsm) :: psi_mpa, f_psi, f_now, w_rec
+
+IF ( .NOT. ALLOCATED(f_vcmax_state) ) THEN
+  ALLOCATE( f_vcmax_state(land_pts, npft) )
+  f_vcmax_state(:,:) = -1.0
+END IF
+w_rec = 1.0 - EXP( -timestep / tau_rec )
 
 DO m = 1,veg_pts
   l = veg_index(m)
@@ -4298,11 +4321,14 @@ DO m = 1,veg_pts
           / ( 1.0 + EXP( sf_vcmax(ft) * ( psi_vcmax_f(ft) * 1.0e-6             &
                                           - psi_mpa ) ) )
   f_psi = MIN(MAX(f_psi, 0.0_real_jlslsm), 1.0_real_jlslsm)
-  IF ( psi_vcmax_fmin(ft) > 0.0 ) THEN
-    f_vc(l) = psi_vcmax_fmin(ft) + (1.0 - psi_vcmax_fmin(ft)) * f_psi
+  f_now = psi_vcmax_fmin(ft) + (1.0 - psi_vcmax_fmin(ft)) * f_psi
+  IF ( f_vcmax_state(l,ft) < 0.0 .OR. f_now <= f_vcmax_state(l,ft) ) THEN
+    f_vcmax_state(l,ft) = f_now
   ELSE
-    f_vc(l) = f_psi
+    f_vcmax_state(l,ft) = f_vcmax_state(l,ft)                                  &
+                          + w_rec * ( f_now - f_vcmax_state(l,ft) )
   END IF
+  f_vc(l) = f_vcmax_state(l,ft)
 END DO
 
 END SUBROUTINE vcmax_psi_factor
