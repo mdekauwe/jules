@@ -4284,11 +4284,13 @@ SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
 ! Recovery lag: the factor follows f at once as the soil dries (psi_rz itself
 ! changes slowly) but relaxes back towards it with a fixed 5-day e-folding
 ! time (90 % back in about 11 days) as the soil rewets, so capacity recovers
-! over days rather than within the timestep of the rain; of the order of
-! Rubisco turnover in mature leaves (days to weeks). FR-Pue fluxes cannot
-! separate 3 from 5 days (GPP RMSE 0.86 vs 0.85; instant 0.93), so this is
-! a fixed choice, not a parameter. The state is not in the dump (it starts
-! at the instant value).
+! over days rather than within the timestep of the rain. 5 days sits between
+! fast reversible downregulation (Rubisco activation, mesophyll conductance:
+! hours to days) and protein resynthesis (a week or more), weighted towards
+! the slow end because FR-Pue droughts are long and severe. 3 days changes
+! little (FR-Pue 2005-07 GPP RMSE 0.86 vs 0.85; instant 0.93), so this is a
+! fixed choice, not a parameter. The state is not in the dump (it starts at
+! the instant value).
 
 USE pftparm, ONLY: psi_vcmax_f, sf_vcmax, psi_vcmax_fmin
 USE jules_surface_types_mod, ONLY: npft
