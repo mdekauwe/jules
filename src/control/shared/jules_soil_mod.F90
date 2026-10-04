@@ -119,12 +119,19 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Depth of layer over which soil moisture diagnostic is averaged (m)
   zst = rmdi,                                                                  &
       ! Depth of layer over which soil temperature diagnostic is averaged (m)
-  confrac = rmdi,                                                              &
+  confrac = rmdi
       ! Fraction of the gridbox over which convective precipitation is
       ! assumed to fall
+
+REAL(KIND=real_jlslsm), PARAMETER ::                                           &
   ds_psi = -609032185.8
-      ! Negative soil water potential at zero saturation for dry soil
-      ! aproximation (cm). Default value from M. Schneider and
+      ! Fixed soil-physics constant (deliberately not a namelist parameter):
+      ! soil water potential (Pa) of oven-dry soil, the end point of the
+      ! dry-soil (Webb 2000) extension of the retention curve that
+      ! bound_soil_psi applies where l_ds_correction is set. A value above
+      ! psi_close would make psi rise as the soil dries.
+      ! Original notes (Baguley): negative soil water potential at zero
+      ! saturation for dry soil aproximation. Value from M. Schneider and
       ! K.-U. Goss 2012 paragraph 7. Conversion factor for cm to MPa
       ! taken from CABLE drysoil aproximation.
       ! log(-psi(cm)) = 6.8
@@ -203,7 +210,7 @@ NAMELIST  / jules_soil/                                                        &
     l_holdwater, l_tile_soil, l_ds_correction_io, l_bound_soil_wp,             &
 ! Parameters
     cs_min, zsmc, zst, confrac, ns_deep, hcapdeep, hcondeep,                   &
-    dzdeep, dzsoil_io, dzsoil_elev, ds_psi
+    dzdeep, dzsoil_io, dzsoil_elev
 
 
 
@@ -276,11 +283,6 @@ END IF
 ! Associate the l_ds_correction pointer with the appropriate section
 ! of l_ds_correction_io
 l_ds_correction => l_ds_correction_io(1:sm_levels) !JBaguley
-
-! check that ds_psi is negative
-If (ds_psi >= 0) THEN
-  CALL ereport(RoutineName, errorstatus, 'ds_psi must be less than zero')
-End If !JBaguley
 
 ! check that confrac is set and is between 0 and 1
 IF ( ABS( confrac - rmdi ) < EPSILON(1.0) ) THEN
