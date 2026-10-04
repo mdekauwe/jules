@@ -953,7 +953,7 @@ USE jules_surface_types_mod, ONLY: npft
 
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 l_som_root_supply, l_som_vcmax_psi,            &
-                                l_som_nsl_sink
+                                l_som_nsl_sink, xylem_impairment_memory
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1372,13 +1372,14 @@ DO i = 1, npft
     CALL ereport(RoutineName, errcode,                                         &
                  'l_som_plant_segments needs pft_conductance_model = 1.')
   END IF
-  IF ( l_som_plant_segments .AND. pft_xylem_impairment_model(i) /= 0 ) THEN
-    ! The impairment models damage one (whole-plant) curve per point; with
-    ! segments it is not yet defined which segment(s) are damaged.
+  IF ( l_som_plant_segments .AND. pft_xylem_impairment_model(i) /= 0 .AND.   &
+       pft_xylem_impairment_model(i) /= xylem_impairment_memory ) THEN
+    ! With segments only the memory model is coded: its cap is applied to
+    ! the stem and leaf segments (the PFT curve), not the root segment.
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
-                 'l_som_plant_segments cannot yet be combined with ' //        &
-                 'pft_xylem_impairment_model /= 0.')
+                 'l_som_plant_segments can only be combined with ' //          &
+                 'pft_xylem_impairment_model = 0 or 3 (memory).')
   END IF
   IF ( ANY(seg_frac(:) <= 0.0) ) THEN
     errcode = 101

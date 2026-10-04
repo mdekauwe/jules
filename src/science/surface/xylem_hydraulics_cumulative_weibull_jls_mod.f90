@@ -22,7 +22,8 @@ PUBLIC :: leaf_conductance_CW_jls                                              &
 ,         leaf_psi_lut_jls                                                     &
 ,         supply_lut_psi                                                       &
 ,         supply_lut_e_crit                                                    &
-,         supply_lut_f
+,         supply_lut_f                                                 &
+,         leaf_psi_segments_jls
 
 ! ---------------------------------------------------------------------
 ! Supply-function lookup table (som_psi_solver = psi_solver_lut),
@@ -838,7 +839,19 @@ END SUBROUTINE build_supply_lut
 SUBROUTINE leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
                                   veg_index, open_index, e_leaf,               &
                                   root_zone_psi, kmax, kcrit,                  &
-                                  leaf_psi, leaf_k )
+                                  leaf_psi, leaf_k,                            &
+                                  kcap_frac, leaf_k_intact )
+
+! Xylem impairment (memory model, pft_xylem_impairment_model = 3) with
+! segments: with kcap_frac present, the stem and leaf segments (which use
+! the PFT curve the impairment model damages) are capped,
+!   k_s(psi) = MIN( kmax_s f_s(psi), kcap_frac * kmax_s ),
+! while the root segment stays intact (no root damage). Each segment's flow
+! is then E = A_s(psi_out) - A_s(psi_in), A_s the integral of the capped
+! curve from psi to 0: kcap_s * (-psi) above psi_cap (where the intact curve
+! meets the cap) and the intact integral below it. leaf_k_intact, if
+! present, is the whole-plant conductance of the intact segments at the
+! same (impaired) water potentials, for the hydraulic cost.
 
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 
@@ -853,7 +866,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   root_zone_psi(land_pts),                                                     &
       ! Root-zone water potential (Pa).
   kmax(land_pts),                                                              &
-      ! Whole-plant maximum conductance.
+      ! Whole-plant maximum conductance (intact).
   kcrit(land_pts)
       ! Whole-plant critical conductance.
 
@@ -862,6 +875,13 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
       ! Leaf water potential (Pa).
   leaf_k(n_e_leaf, open_pnts)
       ! Whole-plant conductance -dE/dpsi_leaf.
+
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
+  kcap_frac(land_pts)
+      ! Impaired / intact maximum conductance of the stem and leaf segments.
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
+  leaf_k_intact(n_e_leaf, open_pnts)
+      ! Whole-plant conductance of the intact segments at leaf_psi.
 
 INTEGER, PARAMETER :: n_seg = 3, max_nr_iter = 4
 
@@ -875,19 +895,24 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Segment inlet / outlet water potential (Pa).
   k_in(n_e_leaf), k_cur(n_e_leaf), k_prev(n_e_leaf),                           &
       ! Segment conductance at the inlet / current outlet / previous pass.
-  g_in(n_e_leaf), e_cur(n_e_leaf),                                             &
-      ! Incomplete gamma at the inlet; flow for the current outlet.
-  dpsi_de(n_e_leaf),                                                           &
-      ! d(psi_out)/dE carried down the segments.
-  g_one(1),                                                                    &
-      ! Incomplete gamma at psi_root_zone (root inlet, same for all samples).
-  kmx, kcr, bs, cs
-      ! Segment kmax, kcrit, Weibull b (Pa) and c.
+  a_in(n_e_leaf), e_cur(n_e_leaf),                                             &
+      ! Supply integral at the inlet; flow for the current outlet.
+  dpsi_de(n_e_leaf), dpsi_de_int(n_e_leaf),                                    &
+      ! d(psi_out)/dE carried down the segments (as solved / intact curves).
+  a_one(1),                                                                    &
+      ! Supply integral at psi_root_zone (root inlet, same for all samples).
+  kmx, kcr, bs, cs, fr, psi_cap, a_cap
+      ! Segment kmax, kcrit, Weibull b (Pa) and c; cap fraction, the psi
+      ! where the intact curve meets the cap and the intact integral there.
+LOGICAL :: l_cap, l_impair
+
+l_impair = PRESENT(kcap_frac)
 
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
   psi_in(:)  = root_zone_psi(l)
   dpsi_de(:) = 0.0
+  dpsi_de_int(:) = 0.0
 
   DO iseg = 1, n_seg
     kmx = kmax(l) * seg_kfac(pft,iseg)
@@ -895,13 +920,26 @@ DO j = 1, open_pnts
     bs  = conductance_b_seg(pft,iseg)
     cs  = conductance_c_seg(pft,iseg)
 
-    k_in(:) = kmx * EXP( -(psi_in(:)/bs)**cs )
+    ! Cap on the stem and leaf segments (not the root).
+    fr = 1.0
+    IF ( l_impair .AND. iseg >= 2 ) fr = MIN(MAX(kcap_frac(l), k_floor), 1.0)
+    l_cap = fr < 1.0 - 1.0e-6
+    IF ( l_cap ) THEN
+      psi_cap = bs * (-LOG(fr))**(1.0 / cs)
+      a_one(:) = incomplete_gamma(1, 1.0/cs, [(psi_cap/bs)**cs])
+      a_cap = kmx * (-bs/cs) * a_one(1)
+    ELSE
+      psi_cap = 0.0
+      a_cap = 0.0
+    END IF
+
+    k_in(:) = seg_k(psi_in)
     IF ( iseg == 1 ) THEN
       ! The root inlet is psi_root_zone for every sample: one evaluation.
-      g_one(:) = incomplete_gamma(1, 1.0/cs, [(psi_in(1)/bs)**cs])
-      g_in(:)  = g_one(1)
+      a_one(:) = seg_a(1, psi_in(1:1))
+      a_in(:)  = a_one(1)
     ELSE
-      g_in(:) = incomplete_gamma(n_e_leaf, 1.0/cs, (psi_in(:)/bs)**cs)
+      a_in(:) = seg_a(n_e_leaf, psi_in)
     END IF
 
     ! First guess: the inlet conductance over the whole drop.
@@ -911,9 +949,8 @@ DO j = 1, open_pnts
 
     DO it = 1, max_nr_iter
       k_prev(:) = k_cur(:)
-      k_cur(:)  = kmx * EXP( -(psi_out(:)/bs)**cs )
-      e_cur(:)  = ( incomplete_gamma(n_e_leaf, 1.0/cs, (psi_out(:)/bs)**cs)    &
-                    - g_in(:) ) * kmx * (-bs/cs)
+      k_cur(:)  = seg_k(psi_out)
+      e_cur(:)  = seg_a(n_e_leaf, psi_out) - a_in(:)
       psi_out(:) = psi_out(:) - (e_leaf(:,j) - e_cur(:))                       &
                                 / MAX(k_cur(:), TINY(1.0_real_jlslsm))
       ! Same runaway guard as the single segment (infeasible demand).
@@ -927,8 +964,13 @@ DO j = 1, open_pnts
     ! in the next segment, which previously came out as a huge whole-plant k
     ! and let an infeasible state (psi_leaf ~ -70 MPa) pass the k > kcrit
     ! mask. With this floor dpsi_de stays finite and k correctly ~ 0.
-    k_cur(:)   = MAX(kmx * EXP( -(psi_out(:)/bs)**cs ), k_floor * kmx)
+    k_cur(:)   = MAX(seg_k(psi_out), k_floor * kmx)
     dpsi_de(:) = ( MAX(k_in(:), k_floor * kmx) * dpsi_de(:) - 1.0 ) / k_cur(:)
+    IF ( PRESENT(leaf_k_intact) ) THEN
+      dpsi_de_int(:) = ( MAX(kmx * EXP( -(psi_in(:)/bs)**cs ), k_floor * kmx) &
+                         * dpsi_de_int(:) - 1.0 )                              &
+                       / MAX(kmx * EXP( -(psi_out(:)/bs)**cs ), k_floor * kmx)
+    END IF
     psi_in(:)  = psi_out(:)
   END DO
 
@@ -939,7 +981,42 @@ DO j = 1, open_pnts
   ELSEWHERE
     leaf_k(:,j) = 0.0
   END WHERE
+  IF ( PRESENT(leaf_k_intact) ) THEN
+    WHERE ( dpsi_de_int(:) < 0.0 .AND.                                         &
+            ABS(dpsi_de_int(:)) < HUGE(1.0_real_jlslsm) )
+      leaf_k_intact(:,j) = -1.0 / dpsi_de_int(:)
+    ELSEWHERE
+      leaf_k_intact(:,j) = 0.0
+    END WHERE
+  END IF
 END DO
+
+CONTAINS
+
+  ! Segment conductance (capped where l_cap).
+  FUNCTION seg_k( psi ) RESULT( k )
+  REAL(KIND=real_jlslsm), INTENT(IN) :: psi(n_e_leaf)
+  REAL(KIND=real_jlslsm) :: k(n_e_leaf)
+  k(:) = kmx * EXP( -(psi(:)/bs)**cs )
+  IF ( l_cap ) k(:) = MIN(k(:), fr * kmx)
+  END FUNCTION seg_k
+
+  ! Integral of the segment conductance from psi to 0 (so that the flow
+  ! from psi_in to psi_out is seg_a(psi_out) - seg_a(psi_in)).
+  FUNCTION seg_a( n, psi ) RESULT( a )
+  INTEGER, INTENT(IN) :: n
+  REAL(KIND=real_jlslsm), INTENT(IN) :: psi(n)
+  REAL(KIND=real_jlslsm) :: a(n)
+  ! Note: the negative sign is present because bs is negative.
+  a(:) = kmx * (-bs/cs) * incomplete_gamma(n, 1.0/cs, (psi(:)/bs)**cs)
+  IF ( l_cap ) THEN
+    WHERE ( psi(:) >= psi_cap )
+      a(:) = fr * kmx * (-psi(:))
+    ELSEWHERE
+      a(:) = fr * kmx * (-psi_cap) + a(:) - a_cap
+    END WHERE
+  END IF
+  END FUNCTION seg_a
 
 END SUBROUTINE leaf_psi_segments_jls
 

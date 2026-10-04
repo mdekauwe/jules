@@ -62,7 +62,8 @@ USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft,                        &
                    pft_xylem_impairment_model
-USE jules_vegetation_mod, ONLY: xylem_impairment_none
+USE jules_vegetation_mod, ONLY: xylem_impairment_none, l_som_plant_segments
+USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE model_time_mod, ONLY: is_spinup
 
 LOGICAL, INTENT(IN) :: l_multilayer
@@ -211,7 +212,7 @@ INTEGER ::                                                                     &
  optimal_index                                                                 &
                             ! Holds index of the optimal stomatal conductance
                             !  for each land point. Used by SOX_profit_model.
-,i,j,l                                                                         &
+,i,j,l,iseg                                                                    &
                             ! Iterators
 ,errcode
                             ! Error code to pass to ereport.
@@ -387,7 +388,7 @@ kl_SOX(:,:) = 0.0
 ! If there are no land points with open stomata then no calculation is
 ! needed, other than (with xylem impairment) the leaf xylem conductance.
 IF(0 == open_pts) THEN
-  IF (l_xylem_impairment) THEN
+  IF (l_xylem_impairment .AND. .NOT. l_som_plant_segments) THEN
     ! Calculate the xylem conductance at the leaf water potential.
     CALL leaf_conductance_impaired_jls( pft, land_pts, psi_leaf, kmax_ref,     &
                                         kmax, kcrit, conductance_b,            &
@@ -405,8 +406,22 @@ b_ref(:) = conductance_b_pft(pft)
 c_ref(:) = conductance_c_pft(pft)
 kl_hc_max(:) = kmax_ref(:)
 IF (l_xylem_impairment) THEN
-  CALL leaf_conductance_jls( pft, land_pts, psi_root_zone, kmax_ref, kcrit,    &
-                             b_ref, c_ref, kl_hc_max )
+  IF (l_som_plant_segments) THEN
+    ! Segments in series: the intact whole-plant conductance with no flow,
+    ! 1 / sum_s 1 / k_s(psi_root_zone).
+    DO l = 1, land_pts
+      kl_hc_max(l) = 0.0
+      DO iseg = 1, 3
+        kl_hc_max(l) = kl_hc_max(l) + 1.0 / MAX(kmax_ref(l) * seg_kfac(pft,iseg) &
+                       * EXP( -(psi_root_zone(l) / conductance_b_seg(pft,iseg)) &
+                              **conductance_c_seg(pft,iseg) ), TINY(1.0_real_jlslsm))
+      END DO
+      kl_hc_max(l) = 1.0 / kl_hc_max(l)
+    END DO
+  ELSE
+    CALL leaf_conductance_jls( pft, land_pts, psi_root_zone, kmax_ref, kcrit,  &
+                               b_ref, c_ref, kl_hc_max )
+  END IF
 END IF
 
 ! ----------------------------------------------------------------------------
@@ -738,9 +753,10 @@ SELECT CASE ( som_base_parm )
                'som_base_parm should be 1 or 2')
 END SELECT
 
-IF (l_xylem_impairment) THEN
+IF (l_xylem_impairment .AND. .NOT. l_som_plant_segments) THEN
   ! Calculate the xylem conductance at the leaf water potential, for all
-  ! points (open and closed), on the impaired vulnerability curve.
+  ! points (open and closed), on the impaired vulnerability curve. (With
+  ! segments leaf_k is the chosen sample's whole-plant conductance.)
   ! JBaguley
   CALL leaf_conductance_impaired_jls( pft, land_pts, psi_leaf, kmax_ref,       &
                                       kmax, kcrit, conductance_b,              &
@@ -776,10 +792,12 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls, xylem_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_psi_impaired_jls
+USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_segments_jls
 
 USE jules_vegetation_mod, ONLY:                                                &
         photo_collatz, photo_farquhar, photo_johnson, photo_model,             &
-        CW_conductance, SOX_conductance, som_psi_solver
+        CW_conductance, SOX_conductance, som_psi_solver,                       &
+        l_som_plant_segments
 
 USE jb_photo_mod, ONLY: jb_eta_scale
 
@@ -951,7 +969,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Limit for the change in conductance when
                             ! estimating leaf water potential from
                             ! transpiration rate.
-,kmax_open(open_pts), kcrit_open(open_pts), b_open(open_pts), c_open(open_pts)
+,kmax_open(open_pts), kcrit_open(open_pts), b_open(open_pts), c_open(open_pts) &
+,kcap_frac_pts(land_pts)
                             ! Unimpaired PFT curve gathered onto the
                             ! open-point index, for kl_hc_sample.
 
@@ -1202,7 +1221,23 @@ el_sample(:,:) = MAX(0.0, el_sample(:,:))
 !       the (1:n_sample,:) sections instead makes the actual and dummy
 !       argument shapes match exactly, so entry 0 is left untouched and
 !       entries 1:n_sample line up correctly.
-IF (l_xylem_impairment) THEN
+IF (l_xylem_impairment .AND. l_som_plant_segments) THEN
+  ! Segments: the memory model's cap on the stem and leaf segments (the
+  ! root is not damaged); the hydraulic cost uses the intact segments'
+  ! whole-plant conductance at the same water potentials.
+  kcap_frac_pts(:) = 1.0
+  DO j = 1, open_pts
+    l = veg_index(open_index(j))
+    kcap_frac_pts(l) = kmax(l) / MAX(kmax_ref(l), TINY(1.0_real_jlslsm))
+  END DO
+  CALL leaf_psi_segments_jls( pft, n_sample, land_pts, open_pts, veg_index,   &
+                              open_index, el_sample(1:n_sample,:),             &
+                              psi_root_zone, kmax_ref, kcrit,                  &
+                              psi_sample(1:n_sample,:),                        &
+                              kl_sample(1:n_sample,:),                         &
+                              kcap_frac = kcap_frac_pts,                       &
+                              leaf_k_intact = kl_hc_sample(1:n_sample,:) )
+ELSE IF (l_xylem_impairment) THEN
   ! Leaf water potential and conductance on the impaired vulnerability
   ! curve. JBaguley
   CALL leaf_psi_impaired_jls( pft,                                             &
