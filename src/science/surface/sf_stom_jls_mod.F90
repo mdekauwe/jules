@@ -1317,7 +1317,8 @@ CASE ( photo_farquhar )
   CALL leaf_temp_responses( ft, land_pts, veg_pts, veg_index,                  &
                             pft_photo_model, tstar, oa, acr, actj, actv,       &
                             dsj, dsv, ccp, kc, ko, km, denom, qtenf_term,      &
-                            vcmax_temp, jmax_temp, i2 )
+                            vcmax_temp, jmax_temp, i2,                  &
+                            psi_rz = psi_root_zone )
 
 CASE DEFAULT
   errcode = 101  !  a hard error
@@ -2804,14 +2805,14 @@ CASE ( 7 )
                                pstar, q_c_lt, dq_min,                          &
                                ccp_sun_lt, kc_sun_lt, ko_sun_lt, km_sun_lt,    &
                                vcmax_sun_2l, je_sun, rd_sun, qs_sun_lt,        &
-                               dq_sun_lt )
+                               dq_sun_lt, psi_rz = psi_root_zone )
       CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
                                pft_photo_model, t_shd_lt, oa, actj, actv,      &
                                dsj, dsv, jv25, nleaf_top, nw_shd_2l, i2_shd,   &
                                pstar, q_c_lt, dq_min,                          &
                                ccp_shd_lt, kc_shd_lt, ko_shd_lt, km_shd_lt,    &
                                vcmax_shd_2l, je_shd, rd_shd, qs_shd_lt,        &
-                               dq_shd_lt )
+                               dq_shd_lt, psi_rz = psi_root_zone )
     END IF
 
     !-------------------------------------------------------------------------
@@ -3647,7 +3648,7 @@ SUBROUTINE leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
                                pft_photo_model, t_leaf, oa, actj, actv, dsj,   &
                                dsv, jv25, nleaf_top, nw, i2c, pstar, q_c,      &
                                dq_min, ccp, kc, ko, km, vcmax_c, je_c, rd_c,   &
-                               qs_c, dq_c )
+                               qs_c, dq_c, psi_rz )
 
 ! Two-leaf leaf energy balance (l_leaf_temp): the photosynthesis parameters
 ! of one leaf class at its temperature t_leaf - the temperature responses,
@@ -3674,6 +3675,9 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   vcmax_c(land_pts), je_c(land_pts), rd_c(land_pts), qs_c(land_pts),           &
   dq_c(land_pts)
 
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: psi_rz(land_pts)
+    ! Root-zone water potential (Pa), for l_som_vcmax_psi.
+
 REAL(KIND=real_jlslsm) ::                                                      &
   acr0(land_pts), denom_t(land_pts), qtenf_t(land_pts), vtemp(land_pts),       &
   jtemp(land_pts), i2_t(land_pts), jmax_t(land_pts), rd_t(land_pts),           &
@@ -3698,7 +3702,7 @@ dq_c(:)    = 0.0
 CALL leaf_temp_responses( ft, land_pts, veg_pts, veg_index,                    &
                           pft_photo_model, t_leaf, oa, acr0, actj, actv,       &
                           dsj, dsv, ccp, kc, ko, km, denom_t, qtenf_t,         &
-                          vtemp, jtemp, i2_t )
+                          vtemp, jtemp, i2_t, psi_rz = psi_rz )
 
 CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,            &
                             veg_index, denom_t, jtemp, jv25,                   &
@@ -4110,7 +4114,7 @@ END SUBROUTINE leaf_temp_update
 SUBROUTINE leaf_temp_responses( ft, land_pts, veg_pts, veg_index,              &
                                 pft_photo_model, t_leaf, oa, acr, actj, actv,  &
                                 dsj, dsv, ccp, kc, ko, km, denom, qtenf_term,  &
-                                vcmax_temp, jmax_temp, i2 )
+                                vcmax_temp, jmax_temp, i2, psi_rz )
 
 ! Temperature responses of the photosynthesis parameters at leaf
 ! temperature t_leaf: denom, qtenf_term, ccp, kc, ko (Collatz; C3 only for
@@ -4121,7 +4125,8 @@ USE conversions_mod, ONLY: zerodegc
 USE c_rmol, ONLY: rmol
 USE jules_vegetation_mod, ONLY: photo_collatz, photo_farquhar
 USE pftparm, ONLY: alpha_elec, c3, deact_jmax, deact_vcmax, q10_leaf, tlow,    &
-                   tupp
+                   tupp, psi_vcmax_f, sf_vcmax
+USE jules_vegetation_mod, ONLY: l_som_vcmax_psi
 
 IMPLICIT NONE
 
@@ -4143,6 +4148,10 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
       ! IN OUT: each model sets only its own terms (and ccp stays zero for
       ! C4 with Collatz).
 
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: psi_rz(land_pts)
+      ! Root-zone water potential (Pa): with l_som_vcmax_psi, Vcmax and Jmax
+      ! (Farquhar) are scaled by the soil-water down-regulation factor.
+
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
   t_ref = zerodegc + 25.0,                                                     &
     ! Reference temperature (K).
@@ -4151,7 +4160,7 @@ REAL(KIND=real_jlslsm), PARAMETER ::                                           &
 
 INTEGER :: l, m
 REAL(KIND=real_jlslsm) :: jmax_numerator, kc_val, ko_val, power, tau, tdegc,  &
-                          t_minus_ref, t_term, vcmax_numerator
+                          t_minus_ref, t_term, vcmax_numerator, f_psi, psi_mpa
 
 SELECT CASE ( pft_photo_model )
 
@@ -4222,6 +4231,26 @@ CASE ( photo_farquhar )
 
   END DO
 !$OMP END PARALLEL DO
+
+  !---------------------------------------------------------------------------
+  ! Soil-water down-regulation of photosynthetic capacity (l_som_vcmax_psi):
+  ! Zhou et al. (2013) form on the root-zone (predawn) water potential,
+  ! f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi))), psi in MPa; f = 1
+  ! in wet soil and about 0.5 at psi = psi_f. Applied to Vcmax and Jmax
+  ! (so Rd, which scales with Vcmax, follows).
+  !---------------------------------------------------------------------------
+  IF ( l_som_vcmax_psi .AND. PRESENT(psi_rz) ) THEN
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      psi_mpa = MIN(psi_rz(l), 0.0) * 1.0e-6
+      f_psi = ( 1.0 + EXP( sf_vcmax(ft) * psi_vcmax_f(ft) * 1.0e-6 ) )        &
+              / ( 1.0 + EXP( sf_vcmax(ft) * ( psi_vcmax_f(ft) * 1.0e-6         &
+                                              - psi_mpa ) ) )
+      f_psi = MIN(MAX(f_psi, 0.0_real_jlslsm), 1.0_real_jlslsm)
+      vcmax_temp(l) = vcmax_temp(l) * f_psi
+      jmax_temp(l)  = jmax_temp(l)  * f_psi
+    END DO
+  END IF
 
 END SELECT
 

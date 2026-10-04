@@ -466,6 +466,12 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Leaf water potential (Pa) at which the nonstomatal
                  ! limitation reduces photosynthesis to zero (l_som_nsl);
                  ! psi_0 of Dewar et al. (2022). Must be < psi_nsl_onset.
+,psi_vcmax_f(:)                                                                &
+                 ! Root-zone water potential (Pa) at which photosynthetic
+                 ! capacity is about halved (l_som_vcmax_psi; psi_f of Zhou
+                 ! et al. 2013).
+,sf_vcmax(:)                                                                   &
+                 ! Steepness of that down-regulation (MPa-1).
 ,g1_tuzet(:)                                                                   &
                  ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
@@ -793,6 +799,8 @@ ALLOCATE( gcut(npft))
 ALLOCATE( psi_nsl_onset(npft))
 ALLOCATE( psi_nsl0(npft))
 ALLOCATE( fsmc_q(npft))
+ALLOCATE( psi_vcmax_f(npft))
+ALLOCATE( sf_vcmax(npft))
 ALLOCATE( g1_tuzet(npft))
 ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
@@ -819,6 +827,8 @@ gcut(:) = 3.0
 psi_nsl_onset(:) = 0.0
 psi_nsl0(:) = -3.0e6
 fsmc_q(:) = 1.0
+psi_vcmax_f(:) = -2.0e6
+sf_vcmax(:) = 2.0
 g1_tuzet(:) = 4.19
 sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
@@ -1101,6 +1111,10 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' psi_nsl0 = ',psi_nsl0
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' fsmc_q = ',fsmc_q
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' psi_vcmax_f = ',psi_vcmax_f
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' sf_vcmax = ',sf_vcmax
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
 CALL jules_print('pftparm',lineBuffer)

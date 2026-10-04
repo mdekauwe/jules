@@ -490,6 +490,15 @@ LOGICAL ::                                                                     &
       ! limitation reduces both the optimiser's gain and the actual
       ! photosynthesis.
 LOGICAL ::                                                                     &
+  l_som_vcmax_psi = .FALSE.
+      ! When .TRUE., photosynthetic capacity (Vcmax and Jmax) is down-
+      ! regulated as the soil dries, by the root-zone water potential (the
+      ! predawn proxy), with the Zhou et al. (2013, Agric. For. Meteorol.
+      ! 182-183: 204) form f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f -
+      ! psi_rz))) (pft_params psi_vcmax_f_io, sf_vcmax_io; psi in MPa).
+      ! Unlike l_som_nsl it does not act in wet soil and does not depend on
+      ! the midday leaf psi. Profit max (stomata_model = 4) only.
+LOGICAL ::                                                                     &
   l_som_fast = .FALSE.
       ! Deprecated namelist input: .TRUE. sets som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table).
@@ -657,6 +666,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
+    l_som_vcmax_psi,                                                           &
     l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
     leaf_shelter, leaf_aero_model, l_leaf_coexp_lai,                           &
     l_som_gain_gross,                                                          &
@@ -1352,6 +1362,13 @@ IF ( l_leaf_temp .AND. leaf_width <= 0.0 ) THEN
                'l_leaf_temp needs leaf_width > 0')
 END IF
 
+IF ( l_som_vcmax_psi .AND. ( stomata_model /= stomata_profit_max .OR.         &
+                             photo_model /= photo_farquhar ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_vcmax_psi requires stomata_model=4 and photo_model=2')
+END IF
+
 IF ( l_som_nsl .AND. ( stomata_model /= stomata_profit_max .OR.               &
                        som_ci_search /= som_ci_bounded ) ) THEN
   errcode = 101
@@ -1507,6 +1524,9 @@ WRITE(lineBuffer,*) ' l_som_root_supply = ', l_som_root_supply
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_nsl = ', l_som_nsl
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_som_vcmax_psi = ', l_som_vcmax_psi
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_leaf_temp = ', l_leaf_temp
@@ -1673,7 +1693,7 @@ INTEGER, PARAMETER :: n_int = 21 ! +2 leaf_temp_iter/leaf_aero_model, was 16, +1
 INTEGER, PARAMETER :: n_real = 17 + (n_photo_coef * 5) ! +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 41 + npft_max ! +1 l_leaf_coexp_lai,
+INTEGER, PARAMETER :: n_log = 42 + npft_max ! +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -1735,6 +1755,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_supply_limit
   LOGICAL :: l_som_root_supply
   LOGICAL :: l_som_nsl
+  LOGICAL :: l_som_vcmax_psi
   LOGICAL :: l_leaf_temp
   LOGICAL :: l_leaf_temp_gc_eq
   LOGICAL :: l_leaf_coexp_lai
@@ -1833,6 +1854,7 @@ IF (mype == 0) THEN
   my_nml % l_som_supply_limit = l_som_supply_limit
   my_nml % l_som_root_supply = l_som_root_supply
   my_nml % l_som_nsl = l_som_nsl
+  my_nml % l_som_vcmax_psi = l_som_vcmax_psi
   my_nml % l_leaf_temp = l_leaf_temp
   my_nml % l_leaf_temp_gc_eq = l_leaf_temp_gc_eq
   my_nml % l_leaf_coexp_lai = l_leaf_coexp_lai
@@ -1924,6 +1946,7 @@ IF (mype /= 0) THEN
   l_som_supply_limit = my_nml % l_som_supply_limit
   l_som_root_supply = my_nml % l_som_root_supply
   l_som_nsl = my_nml % l_som_nsl
+  l_som_vcmax_psi = my_nml % l_som_vcmax_psi
   l_leaf_temp = my_nml % l_leaf_temp
   l_leaf_temp_gc_eq = my_nml % l_leaf_temp_gc_eq
   l_leaf_coexp_lai = my_nml % l_leaf_coexp_lai
