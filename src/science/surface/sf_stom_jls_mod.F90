@@ -2628,10 +2628,12 @@ CASE ( 1 )
           leaf_k_leaf_basis(:) = leaf_k(:)
 
           ! calculate the root zone conductance to pass to imparment calculation.
+          ! psi_src: the root-zone psi with gravity (l_som_gravity), as the
+          ! hydraulics see it.
           CALL leaf_conductance_impaired_jls(                                    &
                 ft,                                                              &
                 land_pts,                                                        &
-                psi_root_zone,                                                   &
+                psi_src,                                                         &
                 kmax_leaf_basis,                                                 &
                 k_max,                                                           &
                 kcrit_leaf_basis,                                                &
@@ -2657,7 +2659,7 @@ CASE ( 1 )
                   open_land_index,                                               &
                   ft,                                                            &
                   psi_leaf,                                                      &
-                  psi_root_zone,                                                 &
+                  psi_src,                                                       &
                   leaf_k_leaf_basis,                                             &
                   root_zone_k,                                                   &
                 ! IN OUT
@@ -3263,8 +3265,10 @@ CASE ( 7 )
   kmax_leaf_basis(:) = kmax_pft(ft)
   kcrit_leaf_basis(:) = kcrit(ft)
   leaf_k_leaf_basis(:) = leaf_k(:)
+  ! psi_src: the root-zone psi with gravity (l_som_gravity), as the
+  ! hydraulics see it.
   CALL leaf_conductance_impaired_jls(                                          &
-        ft, land_pts, psi_root_zone, kmax_leaf_basis, k_max,                   &
+        ft, land_pts, psi_src, kmax_leaf_basis, k_max,                         &
         kcrit_leaf_basis, conductance_b, conductance_c, psi_root_extreme,      &
         ! INTENT OUT
         root_zone_k )
@@ -3278,7 +3282,7 @@ CASE ( 7 )
   END DO
   CALL update_xylem_impairment(                                                &
         ! IN
-          land_pts, open_pts, open_land_index, ft, psi_leaf, psi_root_zone,    &
+          land_pts, open_pts, open_land_index, ft, psi_leaf, psi_src,          &
           leaf_k_leaf_basis, root_zone_k,                                      &
         ! IN OUT
           k_max,                                                               &
