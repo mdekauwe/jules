@@ -472,6 +472,16 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! et al. 2013).
 ,sf_vcmax(:)                                                                   &
                  ! Steepness of that down-regulation (MPa-1).
+,nsl_sink_umax(:)                                                             &
+                 ! l_som_nsl_sink: maximum sink demand (g C m-2 d-1).
+,nsl_sink_tau(:)                                                              &
+                 ! l_som_nsl_sink: pool size, days of nsl_sink_umax (d).
+,nsl_sink_maint(:)                                                            &
+                 ! l_som_nsl_sink: maintenance fraction of the demand (-).
+,nsl_sink_psi50(:)                                                            &
+                 ! l_som_nsl_sink: root-zone psi halving growth (Pa).
+,nsl_sink_sf(:)                                                               &
+                 ! l_som_nsl_sink: steepness of the turgor limit (MPa-1).
 ,g1_tuzet(:)                                                                   &
                  ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
@@ -801,6 +811,11 @@ ALLOCATE( psi_nsl0(npft))
 ALLOCATE( fsmc_q(npft))
 ALLOCATE( psi_vcmax_f(npft))
 ALLOCATE( sf_vcmax(npft))
+ALLOCATE( nsl_sink_umax(npft))
+ALLOCATE( nsl_sink_tau(npft))
+ALLOCATE( nsl_sink_maint(npft))
+ALLOCATE( nsl_sink_psi50(npft))
+ALLOCATE( nsl_sink_sf(npft))
 ALLOCATE( g1_tuzet(npft))
 ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
@@ -829,6 +844,11 @@ psi_nsl0(:) = -3.0e6
 fsmc_q(:) = 1.0
 psi_vcmax_f(:) = -2.0e6
 sf_vcmax(:) = 2.0
+nsl_sink_umax(:) = 10.0
+nsl_sink_tau(:) = 10.0
+nsl_sink_maint(:) = 0.15
+nsl_sink_psi50(:) = -0.75e6
+nsl_sink_sf(:) = 6.0
 g1_tuzet(:) = 4.19
 sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
@@ -1115,6 +1135,16 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' psi_vcmax_f = ',psi_vcmax_f
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' sf_vcmax = ',sf_vcmax
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsl_sink_umax = ',nsl_sink_umax
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsl_sink_tau = ',nsl_sink_tau
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsl_sink_maint = ',nsl_sink_maint
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsl_sink_psi50 = ',nsl_sink_psi50
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsl_sink_sf = ',nsl_sink_sf
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
 CALL jules_print('pftparm',lineBuffer)
