@@ -206,6 +206,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! pftparm defaults -2 MPa and 2 MPa-1).
   psi_vcmax_f_io(npft_max) = rmdi,                                             &
   sf_vcmax_io(npft_max) = rmdi,                                                &
+  psi_vcmax_fmin_io(npft_max) = rmdi,                                          &
   nsl_sink_umax_io(npft_max) = rmdi,                                          &
   nsl_sink_tau_io(npft_max) = rmdi,                                           &
   nsl_sink_maint_io(npft_max) = rmdi,                                         &
@@ -292,7 +293,7 @@ NAMELIST  / jules_pftparm/                                                     &
   p50_root_io,     p50_stem_io,      p50_leaf_io,                              &
   p88_root_io,     p88_stem_io,      p88_leaf_io,                              &
   gcut_io,         psi_nsl_onset_io, psi_nsl0_io,                              &
-  fsmc_q_io,       psi_vcmax_f_io,   sf_vcmax_io,                              &
+  fsmc_q_io,       psi_vcmax_f_io,   sf_vcmax_io,      psi_vcmax_fmin_io,      &
   nsl_sink_umax_io, nsl_sink_tau_io, nsl_sink_maint_io,                    &
   nsl_sink_psi50_io, nsl_sink_sf_io,                                  &
   g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
@@ -339,7 +340,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 5 * npft_max ! = the INTEGER arrays in my_namelist
-INTEGER, PARAMETER :: n_real = 139 * npft_max ! = the REAL arrays in my_namelist
+INTEGER, PARAMETER :: n_real = 140 * npft_max ! = the REAL arrays in my_namelist
 
 TYPE :: my_namelist
   SEQUENCE
@@ -450,6 +451,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: fsmc_q_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_vcmax_f_io(npft_max)
   REAL(KIND=real_jlslsm) :: sf_vcmax_io(npft_max)
+  REAL(KIND=real_jlslsm) :: psi_vcmax_fmin_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsl_sink_umax_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsl_sink_tau_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsl_sink_maint_io(npft_max)
@@ -612,6 +614,7 @@ IF (mype == 0) THEN
   my_nml % fsmc_q_io      = fsmc_q_io
   my_nml % psi_vcmax_f_io = psi_vcmax_f_io
   my_nml % sf_vcmax_io    = sf_vcmax_io
+  my_nml % psi_vcmax_fmin_io = psi_vcmax_fmin_io
   my_nml % nsl_sink_umax_io = nsl_sink_umax_io
   my_nml % nsl_sink_tau_io = nsl_sink_tau_io
   my_nml % nsl_sink_maint_io = nsl_sink_maint_io
@@ -762,6 +765,7 @@ IF (mype /= 0) THEN
   fsmc_q_io       = my_nml % fsmc_q_io
   psi_vcmax_f_io  = my_nml % psi_vcmax_f_io
   sf_vcmax_io     = my_nml % sf_vcmax_io
+  psi_vcmax_fmin_io = my_nml % psi_vcmax_fmin_io
   nsl_sink_umax_io = my_nml % nsl_sink_umax_io
   nsl_sink_tau_io = my_nml % nsl_sink_tau_io
   nsl_sink_maint_io = my_nml % nsl_sink_maint_io
@@ -823,7 +827,7 @@ USE pftparm, ONLY:                                                             &
   psi_open,        min_rootc_pft,    root_psi_crit,                            & ! JBaguley
   root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
   gcut,            psi_nsl_onset,    psi_nsl0,         fsmc_q,                 &
-  psi_vcmax_f,     sf_vcmax,                                                   &
+  psi_vcmax_f,     sf_vcmax,         psi_vcmax_fmin,                           &
   nsl_sink_umax, nsl_sink_tau, nsl_sink_maint,                       &
   nsl_sink_psi50, nsl_sink_sf,                                     &
   g1_tuzet,        sf_tuzet,                                                   &
@@ -1005,6 +1009,14 @@ WHERE (ABS(psi_vcmax_f_io(1:npft) - rmdi) > EPSILON(1.0))                    &
   psi_vcmax_f(:) = psi_vcmax_f_io(1:npft)
 WHERE (ABS(sf_vcmax_io(1:npft) - rmdi) > EPSILON(1.0))                       &
   sf_vcmax(:) = sf_vcmax_io(1:npft)
+WHERE (ABS(psi_vcmax_fmin_io(1:npft) - rmdi) > EPSILON(1.0))                 &
+  psi_vcmax_fmin(:) = psi_vcmax_fmin_io(1:npft)
+IF ( l_som_vcmax_psi .AND. ( ANY(psi_vcmax_fmin(:) < 0.0) .OR.               &
+                             ANY(psi_vcmax_fmin(:) >= 1.0) ) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                         &
+               'l_som_vcmax_psi needs 0 <= psi_vcmax_fmin_io < 1.')
+END IF
 WHERE (ABS(nsl_sink_umax_io(1:npft) - rmdi) > EPSILON(1.0))                   &
   nsl_sink_umax(:) = nsl_sink_umax_io(1:npft)
 WHERE (ABS(nsl_sink_tau_io(1:npft) - rmdi) > EPSILON(1.0))                    &

@@ -4272,9 +4272,13 @@ SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
 ! (l_som_vcmax_psi): the Zhou et al. (2013) form on the root-zone (predawn)
 ! water potential,
 !   f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi))), psi in MPa,
-! f = 1 in wet soil and about 0.5 at psi = psi_f.
+! f = 1 in wet soil and about 0.5 at psi = psi_f, with an optional floor,
+!   f_vc = fmin + (1 - fmin) f   (psi_vcmax_fmin, default 0),
+! so the stomatal (hydraulic) limitation, not capacity, sets photosynthesis
+! in the driest soil (the steady state of the sink-limited NSL,
+! l_som_nsl_sink, levels off at about the maintenance demand).
 
-USE pftparm, ONLY: psi_vcmax_f, sf_vcmax
+USE pftparm, ONLY: psi_vcmax_f, sf_vcmax, psi_vcmax_fmin
 
 IMPLICIT NONE
 
@@ -4293,7 +4297,12 @@ DO m = 1,veg_pts
   f_psi = ( 1.0 + EXP( sf_vcmax(ft) * psi_vcmax_f(ft) * 1.0e-6 ) )            &
           / ( 1.0 + EXP( sf_vcmax(ft) * ( psi_vcmax_f(ft) * 1.0e-6             &
                                           - psi_mpa ) ) )
-  f_vc(l) = MIN(MAX(f_psi, 0.0_real_jlslsm), 1.0_real_jlslsm)
+  f_psi = MIN(MAX(f_psi, 0.0_real_jlslsm), 1.0_real_jlslsm)
+  IF ( psi_vcmax_fmin(ft) > 0.0 ) THEN
+    f_vc(l) = psi_vcmax_fmin(ft) + (1.0 - psi_vcmax_fmin(ft)) * f_psi
+  ELSE
+    f_vc(l) = f_psi
+  END IF
 END DO
 
 END SUBROUTINE vcmax_psi_factor

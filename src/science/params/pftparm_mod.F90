@@ -472,6 +472,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! et al. 2013).
 ,sf_vcmax(:)                                                                   &
                  ! Steepness of that down-regulation (MPa-1).
+,psi_vcmax_fmin(:)                                                             &
+                 ! Floor of that down-regulation (-): f = fmin + (1 - fmin)
+                 ! f_Zhou, so capacity never falls below fmin (0 = none).
 ,nsl_sink_umax(:)                                                             &
                  ! l_som_nsl_sink: maximum sink demand (g C m-2 d-1).
 ,nsl_sink_tau(:)                                                              &
@@ -811,6 +814,7 @@ ALLOCATE( psi_nsl0(npft))
 ALLOCATE( fsmc_q(npft))
 ALLOCATE( psi_vcmax_f(npft))
 ALLOCATE( sf_vcmax(npft))
+ALLOCATE( psi_vcmax_fmin(npft))
 ALLOCATE( nsl_sink_umax(npft))
 ALLOCATE( nsl_sink_tau(npft))
 ALLOCATE( nsl_sink_maint(npft))
@@ -844,6 +848,7 @@ psi_nsl0(:) = -3.0e6
 fsmc_q(:) = 1.0
 psi_vcmax_f(:) = -2.0e6
 sf_vcmax(:) = 2.0
+psi_vcmax_fmin(:) = 0.0
 nsl_sink_umax(:) = 10.0
 nsl_sink_tau(:) = 10.0
 nsl_sink_maint(:) = 0.15
@@ -1135,6 +1140,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' psi_vcmax_f = ',psi_vcmax_f
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' sf_vcmax = ',sf_vcmax
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' psi_vcmax_fmin = ',psi_vcmax_fmin
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsl_sink_umax = ',nsl_sink_umax
 CALL jules_print('pftparm',lineBuffer)
