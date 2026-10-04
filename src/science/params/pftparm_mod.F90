@@ -474,7 +474,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Steepness of that down-regulation (MPa-1).
 ,psi_vcmax_fmin(:)                                                             &
                  ! Floor of that down-regulation (-): f = fmin + (1 - fmin)
-                 ! f_Zhou, so capacity never falls below fmin (0 = none).
+                 ! f_Zhou, so capacity never falls below fmin (0 = none, as
+                 ! in De Kauwe et al. 2015; the floor is an adjustment).
 ,nsl_sink_umax(:)                                                             &
                  ! l_som_nsl_sink: maximum sink demand (g C m-2 d-1).
 ,nsl_sink_tau(:)                                                              &

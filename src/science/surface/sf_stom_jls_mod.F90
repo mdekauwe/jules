@@ -4274,15 +4274,21 @@ SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
 
 ! Soil-water down-regulation factor of photosynthetic capacity
 ! (l_som_vcmax_psi): the Zhou et al. (2013) form on the root-zone (predawn)
-! water potential,
+! water potential, as used by De Kauwe et al. (2015, Biogeosciences 12:
+! 7503-7518, Eq. 4),
 !   f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi))), psi in MPa,
-! f = 1 in wet soil and about 0.5 at psi = psi_f, with an optional floor,
+! f = 1 in wet soil and about 0.5 at psi = psi_f.
+! Adjustments to De Kauwe et al. (2015), which had neither (both added
+! Oct 2026 after FR-Pue tests, where f -> 0 drove drought GPP to ~0 and
+! capacity recovered within the timestep of the first rain):
+! (1) an optional floor,
 !   f_vc = fmin + (1 - fmin) f   (psi_vcmax_fmin, default 0),
 ! so the stomatal (hydraulic) limitation, not capacity, sets photosynthesis
 ! in the driest soil (the steady state of the sink-limited NSL,
 ! l_som_nsl_sink, levels off at about the maintenance demand).
-! Recovery lag: the factor follows f at once as the soil dries (psi_rz itself
-! changes slowly) but relaxes back towards it with a fixed 5-day e-folding
+! (2) a recovery lag: the factor follows f at once as the soil dries
+! (psi_rz itself changes slowly) but relaxes back towards it with a fixed
+! 5-day e-folding
 ! time (90 % back in about 11 days) as the soil rewets, so capacity recovers
 ! over days rather than within the timestep of the rain. 5 days sits between
 ! fast reversible downregulation (Rubisco activation, mesophyll conductance:

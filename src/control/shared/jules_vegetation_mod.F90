@@ -500,7 +500,11 @@ LOGICAL ::                                                                     &
       ! regulated as the soil dries, by the root-zone water potential (the
       ! predawn proxy), with the Zhou et al. (2013, Agric. For. Meteorol.
       ! 182-183: 204) form f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f -
-      ! psi_rz))) (pft_params psi_vcmax_f_io, sf_vcmax_io; psi in MPa).
+      ! psi_rz))) (pft_params psi_vcmax_f_io, sf_vcmax_io; psi in MPa), as
+      ! applied in a land surface model by De Kauwe et al. (2015,
+      ! Biogeosciences 12: 7503-7518, Eq. 4). Two adjustments to that
+      ! formulation here: an optional floor (psi_vcmax_fmin_io) and a fixed
+      ! 5-day recovery after rewetting (see vcmax_psi_factor in sf_stom).
       ! Unlike l_som_nsl it does not act in wet soil and does not depend on
       ! the midday leaf psi. Profit max (stomata_model = 4) only.
 LOGICAL ::                                                                     &
