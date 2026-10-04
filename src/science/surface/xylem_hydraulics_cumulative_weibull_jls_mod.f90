@@ -840,7 +840,7 @@ SUBROUTINE leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
                                   veg_index, open_index, e_leaf,               &
                                   root_zone_psi, kmax, kcrit,                  &
                                   leaf_psi, leaf_k,                            &
-                                  kcap_frac, leaf_k_intact )
+                                  kcap_frac, leaf_k_intact, stem_psi )
 
 ! Xylem impairment (memory model, pft_xylem_impairment_model = 3) with
 ! segments: with kcap_frac present, the stem and leaf segments (which use
@@ -880,8 +880,10 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
   kcap_frac(land_pts)
       ! Impaired / intact maximum conductance of the stem and leaf segments.
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
-  leaf_k_intact(n_e_leaf, open_pnts)
+  leaf_k_intact(n_e_leaf, open_pnts),                                          &
       ! Whole-plant conductance of the intact segments at leaf_psi.
+  stem_psi(n_e_leaf, open_pnts)
+      ! Water potential at the outlet of the stem segment (Pa).
 
 INTEGER, PARAMETER :: n_seg = 3, max_nr_iter = 4
 
@@ -972,6 +974,7 @@ DO j = 1, open_pnts
                        / MAX(kmx * EXP( -(psi_out(:)/bs)**cs ), k_floor * kmx)
     END IF
     psi_in(:)  = psi_out(:)
+    IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(:,j) = psi_out(:)
   END DO
 
   leaf_psi(:,j) = psi_in(:)

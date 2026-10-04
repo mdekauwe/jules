@@ -440,6 +440,9 @@ ximpair_psi_driver(:),                                                         &
                  !  model (pft_xylem_impairment_model = 3).
                  !       1: Leaf water potential
                  !       2: Mean of leaf and root zone water potentials
+                 !       3: Root zone water potential
+                 !       4: Stem water potential (outlet of the stem
+                 !          segment; needs l_som_plant_segments)
 ximpair_reset_mmdd(:),                                                         &
                  ! Month and day (month*100 + day, e.g. 401 = 1 April) on
                  !  which the memory impairment model's embolism is reset

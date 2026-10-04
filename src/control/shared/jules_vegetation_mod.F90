@@ -184,8 +184,12 @@ INTEGER, PARAMETER ::                                                          &
     ! Leaf water potential.
   ximpair_driver_mean = 2,                                                     &
     ! Mean of the leaf and root zone water potentials.
-  ximpair_driver_root = 3
+  ximpair_driver_root = 3,                                                     &
     ! Root zone water potential (~ predawn; Mackay et al. 2015).
+  ximpair_driver_stem = 4
+    ! Stem water potential: the outlet of the stem segment
+    ! (l_som_plant_segments), i.e. the root zone potential less the drop
+    ! through the root and stem segments at the chosen transpiration.
 
 ! Solvers for the leaf water potential given the transpiration rate
 ! (som_psi_solver). These should have unique values. JBaguley

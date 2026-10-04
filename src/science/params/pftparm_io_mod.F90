@@ -953,7 +953,8 @@ USE jules_surface_types_mod, ONLY: npft
 
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 l_som_root_supply, l_som_vcmax_psi,            &
-                                l_som_nsl_sink, xylem_impairment_memory
+                                l_som_nsl_sink, xylem_impairment_memory,       &
+                                ximpair_driver_stem
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1380,6 +1381,13 @@ DO i = 1, npft
     CALL ereport(RoutineName, errcode,                                         &
                  'l_som_plant_segments can only be combined with ' //          &
                  'pft_xylem_impairment_model = 0 or 3 (memory).')
+  END IF
+  IF ( pft_xylem_impairment_model(i) == xylem_impairment_memory .AND.         &
+       ximpair_psi_driver(i) == ximpair_driver_stem .AND.                      &
+       .NOT. l_som_plant_segments ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'ximpair_psi_driver = 4 (stem) needs l_som_plant_segments.')
   END IF
   IF ( ANY(seg_frac(:) <= 0.0) ) THEN
     errcode = 101

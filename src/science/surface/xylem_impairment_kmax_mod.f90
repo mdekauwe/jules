@@ -527,8 +527,8 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='UPDATE_XYLEM_IMPAIRMENT_KMAX_REFIT'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL update_xylem_impairment_memory( n_land_pts, n_open_pts, open_index, pft,  &
-                                     psi_leaf, psi_root, lai, canht, anetc,    &
-                                     impaired_k_max )
+                                     psi_leaf, psi_root, psi_root, lai, canht, &
+                                     anetc, impaired_k_max )
 
 CALL xylem_refit_weibull( pft, n_land_pts, impaired_k_max, kmax_pft(pft),      &
                           conductance_b_pft(pft), conductance_c_pft(pft),      &

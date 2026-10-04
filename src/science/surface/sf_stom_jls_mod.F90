@@ -631,6 +631,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! WORK Carbon gain for each leaf state
 ,CG_shd(land_pts)                                                            &
                             ! WORK Carbon gain for each leaf state
+,psi_stem(land_pts)                                                            &
+                            ! WORK Stem water potential (Pa): the stem
+                            !      segment outlet of the optimum (xylem
+                            !      impairment driver 4), else psi_src.
+,psi_stem_sun(land_pts), psi_stem_shd(land_pts)                                &
+                            ! WORK psi_stem of the sunlit / shaded leaves.
 ,psi_leaf_sun(land_pts)                                                        &
                             ! WORK Leaf water potential for
 !                                 !      sunlit leaves (Pa).
@@ -986,11 +992,17 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 ! shifted potentials, i.e. at the pressure in the upper xylem.
 !-----------------------------------------------------------------------------
 psi_src(:) = psi_root_zone(:)
+psi_stem(:) = psi_root_zone(:)
+psi_stem_sun(:) = psi_root_zone(:)
+psi_stem_shd(:) = psi_root_zone(:)
 IF ( l_som_gravity .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     psi_src(l) = psi_root_zone(l) - rho_water * g * MAX(ht(l), 0.0)
   END DO
+  psi_stem(:) = psi_src(:)
+  psi_stem_sun(:) = psi_src(:)
+  psi_stem_shd(:) = psi_src(:)
 END IF
 
 ! Capacity factor of Vcmax/Jmax, once per timestep: soil-water
@@ -2594,7 +2606,8 @@ CASE ( 1 )
                 rdc,                                                           &
               ! OUT
                 ci, anetc, el, flux_o3, fo3, gc, psi_leaf,                     &
-                carbon_gain, hydraulic_cost, leaf_k                            &
+                carbon_gain, hydraulic_cost, leaf_k,                           &
+                psi_stem = psi_stem                                            &
         )
 
         ! Convert transpiration to kg H2O m-2 s-1 to match other transpiration
@@ -2660,6 +2673,7 @@ CASE ( 1 )
                   ft,                                                            &
                   psi_leaf,                                                      &
                   psi_src,                                                       &
+                  psi_stem,                                                      &
                   leaf_k_leaf_basis,                                             &
                   root_zone_k,                                                   &
                 ! IN OUT
@@ -3038,7 +3052,8 @@ CASE ( 7 )
                 rd_sun,                                                        &
               ! OUT
                 ci_sun_2l, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun,        &
-                gl_sun, psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun               &
+                gl_sun, psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,              &
+                psi_stem = psi_stem_sun                                        &
         )
     ELSE
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
@@ -3060,7 +3075,8 @@ CASE ( 7 )
               rd_sun,                                                          &
             ! OUT
               ci_sun_2l, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun, gl_sun,  &
-              psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun                         &
+              psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,                        &
+              psi_stem = psi_stem_sun                                          &
       )
     END IF
 
@@ -3120,7 +3136,8 @@ CASE ( 7 )
                 rd_shd,                                                        &
               ! OUT
                 ci_shd_2l, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd,        &
-                gl_shd, psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd               &
+                gl_shd, psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,              &
+                psi_stem = psi_stem_shd                                        &
         )
     ELSE
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
@@ -3142,7 +3159,8 @@ CASE ( 7 )
               rd_shd,                                                          &
             ! OUT
               ci_shd_2l, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd, gl_shd,  &
-              psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd                         &
+              psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,                        &
+              psi_stem = psi_stem_shd                                          &
       )
     END IF
 
@@ -3194,6 +3212,8 @@ CASE ( 7 )
 
     psi_leaf(l)       = f_sun_2l * psi_leaf_sun(l)                             &
                         + (1.0 - f_sun_2l) * psi_leaf_shd(l)
+    psi_stem(l)       = f_sun_2l * psi_stem_sun(l)                             &
+                        + (1.0 - f_sun_2l) * psi_stem_shd(l)
     carbon_gain(l)    = f_sun_2l * CG_sun(l) + (1.0 - f_sun_2l) * CG_shd(l)
     hydraulic_cost(l) = f_sun_2l * HC_sun(l) + (1.0 - f_sun_2l) * HC_shd(l)
 
@@ -3283,7 +3303,7 @@ CASE ( 7 )
   CALL update_xylem_impairment(                                                &
         ! IN
           land_pts, open_pts, open_land_index, ft, psi_leaf, psi_src,          &
-          leaf_k_leaf_basis, root_zone_k,                                      &
+          psi_stem, leaf_k_leaf_basis, root_zone_k,                            &
         ! IN OUT
           k_max,                                                               &
         ! OUT

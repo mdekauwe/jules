@@ -600,6 +600,7 @@ SUBROUTINE update_xylem_impairment ( n_land_pts                                &
 ,                                    pft                                       &
 ,                                    psi_leaf                                  &
 ,                                    psi_root                                  &
+,                                    psi_stem                                  &
 ,                                    leaf_conductance                          &
 ,                                    root_conductance                          &
 ,                                    impaired_k_max                            &
@@ -646,6 +647,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Leaf water potential (Pa)
 , psi_root(n_land_pts)                                                         &
                             ! Root water potential (Pa)
+, psi_stem(n_land_pts)                                                         &
+                            ! Stem water potential (Pa; memory model driver 4)
 , leaf_conductance(n_land_pts)                                                 &
                             ! Leaf conductance (m/s)
 , root_conductance(n_land_pts)
@@ -740,6 +743,7 @@ SELECT CASE (pft_xylem_impairment_model(pft))
                                          pft,                                  &
                                          psi_leaf,                             &
                                          psi_root,                             &
+                                         psi_stem,                             &
                                          lai,                                  &
                                          canht,                                &
                                          anetc,                                &

@@ -41,7 +41,9 @@ SUBROUTINE stom_opt_mod (                                                      &
         rd,                                                                    &
 ! OUT
         ci, al, el, flux_o3, fo3, gl, psi_leaf,                                &
-        carbon_gain_out, hydraulic_cost_out, leaf_k                            &
+        carbon_gain_out, hydraulic_cost_out, leaf_k,                           &
+! OUT (optional)
+        psi_stem                                                               &
 )
 
 USE ereport_mod, ONLY: ereport
@@ -197,6 +199,15 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
                             ! Leaf water potential (Pa)
 ,leaf_k(land_pts)
                             ! Xylem conductance at leaf water potential (m/s)
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
+ psi_stem(land_pts)
+                            ! Stem water potential (Pa): the outlet of the
+                            ! stem segment of the chosen sample, with
+                            ! l_som_plant_segments and xylem impairment (flat
+                            ! search); psi_root_zone otherwise.
+REAL(KIND=real_jlslsm) ::                                                      &
+ psi_stem_sample(0:som_n_sample, open_pts)
+                            ! Stem water potential of each Ci sample.
 
 ! TEMPORARY: output variables for testing
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -379,6 +390,7 @@ fo3(:)     = 0.0
 gl(:)      = min_gl_pft(pft)
 psi_leaf(:)= psi_root_zone(:)
 leaf_k(:)  = kmax
+IF (PRESENT(psi_stem)) psi_stem(:) = psi_root_zone(:)
 
 carbon_gain(:,:) = 0.0
 hydraulic_cost(:,:) = 0.0
@@ -580,7 +592,8 @@ SELECT CASE ( som_base_parm )
             psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,           &
         ! OUT
             ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample,&
-            kl_hc_sample                                                      &
+            kl_hc_sample,                                                     &
+            psi_stem_sample = psi_stem_sample                                 &
                 )
 
         CALL stom_opt_profit_max_select(                                      &
@@ -608,6 +621,8 @@ SELECT CASE ( som_base_parm )
           ! gl = 0 means closed: al = -rd, as in set_closed.
           IF (gl(l) <= 0.0) al(l) = -rd(l)
           psi_leaf(l) = psi_sample(optimal_index_flat(j),j)
+          IF (PRESENT(psi_stem))                                              &
+            psi_stem(l) = psi_stem_sample(optimal_index_flat(j),j)
           el(l) = el_sample(optimal_index_flat(j),j)
           leaf_k(l) = kl_sample(optimal_index_flat(j),j)
           carbon_gain_out(l) = carbon_gain(optimal_index_flat(j),j)
@@ -787,7 +802,9 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
         psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,               &
 ! OUT
         ci_sample, al_sample, gl_sample, kl_sample, psi_sample,el_sample,      &
-        kl_hc_sample                                                           &
+        kl_hc_sample,                                                          &
+! OUT (optional)
+        psi_stem_sample                                                        &
 )
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls, xylem_conductance_jls
@@ -921,6 +938,11 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
                             ! hydraulic cost (m/s): kl_sample, or with
                             ! l_xylem_impairment the conductance at
                             ! psi_sample on the unimpaired PFT curve.
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
+ psi_stem_sample(0:n_sample, open_pts)
+                            ! Stem water potential (Pa) of each sample: the
+                            ! stem segment outlet with segments and
+                            ! impairment, else psi_root_zone.
 
 !-----------------------------------------------------------------------------
 ! Local integer variables.
@@ -970,7 +992,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! estimating leaf water potential from
                             ! transpiration rate.
 ,kmax_open(open_pts), kcrit_open(open_pts), b_open(open_pts), c_open(open_pts) &
-,kcap_frac_pts(land_pts)
+,kcap_frac_pts(land_pts)                                                       &
+,psi_stem_work(0:n_sample, open_pts)
+                            ! Stem water potential of each sample.
                             ! Unimpaired PFT curve gathered onto the
                             ! open-point index, for kl_hc_sample.
 
@@ -1236,7 +1260,8 @@ IF (l_xylem_impairment .AND. l_som_plant_segments) THEN
                               psi_sample(1:n_sample,:),                        &
                               kl_sample(1:n_sample,:),                         &
                               kcap_frac = kcap_frac_pts,                       &
-                              leaf_k_intact = kl_hc_sample(1:n_sample,:) )
+                              leaf_k_intact = kl_hc_sample(1:n_sample,:),      &
+                              stem_psi = psi_stem_work(1:n_sample,:) )
 ELSE IF (l_xylem_impairment) THEN
   ! Leaf water potential and conductance on the impaired vulnerability
   ! curve. JBaguley
@@ -1315,6 +1340,17 @@ DO j = 1, open_pts
   kl_hc_sample(0,j) = 0.0
   psi_sample(0,j) = psi_root_zone(l)
 END DO
+IF (PRESENT(psi_stem_sample)) THEN
+  DO j = 1, open_pts
+    l = veg_index(open_index(j))
+    IF (l_xylem_impairment .AND. l_som_plant_segments) THEN
+      psi_stem_sample(1:,j) = psi_stem_work(1:,j)
+    ELSE
+      psi_stem_sample(1:,j) = psi_root_zone(l)
+    END IF
+    psi_stem_sample(0,j) = psi_root_zone(l)
+  END DO
+END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 

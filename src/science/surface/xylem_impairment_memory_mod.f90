@@ -498,6 +498,16 @@ END SUBROUTINE leaf_psi_impaired_memory
 !                               allometric wood carbon plus g_wood turnover
 !                               (needs l_triffid; no free parameter).
 !
+! TODO (with TRIFFID): carbon-limited recovery. Recovery is now a fixed
+! timescale (ximpair_rec_years) on a growth clock that only sets its timing.
+! With l_triffid the repair could instead be limited by carbon: the renewed
+! fraction taken from the new sapwood TRIFFID actually allocates (basis 3),
+! without the running-mean normalisation, and/or repair given an explicit
+! carbon cost drawn from the wood allocation, so that recovery slows when
+! drought leaves little carbon to grow (cf. Paschalis et al. 2023, who
+! attribute their overestimated FR-Pue legacy to the missing extra carbon
+! for xylem repair). See NOTES_recovery_review.md.
+!
 ! Slow recovery (ximpair_rec_years > 0). Applied directly, the renewed
 ! fractions above recover the damage within ~1 year, as new leaf area and
 ! wood are compared only with the current (small) sapwood. Instead, new
@@ -531,6 +541,7 @@ SUBROUTINE update_xylem_impairment_memory ( n_land_pts                         &
 ,                                           pft                                &
 ,                                           psi_leaf                           &
 ,                                           psi_root                           &
+,                                           psi_stem                           &
 ,                                           lai                                &
 ,                                           canht                              &
 ,                                           anetc                              &
@@ -542,7 +553,8 @@ USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
                    ximpair_tau_rec, ximpair_psi_refill, ximpair_wood_alloc,    &
                    ximpair_growth_basis, ximpair_rec_years, a_wl, a_ws, b_wl
 USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
-                                ximpair_driver_root, l_ximpair_rec_lai,        &
+                                ximpair_driver_root, ximpair_driver_stem,      &
+                                l_ximpair_rec_lai,                             &
                                 l_ximpair_rec_growth, l_triffid,               &
                                 ximpair_rec_form, ximpair_rec_exp
 USE trif, ONLY: g_wood
@@ -569,6 +581,9 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Leaf water potential (Pa)
 , psi_root(n_land_pts)                                                         &
                             ! Root zone water potential (Pa)
+, psi_stem(n_land_pts)                                                         &
+                            ! Stem water potential (Pa; outlet of the stem
+                            ! segment, = psi_root without segments)
 , lai(n_land_pts)                                                              &
                             ! Leaf area index
 , canht(n_land_pts)                                                            &
@@ -619,10 +634,13 @@ CASE (ximpair_driver_mean)
   psi_x(:) = 0.5 * (psi_leaf(:) + psi_root(:))
 CASE (ximpair_driver_root)
   psi_x(:) = psi_root(:)
+CASE (ximpair_driver_stem)
+  psi_x(:) = psi_stem(:)
 CASE DEFAULT
   errcode = 101  !  a hard error
   CALL ereport(RoutineName, errcode,                                           &
-               'ximpair_psi_driver should be leaf (1), mean (2) or root (3)')
+               'ximpair_psi_driver should be leaf (1), mean (2), root (3) ' // &
+               'or stem (4)')
 END SELECT
 
 kmax_pts(:)  = kmax_pft(pft)
