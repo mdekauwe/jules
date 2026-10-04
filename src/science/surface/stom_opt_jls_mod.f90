@@ -39,7 +39,9 @@ SUBROUTINE stom_opt_mod (                                                      &
         rd,                                                                    &
 ! OUT
         ci, al, el, flux_o3, fo3, gl, psi_leaf,                                &
-        carbon_gain_out, hydraulic_cost_out, leaf_k                            &
+        carbon_gain_out, hydraulic_cost_out, leaf_k,                           &
+! IN (optional)
+        gbw                                                                    &
 )
 
 USE ereport_mod, ONLY: ereport
@@ -160,6 +162,12 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
                             ! Leaf water potential (Pa)
 ,leaf_k(land_pts)
                             ! Xylem conductance at leaf water potential (m/s)
+
+REAL(KIND=real_jlslsm), OPTIONAL, INTENT(IN) :: gbw(land_pts)
+                            ! Leaf boundary-layer conductance for water
+                            ! vapour (mol m-2 s-1), in series with the
+                            ! stomata for the transpiration (l_leaf_temp_bl;
+                            ! ignored where <= 0).
 
 ! TEMPORARY: output variables for testing
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -363,7 +371,8 @@ SELECT CASE ( som_base_parm )
             km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,     &
             l_multilayer,                                                     &
         ! OUT
-            ci_e_fp, al_e_fp, gl_e_fp, kl_e_fp, psi_e_fp, el_e_fp              &
+            ci_e_fp, al_e_fp, gl_e_fp, kl_e_fp, psi_e_fp, el_e_fp,             &
+            gbw=gbw                                                            &
                 )
       END IF
 
@@ -420,7 +429,8 @@ SELECT CASE ( som_base_parm )
               gl_max, l_multilayer, som_n_sample, som_n_ci_golden_iter,       &
           ! OUT
               ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                        &
-              el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                     &
+              el_bnd, carbon_gain_bnd, hydraulic_cost_bnd,                    &
+              gbw=gbw                                                         &
                   )
 
           DO j = 1, open_pts_search
@@ -461,7 +471,8 @@ SELECT CASE ( som_base_parm )
             km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,    &
             l_multilayer,                                                     &
         ! OUT
-            ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample &
+            ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample,&
+            gbw=gbw                                                           &
                 )
 
         CALL stom_opt_profit_max_select(                                      &
@@ -514,7 +525,8 @@ SELECT CASE ( som_base_parm )
           km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,       &
           l_multilayer,                                                       &
       ! OUT
-          ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample    &
+          ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample,   &
+          gbw=gbw                                                              &
               )
 
       ! ------------------------------------------------------------------
@@ -633,7 +645,9 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
         pstar, km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax,         &
         kcrit, l_multilayer,                                                  &
 ! OUT
-        ci_sample, al_sample, gl_sample, kl_sample, psi_sample,el_sample       &
+        ci_sample, al_sample, gl_sample, kl_sample, psi_sample,el_sample,      &
+! IN (optional)
+        gbw                                                                    &
 )
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
@@ -684,6 +698,10 @@ INTEGER, INTENT(IN) ::                                                         &
                             ! resolutions/ranges in stom_opt_mod rather
                             ! than being fixed to the module-level
                             ! som_n_sample.
+
+REAL(KIND=real_jlslsm), OPTIONAL, INTENT(IN) :: gbw(land_pts)
+                            ! Leaf boundary-layer conductance for water
+                            ! vapour (mol m-2 s-1), in series with gl for E.
 
 !-----------------------------------------------------------------------------
 ! IN real variables
@@ -1030,6 +1048,16 @@ DO j = 1,open_pts
   ! Convert from m/s to mol H2O/m2/s
   el_sample(:,j) = el_sample(:,j) * pstar(l) / (rmol * t_leaf(l))
 
+  ! Boundary layer in series (l_leaf_temp_bl): E = (vpd/P) gs gbw/(gs+gbw),
+  ! gs in mol m-2 s-1 = gl P/(R T).
+  IF ( PRESENT(gbw) ) THEN
+    IF ( gbw(l) > 0.0 ) THEN
+      el_sample(:,j) = el_sample(:,j) * gbw(l)                                &
+                       / ( gbw(l) + MAX(gl_sample(:,j), 0.0)                   &
+                                    * pstar(l) / (rmol * t_leaf(l)) )
+    END IF
+  END IF
+
 END DO
 
 ! Transpiration can't be negative
@@ -1255,7 +1283,9 @@ SUBROUTINE stom_opt_bounded_search(                                            &
         km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,             &
         gl_max, l_multilayer, n_top, n_iter,                                   &
 ! OUT
-        ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g   &
+        ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g,  &
+! IN (optional)
+        gbw                                                                    &
 )
 
 USE parkind1, ONLY: jprb, jpim
@@ -1288,6 +1318,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   kmax(land_pts), kcrit(land_pts), gl_max(land_pts)
 
 LOGICAL, INTENT(IN) :: l_multilayer
+
+REAL(KIND=real_jlslsm), OPTIONAL, INTENT(IN) :: gbw(land_pts)
+                            ! Leaf boundary-layer conductance for water
+                            ! vapour (mol m-2 s-1), in series with gl for E.
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   ci_g(open_pts), al_g(open_pts), gl_g(open_pts), kl_g(open_pts),            &
@@ -1533,6 +1567,10 @@ CONTAINS
   gl_u = ratio * (al_u * rmol * t_leaf(l)) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
   vpd = dq(l) * pstar(l) / repsilon
   el_u = MAX(0.0, vpd * gl_u / pstar(l) * pstar(l) / (rmol * t_leaf(l)))
+  IF ( PRESENT(gbw) ) THEN
+    IF ( gbw(l) > 0.0 ) el_u = el_u * gbw(l)                                   &
+                       / ( gbw(l) + MAX(gl_u, 0.0) * pstar(l) / (rmol * t_leaf(l)) )
+  END IF
 
   IF ( l_lut ) THEN
     psi_u = supply_lut_psi(pft, psi_root_zone(l),                              &
@@ -1617,6 +1655,11 @@ CONTAINS
   REAL(KIND=real_jlslsm) :: conv_e, g_cap, rk, fa, fb, fc_e, ea, eb, ec
   INTEGER :: it, sd
 
+  ! (E is not linear in gl with the boundary layer in series: leave the
+  ! edge to edge_by_margin.)
+  IF ( PRESENT(gbw) ) THEN
+    IF ( gbw(l) > 0.0 ) RETURN
+  END IF
   conv_e = dq(l) * pstar(l) / repsilon / (rmol * t_leaf(l))
   g_cap = HUGE(1.0_real_jlslsm)
   IF ( gl_max(l) > 0.0 ) g_cap = gl_max(l)

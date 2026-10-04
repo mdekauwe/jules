@@ -430,6 +430,24 @@ INTEGER ::                                                                     &
       ! Number of passes of the two-leaf stomatal optimisation with
       ! l_leaf_temp (each pass is one stom_opt_mod call per leaf, then a
       ! leaf temperature update). iter (3) without l_leaf_temp.
+      ! With leaf_temp_tol >= 0 it is the maximum number of passes.
+REAL(KIND=real_jlslsm) ::                                                      &
+  leaf_temp_tol = 0.05
+      ! With l_leaf_temp, tolerance (K) on the leaf temperatures: each pass
+      ! (optimisation at the current leaf temperatures, then a leaf energy
+      ! balance update for its conductances) is repeated, up to
+      ! leaf_temp_iter passes, until the update changes no leaf temperature
+      ! by more than leaf_temp_tol. The leaf temperatures kept (output and
+      ! next timestep's first guess) are those of the energy balance for the
+      ! final conductances. < 0: the previous scheme, exactly leaf_temp_iter
+      ! passes with no update after the last.
+LOGICAL ::                                                                     &
+  l_leaf_temp_bl = .TRUE.
+      ! With l_leaf_temp, the stomatal optimisation's transpiration goes
+      ! through the leaf boundary layer in series with the stomata,
+      ! E = D gw / P with 1/gw = 1/gs + 1/gbw (gbw = 1.075 gbH of the leaf
+      ! energy balance), as in the energy balance (and the soil-supply cap
+      ! on gs accordingly). .FALSE.: E = D gs / P.
 REAL(KIND=real_jlslsm) ::                                                      &
   leaf_shelter = 1.0
       ! With l_leaf_temp, sheltering factor dividing the forced-convection
@@ -658,6 +676,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_fast,                                                               &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
     l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
+    leaf_temp_tol, l_leaf_temp_bl,                                             &
     leaf_shelter, leaf_aero_model, l_leaf_coexp_lai,                           &
     l_som_gain_gross,                                                          &
     l_som_cuticular_floor, l_som_gravity,                                     &
@@ -1519,6 +1538,10 @@ IF ( l_leaf_temp ) THEN
   CALL jules_print('jules_vegetation_mod',lineBuffer)
   WRITE(lineBuffer,*) ' l_leaf_temp_gc_eq = ', l_leaf_temp_gc_eq
   CALL jules_print('jules_vegetation_mod',lineBuffer)
+  WRITE(lineBuffer,*) ' leaf_temp_tol = ', leaf_temp_tol
+  CALL jules_print('jules_vegetation_mod',lineBuffer)
+  WRITE(lineBuffer,*) ' l_leaf_temp_bl = ', l_leaf_temp_bl
+  CALL jules_print('jules_vegetation_mod',lineBuffer)
   WRITE(lineBuffer,*) ' leaf_aero_model = ', leaf_aero_model
   CALL jules_print('jules_vegetation_mod',lineBuffer)
   WRITE(lineBuffer,*) ' leaf_shelter = ', leaf_shelter
@@ -1670,10 +1693,10 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 21 ! +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
-INTEGER, PARAMETER :: n_real = 17 + (n_photo_coef * 5) ! +2 leaf_width/shelter, +4 for
+INTEGER, PARAMETER :: n_real = 18 + (n_photo_coef * 5) ! +1 leaf_temp_tol ! +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 41 + npft_max ! +1 l_leaf_coexp_lai,
+INTEGER, PARAMETER :: n_log = 42 + npft_max ! +1 l_leaf_temp_bl ! +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -1730,6 +1753,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: light_curvature_fvcb
   REAL(KIND=real_jlslsm) :: leaf_width
   REAL(KIND=real_jlslsm) :: leaf_shelter
+  REAL(KIND=real_jlslsm) :: leaf_temp_tol
   LOGICAL :: l_som_skip_search_wellwatered
   LOGICAL :: l_som_fast
   LOGICAL :: l_som_supply_limit
@@ -1737,6 +1761,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_nsl
   LOGICAL :: l_leaf_temp
   LOGICAL :: l_leaf_temp_gc_eq
+  LOGICAL :: l_leaf_temp_bl
   LOGICAL :: l_leaf_coexp_lai
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
@@ -1835,6 +1860,8 @@ IF (mype == 0) THEN
   my_nml % l_som_nsl = l_som_nsl
   my_nml % l_leaf_temp = l_leaf_temp
   my_nml % l_leaf_temp_gc_eq = l_leaf_temp_gc_eq
+  my_nml % l_leaf_temp_bl = l_leaf_temp_bl
+  my_nml % leaf_temp_tol = leaf_temp_tol
   my_nml % l_leaf_coexp_lai = l_leaf_coexp_lai
   my_nml % leaf_aero_model = leaf_aero_model
   my_nml % leaf_shelter = leaf_shelter
@@ -1926,6 +1953,8 @@ IF (mype /= 0) THEN
   l_som_nsl = my_nml % l_som_nsl
   l_leaf_temp = my_nml % l_leaf_temp
   l_leaf_temp_gc_eq = my_nml % l_leaf_temp_gc_eq
+  l_leaf_temp_bl = my_nml % l_leaf_temp_bl
+  leaf_temp_tol = my_nml % leaf_temp_tol
   l_leaf_coexp_lai = my_nml % l_leaf_coexp_lai
   leaf_aero_model = my_nml % leaf_aero_model
   leaf_shelter = my_nml % leaf_shelter

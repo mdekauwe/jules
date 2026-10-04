@@ -86,11 +86,14 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_leaf_resist_frac, som_gl_max, l_som_supply_limit,                      &
     l_som_cuticular_floor, l_som_gravity, l_red,                               &
-    l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model
+    l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model,          &
+    leaf_temp_tol, l_leaf_temp_bl
 
 USE CN_utils_mod, ONLY:                                                        &
 ! imported procedures
     get_can_ave_fac, nleaf_from_lai
+
+USE model_time_mod, ONLY: timestep_number   ! lt_deep diagnostic only
 
 USE pftparm, ONLY:                                                             &
 ! imported arrays that are not changed
@@ -815,9 +818,27 @@ REAL(KIND=real_jlslsm) ::                                                      &
   z0m_a(land_pts), zref_a(land_pts), rt1ab_a(land_pts), zrd_a(land_pts),       &
   usc_a(land_pts), usuh_a(land_pts),                                           &
       ! CABLE canopy geometry (leaf_aero_model = 1).
-  gc_cap, r_eq
+  gc_cap, r_eq,                                                                &
       ! Cap and resistance for the transpiration-equivalent gc
       ! (l_leaf_temp_gc_eq).
+  gbw_sun_lt(land_pts), gbw_shd_lt(land_pts),                                  &
+      ! Leaf boundary-layer conductance for water vapour of each class
+      ! (mol m-2 ground s-1), from the leaf energy balance (l_leaf_temp_bl).
+  t_sun_prv(land_pts), t_shd_prv(land_pts),                                    &
+      ! Leaf temperatures before the energy balance update (K).
+  t_sun_p(land_pts), t_shd_p(land_pts), t_c_p(land_pts), q_c_p(land_pts),      &
+  zeta_p(land_pts), gl_sun_p(land_pts), gl_shd_p(land_pts),                    &
+      ! Copies for the first-guess boundary-layer conductances.
+  gbw_dum1(land_pts), gbw_dum2(land_pts),                                      &
+  dt_lt_max,                                                                   &
+      ! Largest leaf temperature change in the last update (K).
+  glmx_sun_d(land_pts), glmx_shd_d(land_pts)
+      ! Supply-capped gl_max of each class (diagnostic).
+INTEGER :: n_pass_done, diag_unit = -1
+LOGICAL :: l_diag2l = .FALSE., l_diag2l_chk = .FALSE.
+CHARACTER(LEN=256) :: diag2l_file
+INTEGER :: diag2l_len, diag2l_stat
+SAVE :: diag_unit, l_diag2l, l_diag2l_chk
 REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_lt = 0.018015
       ! Molar mass of water (kg mol-1).
 INTEGER :: n_pass_2l
@@ -2773,9 +2794,42 @@ CASE ( 7 )
     ko_shd_lt(:)  = ko(:)
     km_sun_lt(:)  = km(:)
     km_shd_lt(:)  = km(:)
+    gbw_sun_lt(:) = 0.0
+    gbw_shd_lt(:) = 0.0
+    IF ( l_leaf_temp_bl ) THEN
+      ! Boundary-layer conductances for the first pass: an energy balance
+      ! solve at the first-guess temperatures with last timestep's canopy
+      ! conductance shared by leaf area, keeping only gbw (the temperatures
+      ! and canopy air are left at the first guess).
+      DO m = 1,veg_pts
+        l = veg_index(m)
+        t_sun_p(l) = t_sun_lt(l)
+        t_shd_p(l) = t_shd_lt(l)
+        t_c_p(l)   = t_c_lt(l)
+        q_c_p(l)   = q_c_lt(l)
+        zeta_p(l)  = zeta_lt(l)
+        IF ( lai(l) > EPSILON(0.0) ) THEN
+          gl_sun_p(l) = gc(l) * lai_sun_2l(l) / lai(l)
+          gl_shd_p(l) = gc(l) * lai_shd_2l(l) / lai(l)
+        ELSE
+          gl_sun_p(l) = 0.5 * gc(l)
+          gl_shd_p(l) = 0.5 * gc(l)
+        END IF
+      END DO
+      CALL leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
+                             ra_lt, lw_down, u_wind, lai_sun_2l, lai_shd_2l,   &
+                             sw_sun_lt, sw_shd_lt, wlw_sun_lt, wlw_shd_lt,     &
+                             wlws_sun_lt, wlws_shd_lt, frad_sun_lt,            &
+                             frad_shd_lt, ff_sun_lt, ff_shd_lt, z0m_a, zref_a, &
+                             rt1ab_a, zrd_a, usc_a, usuh_a, gl_sun_p,          &
+                             gl_shd_p, zeta_p, t_sun_p, t_shd_p, t_c_p,        &
+                             q_c_p, gbw_sun_lt, gbw_shd_lt )
+    END IF
   ELSE
     n_pass_2l = iter
   END IF
+  n_pass_done = n_pass_2l
+  dt_lt_max = 0.0
 
   !---------------------------------------------------------------------------
   ! Iterate for the canopy humidity deficit, starting from the previous
@@ -2840,7 +2894,8 @@ CASE ( 7 )
     IF ( l_leaf_temp ) THEN
       CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,         &
                                share_sup, dq_sun_lt, t_sun_lt, pstar,          &
-                               gl_max_sun_2l, gl_max_eff )
+                               gl_max_sun_2l, gl_max_eff, gbw_sun_lt )
+      glmx_sun_d(:) = gl_max_eff(:)
 
       CALL stom_opt_mod (                                                      &
               ! IN
@@ -2856,12 +2911,15 @@ CASE ( 7 )
                 rd_sun,                                                        &
               ! OUT
                 ci_sun_2l, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun,        &
-                gl_sun, psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun               &
+                gl_sun, psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,              &
+              ! IN (optional)
+                gbw_sun_lt                                                    &
         )
     ELSE
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
                              share_sup, dqc, tstar, pstar, gl_max_sun_2l,      &
                              gl_max_eff )
+    glmx_sun_d(:) = gl_max_eff(:)
 
     CALL stom_opt_mod (                                                        &
             ! IN
@@ -2918,7 +2976,8 @@ CASE ( 7 )
     IF ( l_leaf_temp ) THEN
       CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,         &
                                share_sup, dq_shd_lt, t_shd_lt, pstar,          &
-                               gl_max_shd_2l, gl_max_eff )
+                               gl_max_shd_2l, gl_max_eff, gbw_shd_lt )
+      glmx_shd_d(:) = gl_max_eff(:)
 
       CALL stom_opt_mod (                                                      &
               ! IN
@@ -2934,12 +2993,15 @@ CASE ( 7 )
                 rd_shd,                                                        &
               ! OUT
                 ci_shd_2l, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd,        &
-                gl_shd, psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd               &
+                gl_shd, psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,              &
+              ! IN (optional)
+                gbw_shd_lt                                                    &
         )
     ELSE
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
                              share_sup, dqc, tstar, pstar, gl_max_shd_2l,      &
                              gl_max_eff )
+    glmx_shd_d(:) = gl_max_eff(:)
 
     CALL stom_opt_mod (                                                        &
             ! IN
@@ -2972,9 +3034,18 @@ CASE ( 7 )
       gc(l) = gl_sun(l) + gl_shd(l)
     END DO
 
-    ! New leaf and canopy air temperatures for the next pass (none after
-    ! the last pass, so the temperatures output are those used).
-    IF ( l_leaf_temp .AND. k < n_pass_2l ) THEN
+    ! New leaf and canopy air temperatures for the next pass. With
+    ! leaf_temp_tol < 0 there is none after the last pass (the temperatures
+    ! output are those used). With leaf_temp_tol >= 0 the update is done
+    ! after every pass, and the passes stop once it changes no leaf
+    ! temperature by more than leaf_temp_tol, so the leaf temperatures are
+    ! (to that tolerance) in energy balance with the final conductances.
+    IF ( l_leaf_temp .AND. ( k < n_pass_2l .OR. leaf_temp_tol >= 0.0 ) ) THEN
+      DO m = 1,veg_pts
+        l = veg_index(m)
+        t_sun_prv(l) = t_sun_lt(l)
+        t_shd_prv(l) = t_shd_lt(l)
+      END DO
       CALL leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
                              ra_lt, lw_down, u_wind, lai_sun_2l, lai_shd_2l,      &
                              sw_sun_lt, sw_shd_lt, wlw_sun_lt, wlw_shd_lt,     &
@@ -2982,10 +3053,76 @@ CASE ( 7 )
                              frad_shd_lt, ff_sun_lt, ff_shd_lt, z0m_a, zref_a, &
                              rt1ab_a, zrd_a, usc_a, usuh_a, gl_sun,            &
                              gl_shd, zeta_lt, t_sun_lt, t_shd_lt, t_c_lt,      &
-                             q_c_lt )
+                             q_c_lt, gbw_dum1, gbw_dum2 )
+      IF ( l_leaf_temp_bl ) THEN
+        gbw_sun_lt(:) = gbw_dum1(:)
+        gbw_shd_lt(:) = gbw_dum2(:)
+      END IF
+      dt_lt_max = 0.0
+      DO m = 1,veg_pts
+        l = veg_index(m)
+        dt_lt_max = MAX( dt_lt_max, ABS(t_sun_lt(l) - t_sun_prv(l)),          &
+                         ABS(t_shd_lt(l) - t_shd_prv(l)) )
+      END DO
+      IF ( leaf_temp_tol >= 0.0 .AND. dt_lt_max <= leaf_temp_tol ) THEN
+        n_pass_done = k
+        EXIT
+      END IF
     END IF
 
   END DO   ! End of iteration loop
+
+  !---------------------------------------------------------------------------
+  ! lt_deep diagnostic (not for production): with the environment variable
+  ! JULES_DIAG2L set to a file name, write the sunlit/shaded state of PFT 1
+  ! at the first vegetated point for every daytime call.
+  !---------------------------------------------------------------------------
+  IF ( .NOT. l_diag2l_chk ) THEN
+    l_diag2l_chk = .TRUE.
+    CALL GET_ENVIRONMENT_VARIABLE('JULES_DIAG2L', diag2l_file, diag2l_len,     &
+                                  diag2l_stat)
+    IF ( diag2l_stat == 0 .AND. diag2l_len > 0 ) THEN
+      diag_unit = 771
+      OPEN(UNIT=diag_unit, FILE=TRIM(diag2l_file), STATUS='REPLACE',           &
+           ACTION='WRITE')
+      l_diag2l = .TRUE.
+      WRITE(diag_unit,'(A)') 'ts npass dtmax tsun tshd tair dqsun dqshd '//  &
+        'dqc glsun glshd elsun elshd ansun anshd rdsun rdshd cisun cishd ' //  &
+        'ca psisun psishd psisrc glmxsun glmxshd glcapsun glcapshd esup ' //   &
+        'laisun laishd aparsun aparshd vcsun vcshd jesun jeshd kmsun kmshd '// &
+        'hcsun hcshd gbwsun gbwshd lksun lkshd kcrsun pstar tstar'
+    END IF
+  END IF
+  IF ( l_diag2l .AND. ft == 1 .AND. veg_pts > 0 ) THEN
+    l = veg_index(1)
+    IF ( apar_sun_2l(l) + apar_shd_2l(l) > 0.0 ) THEN
+      IF ( l_leaf_temp ) THEN
+        WRITE(diag_unit,'(I8,I3,47ES13.5)') timestep_number, n_pass_done,      &
+          dt_lt_max, t_sun_lt(l), t_shd_lt(l), tair(l), dq_sun_lt(l),          &
+          dq_shd_lt(l), dqc(l), gl_sun(l), gl_shd(l), el_sun(l), el_shd(l),    &
+          anetl_sun(l), anetl_shd(l), rd_sun(l), rd_shd(l), ci_sun_2l(l),      &
+          ci_shd_2l(l), ca(l), psi_leaf_sun(l), psi_leaf_shd(l), psi_src(l),   &
+          glmx_sun_d(l), glmx_shd_d(l), gl_max_sun_2l(l), gl_max_shd_2l(l),    &
+          e_supply(l), lai_sun_2l(l), lai_shd_2l(l), apar_sun_2l(l),           &
+          apar_shd_2l(l), vcmax_sun_2l(l), vcmax_shd_2l(l), je_sun(l),         &
+          je_shd(l), kmax_sun_2l(l), kmax_shd_2l(l), HC_sun(l), HC_shd(l),     &
+          gbw_sun_lt(l), gbw_shd_lt(l), leaf_k_sun(l), leaf_k_shd(l),          &
+          kcrit_sun_2l(l), pstar(l), tstar(l)
+      ELSE
+        WRITE(diag_unit,'(I8,I3,47ES13.5)') timestep_number, n_pass_done,      &
+          dt_lt_max, tstar(l), tstar(l), tair(l), dqc(l),                      &
+          dqc(l), dqc(l), gl_sun(l), gl_shd(l), el_sun(l), el_shd(l),          &
+          anetl_sun(l), anetl_shd(l), rd_sun(l), rd_shd(l), ci_sun_2l(l),      &
+          ci_shd_2l(l), ca(l), psi_leaf_sun(l), psi_leaf_shd(l), psi_src(l),   &
+          glmx_sun_d(l), glmx_shd_d(l), gl_max_sun_2l(l), gl_max_shd_2l(l),    &
+          e_supply(l), lai_sun_2l(l), lai_shd_2l(l), apar_sun_2l(l),           &
+          apar_shd_2l(l), vcmax_sun_2l(l), vcmax_shd_2l(l), je_sun(l),         &
+          je_shd(l), kmax_sun_2l(l), kmax_shd_2l(l), HC_sun(l), HC_shd(l),     &
+          0.0, 0.0, leaf_k_sun(l), leaf_k_shd(l),                              &
+          kcrit_sun_2l(l), pstar(l), tstar(l)
+      END IF
+    END IF
+  END IF
 
   !---------------------------------------------------------------------------
   ! Canopy totals and leaf-area-weighted means.
@@ -3732,7 +3869,8 @@ SUBROUTINE leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
                              sw_sun, sw_shd, wlw_sun, wlw_shd, wlws_sun,       &
                              wlws_shd, frad_sun, frad_shd, ff_sun, ff_shd,     &
                              z0m_a, zref_a, rt1ab_a, zrd_a, usc_a, usuh_a,     &
-                             gl_sun, gl_shd, zeta_a, t_sun, t_shd, t_c, q_c )
+                             gl_sun, gl_shd, zeta_a, t_sun, t_shd, t_c, q_c,   &
+                             gbw_sun, gbw_shd )
 
 ! Two-leaf leaf energy balance (l_leaf_temp): sunlit and shaded leaf
 ! temperatures, and canopy air temperature and humidity, for the stomatal
@@ -3788,6 +3926,10 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
       ! a timestep continue the iteration (0 for the first).
   t_sun(land_pts), t_shd(land_pts), t_c(land_pts), q_c(land_pts)
 
+REAL(KIND=real_jlslsm), INTENT(OUT) :: gbw_sun(land_pts), gbw_shd(land_pts)
+      ! Boundary-layer conductance for water vapour of each class at the
+      ! solution (mol m-2 ground s-1), 1.075 gbH.
+
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
   vonk = 0.40, grav = 9.81, zetneg = -15.0, zetpos = 1.0, rt_min = 5.0,        &
       ! CABLE constants: von Karman, gravity, limits on zref/L, minimum rt1.
@@ -3822,7 +3964,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   t_lo(veg_pts), t_hi(veg_pts), r_lo(veg_pts), r_hi(veg_pts), t_try(veg_pts),  &
   t_try1(veg_pts), p_v(veg_pts), qs0_v(veg_pts), qs1_v(veg_pts),               &
   ts_v(veg_pts), tsh_v(veg_pts), qc_v(veg_pts), h_v(veg_pts), le_v(veg_pts),   &
-  hb_v(veg_pts), leb_v(veg_pts), res, ra_m(land_pts),                          &
+  hb_v(veg_pts), leb_v(veg_pts), gbwb_v(veg_pts,2), gbw_tmp(2), res,          &
+  ra_m(land_pts),                          &
   u_m(land_pts), us, rt1usc, zr
 LOGICAL :: l_done(veg_pts)
 INTEGER :: l, m, it, side(veg_pts), it_mo, n_mo
@@ -3834,6 +3977,8 @@ ELSE
 END IF
 ra_m(:) = ra(:)
 u_m(:)  = u_wind(:)
+gbw_sun(:) = 0.0
+gbw_shd(:) = 0.0
 
 DO it_mo = 1,n_mo
 
@@ -3886,7 +4031,8 @@ DO it = 1,2
   DO m = 1,veg_pts
     l = veg_index(m)
     CALL canopy_balance( l, t_try(m), qs0_v(m), qs1_v(m), res, ts_v(m),        &
-                         tsh_v(m), qc_v(m), hb_v(m), leb_v(m) )
+                         tsh_v(m), qc_v(m), hb_v(m), leb_v(m), gbw_tmp )
+    gbwb_v(m,:) = gbw_tmp(:)
     IF ( it == 1 ) THEN
       r_lo(m) = res
       ! Root below the bracket: keep the lower end.
@@ -3920,7 +4066,8 @@ DO it = 1,n_solve
     IF ( l_done(m) ) CYCLE
     l = veg_index(m)
     CALL canopy_balance( l, t_try(m), qs0_v(m), qs1_v(m), res, ts_v(m),        &
-                         tsh_v(m), qc_v(m), hb_v(m), leb_v(m) )
+                         tsh_v(m), qc_v(m), hb_v(m), leb_v(m), gbw_tmp )
+    gbwb_v(m,:) = gbw_tmp(:)
     IF ( ABS(res) < tol_tc .OR. it == n_solve ) THEN
       l_done(m) = .TRUE.
       CALL set_out( l, m, t_try(m), ts_v(m), tsh_v(m), qc_v(m) )
@@ -3966,6 +4113,8 @@ t_shd(l) = tsh
 q_c(l)   = qc
 h_v(m)   = hb_v(m)
 le_v(m)  = leb_v(m)
+gbw_sun(l) = gbwb_v(m,1)
+gbw_shd(l) = gbwb_v(m,2)
 END SUBROUTINE set_out
 
 ELEMENTAL FUNCTION psim( zeta_in ) RESULT( r_psi )
@@ -3998,7 +4147,7 @@ END IF
 END FUNCTION psis
 
 SUBROUTINE canopy_balance( l, tc, qs0, qs1, res, ts_new, tsh_new, qc_new,      &
-                           h_out, le_out )
+                           h_out, le_out, gbw_out )
 
 ! Leaf temperatures and canopy humidity for canopy air temperature tc, and
 ! the residual of the canopy air sensible heat balance,
@@ -4007,7 +4156,7 @@ SUBROUTINE canopy_balance( l, tc, qs0, qs1, res, ts_new, tsh_new, qc_new,      &
 INTEGER, INTENT(IN) :: l
 REAL(KIND=real_jlslsm), INTENT(IN) :: tc, qs0, qs1
 REAL(KIND=real_jlslsm), INTENT(OUT) :: res, ts_new, tsh_new, qc_new, h_out,  &
-                                       le_out
+                                       le_out, gbw_out(2)
 
 REAL(KIND=real_jlslsm) ::                                                      &
   cp_mol, cmolar, lhv, slope, gamma_p, sig_t4, eps_air, grn1, gbhw, rho, c_q,  &
@@ -4054,6 +4203,7 @@ DO ic = 1,2
   b(ic)   = 0.0
   gh(ic)  = 0.0
   gbh(ic) = 0.0
+  gbw_out(ic) = 0.0
   IF ( lai_x(ic) > EPSILON(0.0) ) THEN
     ! Free convection from the last leaf - canopy air difference.
     IF ( ABS(t_old(ic) - tc) > 1.0e-6 ) THEN
@@ -4066,6 +4216,7 @@ DO ic = 1,2
     gh(ic)  = 2.0 * gbh(ic) + grn1 * frad(ic)
     gsw     = MAX(gl_x(ic), 0.0) * cmolar
     gbw     = gbh_2_gbw * gbh(ic)
+    gbw_out(ic) = gbw
     IF ( gsw > 0.0 .AND. gbw > 0.0 ) THEN
       gw    = gbw * gsw / ( gbw + gsw )
       den   = slope + gamma_p * gh(ic) / gw
@@ -4576,7 +4727,7 @@ END SUBROUTINE calc_electron_flux
 ! so a zero supply is passed as TINY (no sample feasible: stomata close).
 !-----------------------------------------------------------------------------
 SUBROUTINE apply_supply_limit( land_pts, veg_pts, veg_index, e_supply, share,  &
-                               dq, tstar, pstar, gl_max_in, gl_max_out )
+                               dq, tstar, pstar, gl_max_in, gl_max_out, gbw )
 
 USE c_rmol, ONLY: rmol
 USE planet_constants_mod, ONLY: repsilon
@@ -4603,7 +4754,13 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 REAL(KIND=real_jlslsm), INTENT(OUT) :: gl_max_out(land_pts)
 
+REAL(KIND=real_jlslsm), OPTIONAL, INTENT(IN) :: gbw(land_pts)
+      ! Leaf boundary-layer conductance for water vapour in series with the
+      ! stomata (mol m-2 s-1; l_leaf_temp_bl). The cap is then on the
+      ! stomatal conductance that gives the supply through both.
+
 REAL(KIND=real_jlslsm), PARAMETER :: m_h2o = 0.018015
+REAL(KIND=real_jlslsm) :: gw_mol
       ! Molar mass of water (kg mol-1).
 
 REAL(KIND=real_jlslsm) :: gl_sup
@@ -4617,6 +4774,20 @@ DO m = 1,veg_pts
   IF ( e_supply(l) >= 0.0 .AND. dq(l) > 0.0 ) THEN
     gl_sup = e_supply(l) * share(l) / m_h2o                                    &
              * repsilon * rmol * tstar(l) / ( dq(l) * pstar(l) )
+    IF ( PRESENT(gbw) ) THEN
+      IF ( gbw(l) > 0.0 ) THEN
+        ! gl_sup is the total conductance needed (m s-1); in mol m-2 s-1
+        ! gw = gl_sup P/(R T), and gs = 1/(1/gw - 1/gbw) if gw < gbw,
+        ! otherwise the boundary layer alone limits E below the supply.
+        gw_mol = gl_sup * pstar(l) / ( rmol * tstar(l) )
+        IF ( gw_mol < gbw(l) ) THEN
+          gl_sup = gw_mol * gbw(l) / ( gbw(l) - gw_mol )                       &
+                   * rmol * tstar(l) / pstar(l)
+        ELSE
+          gl_sup = HUGE(1.0_real_jlslsm)
+        END IF
+      END IF
+    END IF
     IF ( gl_max_in(l) > 0.0 ) gl_sup = MIN(gl_sup, gl_max_in(l))
     gl_max_out(l) = MAX(gl_sup, TINY(1.0_real_jlslsm))
   END IF
