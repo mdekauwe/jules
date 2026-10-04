@@ -1272,7 +1272,8 @@ USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 CW_conductance,                                &
                                 SOX_conductance,                               &
                                 som_psi_solver, psi_solver_lut,           &
-                                l_som_plant_segments, l_som_nsl
+                                l_som_plant_segments, l_som_nsl,               &
+                                som_nsl_gain
 USE jb_photo_mod, ONLY: jb_eta_scale
 USE pftparm, ONLY: c3, alpha, pft_conductance_model, psi_nsl_onset, psi_nsl0
 USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
@@ -1401,10 +1402,19 @@ DO j = 1, open_pts
   ! Normalisation; no carbon benefit from opening => closed, as for the flat
   ! search (stom_opt_profit_max_select).
   max_al = e_al + g_off
-  ! With the nonstomatal limitation, normalise by the unlimited A at the edge
-  ! so the gain-to-cost weighting is as without it (and the limitation
-  ! lowers the gain fraction).
-  IF ( l_som_nsl ) max_al = photo_al(e_ci) + g_off
+  ! With the nonstomatal limitation (som_nsl_gain): 1 (and 3, where the
+  ! normalisation does not matter) normalise by the unlimited A at the edge,
+  ! so the limitation also lowers the gain fraction and so the weight of the
+  ! gain against the hydraulic cost; 2 normalise by the maximum limited A
+  ! over the feasible range (Sperry's achievable Amax), so a limitation
+  ! that does not vary with Ci leaves the optimum Ci unchanged.
+  IF ( l_som_nsl ) THEN
+    IF ( som_nsl_gain == 2 ) THEN
+      max_al = nsl_amax()
+    ELSE
+      max_al = photo_al(e_ci) + g_off
+    END IF
+  END IF
   IF ( max_al <= 0.0 ) THEN
     CALL set_closed()
     CYCLE
@@ -1716,11 +1726,57 @@ CONTAINS
   END IF
   END FUNCTION margin
 
-  ! Profit = CG - HC, as stom_opt_profit_max_select.
+  ! Profit = CG - HC, as stom_opt_profit_max_select; with l_som_nsl and
+  ! som_nsl_gain = 3 (max-A, Dewar et al. 2022) the gain alone.
   REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in)
   REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in
-  profit = (al_in + g_off) / max_al - (max_kl - kl_in) / (max_kl - kcrit(l))
+  IF ( l_som_nsl .AND. som_nsl_gain == 3 ) THEN
+    profit = (al_in + g_off) / max_al
+  ELSE
+    profit = (al_in + g_off) / max_al - (max_kl - kl_in) / (max_kl - kcrit(l))
+  END IF
   END FUNCTION profit
+
+  !---------------------------------------------------------------------------
+  ! Maximum of the NSL-limited gain A + g_off over the feasible range
+  ! [ci_lo, e_ci] (l_som_nsl, som_nsl_gain = 2): the ends (best_al holds A
+  ! at ci_lo when this is called) and a golden-section search, as the Ci
+  ! search below (A is unimodal in Ci: the max-A optimum of Dewar et al.
+  ! 2022 when interior). Leaves the evaluation state (*_u) changed.
+  !---------------------------------------------------------------------------
+  REAL(KIND=real_jlslsm) FUNCTION nsl_amax()
+  REAL(KIND=real_jlslsm) :: aa, bb, cc, dd, fcc, fdd, tol_a
+  INTEGER :: it
+
+  nsl_amax = MAX(best_al, e_al) + g_off
+  aa = ci_lo
+  bb = e_ci
+  tol_a = (bb - aa) / opt_resol
+  IF ( tol_a <= 0.0 ) RETURN
+  cc = bb - golden_ratio * (bb - aa)
+  dd = aa + golden_ratio * (bb - aa)
+  CALL eval_ci(cc)
+  fcc = MERGE(al_u, -HUGE(1.0_real_jlslsm), ok_u)
+  CALL eval_ci(dd)
+  fdd = MERGE(al_u, -HUGE(1.0_real_jlslsm), ok_u)
+  DO it = 1, n_iter
+    IF ( bb - aa <= tol_a ) EXIT
+    IF ( fcc >= fdd ) THEN
+      bb = dd
+      dd = cc; fdd = fcc
+      cc = bb - golden_ratio * (bb - aa)
+      CALL eval_ci(cc)
+      fcc = MERGE(al_u, -HUGE(1.0_real_jlslsm), ok_u)
+    ELSE
+      aa = cc
+      cc = dd; fcc = fdd
+      dd = aa + golden_ratio * (bb - aa)
+      CALL eval_ci(dd)
+      fdd = MERGE(al_u, -HUGE(1.0_real_jlslsm), ok_u)
+    END IF
+  END DO
+  nsl_amax = MAX(nsl_amax, MAX(fcc, fdd) + g_off)
+  END FUNCTION nsl_amax
 
   ! Profit of the latest evaluation (-HUGE if infeasible), kept if best.
   REAL(KIND=real_jlslsm) FUNCTION profit_u()

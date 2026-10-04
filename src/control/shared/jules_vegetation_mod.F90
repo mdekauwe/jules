@@ -351,6 +351,14 @@ INTEGER ::                                                                     &
       ! 2 Newton-Raphson, 3 lookup table of the supply function.
   som_ci_search = som_ci_flat,                                                 &
       ! Ci search of the stomatal optimisation: 1 flat grid, 2 bounded.
+  som_nsl_gain = 1,                                                            &
+      ! Objective with the nonstomatal limitation (l_som_nsl):
+      ! 1 profit, gain normalised by the unlimited A at the hydraulic edge;
+      ! 2 profit, gain normalised by the maximum NSL-limited A over the
+      !   feasible range (Sperry's A/Amax with the achievable Amax, so a
+      !   Ci-independent limitation leaves the optimum Ci unchanged);
+      ! 3 max-A (Dewar et al. 2022): maximise the NSL-limited A alone, with
+      !   no hydraulic cost (the hydraulic limits still bound the range).
   som_psi_aprox_method = imdi,                                                 &
       ! Deprecated namelist input: use som_psi_solver (same values).
   som_profit_model = 1
@@ -673,6 +681,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_cuticular_floor, l_som_gravity,                                     &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,    &
+    som_nsl_gain,                                                              &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
     l_nitrogen, l_vegcan_soilfx, l_trif_crop, l_trif_fire,                     &
     l_inferno, ignition_method, l_vegdrag_pft, l_rsl_scalar,                   &
@@ -1376,6 +1385,12 @@ IF ( l_som_nsl .AND. ( stomata_model /= stomata_profit_max .OR.               &
                'l_som_nsl requires stomata_model=4 and som_ci_search=2')
 END IF
 
+IF ( som_nsl_gain < 1 .OR. som_nsl_gain > 3 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'som_nsl_gain should be 1, 2 or 3')
+END IF
+
 IF ( l_aggregate .AND. ANY(l_vegdrag_pft) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -1515,6 +1530,9 @@ WRITE(lineBuffer,*) ' l_som_skip_search_wellwatered = ',                       &
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' som_ci_search = ', som_ci_search
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' som_nsl_gain = ', som_nsl_gain
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_supply_limit = ', l_som_supply_limit
@@ -1688,7 +1706,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 21 ! +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
+INTEGER, PARAMETER :: n_int = 22 ! +1 som_nsl_gain, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
 INTEGER, PARAMETER :: n_real = 17 + (n_photo_coef * 5) ! +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
@@ -1721,6 +1739,7 @@ TYPE :: my_namelist
   INTEGER :: som_psi_aprox_method !JBaguley
   INTEGER :: som_psi_solver
   INTEGER :: som_ci_search
+  INTEGER :: som_nsl_gain
   INTEGER :: som_profit_model !JBaguley
   INTEGER :: ignition_method
   INTEGER :: photo_acclim_model
@@ -1822,6 +1841,7 @@ IF (mype == 0) THEN
   my_nml % som_psi_aprox_method = som_psi_aprox_method !JBaguley
   my_nml % som_psi_solver = som_psi_solver
   my_nml % som_ci_search = som_ci_search
+  my_nml % som_nsl_gain = som_nsl_gain
   my_nml % som_profit_model = som_profit_model !JBaguley
   my_nml % ignition_method = ignition_method
   my_nml % photo_acclim_model = photo_acclim_model
@@ -1914,6 +1934,7 @@ IF (mype /= 0) THEN
   som_psi_aprox_method = my_nml % som_psi_aprox_method !JBaguley
   som_psi_solver = my_nml % som_psi_solver
   som_ci_search = my_nml % som_ci_search
+  som_nsl_gain = my_nml % som_nsl_gain
   som_profit_model = my_nml % som_profit_model !JBaguley
   ignition_method = my_nml % ignition_method
   photo_acclim_model = my_nml % photo_acclim_model
