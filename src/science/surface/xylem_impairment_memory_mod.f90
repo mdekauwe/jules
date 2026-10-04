@@ -507,12 +507,19 @@ END SUBROUTINE leaf_psi_impaired_memory
 ! timestep, f = f_lai + f_growth, is scaled by its running mean, <f>
 ! (e-folding time ximpair_rec_years, bias-corrected at the start), to the
 ! growth g = f / (<f> * 1 year) in units of a typical year's growth, and the
-! loss of conductivity falls linearly with growth,
-!   PLC' = MAX(PLC - PLC_dam * g / ximpair_rec_years, 0),
-! with PLC_dam the loss at the last damage (reset each time damage raises
-! PLC). So the loss recovers in ximpair_rec_years years of typical growth
-! after the last damage, with the seasonal timing of leaf flush / growth,
-! and more slowly after years of low growth.
+! loss of conductivity falls with growth (ximpair_rec_form), either
+!   1 (linear):      PLC' = MAX(PLC - PLC_dam * g / ximpair_rec_years, 0),
+!     with PLC_dam the loss at the last damage (reset each time damage
+!     raises PLC). The loss recovers in ximpair_rec_years years of typical
+!     growth after the last damage, and any new damage, however small,
+!     restarts that clock from the whole current loss;
+!   2 (exponential): PLC' = PLC * EXP(-2 g / ximpair_rec_years),
+!     e-folding over ximpair_rec_years / 2 typical years of growth, which
+!     gives the same integrated loss after an isolated event as the linear
+!     form (the one-pool limit of renewing the sapwood with new, intact
+!     conduits). There is no clock to restart.
+! Either way recovery has the seasonal timing of leaf flush / growth, and
+! is slower after years of low growth.
 !
 ! Also (per PFT, off by default): refilling with timescale ximpair_tau_rec
 ! while psi_x > ximpair_psi_refill, and an annual reset on
@@ -536,7 +543,8 @@ USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
                    ximpair_growth_basis, ximpair_rec_years, a_wl, a_ws, b_wl
 USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 ximpair_driver_root, l_ximpair_rec_lai,        &
-                                l_ximpair_rec_growth, l_triffid
+                                l_ximpair_rec_growth, l_triffid,               &
+                                ximpair_rec_form, ximpair_rec_exp
 USE trif, ONLY: g_wood
 USE jules_surface_types_mod, ONLY: npft
 USE model_time_mod, ONLY: current_time, timestep_len
@@ -595,10 +603,6 @@ REAL(KIND=real_jlslsm), PARAMETER :: c_per_mol_co2 = 12.0e-3
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_trif_year = 360.0 * 86400.0
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_year = 365.25 * 86400.0
 
-                            ! LAI at the previous update, per PFT, for
-                            ! l_ximpair_rec_lai. NOTE: not held in the dump,
-                            ! so after a restart the first update sees no
-                            ! change in LAI.
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -725,10 +729,14 @@ IF (l_slow .AND. (l_ximpair_rec_lai .OR. l_ximpair_rec_growth)) THEN
   ELSEWHERE
     growth(:) = 0.0
   END WHERE
-  ! Linear recovery of the loss of conductivity.
+  ! Recovery of the loss of conductivity with growth (ximpair_rec_form).
   plc(:) = 1.0 - kcap(:) / kmax_pts(:)
-  plc(:) = MAX(plc(:) - ximpair_plc_dam(:,pft) * growth(:)                     &
-                        / ximpair_rec_years(pft), 0.0)
+  IF (ximpair_rec_form == ximpair_rec_exp) THEN
+    plc(:) = plc(:) * EXP(-2.0 * growth(:) / ximpair_rec_years(pft))
+  ELSE
+    plc(:) = MAX(plc(:) - ximpair_plc_dam(:,pft) * growth(:)                   &
+                          / ximpair_rec_years(pft), 0.0)
+  END IF
   kcap(:) = kmax_pts(:) * (1.0 - plc(:))
 END IF
 
