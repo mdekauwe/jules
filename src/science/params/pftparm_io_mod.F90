@@ -202,6 +202,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! Curvature exponent of the soil moisture stress factor (missing = 1,
   ! linear).
   fsmc_q_io(npft_max) = rmdi,                                                  &
+  ! Soil-water down-regulation of Vcmax/Jmax (l_som_vcmax_psi; missing =
+  ! pftparm defaults -2 MPa and 2 MPa-1).
+  psi_vcmax_f_io(npft_max) = rmdi,                                             &
+  sf_vcmax_io(npft_max) = rmdi,                                                &
   ! DESICA (stomata_model = 5). Tuzet et al. (2003) closure
   ! fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf))), with
   ! gs = g1 fw An / ca; defaults are the CABLE-DESICA evergreen broadleaf
@@ -283,7 +287,7 @@ NAMELIST  / jules_pftparm/                                                     &
   p50_root_io,     p50_stem_io,      p50_leaf_io,                              &
   p88_root_io,     p88_stem_io,      p88_leaf_io,                              &
   gcut_io,         psi_nsl_onset_io, psi_nsl0_io,                              &
-  fsmc_q_io,                                                                   &
+  fsmc_q_io,       psi_vcmax_f_io,   sf_vcmax_io,                              &
   g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
   cap_leaf_io,     cap_stem_io,                                                &
   q10_leaf_io,      r_grow_io,                                &
@@ -328,7 +332,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 5 * npft_max ! = the INTEGER arrays in my_namelist
-INTEGER, PARAMETER :: n_real = 132 * npft_max ! = the REAL arrays in my_namelist
+INTEGER, PARAMETER :: n_real = 134 * npft_max ! = the REAL arrays in my_namelist
 
 TYPE :: my_namelist
   SEQUENCE
@@ -437,6 +441,8 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: psi_nsl_onset_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_nsl0_io(npft_max)
   REAL(KIND=real_jlslsm) :: fsmc_q_io(npft_max)
+  REAL(KIND=real_jlslsm) :: psi_vcmax_f_io(npft_max)
+  REAL(KIND=real_jlslsm) :: sf_vcmax_io(npft_max)
   REAL(KIND=real_jlslsm) :: g1_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: sf_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_f_tuzet_io(npft_max)
@@ -592,6 +598,8 @@ IF (mype == 0) THEN
   my_nml % psi_nsl_onset_io = psi_nsl_onset_io
   my_nml % psi_nsl0_io    = psi_nsl0_io
   my_nml % fsmc_q_io      = fsmc_q_io
+  my_nml % psi_vcmax_f_io = psi_vcmax_f_io
+  my_nml % sf_vcmax_io    = sf_vcmax_io
   my_nml % g1_tuzet_io    = g1_tuzet_io
   my_nml % sf_tuzet_io    = sf_tuzet_io
   my_nml % psi_f_tuzet_io = psi_f_tuzet_io
@@ -735,6 +743,8 @@ IF (mype /= 0) THEN
   psi_nsl_onset_io = my_nml % psi_nsl_onset_io
   psi_nsl0_io     = my_nml % psi_nsl0_io
   fsmc_q_io       = my_nml % fsmc_q_io
+  psi_vcmax_f_io  = my_nml % psi_vcmax_f_io
+  sf_vcmax_io     = my_nml % sf_vcmax_io
   g1_tuzet_io     = my_nml % g1_tuzet_io
   sf_tuzet_io     = my_nml % sf_tuzet_io
   psi_f_tuzet_io  = my_nml % psi_f_tuzet_io
@@ -791,6 +801,7 @@ USE pftparm, ONLY:                                                             &
   psi_open,        min_rootc_pft,    root_psi_crit,                            & ! JBaguley
   root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
   gcut,            psi_nsl_onset,    psi_nsl0,         fsmc_q,                 &
+  psi_vcmax_f,     sf_vcmax,                                                   &
   g1_tuzet,        sf_tuzet,                                                   &
   psi_f_tuzet,     cap_leaf,         cap_stem,                                 &
 #endif
@@ -847,7 +858,7 @@ USE c_z0h_z0m,    ONLY: z0h_z0m,  z0h_z0m_classic
 USE jules_surface_types_mod, ONLY: npft
 
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
-                                l_som_root_supply
+                                l_som_root_supply, l_som_vcmax_psi
 
 IMPLICIT NONE
 
@@ -962,6 +973,17 @@ IF ( l_som_nsl .AND. ( ANY(psi_nsl_onset(:) > 0.0) .OR.                       &
   errcode = 101
   CALL ereport(RoutineName, errcode,                                         &
                'l_som_nsl needs psi_nsl0_io < psi_nsl_onset_io <= 0.')
+END IF
+! Soil-water down-regulation of capacity: keep the defaults where unset.
+WHERE (ABS(psi_vcmax_f_io(1:npft) - rmdi) > EPSILON(1.0))                    &
+  psi_vcmax_f(:) = psi_vcmax_f_io(1:npft)
+WHERE (ABS(sf_vcmax_io(1:npft) - rmdi) > EPSILON(1.0))                       &
+  sf_vcmax(:) = sf_vcmax_io(1:npft)
+IF ( l_som_vcmax_psi .AND. ( ANY(psi_vcmax_f(:) >= 0.0) .OR.                  &
+                             ANY(sf_vcmax(:) <= 0.0) ) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                         &
+               'l_som_vcmax_psi needs psi_vcmax_f_io < 0 and sf_vcmax_io > 0.')
 END IF
 g1_tuzet(:)         = g1_tuzet_io(1:npft)
 sf_tuzet(:)         = sf_tuzet_io(1:npft)
