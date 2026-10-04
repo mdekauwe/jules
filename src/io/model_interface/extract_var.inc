@@ -3625,6 +3625,18 @@ CASE ( 'gc_stom_pft' )
   cube_land = cube_from_array(psparms%gc_stom_pft)
   cube = map_from_land(cube_land)
 
+CASE ( 't_leaf_sun_pft' )
+  cube_land = cube_from_array(psparms%t_leaf_sun_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 't_leaf_shd_pft' )
+  cube_land = cube_from_array(psparms%t_leaf_shd_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 't_can_pft' )
+  cube_land = cube_from_array(psparms%t_can_pft)
+  cube = map_from_land(cube_land)
+
 CASE ('cica_ratio_pft')
   cube_land = cube_from_array(psparms%cica_ratio_pft)
   cube = map_from_land(cube_land)

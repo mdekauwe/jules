@@ -486,6 +486,39 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Cuticular (minimum) leaf conductance to water vapour, per
                  ! unit leaf area (mmol H2O m-2 s-1), applied as a floor on
                  ! the canopy conductance when l_som_cuticular_floor.
+,psi_nsl_onset(:)                                                              &
+                 ! Leaf water potential (Pa) below which the nonstomatal
+                 ! limitation starts (l_som_nsl). 0 (default) gives Dewar et
+                 ! al. (2022) Eqn 3(b); the turgor loss point is an optional
+                 ! variant.
+,fsmc_q(:)                                                                     &
+                 ! Curvature exponent q of the soil moisture stress factor
+                 ! of each layer, fsmc = ((x - x_close)/(x_open - x_close))^q
+                 ! (fsmc_layer); 1 (default) is the standard linear factor.
+,psi_nsl0(:)                                                                   &
+                 ! Leaf water potential (Pa) at which the nonstomatal
+                 ! limitation reduces photosynthesis to zero (l_som_nsl);
+                 ! psi_0 of Dewar et al. (2022). Must be < psi_nsl_onset.
+,psi_vcmax_f(:)                                                                &
+                 ! Root-zone water potential (Pa) at which photosynthetic
+                 ! capacity is about halved (l_som_vcmax_psi; psi_f of Zhou
+                 ! et al. 2013).
+,sf_vcmax(:)                                                                   &
+                 ! Steepness of that down-regulation (MPa-1).
+,psi_vcmax_fmin(:)                                                             &
+                 ! Floor of that down-regulation (-): f = fmin + (1 - fmin)
+                 ! f_Zhou, so capacity never falls below fmin (0 = none, as
+                 ! in De Kauwe et al. 2015; the floor is an adjustment).
+,nsl_sink_umax(:)                                                             &
+                 ! l_som_nsl_sink: maximum sink demand (g C m-2 d-1).
+,nsl_sink_tau(:)                                                              &
+                 ! l_som_nsl_sink: pool size, days of nsl_sink_umax (d).
+,nsl_sink_maint(:)                                                            &
+                 ! l_som_nsl_sink: maintenance fraction of the demand (-).
+,nsl_sink_psi50(:)                                                            &
+                 ! l_som_nsl_sink: root-zone psi halving growth (Pa).
+,nsl_sink_sf(:)                                                               &
+                 ! l_som_nsl_sink: steepness of the turgor limit (MPa-1).
 ,g1_tuzet(:)                                                                   &
                  ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
@@ -857,6 +890,17 @@ ALLOCATE( ximpair_threshold(npft))
 ALLOCATE( ximpair_psi_driver(npft))
 ALLOCATE( seg_kfac(npft,3))
 ALLOCATE( gcut(npft))
+ALLOCATE( psi_nsl_onset(npft))
+ALLOCATE( psi_nsl0(npft))
+ALLOCATE( fsmc_q(npft))
+ALLOCATE( psi_vcmax_f(npft))
+ALLOCATE( sf_vcmax(npft))
+ALLOCATE( psi_vcmax_fmin(npft))
+ALLOCATE( nsl_sink_umax(npft))
+ALLOCATE( nsl_sink_tau(npft))
+ALLOCATE( nsl_sink_maint(npft))
+ALLOCATE( nsl_sink_psi50(npft))
+ALLOCATE( nsl_sink_sf(npft))
 ALLOCATE( g1_tuzet(npft))
 ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
@@ -894,6 +938,17 @@ ximpair_threshold(:) = 0.0
 ximpair_psi_driver(:) = 1
 seg_kfac(:,:) = 1.0
 gcut(:) = 3.0
+psi_nsl_onset(:) = 0.0
+psi_nsl0(:) = -3.0e6
+fsmc_q(:) = 1.0
+psi_vcmax_f(:) = -2.0e6
+sf_vcmax(:) = 2.0
+psi_vcmax_fmin(:) = 0.0
+nsl_sink_umax(:) = 10.0
+nsl_sink_tau(:) = 10.0
+nsl_sink_maint(:) = 0.15
+nsl_sink_psi50(:) = -0.75e6
+nsl_sink_sf(:) = 6.0
 g1_tuzet(:) = 4.19
 sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
@@ -1177,6 +1232,28 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' conductance_c_pft = ',conductance_c_pft
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' gcut = ',gcut
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' psi_nsl_onset = ',psi_nsl_onset
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' psi_nsl0 = ',psi_nsl0
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' fsmc_q = ',fsmc_q
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' psi_vcmax_f = ',psi_vcmax_f
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' sf_vcmax = ',sf_vcmax
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' psi_vcmax_fmin = ',psi_vcmax_fmin
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsl_sink_umax = ',nsl_sink_umax
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsl_sink_tau = ',nsl_sink_tau
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsl_sink_maint = ',nsl_sink_maint
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsl_sink_psi50 = ',nsl_sink_psi50
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsl_sink_sf = ',nsl_sink_sf
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
 CALL jules_print('pftparm',lineBuffer)

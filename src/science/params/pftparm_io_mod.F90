@@ -52,7 +52,35 @@ INTEGER ::                                                                     &
   pft_xylem_impairment_model_io(npft_max) = imdi,                              & ! JBaguley
   ximpair_psi_driver_io(npft_max) = imdi,                                      &
   ximpair_reset_mmdd_io(npft_max) = imdi,                                      &
-  ximpair_growth_basis_io(npft_max) = imdi
+  ximpair_growth_basis_io(npft_max) = imdi,                                    &
+  seg_root_vc_io(npft_max) = 0
+      ! Root segment vulnerability curve (l_som_plant_segments):
+      !   0: from p50_root_io / p88_root_io as given
+      !   1: from p50_root_io alone, following Christoffersen et al.
+      !      (2016, Geosci. Model Dev. 9: 4227-4255; TFS v.1-Hydro), who use
+      !      the inverse polynomial of Manzoni et al. (2013a) for the
+      !      fraction of maximum xylem conductivity (their Eqn 4),
+      !        FMC_x(psi_x) = ( 1 + (psi_x / P50_x)^a_x )^-1,
+      !      with the slope of the PLC curve at P50 from their tropical
+      !      synthesis (Table 1),
+      !        S = 54.4 (-P50 [MPa])^-1.17   (% MPa-1).
+      !      For this FMC the PLC slope at P50 is 100 a / (4 |P50|), so
+      !        a = 4 |P50| S / 100 = 2.176 |P50|^-0.17,
+      !      and FMC = 0.12 at P88 = P50 (1/0.12 - 1)^(1/a). The segment's
+      !      cumulative Weibull then passes through this P50 and P88 (exact
+      !      there, approximate in the tails). p88_root_io must be unset.
+      !      NOTE: S is fitted to bench-dehydration data for tropical
+      !      upland trees, extrapolated here to roots; for resistant P50
+      !      it gives much shallower curves than measured roots (see 2).
+      !   2: from p50_root_io alone, with P88 from a fit to root
+      !      vulnerability curves in the Xylem Functional Traits database
+      !      (Choat et al. 2012 and updates; download 2026-09-28; root
+      !      organ, air-injection methods excluded, n = 93):
+      !        |P88| = 2.61 |P50|^0.70   (MPa),
+      !      e.g. P50 -3 -> P88 -5.6, P50 -5 -> -8.1, P50 -8.5 -> -11.7 MPa
+      !      (cf. the one Q. ilex root curve, Madrid, P50 -4.98 / P88 -9.61).
+      !      The segment's cumulative Weibull passes through this P50/P88.
+      !      p88_root_io must be unset.
 
 REAL(KIND=real_jlslsm) ::                                                      &
   a_wl_io(npft_max) = rmdi,                                                    &
@@ -169,6 +197,25 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! Cuticular leaf conductance (mmol H2O m-2 leaf s-1), the floor used when
   ! l_som_cuticular_floor (default 3, SurEau-Ecos Q. ilex, Ruffault 2022).
   gcut_io(npft_max) = 3.0,                                                     &
+  ! Nonstomatal limitation (l_som_nsl): onset and zero point of the
+  ! leaf-psi ramp on photosynthesis (Pa; missing = pftparm defaults 0 and
+  ! -3 MPa, i.e. Dewar et al. 2022 Eqn 3(b)). Onset at the turgor loss
+  ! point is an optional variant.
+  psi_nsl_onset_io(npft_max) = rmdi,                                           &
+  psi_nsl0_io(npft_max) = rmdi,                                                &
+  ! Curvature exponent of the soil moisture stress factor (missing = 1,
+  ! linear).
+  fsmc_q_io(npft_max) = rmdi,                                                  &
+  ! Soil-water down-regulation of Vcmax/Jmax (l_som_vcmax_psi; missing =
+  ! pftparm defaults -2 MPa and 2 MPa-1).
+  psi_vcmax_f_io(npft_max) = rmdi,                                             &
+  sf_vcmax_io(npft_max) = rmdi,                                                &
+  psi_vcmax_fmin_io(npft_max) = rmdi,                                          &
+  nsl_sink_umax_io(npft_max) = rmdi,                                          &
+  nsl_sink_tau_io(npft_max) = rmdi,                                           &
+  nsl_sink_maint_io(npft_max) = rmdi,                                         &
+  nsl_sink_psi50_io(npft_max) = rmdi,                                         &
+  nsl_sink_sf_io(npft_max) = rmdi,                                            &
   ! DESICA (stomata_model = 5). Tuzet et al. (2003) closure
   ! fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf))), with
   ! gs = g1 fw An / ca; defaults are the CABLE-DESICA evergreen broadleaf
@@ -228,6 +275,7 @@ NAMELIST  / jules_pftparm/                                                     &
   ccleaf_min_io,   ccwood_max_io,    ccwood_min_io,                            &
   ci_st_io,        pft_conductance_model_io,                                   & ! JBaguley
   pft_xylem_impairment_model_io,                                               & ! JBaguley
+  seg_root_vc_io,                                                              &
   dcatch_dlai_io,  deact_jmax_io,    deact_vcmax_io,                           &
   dfp_dcuo_io,     dgl_dm_io,        dgl_dt_io,                                &
   dqcrit_io,       ds_jmax_io,       ds_vcmax_io,                              &
@@ -257,7 +305,10 @@ NAMELIST  / jules_pftparm/                                                     &
   seg_frac_root_io, seg_frac_stem_io, seg_frac_leaf_io,                        &
   p50_root_io,     p50_stem_io,      p50_leaf_io,                              &
   p88_root_io,     p88_stem_io,      p88_leaf_io,                              &
-  gcut_io,                                                                     &
+  gcut_io,         psi_nsl_onset_io, psi_nsl0_io,                              &
+  fsmc_q_io,       psi_vcmax_f_io,   sf_vcmax_io,      psi_vcmax_fmin_io,      &
+  nsl_sink_umax_io, nsl_sink_tau_io, nsl_sink_maint_io,                    &
+  nsl_sink_psi50_io, nsl_sink_sf_io,                                  &
   g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
   cap_leaf_io,     cap_stem_io,                                                &
   q10_leaf_io,      r_grow_io,                                                 &
@@ -307,12 +358,12 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
-INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
-                                           ! my_namelist (4 + 4 xylem
+INTEGER, PARAMETER :: n_int = 9 * npft_max ! = the INTEGER arrays in
+                                           ! my_namelist (5 + 4 xylem
                                            ! impairment)
-INTEGER, PARAMETER :: n_real = 137 * npft_max ! = the REAL arrays in
-                                             ! my_namelist: 124 + 5 DESICA +
-                                             ! 8 xylem impairment
+INTEGER, PARAMETER :: n_real = 148 * npft_max ! = the REAL arrays in
+                                             ! my_namelist (140 + 8 xylem
+                                             ! impairment)
 
 TYPE :: my_namelist
   SEQUENCE
@@ -324,6 +375,7 @@ TYPE :: my_namelist
   INTEGER :: ximpair_psi_driver_io(npft_max)
   INTEGER :: ximpair_reset_mmdd_io(npft_max)
   INTEGER :: ximpair_growth_basis_io(npft_max)
+  INTEGER :: seg_root_vc_io(npft_max)
   REAL(KIND=real_jlslsm) :: a_wl_io(npft_max)
   REAL(KIND=real_jlslsm) :: a_ws_io(npft_max)
   REAL(KIND=real_jlslsm) :: act_jmax_io(npft_max)
@@ -421,6 +473,17 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: p88_io(npft_max) ! JBaguley
   REAL(KIND=real_jlslsm) :: seg_frac_root_io(npft_max)
   REAL(KIND=real_jlslsm) :: gcut_io(npft_max)
+  REAL(KIND=real_jlslsm) :: psi_nsl_onset_io(npft_max)
+  REAL(KIND=real_jlslsm) :: psi_nsl0_io(npft_max)
+  REAL(KIND=real_jlslsm) :: fsmc_q_io(npft_max)
+  REAL(KIND=real_jlslsm) :: psi_vcmax_f_io(npft_max)
+  REAL(KIND=real_jlslsm) :: sf_vcmax_io(npft_max)
+  REAL(KIND=real_jlslsm) :: psi_vcmax_fmin_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsl_sink_umax_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsl_sink_tau_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsl_sink_maint_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsl_sink_psi50_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsl_sink_sf_io(npft_max)
   REAL(KIND=real_jlslsm) :: g1_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: sf_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_f_tuzet_io(npft_max)
@@ -512,6 +575,7 @@ IF (mype == 0) THEN
   my_nml % ximpair_psi_driver_io = ximpair_psi_driver_io
   my_nml % ximpair_reset_mmdd_io = ximpair_reset_mmdd_io
   my_nml % ximpair_growth_basis_io = ximpair_growth_basis_io
+  my_nml % seg_root_vc_io = seg_root_vc_io
   my_nml % dcatch_dlai_io = dcatch_dlai_io
   my_nml % deact_jmax_io  = deact_jmax_io
   my_nml % deact_vcmax_io = deact_vcmax_io
@@ -584,6 +648,17 @@ IF (mype == 0) THEN
   my_nml % p88_io         = p88_io ! JBaguley
   my_nml % seg_frac_root_io = seg_frac_root_io
   my_nml % gcut_io        = gcut_io
+  my_nml % psi_nsl_onset_io = psi_nsl_onset_io
+  my_nml % psi_nsl0_io    = psi_nsl0_io
+  my_nml % fsmc_q_io      = fsmc_q_io
+  my_nml % psi_vcmax_f_io = psi_vcmax_f_io
+  my_nml % sf_vcmax_io    = sf_vcmax_io
+  my_nml % psi_vcmax_fmin_io = psi_vcmax_fmin_io
+  my_nml % nsl_sink_umax_io = nsl_sink_umax_io
+  my_nml % nsl_sink_tau_io = nsl_sink_tau_io
+  my_nml % nsl_sink_maint_io = nsl_sink_maint_io
+  my_nml % nsl_sink_psi50_io = nsl_sink_psi50_io
+  my_nml % nsl_sink_sf_io = nsl_sink_sf_io
   my_nml % g1_tuzet_io    = g1_tuzet_io
   my_nml % sf_tuzet_io    = sf_tuzet_io
   my_nml % psi_f_tuzet_io = psi_f_tuzet_io
@@ -663,6 +738,7 @@ IF (mype /= 0) THEN
   ximpair_psi_driver_io = my_nml % ximpair_psi_driver_io
   ximpair_reset_mmdd_io = my_nml % ximpair_reset_mmdd_io
   ximpair_growth_basis_io = my_nml % ximpair_growth_basis_io
+  seg_root_vc_io = my_nml % seg_root_vc_io
   dcatch_dlai_io  = my_nml % dcatch_dlai_io
   deact_jmax_io   = my_nml % deact_jmax_io
   deact_vcmax_io  = my_nml % deact_vcmax_io
@@ -735,6 +811,17 @@ IF (mype /= 0) THEN
   p88_io          = my_nml % p88_io ! JBaguley
   seg_frac_root_io = my_nml % seg_frac_root_io
   gcut_io         = my_nml % gcut_io
+  psi_nsl_onset_io = my_nml % psi_nsl_onset_io
+  psi_nsl0_io     = my_nml % psi_nsl0_io
+  fsmc_q_io       = my_nml % fsmc_q_io
+  psi_vcmax_f_io  = my_nml % psi_vcmax_f_io
+  sf_vcmax_io     = my_nml % sf_vcmax_io
+  psi_vcmax_fmin_io = my_nml % psi_vcmax_fmin_io
+  nsl_sink_umax_io = my_nml % nsl_sink_umax_io
+  nsl_sink_tau_io = my_nml % nsl_sink_tau_io
+  nsl_sink_maint_io = my_nml % nsl_sink_maint_io
+  nsl_sink_psi50_io = my_nml % nsl_sink_psi50_io
+  nsl_sink_sf_io = my_nml % nsl_sink_sf_io
   g1_tuzet_io     = my_nml % g1_tuzet_io
   sf_tuzet_io     = my_nml % sf_tuzet_io
   psi_f_tuzet_io  = my_nml % psi_f_tuzet_io
@@ -798,7 +885,11 @@ USE pftparm, ONLY:                                                             &
   calc_rz_psi,     fsmc_mod,         psi_close,                                & ! JBaguley
   psi_open,        min_rootc_pft,    root_psi_crit,                            & ! JBaguley
   root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
-  gcut,            g1_tuzet,         sf_tuzet,                                 &
+  gcut,            psi_nsl_onset,    psi_nsl0,         fsmc_q,                 &
+  psi_vcmax_f,     sf_vcmax,         psi_vcmax_fmin,                           &
+  nsl_sink_umax, nsl_sink_tau, nsl_sink_maint,                       &
+  nsl_sink_psi50, nsl_sink_sf,                                     &
+  g1_tuzet,        sf_tuzet,                                                   &
   psi_f_tuzet,     cap_leaf,         cap_stem,                                 &
 #endif
   a_wl,            a_ws,             aef,                                      &
@@ -860,7 +951,10 @@ USE c_z0h_z0m,    ONLY: z0h_z0m,  z0h_z0m_classic
 
 USE jules_surface_types_mod, ONLY: npft
 
-USE jules_vegetation_mod, ONLY: l_som_plant_segments
+USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
+                                l_som_root_supply, l_som_vcmax_psi,            &
+                                l_som_nsl_sink
+USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
 
@@ -868,6 +962,7 @@ INTEGER(KIND=jpim) :: i = 0
 INTEGER :: errcode
 INTEGER :: iseg
 REAL(KIND=real_jlslsm) :: seg_frac(3), p50_seg(3), p88_seg(3)
+REAL(KIND=real_jlslsm) :: a_root   ! Christoffersen root curve shape (seg_root_vc_io = 1)
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -962,6 +1057,58 @@ fsmc_mod(:)         = fsmc_mod_io(1:npft)
 WHERE (ABS(min_gl_pft_io(1:npft) - rmdi) > EPSILON(1.0))                       &
   min_gl_pft(:) = min_gl_pft_io(1:npft) ! JBaguley
 gcut(:)            = gcut_io(1:npft)
+! Nonstomatal limitation ramp: keep the pftparm_alloc defaults where unset.
+WHERE (ABS(psi_nsl_onset_io(1:npft) - rmdi) > EPSILON(1.0))                  &
+  psi_nsl_onset(:) = psi_nsl_onset_io(1:npft)
+WHERE (ABS(psi_nsl0_io(1:npft) - rmdi) > EPSILON(1.0))                       &
+  psi_nsl0(:) = psi_nsl0_io(1:npft)
+WHERE (ABS(fsmc_q_io(1:npft) - rmdi) > EPSILON(1.0)) fsmc_q(:) = fsmc_q_io(1:npft)
+IF ( ANY(fsmc_q(:) <= 0.0) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode, 'fsmc_q_io must be > 0.')
+END IF
+IF ( l_som_nsl .AND. ( ANY(psi_nsl_onset(:) > 0.0) .OR.                       &
+                       ANY(psi_nsl0(:) >= psi_nsl_onset(:)) ) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                         &
+               'l_som_nsl needs psi_nsl0_io < psi_nsl_onset_io <= 0.')
+END IF
+! Soil-water down-regulation of capacity: keep the defaults where unset.
+WHERE (ABS(psi_vcmax_f_io(1:npft) - rmdi) > EPSILON(1.0))                    &
+  psi_vcmax_f(:) = psi_vcmax_f_io(1:npft)
+WHERE (ABS(sf_vcmax_io(1:npft) - rmdi) > EPSILON(1.0))                       &
+  sf_vcmax(:) = sf_vcmax_io(1:npft)
+WHERE (ABS(psi_vcmax_fmin_io(1:npft) - rmdi) > EPSILON(1.0))                 &
+  psi_vcmax_fmin(:) = psi_vcmax_fmin_io(1:npft)
+IF ( l_som_vcmax_psi .AND. ( ANY(psi_vcmax_fmin(:) < 0.0) .OR.               &
+                             ANY(psi_vcmax_fmin(:) >= 1.0) ) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                         &
+               'l_som_vcmax_psi needs 0 <= psi_vcmax_fmin_io < 1.')
+END IF
+WHERE (ABS(nsl_sink_umax_io(1:npft) - rmdi) > EPSILON(1.0))                   &
+  nsl_sink_umax(:) = nsl_sink_umax_io(1:npft)
+WHERE (ABS(nsl_sink_tau_io(1:npft) - rmdi) > EPSILON(1.0))                    &
+  nsl_sink_tau(:) = nsl_sink_tau_io(1:npft)
+WHERE (ABS(nsl_sink_maint_io(1:npft) - rmdi) > EPSILON(1.0))                  &
+  nsl_sink_maint(:) = nsl_sink_maint_io(1:npft)
+WHERE (ABS(nsl_sink_psi50_io(1:npft) - rmdi) > EPSILON(1.0))                  &
+  nsl_sink_psi50(:) = nsl_sink_psi50_io(1:npft)
+WHERE (ABS(nsl_sink_sf_io(1:npft) - rmdi) > EPSILON(1.0))                     &
+  nsl_sink_sf(:) = nsl_sink_sf_io(1:npft)
+IF ( l_som_nsl_sink .AND. ( ANY(nsl_sink_umax(:) <= 0.0) .OR.             &
+     ANY(nsl_sink_tau(:) <= 0.0) .OR. ANY(nsl_sink_maint(:) < 0.0) .OR.       &
+     ANY(nsl_sink_maint(:) > 1.0) .OR. ANY(nsl_sink_sf(:) <= 0.0) ) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                         &
+               'l_som_nsl_sink needs nsl_sink_umax, _tau, _sf > 0 and 0 <= _maint <= 1.')
+END IF
+IF ( l_som_vcmax_psi .AND. ( ANY(psi_vcmax_f(:) >= 0.0) .OR.                  &
+                             ANY(sf_vcmax(:) <= 0.0) ) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                         &
+               'l_som_vcmax_psi needs psi_vcmax_f_io < 0 and sf_vcmax_io > 0.')
+END IF
 g1_tuzet(:)         = g1_tuzet_io(1:npft)
 sf_tuzet(:)         = sf_tuzet_io(1:npft)
 psi_f_tuzet(:)      = psi_f_tuzet_io(1:npft)
@@ -974,6 +1121,34 @@ psi_open(:)         = psi_open_io(1:npft)
 root_psi_crit(:)    = root_psi_crit_io(1:npft) ! JBaguley
 root_radi_pft(:)    = root_radi_pft_io(1:npft) ! JBaguley
 rootc_density_pft(:)= rootc_density_pft_io(1:npft) ! JBaguley
+! The root supply limit uses soil_to_root_k, which smc_ext computes only for
+! fsmc_mod = 2; with fsmc_mod 0/1 it is zero and the stomata shut silently.
+IF ( l_som_root_supply ) THEN
+  IF ( ANY(fsmc_mod(:) /= 2) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'l_som_root_supply needs fsmc_mod_io = 2 for every PFT.')
+  END IF
+  IF ( ANY(min_rootc_pft(:) <= 0.0) .OR. ANY(root_radi_pft(:) <= 0.0) .OR.    &
+       ANY(rootc_density_pft(:) <= 0.0) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'l_som_root_supply needs min_rootc_pft_io, root_radi_pft_io ' &
+                 // 'and rootc_density_pft_io > 0.')
+  END IF
+  ! With the soil psi bound on (l_bound_soil_wp), a hard clamp at psi_close
+  ! means no layer is seen drier than psi_close. If psi_close were above
+  ! root_psi_crit, root supply (psi - root_psi_crit > 0) would never run
+  ! out. Keep psi_close <= root_psi_crit; never tie them.
+  IF ( l_bound_soil_wp ) THEN
+    IF ( ANY(psi_close(:) > root_psi_crit(:)) ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode,                                       &
+                   'l_som_root_supply with l_bound_soil_wp needs '            //&
+                   'psi_close_io <= root_psi_crit_io for every PFT.')
+    END IF
+  END IF
+END IF
 #endif
 catch0(:)       = catch0_io(1:npft)
 dcatch_dlai(:)  = dcatch_dlai_io(1:npft)
@@ -1212,6 +1387,28 @@ DO i = 1, npft
   END IF
   DO iseg = 1,3
     seg_kfac(i,iseg) = SUM(seg_frac(:)) / seg_frac(iseg)
+    ! Root curve from P50 alone (seg_root_vc_io = 1; see its declaration).
+    IF ( iseg == 1 .AND. ( seg_root_vc_io(i) == 1 .OR.                         &
+                           seg_root_vc_io(i) == 2 ) ) THEN
+      IF ( ABS(p50_seg(1) - rmdi) < EPSILON(1.0) .OR.                          &
+           ABS(p88_seg(1) - rmdi) >= EPSILON(1.0) ) THEN
+        errcode = 101
+        CALL ereport(RoutineName, errcode,                                     &
+                     'seg_root_vc_io = 1 or 2 needs p50_root_io set and '   // &
+                     'p88_root_io unset.')
+      END IF
+      IF ( seg_root_vc_io(i) == 1 ) THEN
+        ! Christoffersen et al. (2016)
+        a_root = 2.176 * ( ABS(p50_seg(1)) * 1.0e-6 )**(-0.17)
+        p88_seg(1) = p50_seg(1) * ( 1.0 / 0.12 - 1.0 )**( 1.0 / a_root )
+      ELSE
+        ! XFT root fit, |P88| = 2.61 |P50|^0.70 (MPa)
+        p88_seg(1) = -2.61e6 * ( ABS(p50_seg(1)) * 1.0e-6 )**0.70
+      END IF
+    ELSE IF ( iseg == 1 .AND. seg_root_vc_io(i) /= 0 ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode, 'seg_root_vc_io should be 0, 1 or 2.')
+    END IF
     IF ( ABS(p50_seg(iseg) - rmdi) < EPSILON(1.0) ) p50_seg(iseg) = P50(i)
     IF ( ABS(p88_seg(iseg) - rmdi) < EPSILON(1.0) ) p88_seg(iseg) = P88(i)
     IF ( pft_conductance_model(i) == 1 ) THEN

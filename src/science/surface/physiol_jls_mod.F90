@@ -62,6 +62,8 @@ SUBROUTINE physiol (                                                           &
   psi_leaf_pft, cica_ratio_pft, leaf_k_pft, k_max_impaired_pft,                &
   conductance_b_impaired_pft, conductance_c_impaired_pft, psi_leaf_extreme_pft,&
   psi_root_extreme_pft,                                                        &
+  !leaf temperature (IN: drivers; OUT: sunlit/shaded/canopy)
+  tl_1,lw_down,t_leaf_sun_pft,t_leaf_shd_pft,t_can_pft,                        &
   !ancil_info (IN)
   l_soil_point,                                                                &
   !jules_surface_types (IN)
@@ -113,7 +115,10 @@ USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 
 USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
-  l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit
+  l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit, l_som_root_supply,    &
+  l_leaf_temp
+USE planet_constants_mod, ONLY: g
+USE pftparm, ONLY: root_psi_crit
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
@@ -354,6 +359,19 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 ,conductance_c_impaired_pft(land_pts,npft)                                     &
 ,psi_leaf_extreme_pft(land_pts,npft)                                           &
 ,psi_root_extreme_pft(land_pts,npft)
+!Leaf temperature (l_leaf_temp)
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+ tl_1(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end)                     &
+                            ! Air temperature at level 1 (K).
+,lw_down(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end)
+                            ! Downward longwave radiation (W m-2).
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+ t_leaf_sun_pft(land_pts,npft)                                                 &
+,t_leaf_shd_pft(land_pts,npft)                                                 &
+,t_can_pft(land_pts,npft)
+                            ! Sunlit, shaded and canopy (leaf-area weighted)
+                            ! leaf temperature used by photosynthesis (K).
+                            ! Last timestep's on input (first guess).
 
 !crop_vars_mod (IN)
 REAL(KIND=real_jlslsm), INTENT(IN) :: rootc_cpft(land_pts,ncpft)
@@ -462,6 +480,15 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,fapar_sun(land_pts,ilayers)                                                   &
 !                                 ! WORK fraction of total absorbed PAR
 !                                 ! by sunlit leaves
+,fapar_dir2dir_nir(land_pts,npft,ilayers)                                      &
+,fapar_dir2dif_nir(land_pts,npft,ilayers)                                      &
+,fapar_dif2dif_nir(land_pts,npft,ilayers)                                      &
+!                                 ! WORK as fapar_dir2dir etc., near-IR
+!                                 ! (l_leaf_temp)
+,fapar_sun_nir(land_pts,ilayers)                                               &
+,fapar_shd_nir(land_pts,ilayers)                                               &
+!                                 ! WORK as fapar_sun/fapar_shd, near-IR
+!                                 ! (l_leaf_temp)
 ,fsun(land_pts,npft,ilayers)                                                   &
 !                                 ! WORK fraction of leaves that are
 !                                 ! sunlit
@@ -556,6 +583,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! WORK Surface pressure (Pa).
 ,ipar_land(land_pts)                                                           &
                             ! WORK Incident PAR (W/m2).
+,tair_land(land_pts)                                                           &
+                            ! Level-1 air temperature on land points (K).
+,lw_down_land(land_pts)                                                        &
+                            ! Downward longwave on land points (W m-2).
+,vshr_land(land_pts)                                                           &
+                            ! Level-1 wind speed on land points (m s-1).
+,z1_uv_land(land_pts)                                                          &
+                            ! Level-1 wind height on land points (m).
 ,q1_land(land_pts)                                                             &
                             ! WORK ecific humidity at level 1
 ,ra(land_pts)                                                                  &
@@ -648,9 +683,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Transpiration the soil can supply this timestep (kg m-2 s-1): this
       ! tile's smc (the moisture limit sf_evap applies to esoil) per
       ! timestep. Negative when the limit is off.
-  fsoil_sup
+  fsoil_sup,                                                                   &
       ! Fraction of the ground below the canopy seen by soil evaporation,
       ! as soil_evap computes it (exp(-0.5 LAI)).
+  e_root_sup
+      ! Root uptake limit (l_som_root_supply, kg m-2 s-1).
 
 LOGICAL :: l_getprofile     ! Switch IN to albpft
 
@@ -695,6 +732,8 @@ l_do_omp    = land_pts>omp_cutoff
 !$OMP dim_cs1,resp_s_soilt,gpp,npp,resp_p,ra,canhc,vfrac,apar_diag_gb,         &
 !$OMP isoprene_gb,terpene_gb,methanol_gb,acetone_gb,fsoil_tot,frac,            &
 !$OMP land_index, t_i_length, pstar_land, pstar, ipar_land,                    &
+!$OMP tair_land, lw_down_land, vshr_land, tl_1, lw_down, vshr,                 &
+!$OMP z1_uv_land, z1_uv_ij,                                                    &
 !$OMP photosynth_act_rad, q1_land, qw_1, gs_type, gs,                          &
 !$OMP l_irrig_dmd, gs_irr_type, cosz_gb, cos_zenith_angle,                     &
 !$OMP gsoil_irr_soilt, smvccl_soilt, gs_nvg, soil, l_limit_gsoil,              &
@@ -921,6 +960,10 @@ DO l = 1,land_pts
   pstar_land(l) = pstar(i,j)
   ipar_land(l)  = photosynth_act_rad(i,j)
   q1_land(l)    = qw_1(i,j)
+  tair_land(l)  = tl_1(i,j)
+  lw_down_land(l) = lw_down(i,j)
+  vshr_land(l)  = vshr(i,j)
+  z1_uv_land(l) = z1_uv_ij(i,j)
   cosz_gb(l)    = cos_zenith_angle(i,j)
   fsoil_tot(l) = frac(l,soil)
   gs(l)        = 0.0
@@ -1011,6 +1054,21 @@ IF ( can_rad_mod /= 1 ) THEN
 
   l_getprofile = .TRUE.
 
+  IF ( l_leaf_temp ) THEN
+    ! Also the near-IR profile, for the leaf energy balance.
+    CALL albpft     (                                                          &
+      !INTENT(IN)
+      l_getprofile, land_pts, ilayers, albpft_call,                            &
+      surft_pts, surft_index,                                                  &
+      cosz_gb, lai_pft, albudir, albudif,                                      &
+    !INTENT(INOUT)
+      alb_type_dummy,                                                          &
+    !INTENT(OUT)
+      fapar_dir, fapar_dif, fapar_dir2dif,                                     &
+      fapar_dif2dif, fapar_dir2dir, fsun,                                      &
+      albobs_scaling_surft,                                                    &
+      fapar_dir2dir_nir, fapar_dir2dif_nir, fapar_dif2dif_nir)
+  ELSE
   CALL albpft     (                                                            &
     !INTENT(IN)
     l_getprofile, land_pts, ilayers, albpft_call,                              &
@@ -1025,6 +1083,7 @@ IF ( can_rad_mod /= 1 ) THEN
     !New arguments replacing USE statements
     !jules_mod (IN OUT)
     albobs_scaling_surft)
+  END IF
 END IF
 
 IF ( l_soil_evap_or .AND. l_irrig_dmd ) THEN
@@ -1215,6 +1274,8 @@ DO n = 1,npft
 !$OMP PARALLEL DO IF(ilayers > 1) DEFAULT(NONE) PRIVATE(i, k, l, il)           &
 !$OMP SHARED(ilayers, surft_pts, surft_index, land_index, fapar_shd,           &
 !$OMP        diff_frac, fapar_dif2dif, fapar_dir2dir, fsun, fapar_sun,         &
+!$OMP        l_leaf_temp, fapar_shd_nir, fapar_sun_nir, fapar_dif2dif_nir,     &
+!$OMP        fapar_dir2dif_nir, fapar_dir2dir_nir,                             &
 !$OMP        fapar_dir2dif, n)                                                 &
 !$OMP SCHEDULE(STATIC)
       DO il = 1,ilayers
@@ -1231,6 +1292,19 @@ DO n = 1,npft
                               / fsun(l,n,il)
           ELSE
             fapar_sun(l,il) = 0.0
+          END IF
+
+          IF ( l_leaf_temp ) THEN
+            ! Near-IR, as for PAR (same diffuse fraction).
+            fapar_shd_nir(l,il) = diff_frac(i) * fapar_dif2dif_nir(l,n,il)     &
+                              + ( 1.0 - diff_frac(i) ) * fapar_dir2dif_nir(l,n,il)
+            IF ( fsun(l,n,il) > EPSILON(fsun) ) THEN
+              fapar_sun_nir(l,il) = fapar_shd_nir(l,il)                        &
+                              + (1.0 - diff_frac(i)) * fapar_dir2dir_nir(l,n,il) &
+                              / fsun(l,n,il)
+            ELSE
+              fapar_sun_nir(l,il) = 0.0
+            END IF
           END IF
 
         END DO !  points
@@ -1288,6 +1362,28 @@ DO n = 1,npft
     END DO
   END IF
 
+  ! Root uptake limit (l_som_root_supply): the uptake the roots can make
+  ! with the root held at root_psi_crit, summed over the layers (the raw
+  ! smc_ext uptake weights; soil_to_root_k is per metre of head). It falls
+  ! as the soil and rhizosphere dry, and is zero once every layer is at or
+  ! below root_psi_crit. Combined with l_som_supply_limit if both are set.
+  IF ( l_som_root_supply .AND. n <= npft ) THEN
+    DO k_sup = 1,surft_pts(n)
+      l = surft_index(k_sup,n)
+      e_root_sup = 0.0
+      DO kl_sup = 1,sm_levels
+        e_root_sup = e_root_sup + soil_root_k_soilt(l,m,kl_sup)                &
+                     * MAX(soil_wp_soilt(l,m,kl_sup) - root_psi_crit(n), 0.0)  &
+                     / (rho_water * g)
+      END DO
+      IF ( e_supply(l) < 0.0 ) THEN
+        e_supply(l) = e_root_sup
+      ELSE
+        e_supply(l) = MIN(e_supply(l), e_root_sup)
+      END IF
+    END DO
+  END IF
+
   fsun_tmp(:,:) = fsun(:,n,:)
 
   CALL sf_stom (land_pts,land_index                                            &
@@ -1308,9 +1404,12 @@ DO n = 1,npft
 ,               lai_bal(:,n)                                                   &
 ,               gs_type(:,n)                                                   &
 ,               fapar_sun,fapar_shd,fsun_tmp                                   &
+,               fapar_sun_nir,fapar_shd_nir                                    &
 ,               flux_o3_pft(:,n),fo3_pft(:,n)                                  &
 ,               fapar_diag_pft(:,n),apar_diag_pft(:,n),psi_leaf_pft(:,n)       &
 ,               cica_ratio_pft(:,n),leaf_k_pft(:,n)                            &
+,               tair_land,lw_down_land,vshr_land,z1_uv_land                    &
+,               t_leaf_sun_pft(:,n),t_leaf_shd_pft(:,n),t_can_pft(:,n)         &
 ,               isoprene_pft(:,n),terpene_pft(:,n)                             &
 ,               methanol_pft(:,n),acetone_pft(:,n)                             &
 ,               open_index,open_pts                                            &
@@ -2284,4 +2383,6 @@ END IF
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
 END SUBROUTINE physiol
+
+
 END MODULE physiol_mod

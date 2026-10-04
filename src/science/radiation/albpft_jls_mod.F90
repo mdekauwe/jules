@@ -25,7 +25,9 @@ SUBROUTINE albpft(                                                             &
     fapar_dif2dif, fapar_dir2dir, fsun,                                        &
     !New arguments replacing USE statements
     !jules_mod (IN OUT)
-    albobs_scaling_surft)
+    albobs_scaling_surft,                                                      &
+    !INTENT(OUT), OPTIONAL
+    fapar_dir2dir_nir, fapar_dir2dif_nir, fapar_dif2dif_nir)
 
 USE jules_surface_types_mod, ONLY: npft, ntype
 USE pftparm, ONLY: omega,  omnir,  alpar,  alnir,                              &
@@ -120,6 +122,20 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 !New arguments replacing USE statements
 !jules_mod (IN OUT)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: albobs_scaling_surft(land_pts,ntype,rad_nband)
+
+! Optional: the near-IR (band 2) equivalents of fapar_dir2dir,
+! fapar_dir2dif and fapar_dif2dif, for can_rad_mod = 5, 6 or 7 (used for the
+! leaf energy balance, l_leaf_temp).
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
+ fapar_dir2dir_nir(land_pts,npft,ilayers)                                      &
+,fapar_dir2dif_nir(land_pts,npft,ilayers)                                      &
+,fapar_dif2dif_nir(land_pts,npft,ilayers)
+
+LOGICAL :: l_nir_profile
+                            ! Also calculate the near-IR profile.
+REAL(KIND=real_jlslsm) :: fdir_lyr, fdif_lyr
+                            ! Absorbed fraction in a layer per unit LAI,
+                            ! incident direct / diffuse.
 
 ! Local arrays:
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -234,8 +250,16 @@ IF ( l_rp2 .AND. i_rp_scheme == i_rp2b ) THEN
   END DO
 END IF
 
+l_nir_profile = l_getprofile .AND. PRESENT(fapar_dif2dif_nir) .AND.            &
+                ( can_rad_mod == 5 .OR. can_rad_mod == 6 .OR. can_rad_mod == 7 )
+IF ( l_nir_profile ) THEN
+  fapar_dir2dir_nir(:,:,:) = 0.0
+  fapar_dir2dif_nir(:,:,:) = 0.0
+  fapar_dif2dif_nir(:,:,:) = 0.0
+END IF
+
 !$OMP PARALLEL DEFAULT(NONE)                                                   &
-!$OMP PRIVATE(n, l, i, j, albdif_tmp, albscl_new, albscl_tmp, b, betadif,      &
+!$OMP PRIVATE(n, l, i, j, albdif_tmp, fdir_lyr, fdif_lyr, albscl_new, albscl_tmp, b, betadif,      &
 !$OMP         betadir, c, ca, coszm, d, d1, d2, dabeer_dla, dlai,              &
 !$OMP         drdird_dlai, drdiru_dlai, drdifu_dlai, drdifd_dlai, f, g, h,     &
 !$OMP         h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, k, la, p1, p2,          &
@@ -251,7 +275,8 @@ END IF
 !$OMP        alb_type, cosz_gb, lai, albudif, ilayers, fapar_dir,              &
 !$OMP        fapar_dif, fapar_dir2dir, fapar_dir2dif, fapar_dif2dif,           &
 !$OMP        albudir, can_rad_mod, can_struct_a, fsun, l_niso_direct,          &
-!$OMP        l_albedo_obs)
+!$OMP        l_albedo_obs, l_nir_profile, fapar_dir2dir_nir,                    &
+!$OMP        fapar_dir2dif_nir, fapar_dif2dif_nir)
 
 ! Initialisations
 !$OMP DO SCHEDULE(STATIC) COLLAPSE(2)
@@ -484,7 +509,7 @@ DO n = 1,npft
       ! If required calculate the profile of absorbed PAR through the canopy
       ! of direct and diffuse beams (BEWARE: assumes PAR is band 1)
       !-----------------------------------------------------------------------
-      IF ( l_getprofile .AND. band == 1 ) THEN
+      IF ( l_getprofile .AND. ( band == 1 .OR. l_nir_profile ) ) THEN
 
         u2  =  b - c * albudif(l,band,n)
         u3  =  f + c * albudif(l,band,n)
@@ -567,22 +592,34 @@ DO n = 1,npft
             rnet_dir(i) = rdird - rdiru
             rnet_dif(i) = rdifd - rdifu
 
-            fapar_dir(l,n,i) = (rnet_dir(i-1) - rnet_dir(i)) / dlai
-            fapar_dif(l,n,i) = (rnet_dif(i-1) - rnet_dif(i)) / dlai
+            fdir_lyr = (rnet_dir(i-1) - rnet_dir(i)) / dlai
+            fdif_lyr = (rnet_dif(i-1) - rnet_dif(i)) / dlai
 
             dabeer_dla(i) = (exp_k_dlai_min_la - exp_minus_kla) / dlai
 
-            fapar_dir2dir(l,n,i) = (1.0 - om) * dabeer_dla(i)
-            fapar_dir2dif(l,n,i) =  om * dabeer_dla(i) + fapar_dir(l,n,i)
-            fapar_dif2dif(l,n,i) = fapar_dif(l,n,i)
+            IF ( band == 1 ) THEN
+              fapar_dir(l,n,i) = fdir_lyr
+              fapar_dif(l,n,i) = fdif_lyr
 
-            fsun(l,n,i) = (exp_k_dlai_min_la - exp_minus_kla) / (k * dlai)
+              fapar_dir2dir(l,n,i) = (1.0 - om) * dabeer_dla(i)
+              fapar_dir2dif(l,n,i) =  om * dabeer_dla(i) + fapar_dir(l,n,i)
+              fapar_dif2dif(l,n,i) = fapar_dif(l,n,i)
 
-            fapar_dir(l,n,i)     = fapar_dir(l,n,i) * can_struct_a(n)
-            fapar_dif(l,n,i)     = fapar_dif(l,n,i) * can_struct_a(n)
-            fapar_dir2dir(l,n,i) = fapar_dir2dir(l,n,i) * can_struct_a(n)
-            fapar_dir2dif(l,n,i) = fapar_dir2dif(l,n,i) * can_struct_a(n)
-            fapar_dif2dif(l,n,i) = fapar_dif2dif(l,n,i) * can_struct_a(n)
+              fsun(l,n,i) = (exp_k_dlai_min_la - exp_minus_kla) / (k * dlai)
+
+              fapar_dir(l,n,i)     = fapar_dir(l,n,i) * can_struct_a(n)
+              fapar_dif(l,n,i)     = fapar_dif(l,n,i) * can_struct_a(n)
+              fapar_dir2dir(l,n,i) = fapar_dir2dir(l,n,i) * can_struct_a(n)
+              fapar_dir2dif(l,n,i) = fapar_dir2dif(l,n,i) * can_struct_a(n)
+              fapar_dif2dif(l,n,i) = fapar_dif2dif(l,n,i) * can_struct_a(n)
+            ELSE
+              ! Near-IR, as for PAR above (only with l_nir_profile).
+              fapar_dir2dir_nir(l,n,i) = (1.0 - om) * dabeer_dla(i)            &
+                                         * can_struct_a(n)
+              fapar_dir2dif_nir(l,n,i) = ( om * dabeer_dla(i) + fdir_lyr )     &
+                                         * can_struct_a(n)
+              fapar_dif2dif_nir(l,n,i) = fdif_lyr * can_struct_a(n)
+            END IF
 
             la = la + dlai
           END DO  !layers

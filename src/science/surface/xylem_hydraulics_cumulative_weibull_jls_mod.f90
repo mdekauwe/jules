@@ -52,6 +52,15 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: lut_dpsi(:)
 LOGICAL, ALLOCATABLE, SAVE, PRIVATE :: lut_ready(:)
 LOGICAL, ALLOCATABLE, SAVE, PRIVATE :: lut_sox(:)
                             ! Table is for the SOX curve (else Weibull).
+! Root / stem / leaf segment tables (l_som_plant_segments with
+! psi_solver_lut): the same S(psi) for each segment's own Weibull
+! (conductance_b_seg, conductance_c_seg), so the segments in series are
+! solved by three table inversions (leaf_psi_segments_lut_jls).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: lut_seg_s(:,:,:)
+                            ! S(psi_i) (Pa) for (i, pft, segment).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: lut_seg_dpsi(:,:)
+                            ! Grid spacing for (pft, segment) (Pa).
+LOGICAL, ALLOCATABLE, SAVE, PRIVATE :: lut_seg_ready(:)
 
 CONTAINS
 
@@ -558,9 +567,9 @@ CASE(psi_solver_newton)
 ! ---------------------------------------------------------------------
 CASE(psi_solver_lut)
   IF ( l_som_plant_segments ) THEN
-    CALL leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,  &
-                                open_index, e_leaf, root_zone_psi, kmax, kcrit, &
-                                leaf_psi, leaf_k )
+    CALL leaf_psi_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,         &
+                                    veg_index, open_index, e_leaf,              &
+                                    root_zone_psi, kmax, leaf_psi, leaf_k )
   ELSE
     CALL leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,    &
                               open_index, e_leaf, root_zone_psi, kmax,          &
@@ -618,7 +627,8 @@ INTEGER :: i, j, l
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
   DO i = 1, n_e_leaf
-    leaf_psi(i,j) = supply_lut_psi(pft, root_zone_psi(l), e_leaf(i,j) / kmax(l))
+    leaf_psi(i,j) = supply_lut_psi(pft, root_zone_psi(l),                    &
+                    e_leaf(i,j) / MAX(kmax(l), TINY(1.0_real_jlslsm)))
     leaf_k(i,j) = kmax(l) * supply_lut_f(pft, leaf_psi(i,j))
   END DO
 END DO
@@ -685,16 +695,18 @@ INTEGER, INTENT(IN) :: pft
 REAL(KIND=real_jlslsm), INTENT(IN) :: psi_root, kcrit_frac
 REAL(KIND=real_jlslsm) :: e_crit
 
-REAL(KIND=real_jlslsm) :: psi_crit
+REAL(KIND=real_jlslsm) :: psi_crit, r
 
 CALL build_supply_lut(pft)
-! f(psi_crit) = kcrit_frac
+! f(psi_crit) = kcrit_frac, kept inside (0, 1) (e.g. kcrit >= kmax would
+! otherwise give a NaN).
+r = MIN(MAX(kcrit_frac, 1.0e-6_real_jlslsm), 1.0_real_jlslsm - 1.0e-6_real_jlslsm)
 IF ( lut_sox(pft) ) THEN
   psi_crit = conductance_b_pft(pft)                                                &
-             * (1.0 / kcrit_frac - 1.0)**(1.0 / conductance_c_pft(pft))
+             * (1.0 / r - 1.0)**(1.0 / conductance_c_pft(pft))
 ELSE
   psi_crit = conductance_b_pft(pft)                                                &
-             * (-LOG(kcrit_frac))**(1.0 / conductance_c_pft(pft))
+             * (-LOG(r))**(1.0 / conductance_c_pft(pft))
 END IF
 e_crit = MAX(lut_s_at(pft, psi_crit) - lut_s_at(pft, psi_root), 0.0)
 
@@ -930,6 +942,164 @@ DO j = 1, open_pnts
 END DO
 
 END SUBROUTINE leaf_psi_segments_jls
+
+! *****************************************************************************
+! As leaf_psi_segments_jls, with each segment solved from its supply-function
+! table instead of Newton-Raphson (psi_solver_lut): segment s carries
+!   E = kmax_s * ( S_s(psi_out) - S_s(psi_in) ),  kmax_s = kmax * seg_kfac,
+! so psi_out = S_s^-1( S_s(psi_in) + E / kmax_s ), downstream from
+! psi_root_zone. The whole-plant conductance -dE/dpsi_leaf comes from the
+! same recursion, dpsi_out/dE = (k_s(psi_in) dpsi_in/dE - 1) / k_s(psi_out),
+! with the same floor on segment conductances. A demand beyond what a
+! segment can supply puts its outlet at the bottom of its table, where k is
+! ~0, so the state is rejected as infeasible (k <= kcrit).
+! *****************************************************************************
+SUBROUTINE leaf_psi_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
+                                      veg_index, open_index, e_leaf,           &
+                                      root_zone_psi, kmax, leaf_psi, leaf_k )
+
+USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: pft, n_e_leaf, land_pts, open_pnts
+INTEGER, INTENT(IN) :: veg_index(land_pts), open_index(land_pts)
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  e_leaf(n_e_leaf, open_pnts), root_zone_psi(land_pts), kmax(land_pts)
+      ! As leaf_psi_segments_jls.
+
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  leaf_psi(n_e_leaf, open_pnts), leaf_k(n_e_leaf, open_pnts)
+      ! Leaf water potential (Pa) and whole-plant -dE/dpsi_leaf.
+
+INTEGER, PARAMETER :: n_seg = 3
+
+REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
+      ! Floor on a segment's conductance, as a fraction of its kmax (as
+      ! leaf_psi_segments_jls).
+
+INTEGER :: i, j, l, iseg
+REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de
+
+CALL build_supply_lut_seg(pft)
+
+DO j = 1, open_pnts
+  l = veg_index(open_index(j))
+  DO i = 1, n_e_leaf
+    psi_in  = root_zone_psi(l)
+    dpsi_de = 0.0
+    DO iseg = 1, n_seg
+      kmx = kmax(l) * seg_kfac(pft,iseg)
+      bs  = conductance_b_seg(pft,iseg)
+      cs  = conductance_c_seg(pft,iseg)
+      psi_out = seg_lut_psi(pft, iseg, psi_in,                                 &
+                            e_leaf(i,j) / MAX(kmx, TINY(1.0_real_jlslsm)))
+      k_in  = MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ), k_floor * kmx)
+      k_out = MAX(kmx * EXP( -(ABS(psi_out/bs))**cs ), k_floor * kmx)
+      dpsi_de = ( k_in * dpsi_de - 1.0 ) / k_out
+      psi_in  = psi_out
+    END DO
+    leaf_psi(i,j) = psi_in
+    IF ( dpsi_de < 0.0 .AND. ABS(dpsi_de) < HUGE(1.0_real_jlslsm) ) THEN
+      leaf_k(i,j) = -1.0 / dpsi_de
+    ELSE
+      leaf_k(i,j) = 0.0
+    END IF
+  END DO
+END DO
+
+END SUBROUTINE leaf_psi_segments_lut_jls
+
+! *****************************************************************************
+! Outlet water potential (Pa) of segment iseg for inlet psi_in (Pa) and
+! normalised flow e_over_k = E / kmax_s (Pa): S_s(psi_out) = S_s(psi_in) +
+! e_over_k, by binary search and linear interpolation (as supply_lut_psi).
+! *****************************************************************************
+FUNCTION seg_lut_psi( pft, iseg, psi_in, e_over_k ) RESULT( psi_out )
+
+INTEGER, INTENT(IN) :: pft, iseg
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_in, e_over_k
+REAL(KIND=real_jlslsm) :: psi_out
+
+INTEGER :: lo, hi, mid, i0
+REAL(KIND=real_jlslsm) :: dpsi, r, s_in, s_target
+
+dpsi = lut_seg_dpsi(pft,iseg)
+r  = MIN(MAX(-psi_in / dpsi, 0.0), REAL(n_lut - 1))
+i0 = MIN(INT(r) + 1, n_lut - 1)
+s_in = lut_seg_s(i0,pft,iseg)                                                  &
+       + (r - (i0 - 1)) * (lut_seg_s(i0+1,pft,iseg) - lut_seg_s(i0,pft,iseg))
+s_target = s_in + MAX(e_over_k, 0.0)
+
+IF ( s_target >= lut_seg_s(n_lut,pft,iseg) ) THEN
+  psi_out = MIN(-(n_lut - 1) * dpsi, psi_in)
+ELSE
+  lo = i0
+  hi = n_lut
+  DO WHILE ( hi - lo > 1 )
+    mid = (lo + hi) / 2
+    IF ( lut_seg_s(mid,pft,iseg) <= s_target ) THEN
+      lo = mid
+    ELSE
+      hi = mid
+    END IF
+  END DO
+  psi_out = -(lo - 1) * dpsi - dpsi * (s_target - lut_seg_s(lo,pft,iseg))      &
+            / (lut_seg_s(hi,pft,iseg) - lut_seg_s(lo,pft,iseg))
+  psi_out = MIN(psi_out, psi_in)
+END IF
+
+END FUNCTION seg_lut_psi
+
+! *****************************************************************************
+! Build (once per PFT) the segment supply-function tables: as
+! build_supply_lut for each segment's Weibull, from psi = 0 down to where the
+! normalised conductance falls to lut_f_floor.
+! *****************************************************************************
+SUBROUTINE build_supply_lut_seg( pft )
+
+USE max_dimensions, ONLY: npft_max
+USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
+
+INTEGER, INTENT(IN) :: pft
+
+INTEGER :: i, iseg
+REAL(KIND=real_jlslsm) :: b, c, dpsi, p0, pm, p1
+
+IF ( ALLOCATED(lut_seg_ready) ) THEN
+  IF ( lut_seg_ready(pft) ) RETURN
+END IF
+
+!$OMP CRITICAL (som_supply_lut_seg)
+IF ( .NOT. ALLOCATED(lut_seg_ready) ) THEN
+  ALLOCATE( lut_seg_s(n_lut, npft_max, 3), lut_seg_dpsi(npft_max, 3),         &
+            lut_seg_ready(npft_max) )
+  lut_seg_ready(:) = .FALSE.
+END IF
+
+IF ( .NOT. lut_seg_ready(pft) ) THEN
+  DO iseg = 1, 3
+    b = conductance_b_seg(pft,iseg)
+    c = conductance_c_seg(pft,iseg)
+    dpsi = ABS(b) * (-LOG(lut_f_floor))**(1.0 / c) / (n_lut - 1)
+    lut_seg_dpsi(pft,iseg) = dpsi
+    lut_seg_s(1,pft,iseg) = 0.0
+    DO i = 2, n_lut
+      p0 = -(i - 2) * dpsi
+      p1 = -(i - 1) * dpsi
+      pm = 0.5 * (p0 + p1)
+      lut_seg_s(i,pft,iseg) = lut_seg_s(i-1,pft,iseg) + dpsi / 6.0             &
+                              * ( EXP(-(ABS(p0 / b))**c)                       &
+                                  + 4.0 * EXP(-(ABS(pm / b))**c)               &
+                                  + EXP(-(ABS(p1 / b))**c) )
+    END DO
+  END DO
+  lut_seg_ready(pft) = .TRUE.
+END IF
+!$OMP END CRITICAL (som_supply_lut_seg)
+
+END SUBROUTINE build_supply_lut_seg
 
 ! ---------------------------------------------------------------------
 ! Function to calculate the lower incomplete gamma function. The

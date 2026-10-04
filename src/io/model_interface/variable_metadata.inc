@@ -9823,4 +9823,43 @@ DATA metadata(758) / var_metadata(                                             &
 ! Units
     "-"                                                               &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for t_leaf_sun_pft
+!-----------------------------------------------------------------------------
+DATA metadata(759) / var_metadata(                                             &
+! String identifier
+    't_leaf_sun_pft',                                                     &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Sunlit leaf temperature used by photosynthesis",                     &
+! Units
+    "K"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for t_leaf_shd_pft
+!-----------------------------------------------------------------------------
+DATA metadata(760) / var_metadata(                                             &
+! String identifier
+    't_leaf_shd_pft',                                                     &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Shaded leaf temperature used by photosynthesis",                     &
+! Units
+    "K"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for t_can_pft
+!-----------------------------------------------------------------------------
+DATA metadata(761) / var_metadata(                                             &
+! String identifier
+    't_can_pft',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Leaf-area weighted canopy leaf temperature",                         &
+! Units
+    "K"                                                                   &
+  ) /
 #endif

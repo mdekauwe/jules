@@ -642,6 +642,7 @@ CASE ( jules )
     psparms%kmax_impaired_pft,psparms%conductance_b_impaired_pft,              &
     psparms%conductance_c_impaired_pft,                                        &
     psparms%psi_leaf_extreme_pft,psparms%psi_root_extreme_pft,                 &
+    psparms%t_leaf_sun_pft, psparms%t_leaf_shd_pft, psparms%t_can_pft,         &
     !urban_param (IN)
     urban_param%wrr_gb,                                                        &
     !Fluxes (IN OUT)

@@ -52,7 +52,7 @@ USE jules_vegetation_mod, ONLY:                                                &
         som_base_parm_ci, som_base_parm_psi, som_n_sample,                     &
         profit_max_profit_model, SOX_profit_model, som_profit_model,          &
         som_ci_search, som_ci_bounded, som_n_ci_golden_iter,                  &
-        l_som_skip_search_wellwatered, som_hc_negligible_tol
+        l_som_skip_search_wellwatered, som_hc_negligible_tol, l_som_nsl
 
 USE pftparm, ONLY:                                                             &
         min_gl_pft, kcrit_fractional_loss
@@ -470,7 +470,9 @@ SELECT CASE ( som_base_parm )
         ELSE
           hc_ref(j) = kmax(l)
         END IF
-        IF (l_som_skip_search_wellwatered .AND.                                &
+        ! (Not with l_som_nsl: the limitation makes the optimum interior even
+        ! where the hydraulic cost is negligible.)
+        IF (l_som_skip_search_wellwatered .AND. .NOT. l_som_nsl .AND.          &
             psi_e_fp(1,j) <= psi_root_zone(l) + TINY(psi_root_zone(l)) .AND.   &
             kl_e_fp(1,j) > kcrit(l) .AND.                                      &
             (gl_max(l) <= 0.0 .OR. gl_e_fp(1,j) <= gl_max(l))) THEN
@@ -481,8 +483,10 @@ SELECT CASE ( som_base_parm )
 
         IF (l_fastpath(j)) THEN
           ci(l) = MAX(0.0, ci_e_fp(1,j))
-          al(l) = MAX(0.0, al_e_fp(1,j))
+          al(l) = MAX(-rd(l), al_e_fp(1,j))
           gl(l) = MAX(0.0, gl_e_fp(1,j))
+          ! gl = 0 means closed: al = -rd, as in set_closed.
+          IF (gl(l) <= 0.0) al(l) = -rd(l)
           psi_leaf(l) = psi_e_fp(1,j)
           el(l) = el_e_fp(1,j)
           leaf_k(l) = kl_e_fp(1,j)
@@ -579,13 +583,15 @@ SELECT CASE ( som_base_parm )
           l = veg_index(open_index_flat(j))
           ci(l) = MAX(0.0, ci_sample(optimal_index_flat(j),j))
           ! Closed state (index 0) keeps al = -rd, as for points that
-          ! were never open; an open optimum is clipped at 0 as before.
+          ! were never open; an open optimum is clipped at -rd (as closed).
           IF (optimal_index_flat(j) == 0) THEN
             al(l) = al_sample(0,j)
           ELSE
-            al(l) = MAX(0.0, al_sample(optimal_index_flat(j),j))
+            al(l) = MAX(-rd(l), al_sample(optimal_index_flat(j),j))
           END IF
           gl(l) = MAX(0.0, gl_sample(optimal_index_flat(j),j))
+          ! gl = 0 means closed: al = -rd, as in set_closed.
+          IF (gl(l) <= 0.0) al(l) = -rd(l)
           psi_leaf(l) = psi_sample(optimal_index_flat(j),j)
           el(l) = el_sample(optimal_index_flat(j),j)
           leaf_k(l) = kl_sample(optimal_index_flat(j),j)
@@ -703,9 +709,11 @@ SELECT CASE ( som_base_parm )
         IF (optimal_index == 0) THEN
           al(l) = al_sample(0,j)
         ELSE
-          al(l) = MAX(0.0, al_sample(optimal_index,j))
+          al(l) = MAX(-rd(l), al_sample(optimal_index,j))
         END IF
         gl(l) = MAX(0.0, gl_sample(optimal_index,j))
+        ! gl = 0 means closed: al = -rd, as in set_closed.
+        IF (gl(l) <= 0.0) al(l) = -rd(l)
         psi_leaf(l) = psi_sample(optimal_index,j)
         el(l) = el_sample(optimal_index,j)
         leaf_k(l) = kl_sample(optimal_index,j)
@@ -1475,10 +1483,10 @@ USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 CW_conductance,                                &
                                 SOX_conductance,                               &
                                 som_psi_solver, psi_solver_lut,           &
-                                l_som_plant_segments
+                                l_som_plant_segments, l_som_nsl
 USE jb_photo_mod, ONLY: jb_eta_scale
 USE pftparm, ONLY: c3, alpha, pft_conductance_model, conductance_b_pft,        &
-                   conductance_c_pft
+                   conductance_c_pft, psi_nsl_onset, psi_nsl0
 USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
 USE planet_constants_mod, ONLY: repsilon
 USE c_rmol, ONLY: rmol
@@ -1517,6 +1525,11 @@ REAL(KIND=real_jlslsm), PARAMETER ::                                           &
                             ! needs a margin test, not just a Ci tolerance).
   golden_ratio = 0.6180339887498949_real_jlslsm
 INTEGER, PARAMETER :: max_edge_iter = 20
+INTEGER, PARAMETER :: n_nsl_iter = 12
+                            ! Maximum Illinois steps for the nonstomatal
+                            ! limitation factor f (l_som_nsl).
+REAL(KIND=real_jlslsm), PARAMETER :: nsl_tol = 1.0e-3
+                            ! Tolerance on f - f(psi_leaf(f)) (l_som_nsl).
 
 INTEGER :: i, j, l, side, idx1(land_pts)
 REAL(KIND=real_jlslsm) :: b_curve(land_pts), c_curve(land_pts)
@@ -1526,8 +1539,8 @@ LOGICAL :: l_lut, ok_u, l_edge
 
 REAL(KIND=real_jlslsm) ::                                                      &
   g_off, max_al, max_kl, ci_lo, ci_top, tol1,                                  &
-  ! Evaluation state (eval_ci)
-  last_ci, al_u, gl_u, el_u, psi_u, kl_u,                                      &
+  ! Evaluation state (eval_ci); al0_u is A without the nonstomatal limitation
+  last_ci, al_u, gl_u, el_u, psi_u, kl_u, al0_u,                               &
   ! Edge (last feasible) and the infeasible end of its bracket
   e_ci, e_al, e_gl, e_el, e_psi, e_kl, e_g, b_ci, b_g, g_u, c_ci, t_al,        &
   ! Best seen
@@ -1579,7 +1592,9 @@ DO j = 1, open_pts
   e_kl = kl_u; e_g = margin()
 
   CALL eval_ci(ci_top)
-  IF ( al_u + g_off <= 0.0 ) THEN
+  ! (al0_u = al_u without the nonstomatal limitation, which can make A at
+  ! ci_top <= 0 although the optimum inside the range has A > 0.)
+  IF ( al0_u + g_off <= 0.0 ) THEN
     CALL set_closed()
     CYCLE
   END IF
@@ -1594,13 +1609,19 @@ DO j = 1, open_pts
     e_kl = kl_u
   ELSE
     l_edge = .FALSE.
-    IF ( l_lut ) CALL edge_by_gl_cap()
+    ! (edge_by_gl_cap finds the edge from A without the hydraulics, which
+    ! does not hold once A depends on psi_leaf.)
+    IF ( l_lut .AND. .NOT. l_som_nsl ) CALL edge_by_gl_cap()
     IF ( .NOT. l_edge ) CALL edge_by_margin()
   END IF
 
   ! Normalisation; no carbon benefit from opening => closed, as for the flat
   ! search (stom_opt_profit_max_select).
   max_al = e_al + g_off
+  ! With the nonstomatal limitation, normalise by the unlimited A at the edge
+  ! so the gain-to-cost weighting is as without it (and the limitation
+  ! lowers the gain fraction).
+  IF ( l_som_nsl ) max_al = photo_al(e_ci) + g_off
   IF ( max_al <= 0.0 ) THEN
     CALL set_closed()
     CYCLE
@@ -1649,8 +1670,10 @@ DO j = 1, open_pts
   END IF
 
   ci_g(j) = MAX(0.0, best_ci)
-  al_g(j) = MAX(0.0, best_al)
+  al_g(j) = MAX(-rd(l), best_al)
   gl_g(j) = MAX(0.0, best_gl)
+  ! gl = 0 means closed: al = -rd, as in set_closed.
+  IF (gl_g(j) <= 0.0) al_g(j) = -rd(l)
   psi_g(j) = best_psi
   el_g(j) = best_el
   kl_g(j) = best_kl
@@ -1669,17 +1692,76 @@ CONTAINS
   !---------------------------------------------------------------------------
   SUBROUTINE eval_ci(ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci
+  REAL(KIND=real_jlslsm) :: ag0, f_lo, f_hi, f_new, g_lo, g_hi, g_new
+  INTEGER :: it, side
+
+  last_ci = ci
+  al0_u = photo_al(ci)
+  CALL hydraulic_state(ci, al0_u)
+
+  !-------------------------------------------------------------------------
+  ! Nonstomatal limitation (l_som_nsl): gross photosynthesis scaled by
+  ! f(psi_leaf), with psi_leaf from the transpiration that f * A gives. For
+  ! fixed Ci, f(psi_leaf(f)) is non-increasing in f, so
+  ! g(f) = f - f(psi_leaf(f)) is increasing with a single root on [0, 1]:
+  ! g(1) > 0 here (the unlimited state, just evaluated), and at f = 0 there
+  ! is no transpiration, psi_leaf = psi_root_zone, so g(0) = -f(psi_root)
+  ! needs no hydraulics. Illinois (regula falsi) to |g| < nsl_tol, usually
+  ! in 3-5 steps. Rd is not scaled.
+  !-------------------------------------------------------------------------
+  IF ( l_som_nsl ) THEN
+    IF ( nsl_factor(psi_u) < 1.0 ) THEN
+      ag0  = al0_u + rd(l)
+      f_hi = 1.0
+      g_hi = 1.0 - nsl_factor(psi_u)
+      f_lo = 0.0
+      g_lo = -nsl_factor(psi_root_zone(l))
+      IF ( g_lo >= 0.0 ) THEN
+        ! The soil alone stops photosynthesis (psi_root <= psi_nsl0).
+        CALL hydraulic_state(ci, -rd(l))
+      ELSE
+        side = 0
+        f_new = f_lo
+        DO it = 1, n_nsl_iter
+          f_new = f_lo - g_lo * (f_hi - f_lo) / (g_hi - g_lo)
+          CALL hydraulic_state(ci, f_new * ag0 - rd(l))
+          g_new = f_new - nsl_factor(psi_u)
+          IF ( ABS(g_new) < nsl_tol ) EXIT
+          IF ( g_new < 0.0 ) THEN
+            f_lo = f_new; g_lo = g_new
+            IF ( side == -1 ) g_hi = 0.5 * g_hi
+            side = -1
+          ELSE
+            f_hi = f_new; g_hi = g_new
+            IF ( side == 1 ) g_lo = 0.5 * g_lo
+            side = 1
+          END IF
+        END DO
+        ! (The state left by hydraulic_state is that of f_new.)
+      END IF
+    END IF
+  END IF
+
+  ok_u = psi_u <= psi_root_zone(l) + TINY(psi_root_zone(l))                    &
+         .AND. kl_u > kcrit(l)                                                 &
+         .AND. (gl_max(l) <= 0.0 .OR. gl_u <= gl_max(l))
+  END SUBROUTINE eval_ci
+
+  ! Conductance, transpiration, leaf psi and xylem k at internal CO2 ci for
+  ! net photosynthesis al (sets al_u, gl_u, el_u, psi_u, kl_u).
+  SUBROUTINE hydraulic_state(ci, al)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: ci, al
   REAL(KIND=real_jlslsm) :: vpd
   REAL(KIND=real_jlslsm) :: el1(1,1), psi1(1,1), kl1(1,1)
 
-  last_ci = ci
-  al_u = photo_al(ci)
+  al_u = al
   gl_u = ratio * (al_u * rmol * t_leaf(l)) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
   vpd = dq(l) * pstar(l) / repsilon
   el_u = MAX(0.0, vpd * gl_u / pstar(l) * pstar(l) / (rmol * t_leaf(l)))
 
   IF ( l_lut ) THEN
-    psi_u = supply_lut_psi(pft, psi_root_zone(l), el_u / kmax(l))
+    psi_u = supply_lut_psi(pft, psi_root_zone(l),                              &
+                           el_u / MAX(kmax(l), TINY(1.0_real_jlslsm)))
     kl_u = kmax(l) * supply_lut_f(pft, psi_u)
   ELSE
     el1(1,1) = el_u
@@ -1689,11 +1771,17 @@ CONTAINS
     psi_u = psi1(1,1)
     kl_u = kl1(1,1)
   END IF
+  END SUBROUTINE hydraulic_state
 
-  ok_u = psi_u <= psi_root_zone(l) + TINY(psi_root_zone(l))                    &
-         .AND. kl_u > kcrit(l)                                                 &
-         .AND. (gl_max(l) <= 0.0 .OR. gl_u <= gl_max(l))
-  END SUBROUTINE eval_ci
+  ! Nonstomatal limitation factor at leaf psi (Pa): Dewar et al. (2022)
+  ! Eqn 3(b) generalised to an onset, f = 1 - (psi - psi_on)/(psi0 - psi_on)
+  ! clipped to [0, 1] (see l_som_nsl).
+  REAL(KIND=real_jlslsm) FUNCTION nsl_factor(psi)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+  nsl_factor = 1.0 - (psi - psi_nsl_onset(pft))                               &
+                     / (psi_nsl0(pft) - psi_nsl_onset(pft))
+  nsl_factor = MIN(MAX(nsl_factor, 0.0_real_jlslsm), 1.0_real_jlslsm)
+  END FUNCTION nsl_factor
 
   ! Net photosynthesis at internal CO2 ci (as stom_opt_mod_ci).
   REAL(KIND=real_jlslsm) FUNCTION photo_al(ci)
@@ -1759,7 +1847,8 @@ CONTAINS
   g_cap = HUGE(1.0_real_jlslsm)
   IF ( gl_max(l) > 0.0 ) g_cap = gl_max(l)
   IF ( conv_e > 0.0 ) g_cap = MIN(g_cap, kmax(l)                              &
-       * supply_lut_e_crit(pft, psi_root_zone(l), kcrit(l) / kmax(l)) / conv_e)
+       * supply_lut_e_crit(pft, psi_root_zone(l),                              &
+                           kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm))) / conv_e)
   IF ( g_cap >= HUGE(1.0_real_jlslsm) ) RETURN
 
   rk = ratio * rmol * t_leaf(l)

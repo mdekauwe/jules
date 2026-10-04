@@ -666,7 +666,7 @@ FUNCTION fsmc_layer(npnts,surft_pts,surft_index,                               &
 !-----------------------------------------------------------------------------
 
 USE jules_vegetation_mod, ONLY: fsmc_shape
-USE pftparm, ONLY: psi_open, psi_close
+USE pftparm, ONLY: psi_open, psi_close, fsmc_q
 
 IMPLICIT NONE
 
@@ -741,6 +741,8 @@ DO j = 1,surft_pts
 
   fsmc_l(i) = MAX(fsmc_l(i),0.0)
   fsmc_l(i) = MIN(fsmc_l(i),1.0)
+  ! Optional curvature of the stress factor (fsmc_q; 1 = linear).
+  IF ( fsmc_q(pft) /= 1.0 ) fsmc_l(i) = fsmc_l(i)**fsmc_q(pft)
 END DO
 !$OMP END PARALLEL DO
 

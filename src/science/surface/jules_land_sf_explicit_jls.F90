@@ -101,6 +101,7 @@ SUBROUTINE jules_land_sf_explicit (                                            &
  !p_s_parms (IN OUT) JBaguley
  k_max_impaired_pft,conductance_b_impaired_pft,conductance_c_impaired_pft,     &
  psi_leaf_extreme_pft,psi_root_extreme_pft,                                    &
+ t_leaf_sun_pft,t_leaf_shd_pft,t_can_pft,                                      &
  !urban_param (IN)
  wrr_gb,                                                                       &
  !Fluxes (IN OUT)
@@ -690,6 +691,13 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,leaf_k_pft(land_pts,npft)                                                     &
 ,gc_stom_pft(land_pts,npft)
                             ! Canopy stomatal conductance of each PFT (m s-1)
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+ t_leaf_sun_pft(land_pts,npft)                                                 &
+,t_leaf_shd_pft(land_pts,npft)                                                 &
+,t_can_pft(land_pts,npft)
+                            ! Sunlit, shaded and canopy leaf temperature of
+                            ! each PFT used by photosynthesis (K); last
+                            ! timestep's on input.
 
 !p_s_parms (IN OUT) JBaguley
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
@@ -1296,6 +1304,8 @@ CALL physiol (                                                                 &
   !p_s_parms (IN OUT) JBaguley
   k_max_impaired_pft, conductance_b_impaired_pft,                              &
   conductance_c_impaired_pft, psi_leaf_extreme_pft, psi_root_extreme_pft,      &
+  !leaf temperature (IN: drivers; OUT: sunlit/shaded/canopy)
+  tl_1,lw_down,t_leaf_sun_pft,t_leaf_shd_pft,t_can_pft,                        &
   !ancil_info
   l_soil_point,                                                                &
   !jules_surface_types (IN)
