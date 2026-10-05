@@ -521,14 +521,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! hydraulic cost at the most water-demanding candidate Ci is treated
       ! as negligible by l_som_skip_search_wellwatered.
   som_leaf_resist_frac = 0.5
-      ! Multilayer stomatal optimisation only (can_rad_mod 5/6 with
-      ! leaf_flux_mod=2): fraction of whole-plant hydraulic resistance
-      ! (1/kmax_pft) placed in the per-layer leaf segment, the remaining
-      ! (1 - som_leaf_resist_frac) going to the shared root-to-canopy
-      ! segment. The two segments are in series, so each gets conductance
-      ! kmax/frac and kmax/(1-frac) respectively, keeping the total
-      ! root-to-leaf resistance equal to 1/kmax - the same as big-leaf.
-      ! Must be strictly between 0 and 1.
+      ! DESICA only (stomata_desica): fraction of whole-plant hydraulic
+      ! resistance (1/kmax_pft) placed in the leaf segment, the remaining
+      ! (1 - som_leaf_resist_frac) in the root-side segment. The two
+      ! segments are in series, so each gets conductance kmax/frac and
+      ! kmax/(1-frac) respectively, keeping the total root-to-leaf
+      ! resistance equal to 1/kmax. Must be strictly between 0 and 1.
+      ! (The multilayer stomatal optimisation used it for a shared canopy
+      ! node until each layer was given its own full parallel path.)
 
 REAL(KIND=real_jlslsm) ::                                                      &
   som_gl_max = 0.02
