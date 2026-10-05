@@ -114,7 +114,9 @@ USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit, l_som_root_supply,    &
-  l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red
+  l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
+  l_som_rhizo_series
+USE xylem_hydraulics_jls_mod, ONLY: som_ksr_frac
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: root_psi_crit
 
@@ -125,7 +127,7 @@ USE jules_hydrology_mod, ONLY: l_limit_gsoil, l_soil_evap_or
 USE soil_evap_or_mod, ONLY: gsoil_or
 
 USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft
-USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, sigl, lma, rmass
+USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, sigl, lma, rmass, kmax_pft
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs,                    &
                                l_spec_alb_bs
@@ -694,6 +696,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Sum of the PFT fractions in soil_root_k_sum.
 
 LOGICAL :: l_getprofile     ! Switch IN to albpft
+
+REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_rs = 0.018015
+                            ! Molar mass of water (kg mol-1), for
+                            ! l_som_rhizo_series.
 
 INTEGER, PARAMETER :: omp_cutoff=50   ! Cut off for loop multithreading
                                       ! This variable was introduced to do
@@ -1279,6 +1285,26 @@ DO n = 1,npft
           soil_root_k_sum(l,:) = soil_root_k_sum(l,:)                          &
                                  + frac(l,n) * soil_root_k_soilt(l,1,:)
           soil_root_k_frac(l)  = soil_root_k_frac(l) + frac(l,n)
+        END IF
+      END DO
+    END IF
+
+    !-------------------------------------------------------------------------
+    ! l_som_rhizo_series: this PFT's soil-to-root conductance, summed over the
+    ! layers (in parallel), as a fraction of the whole-plant conductance
+    ! kmax_pft * LAI. soil_to_root_k is per ground area per metre of head
+    ! (kg m-3 s-1); / (rho_water g) gives kg m-2 s-1 Pa-1 and / m_h2o
+    ! mol m-2 s-1 Pa-1, the units of kmax_pft. Read by leaf_psi_jls.
+    !-------------------------------------------------------------------------
+    IF ( l_som_rhizo_series ) THEN
+      IF ( .NOT. ALLOCATED(som_ksr_frac) ) ALLOCATE(som_ksr_frac(land_pts))
+      som_ksr_frac(:) = 0.0
+      DO j = 1,surft_pts(n)
+        l = surft_index(j,n)
+        IF ( kmax_pft(n) * lai_pft(l,n) > 0.0 ) THEN
+          som_ksr_frac(l) = SUM(soil_root_k_soilt(l,m,:))                      &
+                            / (rho_water * g * m_h2o_rs)                       &
+                            / (kmax_pft(n) * lai_pft(l,n))
         END IF
       END DO
     END IF

@@ -16,6 +16,13 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_HYDRAULICS_JLS_MOD'
 
 PUBLIC :: xylem_conductance_jls, leaf_psi_jls
 
+! Soil-to-root conductance for l_som_rhizo_series, per land point, as a
+! fraction of the whole-plant conductance kmax_pft * LAI: K_s(ground) /
+! (kmax_pft * LAI). Set by physiol for the current PFT just before sf_stom;
+! leaf_psi_jls gives each leaf path K_s = som_ksr_frac * kmax (its share of
+! the soil conductance in proportion to its share of kmax).
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: som_ksr_frac(:)
+
 CONTAINS
 
 ! *********************************************************************
@@ -140,8 +147,9 @@ SUBROUTINE leaf_psi_jls( pft,                                                  &
 USE pftparm, ONLY: pft_conductance_model
 USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,             &
                                 som_psi_solver, psi_solver_lut,           &
-                                l_som_plant_segments
-USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls, leaf_psi_lut_jls
+                                l_som_plant_segments, l_som_rhizo_series
+USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls, leaf_psi_lut_jls,     &
+                                       supply_lut_f
 USE xylem_hydraulics_SOX_jls_mod, ONLY: leaf_psi_SOX_jls
 
 USE ereport_mod, ONLY: ereport
@@ -181,7 +189,20 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
                             ! Leaf conductance for each open point (m/s)
 
 ! Local variables
-INTEGER :: errcode
+INTEGER :: errcode, i, j, l
+
+REAL(KIND=real_jlslsm) ::                                                      &
+  psi_in(land_pts)                                                             &
+                            ! Root inlet potential for one sample (Pa).
+, e1(1, open_pnts), psi1(1, open_pnts), k1(1, open_pnts)                       &
+                            ! One sample per open point.
+, k_s, k_in
+                            ! Soil-to-root conductance of the path and the
+                            ! plant conductance at the inlet (kmax units).
+
+REAL(KIND=real_jlslsm), PARAMETER :: psi_in_min = -1.0e9
+                            ! Floor on the inlet potential (Pa) when the
+                            ! soil conductance is (near) zero.
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -190,52 +211,87 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+IF ( .NOT. l_som_rhizo_series ) THEN
+  CALL plant_path( n_e_leaf, e_leaf, root_zone_psi, leaf_psi, leaf_k )
+ELSE
+  !---------------------------------------------------------------------------
+  ! Soil (rhizosphere) resistance in series with the plant (SPA, MAESPA).
+  ! The soil link is linear in E within a step, so each sample has its own
+  ! root inlet psi_in = psi_src - E / K_s, and the plant path runs from
+  ! there. With psi_l(E, psi_in(E)), the marginal conductance of the whole
+  ! path is
+  !   dE/dpsi_l = k_p / (1 + k(psi_in) / K_s),
+  ! with k_p the plant marginal conductance at the leaf (leaf_k of the plant
+  ! path) and k(psi_in) = kmax f(psi_in), using dpsi_l/dpsi_in =
+  ! k(psi_in) / k_p for a single conductance curve. At E = 0 this is the
+  ! series conductance 1 / (1/k(psi_src) + 1/K_s).
+  !---------------------------------------------------------------------------
+  DO i = 1, n_e_leaf
+    psi_in(:) = root_zone_psi(:)
+    DO j = 1, open_pnts
+      l = veg_index(open_index(j))
+      k_s = som_ksr_frac(l) * kmax(l)
+      IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+        psi_in(l) = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, psi_in_min)
+      ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
+        psi_in(l) = psi_in_min
+      END IF
+      e1(1,j) = e_leaf(i,j)
+    END DO
+    CALL plant_path( 1, e1, psi_in, psi1, k1 )
+    DO j = 1, open_pnts
+      l = veg_index(open_index(j))
+      k_s  = som_ksr_frac(l) * kmax(l)
+      k_in = kmax(l) * supply_lut_f(pft, psi_in(l))
+      leaf_psi(i,j) = psi1(1,j)
+      IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+        leaf_k(i,j) = k1(1,j) / (1.0 + k_in / k_s)
+      ELSE
+        leaf_k(i,j) = 0.0
+      END IF
+    END DO
+  END DO
+END IF
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
+CONTAINS
+
+! The plant path (root inlet to leaf) for n_e samples per open point.
+SUBROUTINE plant_path( n_e, e_in, psi_root, psi_out, k_out )
+
+INTEGER, INTENT(IN) :: n_e
+REAL(KIND=real_jlslsm), INTENT(IN)  :: e_in(n_e, open_pnts),                  &
+                                       psi_root(land_pts)
+REAL(KIND=real_jlslsm), INTENT(OUT) :: psi_out(n_e, open_pnts),               &
+                                       k_out(n_e, open_pnts)
+
 SELECT CASE ( pft_conductance_model(pft) )
 
 CASE ( CW_conductance )
   IF ( som_psi_solver == psi_solver_lut .AND.                             &
        .NOT. l_som_plant_segments ) THEN
     ! Direct call: skips leaf_psi_CW_jls's automatic work arrays.
-    CALL leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,   &
-                              open_index, e_leaf, root_zone_psi, kmax,         &
-                              leaf_psi, leaf_k )
+    CALL leaf_psi_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,        &
+                              open_index, e_in, psi_root, kmax,                &
+                              psi_out, k_out )
   ELSE
-  CALL leaf_psi_CW_jls( pft,                                                   &
-                        n_e_leaf,                                              &
-                        land_pts,                                              &
-                        open_pnts,                                             &
-                        veg_index,                                             &
-                        open_index,                                            &
-                        e_leaf,                                                &
-                        root_zone_psi,                                         &
-                        kmax,                                                  &
-                        kcrit,                                                 &
+  CALL leaf_psi_CW_jls( pft, n_e, land_pts, open_pnts, veg_index,             &
+                        open_index, e_in, psi_root, kmax, kcrit,               &
                      ! INTENT OUT
-                        leaf_psi,                                              &
-                        leaf_k                                                 &
-                        )
+                        psi_out, k_out )
   END IF
 
 CASE ( SOX_conductance )
   IF ( som_psi_solver == psi_solver_lut ) THEN
-    CALL leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,      &
-                           open_index, e_leaf, root_zone_psi, kmax,            &
-                           leaf_psi, leaf_k )
+    CALL leaf_psi_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
+                           open_index, e_in, psi_root, kmax,                   &
+                           psi_out, k_out )
   ELSE
-  CALL leaf_psi_SOX_jls( pft,                                                  &
-                         n_e_leaf,                                             &
-                         land_pts,                                             &
-                         open_pnts,                                            &
-                         veg_index,                                            &
-                         open_index,                                           &
-                         e_leaf,                                               &
-                         root_zone_psi,                                        &
-                         kmax,                                                 &
-                         kcrit,                                                &
+  CALL leaf_psi_SOX_jls( pft, n_e, land_pts, open_pnts, veg_index,             &
+                         open_index, e_in, psi_root, kmax, kcrit,              &
                       ! INTENT OUT
-                         leaf_psi,                                             &
-                         leaf_k                                                &
-                         )
+                         psi_out, k_out )
   END IF
 
 CASE DEFAULT
@@ -245,7 +301,7 @@ CASE DEFAULT
 
 END SELECT
 
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+END SUBROUTINE plant_path
 
 END SUBROUTINE leaf_psi_jls
 

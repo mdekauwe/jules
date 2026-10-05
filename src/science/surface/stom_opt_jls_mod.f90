@@ -1270,7 +1270,8 @@ USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 CW_conductance,                                &
                                 SOX_conductance,                               &
                                 som_psi_solver, psi_solver_lut,           &
-                                l_som_plant_segments, l_som_nsl
+                                l_som_plant_segments, l_som_nsl,               &
+                                l_som_rhizo_series
 USE jb_photo_mod, ONLY: jb_eta_scale
 USE pftparm, ONLY: c3, alpha, pft_conductance_model, psi_nsl_onset, psi_nsl0
 USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
@@ -1343,6 +1344,11 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 l_lut = ( pft_conductance_model(pft) == CW_conductance .OR.                    &
           pft_conductance_model(pft) == SOX_conductance ) .AND.                &
         som_psi_solver == psi_solver_lut .AND. .NOT. l_som_plant_segments
+! With the soil resistance in series the root inlet varies with E, so the
+! direct table lookup (psi_root_zone as the inlet) and the table's e_crit in
+! edge_by_gl_cap do not apply: use leaf_psi_jls, which adds the soil link, and
+! the margin-based edge.
+IF ( l_som_rhizo_series ) l_lut = .FALSE.
 idx1(:) = 1
 
 DO j = 1, open_pts
