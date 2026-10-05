@@ -441,6 +441,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,ra_rc(land_pts)                                                               &
                             ! WORK Ratio of aerodynamic resistance
 !                                 !      to canopy resistance.
+,gc_ml_prev(land_pts)                                                          &
+                            ! WORK Multilayer profit max: canopy
+!                                 !      conductance (m s-1) from the previous
+!                                 !      pass of the humidity-deficit
+!                                 !      iteration.
 ,rdc(land_pts)                                                                 &
                             ! WORK Canopy dark respiration,
 !                                 !      without soil water dependence
@@ -1446,6 +1451,18 @@ CASE ( 5, 6 )
     fsmc_unity(:) = 1.0
     gl_max_lf(:)  = som_gl_max
 
+        ! The humidity-deficit iteration (DO k = 1,iter) runs over the whole
+        ! canopy, as in the big-leaf and two-leaf schemes: the deficit at the
+        ! leaves is dq / (1 + ra * gc) with gc the canopy conductance (per m2
+        ! ground) from the previous pass, the conductance the surface energy
+        ! balance (sf_evap) sees. It used to iterate within each layer on that
+        ! layer's per-leaf-area gl, so ra * gl ~ 0 and every leaf saw nearly
+        ! the full above-canopy deficit. Same number of stom_opt_mod calls;
+        ! only the last pass is kept.
+        gc_ml_prev(:) = 0.0
+
+        DO k = 1,iter
+
         el(:) = 0.0
         anetl(:) = 0.0
         anetc(:) = 0.0
@@ -1457,6 +1474,9 @@ CASE ( 5, 6 )
         hydraulic_cost(:) = 0.0
         ci_gl_ml(:) = 0.0
         ci_lai_ml(:) = 0.0
+        rdmean(:) = 0.0
+        flux_o3(:) = 0.0
+        IF ( l_o3_damage ) fo3(:) = 0.0
 
         DO n = 1,ilayers
 
@@ -1615,25 +1635,19 @@ CASE ( 5, 6 )
 
             END IF  !  pft_photo_model
 
-            !-------------------------------------------------------------------------
-            ! Iterate to ensure that the canopy humidity deficit is consistent with
-            ! the H2O flux.
-            !-------------------------------------------------------------------------
-
-            DO k = 1,iter
-
             !-----------------------------------------------------------------------
-            ! Diagnose the canopy-level humidity deficit.
+            ! Diagnose the canopy-level humidity deficit from the canopy
+            ! conductance of the previous pass (see DO k above).
             ! Initialise the sunlit and shaded respiration rates with the
             ! uninhibited, sunlit respiration rate.
             !-----------------------------------------------------------------------
         !$OMP PARALLEL IF(veg_pts > 1) DEFAULT(NONE) PRIVATE(l, m)                     &
-        !$OMP          SHARED(dq, dqc, gl, ra, ra_rc, rd_dark, rd_shd, rd_sun,         &
+        !$OMP          SHARED(dq, dqc, gc_ml_prev, ra, ra_rc, rd_dark, rd_shd, rd_sun, &
         !$OMP                 veg_index, veg_pts)
         !$OMP DO SCHEDULE(STATIC)
             DO m = 1,veg_pts
                 l = veg_index(m)
-                ra_rc(l)  = ra(l) * gl(l)
+                ra_rc(l)  = ra(l) * gc_ml_prev(l)
                 dqc(l)    = dq(l) / (1.0 + ra_rc(l))
                 rd_sun(l) = rd_dark(l)
                 rd_shd(l) = rd_dark(l)
@@ -1793,8 +1807,6 @@ CASE ( 5, 6 )
             END DO
         !$OMP END PARALLEL DO
 
-            END DO                 ! K-ITER
-
             !-------------------------------------------------------------------------
             ! Add to canopy-level values.
             !-------------------------------------------------------------------------
@@ -1877,13 +1889,23 @@ CASE ( 5, 6 )
 
         END DO                   ! N LAYERS
 
+        ! Canopy conductance of this pass, for the next pass's deficit.
+        gc_ml_prev(:) = gc(:)
+
+        END DO                   ! K-ITER (whole canopy)
+
         ! Calculate canopy mean properties
         DO m = 1, veg_pts
             l = veg_index(m)
 
+            ! LAI-weighted canopy means. Carbon gain and hydraulic cost are
+            ! per-leaf 0-1 quantities, as in the big-leaf and two-leaf
+            ! schemes; their dlai-weighted sums ranged 0..LAI.
             IF (lai(l) > 0.0) THEN
-                psi_leaf(l) = psi_leaf(l) / lai(l)
-                leaf_k(l)  = leaf_k(l)   / lai(l)
+                psi_leaf(l)       = psi_leaf(l)       / lai(l)
+                leaf_k(l)         = leaf_k(l)         / lai(l)
+                carbon_gain(l)    = carbon_gain(l)    / lai(l)
+                hydraulic_cost(l) = hydraulic_cost(l) / lai(l)
             END IF
 
             ! gl-weighted canopy ci (as two-leaf); the LAI mean when no
