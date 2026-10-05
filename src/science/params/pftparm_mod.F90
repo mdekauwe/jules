@@ -704,8 +704,8 @@ calc_rz_psi(:)       = .FALSE. ! JBaguley
 min_gl_pft(:)        = 0.0 ! JBaguley
 min_rootc_pft(:)     = 1.0 ! JBaguley M.Williams etal 2001
 root_psi_crit(:)     =-0.1e6 ! JBaguley
-root_radi_pft(:)     = 0.0005 ! JBaguley M.Williams etal 2001
-rootc_density_pft(:) = 0.5e3 ! JBaguley M.Williams etal 2001
+root_radi_pft(:)     = 0.29e-3 ! Bonan et al. 2014 (was 0.0005, Williams 2001)
+rootc_density_pft(:) = 0.31e3  ! Bonan et al. 2014 (was 0.5e3, Williams 2001)
 
 ! Ozone damage parameters
 ALLOCATE( dfp_dcuo(npft))

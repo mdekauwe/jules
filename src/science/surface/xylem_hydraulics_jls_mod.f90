@@ -16,13 +16,6 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_HYDRAULICS_JLS_MOD'
 
 PUBLIC :: xylem_conductance_jls, leaf_psi_jls
 
-! Soil-to-root conductance for l_som_rhizo_series, per land point, as a
-! fraction of the whole-plant conductance kmax_pft * LAI: K_s(ground) /
-! (kmax_pft * LAI). Set by physiol for the current PFT just before sf_stom;
-! leaf_psi_jls gives each leaf path K_s = som_ksr_frac * kmax (its share of
-! the soil conductance in proportion to its share of kmax).
-REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: som_ksr_frac(:)
-
 CONTAINS
 
 ! *********************************************************************
@@ -149,7 +142,8 @@ USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,             &
                                 som_psi_solver, psi_solver_lut,           &
                                 l_som_plant_segments, l_som_rhizo_series
 USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls, leaf_psi_lut_jls,     &
-                                       supply_lut_f
+                                       supply_lut_f, som_ksr_frac,             &
+                                       som_psi_in_min
 USE xylem_hydraulics_SOX_jls_mod, ONLY: leaf_psi_SOX_jls
 
 USE ereport_mod, ONLY: ereport
@@ -200,10 +194,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Soil-to-root conductance of the path and the
                             ! plant conductance at the inlet (kmax units).
 
-REAL(KIND=real_jlslsm), PARAMETER :: psi_in_min = -1.0e9
-                            ! Floor on the inlet potential (Pa) when the
-                            ! soil conductance is (near) zero.
-
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
@@ -211,7 +201,9 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-IF ( .NOT. l_som_rhizo_series ) THEN
+IF ( .NOT. l_som_rhizo_series .OR. l_som_plant_segments ) THEN
+  ! (With l_som_plant_segments the segment solvers add the soil link
+  ! themselves, at the start of their chain.)
   CALL plant_path( n_e_leaf, e_leaf, root_zone_psi, leaf_psi, leaf_k )
 ELSE
   !---------------------------------------------------------------------------
@@ -232,9 +224,9 @@ ELSE
       l = veg_index(open_index(j))
       k_s = som_ksr_frac(l) * kmax(l)
       IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
-        psi_in(l) = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, psi_in_min)
+        psi_in(l) = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
       ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
-        psi_in(l) = psi_in_min
+        psi_in(l) = som_psi_in_min
       END IF
       e1(1,j) = e_leaf(i,j)
     END DO

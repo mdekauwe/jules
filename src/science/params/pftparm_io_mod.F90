@@ -40,8 +40,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
   psi_close_io(npft_max) = rmdi,                                               &
   psi_open_io(npft_max) = rmdi,                                                &
   root_psi_crit_io(npft_max) = rmdi,                                           & ! JBaguley
-  root_radi_pft_io(npft_max) = rmdi,                                           & ! JBaguley
-  rootc_density_pft_io(npft_max) = rmdi                                          ! JBaguley
+  root_radi_pft_io(npft_max) = 0.29e-3,                                        & ! Bonan 2014
+  rootc_density_pft_io(npft_max) = 0.31e3                                        ! Bonan 2014
+      ! Fine-root radius (m) and specific root density (kg m-3) for the
+      ! soil-to-root conductance: Bonan et al. (2014) Table 3, from the
+      ! fine-root data (<= 2 mm diameter) of Jackson et al. (1997) for trees
+      ! (specific root length 12.2 m g-1). Were 0.5e-3 m and 0.5e3 kg m-3
+      ! (Williams et al. 2001, ponderosa pine) and had to be set.
 #endif
 
 INTEGER ::                                                                     &

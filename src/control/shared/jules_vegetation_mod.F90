@@ -426,8 +426,8 @@ LOGICAL ::                                                                     &
       ! the hydraulic cost and kcrit is that of the whole soil-to-leaf path,
       ! so stomata close as the soil conductance collapses. The layer weights
       ! and psi_root_zone are unchanged (root_psi_crit, as MAESPA's
-      ! MINROOTWP). Not with l_som_root_supply (same physics, cruder) or
-      ! l_som_plant_segments (not coded yet).
+      ! MINROOTWP). With l_som_plant_segments the soil link comes ahead of
+      ! the root segment. Not with l_som_root_supply (same physics, cruder).
 LOGICAL ::                                                                     &
   l_root_mass_fixed = .FALSE.
       ! Root mass in the soil-to-root conductance (soil_to_root_k, Bonan et
@@ -1375,12 +1375,6 @@ IF ( l_som_rhizo_series .AND. l_som_root_supply ) THEN
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_som_rhizo_series and l_som_root_supply both limit uptake ' //&
                'by the soil-to-root conductance: use one')
-END IF
-
-IF ( l_som_rhizo_series .AND. l_som_plant_segments ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_rhizo_series is not coded for l_som_plant_segments')
 END IF
 
 IF ( .NOT. l_root_mass_fixed .AND. root_mass_min <= 0.0 ) THEN

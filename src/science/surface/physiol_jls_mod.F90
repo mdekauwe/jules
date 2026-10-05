@@ -116,7 +116,7 @@ USE jules_vegetation_mod, ONLY:                                                &
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit, l_som_root_supply,    &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
   l_som_rhizo_series
-USE xylem_hydraulics_jls_mod, ONLY: som_ksr_frac
+USE xylem_hydraulics_CW_jls_mod, ONLY: som_ksr_frac
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: root_psi_crit
 
