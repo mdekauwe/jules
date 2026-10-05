@@ -957,7 +957,13 @@ INTEGER ::                                                                     &
 ! Local real variables.
 !-----------------------------------------------------------------------------
 REAL(KIND=real_jlslsm) ::                                                      &
- wcarb_sample(0:n_sample, open_pts)                                          &
+ el_closed(1, open_pts)                                                      &
+,psi_closed(1, open_pts)                                                     &
+,kl_closed(1, open_pts)                                                      &
+                            ! Zero-flow solve for the closed-stomata state
+                            ! (entry 0): transpiration, leaf water
+                            ! potential and xylem conductance.
+,wcarb_sample(0:n_sample, open_pts)                                          &
                             ! Rubisco limited photosynthesis
 !                           ! rate (mol CO2/m2/s).
 ,wlite_sample(0:n_sample, open_pts)                                          &
@@ -1317,6 +1323,16 @@ ELSE
                      kl_sample(1:n_sample,:)                                   &
     )
 
+  ! Closed-stomata conductance (entry 0, below): the vulnerability curve at
+  ! zero flow, K(psi_root_zone). With impairment, stom_opt_mod recomputes
+  ! leaf_k for every point at the end, so only this path needs it.
+  el_closed(:,:) = 0.0
+  CALL leaf_psi_jls( pft, 1, land_pts, open_pts, veg_index, open_index,        &
+                     el_closed, psi_root_zone, kmax, kcrit,                    &
+                     conductance_b, conductance_c,                             &
+                   ! INTENT OUT
+                     psi_closed, kl_closed )
+
   kl_hc_sample(:,:) = kl_sample(:,:)
 END IF
 
@@ -1336,8 +1352,15 @@ DO j = 1, open_pts
   al_sample(0,j)  = -rd(l)
   gl_sample(0,j)  = 0.0
   el_sample(0,j)  = 0.0
-  kl_sample(0,j)  = 0.0
-  kl_hc_sample(0,j) = 0.0
+  ! K(psi_root_zone), not 0: 0 made PLC_pft report 100 % whenever the
+  ! stomata shut (e.g. at twilight, when net A <= 0 at every ci). Entry 0 is
+  ! never a profit candidate, so this only changes the reported leaf_k.
+  IF (l_xylem_impairment) THEN
+    kl_sample(0,j)  = 0.0
+  ELSE
+    kl_sample(0,j)  = kl_closed(1,j)
+  END IF
+  kl_hc_sample(0,j) = kl_sample(0,j)
   psi_sample(0,j) = psi_root_zone(l)
 END DO
 IF (PRESENT(psi_stem_sample)) THEN
@@ -2028,10 +2051,22 @@ CONTAINS
   END SUBROUTINE store_best
 
   SUBROUTINE set_closed()
+  ! Closed stomata: zero flow, so the conductance is K(psi_root_zone) on the
+  ! same curve as hydraulic_state, not 0 (0 made PLC_pft report 100 %; see
+  ! stom_opt_mod_ci).
+  REAL(KIND=real_jlslsm) :: el0(1,1), psi0(1,1), kl0(1,1)
+  IF ( l_lut ) THEN
+    kl0(1,1) = kmax(l) * supply_lut_f(pft, psi_root_zone(l))
+  ELSE
+    el0(1,1) = 0.0
+    CALL leaf_psi_jls( pft, 1, land_pts, 1, veg_index, idx1, el0,              &
+                       psi_root_zone, kmax, kcrit, b_curve, c_curve,           &
+                       psi0, kl0 )
+  END IF
   ci_g(j) = ca(l)
   al_g(j) = -rd(l)
   gl_g(j) = 0.0
-  kl_g(j) = 0.0
+  kl_g(j) = kl0(1,1)
   psi_g(j) = psi_root_zone(l)
   el_g(j) = 0.0
   carbon_gain_g(j) = 0.0
