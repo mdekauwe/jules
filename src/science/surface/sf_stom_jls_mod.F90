@@ -2339,6 +2339,11 @@ CASE ( 1 )
                 carbon_gain, hydraulic_cost, leaf_k                            &
         )
 
+        ! leaf_k from stom_opt_mod is canopy scale (see kmax_bigleaf). Return
+        ! it per unit leaf area, as the multilayer path does, so that it is
+        ! comparable with kmax_pft (e.g. the PLC_pft diagnostic).
+        leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
+
       CASE DEFAULT
         errcode = 101  !  a hard error
         CALL ereport(RoutineName, errcode,                                     &
@@ -2836,7 +2841,10 @@ CASE ( 7 )
     anetc(l) = anetl_sun(l) + anetl_shd(l)
     rdc(l)   = rd_sun(l) + rd_shd(l)
     el(l)    = el_sun(l) + el_shd(l)
-    leaf_k(l) = leaf_k_sun(l) + leaf_k_shd(l)
+    ! Sun + shade is the canopy conductance; per unit leaf area, as the
+    ! big-leaf path.
+    leaf_k(l) = ( leaf_k_sun(l) + leaf_k_shd(l) )                              &
+                / MAX(lai(l), TINY(1.0_real_jlslsm))
 
     psi_leaf(l)       = f_sun_2l * psi_leaf_sun(l)                             &
                         + (1.0 - f_sun_2l) * psi_leaf_shd(l)
@@ -2920,7 +2928,7 @@ IF ( stomata_model == stomata_desica ) THEN
     el(l)       = MAX(dqc(l), 0.0) * pstar(l) / repsilon * gc(l)               &
                   / (rmol * tstar(l))
     psi_leaf(l) = psi_root_zone(l)
-    leaf_k(l)   = kmax_pft(ft) * lai(l)
+    leaf_k(l)   = kmax_pft(ft)   ! per unit leaf area, as the other paths
   END DO
 END IF
 
@@ -2981,7 +2989,8 @@ IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
           gc(l)       = gl_cut_eff(l) * REAL(i_cut) / REAL(n_cut)
           el(l)       = e_cut(i_cut,m)
           psi_leaf(l) = psi_cut(i_cut,m)
-          leaf_k(l)   = k_cut(i_cut,m)
+          ! k_cut is canopy scale (kmax_cut); leaf_k is per unit leaf area.
+          leaf_k(l)   = k_cut(i_cut,m) / MAX(lai(l), TINY(1.0_real_jlslsm))
         END IF
       END IF
     END DO
@@ -3010,6 +3019,9 @@ IF ( stomata_model == stomata_desica ) THEN
   CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
                           lai, ht, psi_root_zone, el, .FALSE.,               &
                           psi_leaf, leaf_k, el_hyd )
+  ! desica_hydraulics returns the plant conductance per m2 ground; per unit
+  ! leaf area, as the other paths (PLC_pft).
+  leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
   CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,        &
                             psi_root_zone )
 END IF
