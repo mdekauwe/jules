@@ -894,12 +894,17 @@ CASE ( photo_collatz )
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(l,j,i)                                                           &
 !$OMP SHARED(open_pts,veg_index,open_index,wcarb_sample,vcmax,wlite_sample,    &
-!$OMP        pft,wexpt_sample,pstar,alpha,fwe_c4,ci_sample,acr,n_sample)
+!$OMP        pft,wexpt_sample,pstar,alpha,fwe_c4,ci_sample,acr,n_sample,       &
+!$OMP        l_multilayer,apar,fapar_lf,ipar)
     DO j = 1,open_pts
       l = veg_index(open_index(j))
       wcarb_sample(:,j) = vcmax(l)
       wlite_sample(:,j) = alpha(pft) * acr(l)
       wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
+      ! Scale to this leaf's absorbed light in multi-layer calls, as for C3.
+      IF (l_multilayer) THEN
+          wlite_sample(:,j) = wlite_sample(:,j) / apar(l) * fapar_lf(l) * ipar(l)
+      END IF
       wexpt_sample(:,j) = fwe_c4 * vcmax(l) * ci_sample(:,j) / pstar(l)
     END DO
 !$OMP END PARALLEL DO
@@ -1605,6 +1610,7 @@ CONTAINS
     ELSE
       wcarb = vcmax(l)
       wlite = MAX(alpha(pft) * acr(l), TINY(1.0e0))
+      IF (l_multilayer) wlite = wlite / apar(l) * fapar_lf(l) * ipar(l)
       wexpt = fwe_c4 * vcmax(l) * ci / pstar(l)
     END IF
     b1 = beta1
