@@ -82,8 +82,6 @@ ELSE
   CALL hyd_con_ch( npnts, soil_pts, soil_index, b, ks, thetak, k, dk_dthk )
 END IF
 
-k = MIN(k, 0.001*ks) ! Limit k to 0.1% of ks to avoid a soil conductivity of zero
-
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
 END SUBROUTINE hyd_con_ic
