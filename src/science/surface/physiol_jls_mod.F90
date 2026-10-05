@@ -686,6 +686,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
   lai_bal_rt
       ! Balanced-growth LAI, as sf_stom computes it.
 
+! Output soil-to-root conductance with one soil tile (see the PFT loop)
+REAL(KIND=real_jlslsm) ::                                                      &
+  soil_root_k_sum(land_pts,sm_levels),                                         &
+      ! Sum over PFTs of frac * soil_to_root_k (kg m-3 s-1).
+  soil_root_k_frac(land_pts)
+      ! Sum of the PFT fractions in soil_root_k_sum.
+
 LOGICAL :: l_getprofile     ! Switch IN to albpft
 
 INTEGER, PARAMETER :: omp_cutoff=50   ! Cut off for loop multithreading
@@ -1103,6 +1110,14 @@ END IF
 ! turnover rate
 !-----------------------------------------------------------------------
 
+! With one soil tile every PFT's smc_ext call writes the same
+! soil_root_k_soilt, so after the loop it would hold the last PFT's
+! conductance (including PFTs with no cover). Within the loop it holds the
+! current PFT's values, which the l_som_root_supply limit uses; for output it
+! is replaced after the loop by the cover-weighted mean over the PFTs present.
+soil_root_k_sum(:,:) = 0.0
+soil_root_k_frac(:)  = 0.0
+
 DO n = 1,npft
 
   !Set the current soil tile (see notice above)
@@ -1256,6 +1271,17 @@ DO n = 1,npft
                   soil_wp_soilt(:,m,:),soil_k_soilt(:,m,:),                    &
                   soil_root_k_soilt(:,m,:),wt_ext_type(:,:,n),fsmc_pft(:,n),   &
                   psi_root_zone_pft(:,n), root_mass)
+
+    IF ( nsoilt == 1 ) THEN
+      DO j = 1,surft_pts(n)
+        l = surft_index(j,n)
+        IF ( frac(l,n) > 0.0 ) THEN
+          soil_root_k_sum(l,:) = soil_root_k_sum(l,:)                          &
+                                 + frac(l,n) * soil_root_k_soilt(l,1,:)
+          soil_root_k_frac(l)  = soil_root_k_frac(l) + frac(l,n)
+        END IF
+      END DO
+    END IF
   END IF
 
   ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
@@ -1554,6 +1580,18 @@ DO n = 1,npft
 !$OMP END PARALLEL DO
 
 END DO
+
+! Output soil-to-root conductance: cover-weighted mean over the PFTs present
+! (zero where no PFT has cover). Diagnostic only; nothing below uses it.
+IF ( nsoilt == 1 ) THEN
+  DO l = 1,land_pts
+    IF ( soil_root_k_frac(l) > 0.0 ) THEN
+      soil_root_k_soilt(l,1,:) = soil_root_k_sum(l,:) / soil_root_k_frac(l)
+    ELSE
+      soil_root_k_soilt(l,1,:) = 0.0
+    END IF
+  END DO
+END IF
 
 !==============================================================================
 ! *END NOTICE REGARDING SOIL TILING**
