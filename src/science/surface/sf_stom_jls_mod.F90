@@ -3335,7 +3335,7 @@ IF ( stomata_model == stomata_desica ) THEN
     el(l)       = MAX(dqc(l), 0.0) * pstar(l) / repsilon * gc(l)               &
                   / (rmol * tstar(l))
     psi_leaf(l) = psi_root_zone(l)
-    leaf_k(l)   = kmax_pft(ft) * lai(l)
+    leaf_k(l)   = kmax_pft(ft)   ! per unit leaf area, as the other paths
   END DO
 END IF
 
@@ -3427,6 +3427,9 @@ IF ( stomata_model == stomata_desica ) THEN
   CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
                           lai, ht, psi_root_zone, el, .FALSE.,               &
                           psi_leaf, leaf_k, el_hyd )
+  ! desica_hydraulics returns the plant conductance per m2 ground; per unit
+  ! leaf area, as the other paths (PLC_pft).
+  leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
   CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,        &
                             psi_root_zone )
 END IF
