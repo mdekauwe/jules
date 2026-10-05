@@ -697,6 +697,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
 
 LOGICAL :: l_getprofile     ! Switch IN to albpft
 
+REAL(KIND=real_jlslsm) ::                                                      &
+  q_rs(sm_levels),                                                             &
+      ! Uptake from each layer at the actual root potential (kg m-2 s-1 per
+      ! unit of rho_water g, i.e. relative).
+  ksum_rs, psi_root_rs
+      ! Soil-to-root conductance summed over layers (kg m-3 s-1); root
+      ! potential (Pa).
 LOGICAL, SAVE :: l_warned_ksr = .FALSE.
                             ! Warned once about fsmc_mod /= 2.
 REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_rs = 0.018015
@@ -1489,6 +1496,32 @@ DO n = 1,npft
 
   ! Store conductance before adjustment for soil evaporation
   gc_corr(:,n) = gs_type(:,n)
+
+  !-----------------------------------------------------------------------
+  ! Profit max (soil-to-root resistance in series): the layers feed one
+  ! root node, so each layer supplies k_i (psi_i - psi_root) at the actual
+  ! root potential psi_root = psi_root_zone - E / K_s, where psi_root_zone
+  ! is the conductance-weighted soil psi from smc_ext, E the optimiser's
+  ! transpiration (el_pft, mol m-2 s-1, ground) and K_s = sum k_i. The
+  ! extraction weights become those uptakes, normalised, with layers drier
+  ! than the root giving nothing (no hydraulic redistribution). This
+  ! replaces the weights at the fixed root_psi_crit. soil_to_root_k is
+  ! per metre of head (kg m-3 s-1), soil_wp in Pa.
+  !-----------------------------------------------------------------------
+  IF ( l_som_rhizo_series .AND. fsmc_mod(n) == 2 .AND. irrig_tile(n) /= 1 ) THEN
+    DO j = 1,surft_pts(n)
+      l = surft_index(j,n)
+      ksum_rs = SUM(MAX(soil_root_k_soilt(l,m,:), 0.0))
+      IF ( ksum_rs <= TINY(1.0_real_jlslsm) ) CYCLE
+      psi_root_rs = psi_root_zone_pft(l,n)                                     &
+                    - el_pft(l,n) * m_h2o_rs * rho_water * g / ksum_rs
+      q_rs(:) = MAX(soil_root_k_soilt(l,m,:)                                   &
+                    * (soil_wp_soilt(l,m,:) - psi_root_rs), 0.0)
+      IF ( SUM(q_rs(:)) > TINY(1.0_real_jlslsm) ) THEN
+        wt_ext_type(l,:,n) = q_rs(:) / SUM(q_rs(:))
+      END IF
+    END DO
+  END IF
 
   IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
     IF (l_aggregate) THEN

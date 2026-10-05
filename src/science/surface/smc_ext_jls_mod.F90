@@ -33,7 +33,8 @@ SUBROUTINE smc_ext (npnts,nshyd,surft_pts,surft_index,ft                       &
 USE pftparm, ONLY: calc_rz_psi, fsmc_mod, root_psi_crit
 USE hyd_psi_mod, ONLY: psi_from_sthu, bound_soil_psi
 USE jules_vegetation_mod, ONLY: fsmc_shape, leaf_flux_mod, leaf_flux_stom_opt, &
-                                stomata_model, stomata_sox, stomata_desica
+                                stomata_model, stomata_sox, stomata_desica,    &
+                                l_som_rhizo_series
 USE hyd_con_ic_mod, ONLY: hyd_con_ic
 USE jules_soil_mod, ONLY: l_bound_soil_wp, ds_psi, dzsoil
 
@@ -380,16 +381,26 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(j,i,n)                                                           &
 !$OMP SHARED(nshyd,surft_pts,surft_index,wt_ext,soil_to_root_k,psi,            &
-!$OMP        root_psi_crit,ft)
+!$OMP        root_psi_crit,ft,l_som_rhizo_series)
   DO n = 1,nshyd
 !$OMP DO SCHEDULE(STATIC)
     DO j = 1,surft_pts
       i = surft_index(j)
-      ! Calculate the transpiration extracted from each soil layer asuming
-      ! the root zone water potential is at the critical value
-      ! (root_psi_crit).
-      wt_ext(i,n) = MAX(soil_to_root_k(i,n) * (psi(i,n) - root_psi_crit(ft)),  &
-                        1.0e-9)
+      IF ( l_som_rhizo_series ) THEN
+        ! Profit max: the layers are in parallel to one root node, so the
+        ! source potential is the conductance-weighted soil psi,
+        ! psi_root_zone = sum(k psi) / sum(k), and with no flow each layer's
+        ! share is its conductance. physiol replaces these weights after
+        ! the stomatal solve by k (psi - psi_root) at the actual root
+        ! potential. root_psi_crit is not used.
+        wt_ext(i,n) = MAX(soil_to_root_k(i,n), 0.0)
+      ELSE
+        ! Calculate the transpiration extracted from each soil layer asuming
+        ! the root zone water potential is at the critical value
+        ! (root_psi_crit).
+        wt_ext(i,n) = MAX(soil_to_root_k(i,n) * (psi(i,n) - root_psi_crit(ft)),&
+                          1.0e-9)
+      END IF
     END DO
 !$OMP END DO NOWAIT
   END DO
@@ -405,7 +416,8 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
   ! fall back to thickness weights here instead.
   DO j = 1,surft_pts
     i = surft_index(j)
-    IF (MAXVAL(wt_ext(i,:)) <= 1.0e-9) THEN
+    IF ( MAXVAL(wt_ext(i,:)) <= MERGE(TINY(1.0_real_jlslsm), 1.0e-9,           &
+                                      l_som_rhizo_series) ) THEN
       wt_ext(i,:) = dzsoil(1:nshyd)
     END IF
   END DO
