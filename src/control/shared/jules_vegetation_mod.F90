@@ -414,6 +414,24 @@ LOGICAL ::                                                                     &
       ! plant can produce. Uses the same cap on gl as l_som_supply_limit
       ! (with which it combines, taking the smaller supply).
 LOGICAL ::                                                                     &
+  l_root_mass_fixed = .FALSE.
+      ! Root mass in the soil-to-root conductance (soil_to_root_k, Bonan et
+      ! al. 2014 eq. A23; used by the l_som_root_supply cap and the root
+      ! zone psi weights). .FALSE. (default): the vegetation's own root
+      ! carbon, the one root respiration uses in sf_stom - lma*lai_bal with
+      ! l_trait_phys, else sigl*lai_bal/rmass, rootc_cpft/rmass for crops -
+      ! with lai_bal from the canopy height (so dynamic with TRIFFID, fixed
+      ! with prescribed height) or from RED, floored at root_mass_min.
+      ! .TRUE.: the fixed min_rootc_pft (kg m-2), the earlier behaviour.
+
+REAL(KIND=real_jlslsm) ::                                                      &
+  root_mass_min = 0.05
+      ! Floor on the vegetation root dry mass (kg m-2; not used with
+      ! l_root_mass_fixed), so a
+      ! vanishing root carbon cannot drive the soil-to-root conductance to
+      ! zero (or its LOG term to a division by zero).
+
+LOGICAL ::                                                                     &
   l_leaf_temp = .FALSE.
       ! When .TRUE., the two-leaf canopy (can_rad_mod = 7) solves a leaf
       ! energy balance for the sunlit and the shaded leaf (Penman-Monteith;
@@ -667,7 +685,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
-    l_som_vcmax_psi,                                                           &
+    l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
     l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
     leaf_shelter, leaf_aero_model, l_leaf_coexp_lai,                           &
     l_som_gain_gross,                                                          &
@@ -1329,6 +1347,12 @@ IF ( l_som_root_supply .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.        &
                'l_use_pft_psi=T')
 END IF
 
+IF ( .NOT. l_root_mass_fixed .AND. root_mass_min <= 0.0 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'root_mass_min must be > 0 (or set l_root_mass_fixed)')
+END IF
+
 IF ( l_leaf_temp .AND. ( can_rad_mod /= 7 .OR.                               &
                          leaf_flux_mod /= leaf_flux_stom_opt ) ) THEN
   errcode = 101
@@ -1523,6 +1547,10 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_root_supply = ', l_som_root_supply
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_root_mass_fixed = ', l_root_mass_fixed
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' root_mass_min = ', root_mass_min
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_nsl = ', l_som_nsl
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -1691,10 +1719,10 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 21 ! +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
-INTEGER, PARAMETER :: n_real = 17 + (n_photo_coef * 5) ! +2 leaf_width/shelter, +4 for
+INTEGER, PARAMETER :: n_real = 18 + (n_photo_coef * 5) ! +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 42 + npft_max ! +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
+INTEGER, PARAMETER :: n_log = 43 + npft_max ! +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -1751,10 +1779,12 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: light_curvature_fvcb
   REAL(KIND=real_jlslsm) :: leaf_width
   REAL(KIND=real_jlslsm) :: leaf_shelter
+  REAL(KIND=real_jlslsm) :: root_mass_min
   LOGICAL :: l_som_skip_search_wellwatered
   LOGICAL :: l_som_fast
   LOGICAL :: l_som_supply_limit
   LOGICAL :: l_som_root_supply
+  LOGICAL :: l_root_mass_fixed
   LOGICAL :: l_som_nsl
   LOGICAL :: l_som_vcmax_psi
   LOGICAL :: l_leaf_temp
@@ -1854,6 +1884,8 @@ IF (mype == 0) THEN
   my_nml % l_som_fast = l_som_fast
   my_nml % l_som_supply_limit = l_som_supply_limit
   my_nml % l_som_root_supply = l_som_root_supply
+  my_nml % l_root_mass_fixed = l_root_mass_fixed
+  my_nml % root_mass_min = root_mass_min
   my_nml % l_som_nsl = l_som_nsl
   my_nml % l_som_vcmax_psi = l_som_vcmax_psi
   my_nml % l_leaf_temp = l_leaf_temp
@@ -1946,6 +1978,8 @@ IF (mype /= 0) THEN
   l_som_fast = my_nml % l_som_fast
   l_som_supply_limit = my_nml % l_som_supply_limit
   l_som_root_supply = my_nml % l_som_root_supply
+  l_root_mass_fixed = my_nml % l_root_mass_fixed
+  root_mass_min = my_nml % root_mass_min
   l_som_nsl = my_nml % l_som_nsl
   l_som_vcmax_psi = my_nml % l_som_vcmax_psi
   l_leaf_temp = my_nml % l_leaf_temp

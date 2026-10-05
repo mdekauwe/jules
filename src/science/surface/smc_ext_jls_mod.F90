@@ -19,7 +19,8 @@ CONTAINS
 SUBROUTINE smc_ext (npnts,nshyd,surft_pts,surft_index,ft                       &
 ,                   f_root,k_sat,sthu,v_open,v_sat,v_close                     &
 ,                   bexp,sathh                                                 &
-,                   psi,soil_k,soil_to_root_k,wt_ext,fsmc,psi_root_zone)
+,                   psi,soil_k,soil_to_root_k,wt_ext,fsmc,psi_root_zone      &
+,                   root_mass)
 !---------------------------------------------------------------------
 
 ! Description:
@@ -86,11 +87,16 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 !                     !    is calculated from psi_close.
 ,bexp(npnts,nshyd)                                                             &
                       ! Exponent in soil hydraulic characteristics.
-,sathh(npnts,nshyd)                                                            
+,sathh(npnts,nshyd)                                                            &
                       ! If l_vg=False, absolute value of the soil matric
                       ! suction at saturation in m
                       ! If l_vg=True, sathh = 1 / alpha, where alpha
                       ! (in m-1) is a parameter in the van Genuchten model
+,root_mass(npnts)
+                      ! Root dry mass per unit ground area (kg m-2) for the
+                      ! soil-to-root conductance: the vegetation's root
+                      ! carbon, or min_rootc_pft with l_root_mass_fixed
+                      ! (set in physiol).
 
 ! psi/soil_k/soil_to_root_k are IN OUT, not OUT: physiol calls smc_ext once
 ! per PFT with the same (soil-tile) arrays, and they are output as
@@ -361,7 +367,8 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
   END DO
 
   soil_to_root_k_ft = soil_to_root_conductance(npnts,nshyd,surft_pts,       &
-                                              surft_index,ft,f_root,soil_k)
+                                              surft_index,ft,f_root,soil_k,   &
+                                              root_mass)
   DO n = 1,nshyd
     DO j = 1,surft_pts
       i = surft_index(j)
@@ -751,7 +758,7 @@ RETURN
 END FUNCTION fsmc_layer
 
 FUNCTION soil_to_root_conductance(npnts,nshyd,surft_pts,surft_index,ft         &
-,                                 f_root,soil_k)                     &
+,                                 f_root,soil_k,root_mass)           &
                            RESULT(soil_to_root_k)
 !---------------------------------------------------------------------
 
@@ -762,7 +769,7 @@ FUNCTION soil_to_root_conductance(npnts,nshyd,surft_pts,surft_index,ft         &
 ! Refrence: G.B.Bonan et al, 2014, Geoscientific Model Development
 !---------------------------------------------------------------------
 ! TODO: Could add OMP to loops
-USE pftparm, ONLY: min_rootc_pft, root_radi_pft, rootc_density_pft, rmass
+USE pftparm, ONLY: root_radi_pft, rootc_density_pft
 
 USE conversions_mod, ONLY: pi
 USE jules_soil_mod, ONLY: dzsoil
@@ -788,9 +795,11 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
  f_root(npnts,nshyd)                                                           &
                       ! Fraction of roots in each soil
 !                     !    layer.
-,soil_k(npnts,nshyd)
+,soil_k(npnts,nshyd)                                                           &
                       ! Soil conductivity in each soil
 !                     !    layer (kg m-2 s-1).
+,root_mass(npnts)
+                      ! Root dry mass per unit ground area (kg m-2).
 
 ! Internal variables
 INTEGER ::                                                                     &
@@ -825,17 +834,12 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='soil_to_root_conductance'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! Init local arrays
-rootc_pft_local(:) = min_rootc_pft(ft)
 root_l(:,:) = 0.0
 soil_to_root_k(:,:) = 0.0
 
-! Init local copy of root mass with inforced minimum values
-! Convert to root mass by dividing by root carbon to root mass ratio (rmass)
-!DO j = 1,surft_pts
-!  i = surft_index(j)
-!  rootc_pft_local(i) = MAX(rootc_pft(i), min_rootc_pft(ft))
-!  rootc_pft_local(i) = rootc_pft_local(i) / rmass(ft)
-!END DO
+! Root dry mass: the vegetation's root carbon / rmass, floored at
+! root_mass_min, or min_rootc_pft with l_root_mass_fixed (set in physiol).
+rootc_pft_local(:) = root_mass(:)
 
 ! The following two loops calcualte equation A23 in Bonan et al 2014
 ! The first calculates the soil to root conductance per unit root length

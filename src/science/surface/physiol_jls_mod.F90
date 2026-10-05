@@ -114,7 +114,7 @@ USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit, l_som_root_supply,    &
-  l_leaf_temp
+  l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: root_psi_crit
 
@@ -125,6 +125,7 @@ USE jules_hydrology_mod, ONLY: l_limit_gsoil, l_soil_evap_or
 USE soil_evap_or_mod, ONLY: gsoil_or
 
 USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft
+USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, sigl, lma, rmass
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs,                    &
                                l_spec_alb_bs
@@ -677,6 +678,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
   e_root_sup
       ! Root uptake limit (l_som_root_supply, kg m-2 s-1).
 
+! Root mass for the soil-to-root conductance (see l_root_mass_fixed)
+REAL(KIND=real_jlslsm) ::                                                      &
+  root_mass(land_pts),                                                         &
+      ! Root dry mass (kg m-2) passed to smc_ext: the vegetation's root
+      ! carbon, or min_rootc_pft with l_root_mass_fixed.
+  lai_bal_rt
+      ! Balanced-growth LAI, as sf_stom computes it.
+
 LOGICAL :: l_getprofile     ! Switch IN to albpft
 
 INTEGER, PARAMETER :: omp_cutoff=50   ! Cut off for loop multithreading
@@ -1205,6 +1214,35 @@ DO n = 1,npft
   END IF
 !$OMP END PARALLEL
 
+  !-----------------------------------------------------------------------
+  ! Root dry mass for the soil-to-root conductance. Unless
+  ! l_root_mass_fixed, this is the root carbon that root respiration uses
+  ! (sf_stom: root = leaf carbon at the balanced LAI, or the crop root
+  ! carbon), so it
+  ! follows TRIFFID / RED when they are on and the prescribed canopy
+  ! height when they are off. Carbon to dry mass with rmass (kg C per kg
+  ! root); the trait-based root is already a mass (lma * lai_bal).
+  !-----------------------------------------------------------------------
+  root_mass(:) = min_rootc_pft(n)
+  IF ( .NOT. l_root_mass_fixed ) THEN
+    DO j = 1,surft_pts(n)
+      l = surft_index(j,n)
+      IF ( l_crop .AND. n > nnpft ) THEN
+        root_mass(l) = rootc_cpft(l,n - nnpft) / rmass(n)
+      ELSE
+        lai_bal_rt = ( a_ws(n) * eta_sl(n) * canht_pft(l,n) / a_wl(n) )       &
+                     **(1.0 / (b_wl(n) - 1.0))
+        IF ( l_red ) lai_bal_rt = veg_state%lai_bal(l,n)
+        IF ( l_trait_phys ) THEN
+          root_mass(l) = lma(n) * lai_bal_rt
+        ELSE
+          root_mass(l) = sigl(n) * lai_bal_rt / rmass(n)
+        END IF
+      END IF
+      root_mass(l) = MAX(root_mass(l), root_mass_min)
+    END DO
+  END IF
+
   ! Tile-based irrigated surface types do not extract water so routine is not called
   ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
   ! psi_root_zone_pft
@@ -1217,7 +1255,7 @@ DO n = 1,npft
                   bexp_soilt(:,m,:), sathh_soilt(:,m,:),                       &
                   soil_wp_soilt(:,m,:),soil_k_soilt(:,m,:),                    &
                   soil_root_k_soilt(:,m,:),wt_ext_type(:,:,n),fsmc_pft(:,n),   &
-                  psi_root_zone_pft(:,n))
+                  psi_root_zone_pft(:,n), root_mass)
   END IF
 
   ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
@@ -1230,7 +1268,7 @@ DO n = 1,npft
                   bexp_soilt(:,m,:), sathh_soilt(:,m,:),                       &
                   soil_wp_soilt(:,m,:),soil_k_soilt(:,m,:),                    &
                   soil_root_k_soilt(:,m,:),wt_ext_irr_type(:,:,n),             &
-                  fsmc_irr(:,n),psi_root_zone_irr(:,n))
+                  fsmc_irr(:,n),psi_root_zone_irr(:,n), root_mass)
   END IF
 
   CALL raero (land_pts,land_index,surft_pts(n),surft_index(:,n)                &
