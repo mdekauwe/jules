@@ -310,19 +310,17 @@ fo3(:)     = 0.0
 gl(:)      = min_gl_pft(pft)
 psi_leaf(:)= psi_root_zone(:)
 leaf_k(:)  = kmax
+! Default outputs for points with closed stomata. Overwritten below for
+! points with open stomata. Set before the early return, so that a call
+! with no open points does not return the previous call's values.
+carbon_gain_out(:) = 0.0
+hydraulic_cost_out(:) = 0.0
 
 ! If there are no land points with open stomata then no calculation is needed.
 IF(0 == open_pts) THEN
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
   return
 END IF
-
-! ----------------------------------------------------------------------------
-!  Default outputs for points with closed stomata. Overwritten below for
-!  points with open stomata.
-! ----------------------------------------------------------------------------
-carbon_gain_out(:) = 0.0
-hydraulic_cost_out(:) = 0.0
 
 ! ----------------------------------------------------------------------------
 !  Calculate leaf properties as a function of the selected parameter,
@@ -864,7 +862,7 @@ CASE ( photo_collatz )
 !$OMP PRIVATE(l,j,i)                                                           &
 !$OMP SHARED(open_pts,veg_index,open_index,wcarb_sample,vcmax,ci_sample,       &
 !$OMP        ccp,kc,oi,ko,wlite_sample,pft,wexpt_sample,fwe_c3,alpha,acr,      &
-!$OMP        n_sample)
+!$OMP        n_sample,l_multilayer,apar,fapar_lf,ipar)
     DO j = 1,open_pts
       l = veg_index(open_index(j))
       ! The numbers in these equations are from Cox, HCTN 24,
@@ -933,7 +931,7 @@ CASE ( photo_farquhar )
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(l,j,i)                                                           &
 !$OMP SHARED(open_pts,veg_index,open_index,wcarb_sample,vcmax,wlite_sample,    &
-!$OMP        ci_sample,ccp,km,je,n_sample,photo_model)
+!$OMP        ci_sample,ccp,km,je,n_sample,photo_model,l_multilayer,je_ratio)
   DO j = 1,open_pts
     l = veg_index(open_index(j))
       wcarb_sample(:,j) = vcmax(l) * ( ci_sample(:,j) - ccp(l) )               &

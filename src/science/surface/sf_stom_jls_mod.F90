@@ -711,7 +711,14 @@ REAL(KIND=real_jlslsm) :: psi_src(land_pts)
 REAL(KIND=real_jlslsm) :: gl_max_lf(land_pts), gl_max_bigleaf(land_pts)
                             ! som_gl_max on the basis each stom_opt_mod call
                             ! works on: per leaf area for the multilayer
-                            ! calls, canopy (x fpar) for big-leaf.
+                            ! calls, canopy (x LAI) for big-leaf.
+REAL(KIND=real_jlslsm) :: ci_sun_ml(land_pts), ci_shd_ml(land_pts),            &
+                          ci_gl_ml(land_pts), ci_lai_ml(land_pts)
+                            ! Multilayer stomatal optimisation: ci of the
+                            ! layer's sunlit / shaded leaf (Pa), and the
+                            ! canopy sums of ci weighted by gl*dlai and by
+                            ! dlai, giving the gl-weighted canopy ci (as
+                            ! two-leaf), or the LAI mean when all are closed.
                             ! fsmc passed to leaf_limits in the multilayer
                             ! stomatal optimisation path: 1.0 everywhere, so
                             ! leaf_limits' fsmc == 0 closure test never
@@ -917,7 +924,8 @@ SELECT CASE ( can_rad_mod )
 CASE ( 4,5,6 )
 !$OMP PARALLEL DO IF(land_pts > 1)                                             &
 !$OMP DEFAULT(NONE)                                                            &
-!$OMP SHARED(land_pts,anetc,gc,rdc,rdmean)                                     &
+!$OMP SHARED(land_pts,anetc,gc,rdc,rdmean,psi_leaf,el,leaf_k,hydraulic_cost,   &
+!$OMP        carbon_gain,kmax_per_lyr,kcrit_per_lyr,je_dummy,fapar_dummy)      &
 !$OMP PRIVATE(l)                                                               &
 !$OMP SCHEDULE(STATIC)
   DO l = 1, land_pts
@@ -1296,7 +1304,8 @@ CASE ( 4 )
     expkn = EXP( REAL(n-1) / REAL(ilayers) * (-kn(ft)) )
 !$OMP PARALLEL DO IF(veg_pts > 1) DEFAULT(NONE) PRIVATE(l, m)                  &
 !$OMP             SHARED(dlai, expkn, faparv, faparv_layer, gl, nleaf_layer, n,&
-!$OMP                    nleaf_top, veg_index, veg_pts)                        &
+!$OMP                    nleaf_top, veg_index, veg_pts, kmax_per_lyr,          &
+!$OMP                    kmax_pft, ft, ilayers)                                &
 !$OMP             SCHEDULE(STATIC)
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -1446,6 +1455,8 @@ CASE ( 5, 6 )
         leaf_k(:) = 0.0
         carbon_gain(:) = 0.0
         hydraulic_cost(:) = 0.0
+        ci_gl_ml(:) = 0.0
+        ci_lai_ml(:) = 0.0
 
         DO n = 1,ilayers
 
@@ -1742,8 +1753,8 @@ CASE ( 5, 6 )
                     ! IN OUT
                     rd_sun,                                                    &
                     ! OUT
-                    ci, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun, gl_sun,   &
-                    psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun                   &
+                    ci_sun_ml, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun,    &
+                    gl_sun, psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun           &
                 )
 
                 ! Added gs opt call for shaded , 29 Apr, MGDK
@@ -1758,8 +1769,8 @@ CASE ( 5, 6 )
                     ! IN OUT
                     rd_shd,                                                    &
                     ! OUT
-                    ci, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd, gl_shd,   &
-                    psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd                   &
+                    ci_shd_ml, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd,    &
+                    gl_shd, psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd           &
                 )
 
             CASE DEFAULT
@@ -1793,7 +1804,11 @@ CASE ( 5, 6 )
         !$OMP PRIVATE(m,l)                                                     &
         !$OMP SHARED(veg_pts,veg_index,anetl,fsun,anetl_sun,anetl_shd,anetc,dlai,gc,   &
         !$OMP        gl,rdc,rd,rdmean,ilayers,l_o3_damage,flux_o3_l,flux_o3_l_sun,     &
-        !$OMP        flux_o3_l_shd,fo3_l_sun,fo3_l_shd,flux_o3,fo3,lai,n,fo3_l)
+        !$OMP        flux_o3_l_shd,fo3_l_sun,fo3_l_shd,flux_o3,fo3,lai,n,fo3_l,        &
+        !$OMP        el,el_sun,el_shd,hydraulic_cost,HC_sun,HC_shd,carbon_gain,        &
+        !$OMP        CG_sun,CG_shd,psi_leaf,psi_leaf_sun,psi_leaf_shd,leaf_k,          &
+        !$OMP        leaf_k_sun,leaf_k_shd,ci_gl_ml,ci_lai_ml,gl_sun,gl_shd,           &
+        !$OMP        ci_sun_ml,ci_shd_ml)
             DO m = 1,veg_pts
             l = veg_index(m)
 
@@ -1836,6 +1851,14 @@ CASE ( 5, 6 )
                                     (1.0 - fsun(l,n)) * leaf_k_shd(l)) *       &
                                     dlai(l)
 
+            ci_gl_ml(l) = ci_gl_ml(l) +                                        &
+                          (fsun(l,n) * gl_sun(l) * ci_sun_ml(l) +              &
+                          (1.0 - fsun(l,n)) * gl_shd(l) * ci_shd_ml(l)) *      &
+                          dlai(l)
+            ci_lai_ml(l) = ci_lai_ml(l) +                                      &
+                           (fsun(l,n) * ci_sun_ml(l) +                         &
+                           (1.0 - fsun(l,n)) * ci_shd_ml(l)) * dlai(l)
+
 
 
 
@@ -1861,6 +1884,16 @@ CASE ( 5, 6 )
             IF (lai(l) > 0.0) THEN
                 psi_leaf(l) = psi_leaf(l) / lai(l)
                 leaf_k(l)  = leaf_k(l)   / lai(l)
+            END IF
+
+            ! gl-weighted canopy ci (as two-leaf); the LAI mean when no
+            ! stomata are open (closed leaves have ci = ca).
+            IF ( gc(l) > TINY(gc(l)) ) THEN
+                ci(l) = ci_gl_ml(l) / gc(l)
+            ELSE IF ( lai(l) > 0.0 ) THEN
+                ci(l) = ci_lai_ml(l) / lai(l)
+            ELSE
+                ci(l) = ca(l)
             END IF
 
         END DO
@@ -2283,7 +2316,9 @@ CASE ( 1 )
        ! for LAI 1.5-2.3, kpar 0.5) for a data-derived kmax_pft.
        kmax_bigleaf(:) = kmax_pft(ft) * lai(:)
        kcrit_bigleaf(:) = kcrit(ft) * lai(:)
-       gl_max_bigleaf(:) = som_gl_max * fpar(:)
+       ! som_gl_max is per unit leaf area, so the canopy cap is x LAI, as
+       ! kmax_bigleaf (and the multilayer and two-leaf totals).
+       gl_max_bigleaf(:) = som_gl_max * lai(:)
        share_sup(:) = 1.0
        CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,        &
                                 share_sup, dqc, tstar, pstar,                  &
@@ -2468,8 +2503,9 @@ CASE ( 7 )
                      / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
     kcrit_sun_2l(l) = kmax_sun_2l(l) * (kcrit(ft) / kmax_pft(ft))
     kcrit_shd_2l(l) = kmax_shd_2l(l) * (kcrit(ft) / kmax_pft(ft))
-    gl_max_sun_2l(l) = som_gl_max * nw_sun_2l(l)
-    gl_max_shd_2l(l) = som_gl_max * nw_shd_2l(l)
+    ! som_gl_max is per unit leaf area: x the class leaf area.
+    gl_max_sun_2l(l) = som_gl_max * lai_sun_2l(l)
+    gl_max_shd_2l(l) = som_gl_max * lai_shd_2l(l)
 
     ! Radiation to photosystem II of each class (cf. i2 = alpha_elec*acr).
     i2_sun(l) = alpha_elec(ft) * acr_sun_2l(l)

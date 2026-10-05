@@ -541,8 +541,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! (som_n_sample, the golden bracket, the 1e-2 Pa floor): canopy gc of
       ! 0.1-1.5 m/s at FR-Pue in low-VPD daylight. 0.02 m/s is ~0.8
       ! mol m-2 s-1, generous for most C3 leaves, so it only binds in that
-      ! degenerate regime. Set <= 0 to disable. Big-leaf applies it as
-      ! som_gl_max * fpar (canopy basis, matching its canopy-scale gl).
+      ! degenerate regime. Set <= 0 to disable. Every canopy scheme applies
+      ! it per unit leaf area, so the canopy cap is som_gl_max * LAI (big
+      ! leaf; two-leaf per class leaf area; multilayer per leaf).
 
 REAL(KIND=real_jlslsm) ::                                                      &
   light_curvature_fvcb = 0.90

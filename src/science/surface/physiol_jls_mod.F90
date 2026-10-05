@@ -710,8 +710,8 @@ l_do_omp    = land_pts>omp_cutoff
 !$OMP PRIVATE(i, j, k, l, n, m, il, i_wt)                                      &
 !$OMP SHARED(dim_cslayer, l_do_omp)                                            &
 !$OMP SHARED(npft,land_pts,el_pft,gpp_pft,npp_pft,resp_p_pft,resp_w_pft,       &
-!$OMP resp_l_pft,resp_r_pft,fsmc_pft,apar_diag_pft,psi_leaf_pft,cica_ratio_pft &
-!$OMP leaf_k_pft                                                               &
+!$OMP resp_l_pft,resp_r_pft,fsmc_pft,apar_diag_pft,psi_leaf_pft,               &
+!$OMP cica_ratio_pft,leaf_k_pft,                                               &
 !$OMP isoprene_pft,terpene_pft,                                                &
 !$OMP methanol_pft,acetone_pft, nsoilt,smc_soilt,g_leaf,fsmc_irr,root_param,   &
 !$OMP sm_levels,rib,f_root,tdims, ilayers,faparv,nsurft,gc_stom_surft,         &

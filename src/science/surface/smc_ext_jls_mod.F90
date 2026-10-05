@@ -316,7 +316,7 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
 !$OMP PARALLEL                                                                 &
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(j,i,n)                                                           &
-!$OMP SHARED(surft_pts,surft_index,psi,sthu,sathh,bexp,sthu_min,nshyd)
+!$OMP SHARED(surft_pts,surft_index,psi,sthu,sathh,bexp,nshyd)
   DO n = 1,nshyd
 !$OMP DO SCHEDULE(STATIC)
     DO j = 1,surft_pts
@@ -332,7 +332,7 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
 !$OMP PARALLEL                                                                 &
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(j,i,n)                                                           &
-!$OMP SHARED(surft_pts,surft_index,sathh,bexp,sthu_min,psi_open,sthu_open,     &
+!$OMP SHARED(surft_pts,surft_index,sathh,bexp,psi_open,sthu_open,              &
 !$OMP        psi_close,sthu_close,nshyd)
     DO n = 1,nshyd
 !$OMP DO SCHEDULE(STATIC)
@@ -373,7 +373,7 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(j,i,n)                                                           &
 !$OMP SHARED(nshyd,surft_pts,surft_index,wt_ext,soil_to_root_k,psi,            &
-!$OMP        root_psi_crit)
+!$OMP        root_psi_crit,ft)
   DO n = 1,nshyd
 !$OMP DO SCHEDULE(STATIC)
     DO j = 1,surft_pts
@@ -713,7 +713,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(j,i,x_open,x_close,x)                                            &
 !$OMP SHARED(surft_pts,surft_index,fsmc_shape,fsmc_l,extra_factor,psi_open,    &
-!$OMP        psi_close,psi,v_open,v_close,v,pft)
+!$OMP        psi_close,psi,v_open,v_close,v,pft,fsmc_q)
 DO j = 1,surft_pts
   i = surft_index(j)
 
