@@ -405,6 +405,9 @@ LOGICAL ::                                                                     &
       ! consistent with the water actually used; other steps are unchanged.
 LOGICAL ::                                                                     &
   l_som_root_supply = .FALSE.
+      ! RETIRED (2026-10-05): the soil-to-root resistance is now always in
+      ! series in the profit-max path (l_som_rhizo_series). Still read so
+      ! old namelists run; .TRUE. gives a warning and is ignored. Was:
       ! When .TRUE., the stomatal optimisation can only choose transpiration
       ! the roots can take up with the root held at root_psi_crit:
       !   E <= sum_layers soil_to_root_k * MAX(psi_soil - root_psi_crit, 0)
@@ -415,19 +418,21 @@ LOGICAL ::                                                                     &
       ! (with which it combines, taking the smaller supply).
 LOGICAL ::                                                                     &
   l_som_rhizo_series = .FALSE.
-      ! When .TRUE., the profit-max hydraulic path includes the soil
-      ! (rhizosphere) resistance in series with the plant, as in SPA and
-      ! MAESPA (KTOT = 1/(TOTSOILRES + 1/PLANTK)): the root inlet falls with
-      ! the flux, psi_root = psi_src - E / K_s, where K_s is the soil-to-root
-      ! conductance soil_to_root_k summed over the layers (parallel; soil part
-      ! only, Bonan et al. 2014 eq. A23), shared between the leaf paths in
-      ! proportion to their kmax. Root (radial), stem and leaf resistance stay
-      ! in kmax, so nothing is counted twice. The marginal conductance used by
-      ! the hydraulic cost and kcrit is that of the whole soil-to-leaf path,
-      ! so stomata close as the soil conductance collapses. The layer weights
-      ! and psi_root_zone are unchanged (root_psi_crit, as MAESPA's
-      ! MINROOTWP). With l_som_plant_segments the soil link comes ahead of
-      ! the root segment. Not with l_som_root_supply (same physics, cruder).
+      ! Not a namelist switch: set .TRUE. in check_jules_vegetation whenever
+      ! the profit-max optimisation is on. The profit-max hydraulic path then
+      ! includes the soil (rhizosphere) resistance in series with the plant,
+      ! as in SPA, MAESPA (KTOT = 1/(TOTSOILRES + 1/PLANTK)) and Bonan et al.
+      ! (2014): the root inlet falls with the flux, psi_root = psi_src - E/K_s,
+      ! where K_s is the soil-to-root conductance soil_to_root_k summed over
+      ! the layers (parallel; soil part only, Bonan eq. A23), shared between
+      ! the leaf paths in proportion to their kmax. Root (radial), stem and
+      ! leaf resistance stay in kmax, so nothing is counted twice. The
+      ! marginal conductance used by the hydraulic cost and kcrit is that of
+      ! the whole soil-to-leaf path. With l_som_plant_segments the soil link
+      ! comes ahead of the root segment. Layer weights and psi_root_zone are
+      ! unchanged (root_psi_crit, as MAESPA's MINROOTWP). Applied for PFTs
+      ! with fsmc_mod = 2 only (smc_ext computes soil_to_root_k only there).
+      ! It replaces l_som_root_supply.
 LOGICAL ::                                                                     &
   l_root_mass_fixed = .FALSE.
       ! Root mass in the soil-to-root conductance (soil_to_root_k, Bonan et
@@ -700,7 +705,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
-    l_som_vcmax_psi, l_root_mass_fixed, root_mass_min, l_som_rhizo_series,     &
+    l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
     l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
     leaf_shelter, leaf_aero_model, l_leaf_coexp_lai,                           &
     l_som_gain_gross,                                                          &
@@ -1354,28 +1359,17 @@ IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
                'l_use_pft_psi=T')
 END IF
 
-IF ( l_som_root_supply .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.        &
-                               .NOT. l_use_pft_psi ) ) THEN
-  errcode = 101
+IF ( l_som_root_supply ) THEN
+  errcode = -101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_root_supply requires stomata_model=4 or 6 and ' //       &
-               'l_use_pft_psi=T')
+               'l_som_root_supply is retired and ignored: the soil-to-root ' //&
+               'resistance is now always in series in the profit-max path')
+  l_som_root_supply = .FALSE.
 END IF
 
-IF ( l_som_rhizo_series .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
-                                .NOT. l_use_pft_psi ) ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_rhizo_series requires stomata_model=4 or 6 and ' //      &
-               'l_use_pft_psi=T')
-END IF
-
-IF ( l_som_rhizo_series .AND. l_som_root_supply ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_rhizo_series and l_som_root_supply both limit uptake ' //&
-               'by the soil-to-root conductance: use one')
-END IF
+! The soil-to-root resistance in series (see l_som_rhizo_series) is part of
+! the profit-max hydraulics.
+l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt )
 
 IF ( .NOT. l_root_mass_fixed .AND. root_mass_min <= 0.0 ) THEN
   errcode = 101
@@ -1754,7 +1748,7 @@ INTEGER, PARAMETER :: n_int = 21 ! +2 leaf_temp_iter/leaf_aero_model, was 16, +1
 INTEGER, PARAMETER :: n_real = 18 + (n_photo_coef * 5) ! +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 44 + npft_max ! +1 l_som_rhizo_series, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
+INTEGER, PARAMETER :: n_log = 43 + npft_max ! +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -1817,7 +1811,6 @@ TYPE :: my_namelist
   LOGICAL :: l_som_supply_limit
   LOGICAL :: l_som_root_supply
   LOGICAL :: l_root_mass_fixed
-  LOGICAL :: l_som_rhizo_series
   LOGICAL :: l_som_nsl
   LOGICAL :: l_som_vcmax_psi
   LOGICAL :: l_leaf_temp
@@ -1918,7 +1911,6 @@ IF (mype == 0) THEN
   my_nml % l_som_supply_limit = l_som_supply_limit
   my_nml % l_som_root_supply = l_som_root_supply
   my_nml % l_root_mass_fixed = l_root_mass_fixed
-  my_nml % l_som_rhizo_series = l_som_rhizo_series
   my_nml % root_mass_min = root_mass_min
   my_nml % l_som_nsl = l_som_nsl
   my_nml % l_som_vcmax_psi = l_som_vcmax_psi
@@ -2013,7 +2005,6 @@ IF (mype /= 0) THEN
   l_som_supply_limit = my_nml % l_som_supply_limit
   l_som_root_supply = my_nml % l_som_root_supply
   l_root_mass_fixed = my_nml % l_root_mass_fixed
-  l_som_rhizo_series = my_nml % l_som_rhizo_series
   root_mass_min = my_nml % root_mass_min
   l_som_nsl = my_nml % l_som_nsl
   l_som_vcmax_psi = my_nml % l_som_vcmax_psi

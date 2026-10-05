@@ -863,7 +863,7 @@ USE c_z0h_z0m,    ONLY: z0h_z0m,  z0h_z0m_classic
 USE jules_surface_types_mod, ONLY: npft
 
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
-                                l_som_root_supply, l_som_vcmax_psi
+                                l_som_vcmax_psi
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1003,34 +1003,6 @@ psi_open(:)         = psi_open_io(1:npft)
 root_psi_crit(:)    = root_psi_crit_io(1:npft) ! JBaguley
 root_radi_pft(:)    = root_radi_pft_io(1:npft) ! JBaguley
 rootc_density_pft(:)= rootc_density_pft_io(1:npft) ! JBaguley
-! The root supply limit uses soil_to_root_k, which smc_ext computes only for
-! fsmc_mod = 2; with fsmc_mod 0/1 it is zero and the stomata shut silently.
-IF ( l_som_root_supply ) THEN
-  IF ( ANY(fsmc_mod(:) /= 2) ) THEN
-    errcode = 101
-    CALL ereport(RoutineName, errcode,                                         &
-                 'l_som_root_supply needs fsmc_mod_io = 2 for every PFT.')
-  END IF
-  IF ( ANY(min_rootc_pft(:) <= 0.0) .OR. ANY(root_radi_pft(:) <= 0.0) .OR.    &
-       ANY(rootc_density_pft(:) <= 0.0) ) THEN
-    errcode = 101
-    CALL ereport(RoutineName, errcode,                                         &
-                 'l_som_root_supply needs min_rootc_pft_io, root_radi_pft_io ' &
-                 // 'and rootc_density_pft_io > 0.')
-  END IF
-  ! With the soil psi bound on (l_bound_soil_wp), a hard clamp at psi_close
-  ! means no layer is seen drier than psi_close. If psi_close were above
-  ! root_psi_crit, root supply (psi - root_psi_crit > 0) would never run
-  ! out. Keep psi_close <= root_psi_crit; never tie them.
-  IF ( l_bound_soil_wp ) THEN
-    IF ( ANY(psi_close(:) > root_psi_crit(:)) ) THEN
-      errcode = 101
-      CALL ereport(RoutineName, errcode,                                       &
-                   'l_som_root_supply with l_bound_soil_wp needs '            //&
-                   'psi_close_io <= root_psi_crit_io for every PFT.')
-    END IF
-  END IF
-END IF
 #endif
 catch0(:)       = catch0_io(1:npft)
 dcatch_dlai(:)  = dcatch_dlai_io(1:npft)

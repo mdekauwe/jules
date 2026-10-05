@@ -821,7 +821,7 @@ DO j = 1, open_pnts
   ! root segment. Linear in E: psi_root = psi_src - E / K_s, and the chain
   ! starts from dpsi_root/dE = -1/K_s, so leaf_k is the conductance of the
   ! whole soil-to-leaf path.
-  IF ( l_som_rhizo_series ) THEN
+  IF ( l_som_rhizo_series .AND. som_ksr_frac(l) >= 0.0 ) THEN
     k_s = som_ksr_frac(l) * kmax(l)
     IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
       psi_in(:)  = MAX(root_zone_psi(l) - e_leaf(:,j) / k_s, som_psi_in_min)
@@ -838,7 +838,8 @@ DO j = 1, open_pnts
     cs  = conductance_c_seg(pft,iseg)
 
     k_in(:) = kmx * EXP( -(psi_in(:)/bs)**cs )
-    IF ( iseg == 1 .AND. .NOT. l_som_rhizo_series ) THEN
+    IF ( iseg == 1 .AND. .NOT. ( l_som_rhizo_series .AND.                     &
+                                 som_ksr_frac(l) >= 0.0 ) ) THEN
       ! The root inlet is psi_root_zone for every sample: one evaluation.
       ! (With l_som_rhizo_series it falls with E, so not here.)
       g_one(:) = incomplete_gamma(1, 1.0/cs, [(psi_in(1)/bs)**cs])
@@ -940,7 +941,7 @@ DO j = 1, open_pnts
     dpsi_de = 0.0
     ! l_som_rhizo_series: soil link ahead of the root segment (as
     ! leaf_psi_segments_jls).
-    IF ( l_som_rhizo_series ) THEN
+    IF ( l_som_rhizo_series .AND. som_ksr_frac(l) >= 0.0 ) THEN
       k_s = som_ksr_frac(l) * kmax(l)
       IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
         psi_in  = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
