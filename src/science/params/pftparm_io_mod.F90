@@ -197,7 +197,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   p88_leaf_io(npft_max) = rmdi,                                                &
   ! Cuticular leaf conductance (mmol H2O m-2 leaf s-1), the floor used when
   ! l_som_cuticular_floor (default 3, SurEau-Ecos Q. ilex, Ruffault 2022).
-  gcut_io(npft_max) = 3.0,                                                     &
+  gcuticular_io(npft_max) = 3.0,                                               &
   ! Nonstomatal limitation (l_som_nsl): onset and zero point of the
   ! leaf-psi ramp on photosynthesis (Pa; missing = pftparm defaults 0 and
   ! -3 MPa, i.e. Dewar et al. 2022 Eqn 3(b)). Onset at the turgor loss
@@ -291,7 +291,7 @@ NAMELIST  / jules_pftparm/                                                     &
   seg_frac_root_io, seg_frac_stem_io, seg_frac_leaf_io,                        &
   p50_root_io,     p50_stem_io,      p50_leaf_io,                              &
   p88_root_io,     p88_stem_io,      p88_leaf_io,                              &
-  gcut_io,         psi_nsl_onset_io, psi_nsl0_io,                              &
+  gcuticular_io,         psi_nsl_onset_io, psi_nsl0_io,                        &
   fsmc_q_io,       psi_vcmax_f_io,   sf_vcmax_io,                              &
   g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
   cap_leaf_io,     cap_stem_io,                                                &
@@ -442,7 +442,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: p50_io(npft_max) ! JBaguley
   REAL(KIND=real_jlslsm) :: p88_io(npft_max) ! JBaguley
   REAL(KIND=real_jlslsm) :: seg_frac_root_io(npft_max)
-  REAL(KIND=real_jlslsm) :: gcut_io(npft_max)
+  REAL(KIND=real_jlslsm) :: gcuticular_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_nsl_onset_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_nsl0_io(npft_max)
   REAL(KIND=real_jlslsm) :: fsmc_q_io(npft_max)
@@ -599,7 +599,7 @@ IF (mype == 0) THEN
   my_nml % p50_io         = p50_io ! JBaguley
   my_nml % p88_io         = p88_io ! JBaguley
   my_nml % seg_frac_root_io = seg_frac_root_io
-  my_nml % gcut_io        = gcut_io
+  my_nml % gcuticular_io        = gcuticular_io
   my_nml % psi_nsl_onset_io = psi_nsl_onset_io
   my_nml % psi_nsl0_io    = psi_nsl0_io
   my_nml % fsmc_q_io      = fsmc_q_io
@@ -744,7 +744,7 @@ IF (mype /= 0) THEN
   p50_io          = my_nml % p50_io ! JBaguley
   p88_io          = my_nml % p88_io ! JBaguley
   seg_frac_root_io = my_nml % seg_frac_root_io
-  gcut_io         = my_nml % gcut_io
+  gcuticular_io         = my_nml % gcuticular_io
   psi_nsl_onset_io = my_nml % psi_nsl_onset_io
   psi_nsl0_io     = my_nml % psi_nsl0_io
   fsmc_q_io       = my_nml % fsmc_q_io
@@ -805,7 +805,7 @@ USE pftparm, ONLY:                                                             &
   calc_rz_psi,     fsmc_mod,         psi_close,                                & ! JBaguley
   psi_open,        min_rootc_pft,    root_psi_crit,                            & ! JBaguley
   root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
-  gcut,            psi_nsl_onset,    psi_nsl0,         fsmc_q,                 &
+  gcuticular,            psi_nsl_onset,    psi_nsl0,         fsmc_q,           &
   psi_vcmax_f,     sf_vcmax,                                                   &
   g1_tuzet,        sf_tuzet,                                                   &
   psi_f_tuzet,     cap_leaf,         cap_stem,                                 &
@@ -962,8 +962,11 @@ tleaf_of(:)     = tleaf_of_io(1:npft)
 #if !defined(UM_JULES)
 calc_rz_psi(:)      = calc_rz_psi_io(1:npft) ! JBaguley
 fsmc_mod(:)         = fsmc_mod_io(1:npft)
-min_gl_pft(:)       = min_gl_pft_io(1:npft) ! JBaguley
-gcut(:)             = gcut_io(1:npft)
+! Keep the pftparm_alloc default (1e-9) where unset; copying rmdi would
+! give closed leaves a large negative conductance.
+WHERE (ABS(min_gl_pft_io(1:npft) - rmdi) > EPSILON(1.0))                     &
+  min_gl_pft(:) = min_gl_pft_io(1:npft)
+gcuticular(:)             = gcuticular_io(1:npft)
 ! Nonstomatal limitation ramp: keep the pftparm_alloc defaults where unset.
 WHERE (ABS(psi_nsl_onset_io(1:npft) - rmdi) > EPSILON(1.0))                  &
   psi_nsl_onset(:) = psi_nsl_onset_io(1:npft)

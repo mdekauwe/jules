@@ -70,7 +70,7 @@ USE theta_field_sizes, ONLY: t_i_length
 USE jules_surface_types_mod, ONLY: nnpft, ncpft
 
 USE pftparm, ONLY:                                                             &
-        kmax_pft, conductance_b, conductance_c, kcrit, gcut, min_gl_pft
+        kmax_pft, conductance_b, conductance_c, kcrit, gcuticular, min_gl_pft
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported model ids. JBaguley
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
@@ -1787,6 +1787,18 @@ CASE ( 5, 6 )
                     gl_shd, psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd           &
                 )
 
+                ! Closed leaves get min_gl_pft from stom_opt_mod, a canopy
+                ! value: divide by LAI so the canopy total (sum of gl * dlai
+                ! over the layers) is min_gl_pft, as in big leaf and two-leaf
+                ! (review #11).
+                DO i = 1,clos_pts
+                    l = veg_index(clos_index(i))
+                    IF ( lai(l) > EPSILON(0.0) ) THEN
+                        gl_sun(l) = gl_sun(l) / lai(l)
+                        gl_shd(l) = gl_shd(l) / lai(l)
+                    END IF
+                END DO
+
             CASE DEFAULT
                 errcode = 101  !  a hard error
                 CALL ereport(RoutineName, errcode,                                     &
@@ -2418,7 +2430,7 @@ CASE ( 1 )
       ! Trial E for this fw, with the cuticular floor if it is on (here
       ! without its supply/xylem bounds, which only act near closure).
       gl_cut_ds = 0.0
-      IF ( l_som_cuticular_floor ) gl_cut_ds = gcut(ft) * 1.0e-3 * rmol        &
+      IF ( l_som_cuticular_floor ) gl_cut_ds = gcuticular(ft) * 1.0e-3 * rmol  &
                                                * tstar(l) / pstar(l) * lai(l)
       el_try(l) = MAX(dqc(l), 0.0) * pstar(l) / repsilon                     &
                   * MAX(gc(l), gl_cut_ds) / (rmol * tstar(l))
@@ -2957,7 +2969,7 @@ END IF
 !-----------------------------------------------------------------------------
 ! Cuticular floor (l_som_cuticular_floor). Water still leaks through the
 ! cuticle once the stomata have (nearly) shut, whatever the carbon: the
-! canopy conductance is not allowed below gcut * LAI. This is applied after
+! canopy conductance is not allowed below gcuticular * LAI. This is applied after
 ! the optimisation, so it is not traded against carbon (A is unchanged), but
 ! it is charged to the plant water: the soil-supply cap still bounds it and
 ! psi_leaf / leaf_k are re-solved for the total flux. Applies at night too
@@ -2968,7 +2980,7 @@ IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
   DO m = 1,veg_pts
     l = veg_index(m)
     ! mmol m-2 leaf s-1 -> m s-1, times LAI for the canopy.
-    gl_cut(l) = gcut(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
+    gl_cut(l) = gcuticular(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
     share_sup(l) = 1.0
     veg_pts_index(m) = m
   END DO

@@ -371,7 +371,7 @@ LOGICAL ::                                                                     &
   l_som_cuticular_floor = .FALSE.
       ! When .TRUE., leaf water loss never falls below a cuticular floor:
       ! after the profit-max search (and for closed stomata, including at
-      ! night) the canopy conductance is MAX(gs, gcut_io * LAI). The floor is
+      ! night) the canopy conductance is MAX(gs, gcuticular_io * LAI). The floor is
       ! an uncontrolled leak, so it is not part of the optimisation and adds
       ! no carbon; the extra water is taken from the soil through the
       ! normal evaporation path (still bounded by the soil-supply cap when
