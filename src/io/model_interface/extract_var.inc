@@ -28,6 +28,10 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_npp_prev,         &
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
                           flux_sap_desica, dw_plant_desica
 USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
+USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f
+USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
+USE jules_vegetation_mod, ONLY: xylem_impairment_none
+USE pftparm, ONLY: kmax_pft, kcrit, pft_xylem_impairment_model
 
 !Use variables
 !Science variables
@@ -101,9 +105,6 @@ USE jules_rivers_mod, ONLY: nstep_rivers, np_rivers, n_rivers,                 &
 
 USE coastal, ONLY: flandg
 
-USE pftparm, ONLY:                                                             &
-  kmax_pft
-
 !Others
 USE io_constants, ONLY:                                                        &
   mdi
@@ -159,6 +160,10 @@ REAL :: workspace_levs(land_pts, sm_levels)
 
 REAL :: workspace_pft(land_pts, npft)
                                 ! Used in calculation of PFT variables
+REAL :: kmax_ref_plc(land_pts), kcrit_plc(land_pts), kx_plc(land_pts)
+                                ! PLC_pft with xylem impairment: unimpaired
+                                ! kmax_pft and kcrit, and the impaired xylem
+                                ! conductance at psi_leaf.
 
 REAL :: workspace_cpft(land_pts, ncpft)
                                 ! Used in calculation of crop tile variables
@@ -3763,11 +3768,45 @@ CASE ( 'sapflow_pft' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-CASE ('PLC_pft')
+CASE ( 'kplant_pft' )
+  ! leaf_k_pft is the solver's -dE/dpsi_leaf for the whole path: with
+  ! l_som_rhizo_series it includes the soil-to-root conductance Ksr in series
+  ! with the xylem.
+  cube_land = cube_from_array(psparms%leaf_k_pft)
+  cube = map_from_land(cube_land)
 
-  ! Convert the leaf conductance to a percentage loss of conductance
+CASE ('PLC_pft')
+  ! Xylem only: the loss of xylem conductance at psi_leaf relative to the
+  ! unimpaired kmax_pft. Not from leaf_k_pft (kplant_pft), which includes
+  ! the soil-to-root conductance, so would count soil drying as embolism.
+  ! No impairment model: the PFT vulnerability curve. With one: the point's
+  ! impaired curve (leaf_conductance_impaired_jls, as the damage update).
+  ! DESICA: the state psi_leaf, as psi_leaf_pft.
   DO i = 1, npft
-    workspace_pft(:,i) = 100.0 * (1 - psparms%leaf_k_pft(:,i)/kmax_pft(i))
+    IF ( stomata_model == stomata_desica .AND.                                 &
+         ALLOCATED(psi_leaf_desica) ) THEN
+      DO l = 1, land_pts
+        workspace_pft(l,i) = 100.0 * (1.0 - xylem_f(i, psi_leaf_desica(l,i)))
+      END DO
+    ELSE IF ( pft_xylem_impairment_model(i) == xylem_impairment_none ) THEN
+      DO l = 1, land_pts
+        workspace_pft(l,i) = 100.0                                             &
+                             * (1.0 - xylem_f(i, psparms%psi_leaf_pft(l,i)))
+      END DO
+    ELSE
+      kmax_ref_plc(:)  = kmax_pft(i)
+      kcrit_plc(:)     = kcrit(i)
+      CALL leaf_conductance_impaired_jls( i, land_pts,                         &
+                                          psparms%psi_leaf_pft(:,i),           &
+                                          kmax_ref_plc,                        &
+                                          psparms%kmax_impaired_pft(:,i),      &
+                                          kcrit_plc,                           &
+                                          psparms%conductance_b_impaired_pft(:,i), &
+                                          psparms%conductance_c_impaired_pft(:,i), &
+                                          psparms%psi_leaf_extreme_pft(:,i),   &
+                                          kx_plc )
+      workspace_pft(:,i) = 100.0 * (1.0 - kx_plc(:) / kmax_pft(i))
+    END IF
   END DO
 
   cube_land = cube_from_array(workspace_pft)

@@ -23,7 +23,32 @@ PUBLIC :: leaf_conductance_CW_jls                                              &
 ,         supply_lut_psi                                                       &
 ,         supply_lut_e_crit                                                    &
 ,         supply_lut_f                                                 &
-,         leaf_psi_segments_jls
+,         leaf_psi_segments_jls                                                &
+,         set_ksr_path                                                         &
+,         xylem_f                                                              &
+,         xylem_f_bc                                                           &
+,         k_path_zero_flow
+
+! Soil-to-root (rhizosphere) conductance Ksr for l_som_rhizo_series, a
+! conductance (not the soil conductivity soil_k), kept separate from the
+! plant xylem kmax so that anything that changes kmax (e.g. xylem
+! impairment) leaves the soil term alone; the two meet only in series in
+! the solvers.
+!   ksr      : the PFT's Ksr summed over the layers, per m2 ground
+!              (mol m-2 s-1 Pa-1, the units of kmax_pft * LAI). Set by
+!              physiol for the current PFT just before sf_stom. < 0: no
+!              soil link (fsmc_mod /= 2).
+!   ksr_path : this leaf path's share of ksr, in the units of the kmax the
+!              solver is given. Set by sf_stom (set_ksr_path) before each
+!              solver call, from the path's share of the undamaged plant
+!              conductance (share_sup). < 0: no soil link.
+! Used by leaf_psi_jls (single conductance curve) and the segment solvers
+! below.
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
+
+REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: som_psi_in_min = -1.0e9
+      ! Floor on the root inlet potential (Pa) with l_som_rhizo_series when
+      ! the soil conductance is (near) zero.
 
 ! ---------------------------------------------------------------------
 ! Supply-function lookup table (som_psi_solver = psi_solver_lut),
@@ -64,6 +89,143 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: lut_seg_dpsi(:,:)
 LOGICAL, ALLOCATABLE, SAVE, PRIVATE :: lut_seg_ready(:)
 
 CONTAINS
+
+! *****************************************************************************
+! l_som_rhizo_series: set ksr_path, the soil-to-root conductance of the next
+! leaf path, as share * ksr. share is the path's share of the plant (its
+! kmax over kmax_pft * LAI, in the units of that kmax). It must come from
+! the undamaged plant conductance, so that xylem impairment, which lowers
+! the kmax given to the solver, does not lower the soil term.
+! *****************************************************************************
+SUBROUTINE set_ksr_path( land_pts, veg_pts, veg_index, share )
+
+USE jules_vegetation_mod, ONLY: l_som_rhizo_series
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: share(land_pts)
+
+INTEGER :: l, m
+
+IF ( .NOT. l_som_rhizo_series ) RETURN
+IF ( .NOT. ALLOCATED(ksr_path) ) ALLOCATE(ksr_path(land_pts))
+ksr_path(:) = -1.0
+DO m = 1,veg_pts
+  l = veg_index(m)
+  IF ( ksr(l) >= 0.0 ) ksr_path(l) = ksr(l) * share(l)
+END DO
+
+END SUBROUTINE set_ksr_path
+
+! *****************************************************************************
+! Fraction of kmax left on the PFT's whole-plant vulnerability curve at psi
+! (Pa), as pft_conductance_model. psi >= 0 gives 1. Xylem only (no soil).
+! *****************************************************************************
+FUNCTION xylem_f( pft, psi ) RESULT( f )
+
+USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: pft
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+REAL(KIND=real_jlslsm) :: f
+
+f = xylem_f_bc( pft, psi, conductance_b_pft(pft), conductance_c_pft(pft) )
+
+END FUNCTION xylem_f
+
+! *****************************************************************************
+! As xylem_f, on the curve with parameters b (Pa) and c (e.g. a point's
+! impaired curve): cumulative Weibull exp(-(psi/b)^c), or SOX
+! 1 / (1 + (psi/b)^c), as pft_conductance_model.
+! *****************************************************************************
+FUNCTION xylem_f_bc( pft, psi, b, c ) RESULT( f )
+
+USE pftparm, ONLY: pft_conductance_model
+USE jules_vegetation_mod, ONLY: SOX_conductance
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: pft
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi, b, c
+REAL(KIND=real_jlslsm) :: f, x
+
+x = ( ABS(MIN(psi, 0.0) / b) )**c
+IF ( pft_conductance_model(pft) == SOX_conductance ) THEN
+  f = 1.0 / (1.0 + x)
+ELSE
+  f = EXP(-x)
+END IF
+
+END FUNCTION xylem_f_bc
+
+! *****************************************************************************
+! Whole-path conductance -dE/dpsi_leaf at zero flow, in the units of kmax:
+! with no flow there is no drop along the path, so every element sits at
+! psi_root and the elements add in series,
+!   1 / K = 1 / ksr_path + sum_s 1 / (kmax seg_kfac_s f_s(psi_root)),
+! (one element on the PFT curve without l_som_plant_segments; no soil term
+! without l_som_rhizo_series or for ksr_path < 0). This is what the solvers
+! give at E = 0, for points the optimiser does not visit (closed stomata).
+! Xylem impairment: b, c give the point's impaired curve (single curve), and
+! kcap_frac caps the stem and leaf segments (memory model with segments,
+! kmax then the intact value), as leaf_psi_segments_jls; kx, the plant
+! (xylem) conductance at psi_root if already known (e.g. any impairment
+! model's), replaces the curve. ksr_path must be set (set_ksr_path).
+! *****************************************************************************
+FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, b, c, kcap_frac, kx )      &
+                           RESULT( k0 )
+
+USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
+USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_rhizo_series
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: pft, l
+REAL(KIND=real_jlslsm), INTENT(IN) :: kmax, psi_root
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: b, c, kcap_frac, kx
+REAL(KIND=real_jlslsm) :: k0, r, k_el
+INTEGER :: iseg
+
+k0 = 0.0
+IF ( kmax <= 0.0 ) RETURN
+
+IF ( PRESENT(kx) ) THEN
+  IF ( kx <= TINY(1.0_real_jlslsm) ) RETURN
+  r = 1.0 / kx
+ELSE IF ( l_som_plant_segments ) THEN
+  r = 0.0
+  DO iseg = 1, 3
+    k_el = kmax * seg_kfac(pft,iseg)                                           &
+           * EXP(-( ABS(MIN(psi_root, 0.0) / conductance_b_seg(pft,iseg)) )    &
+                 **conductance_c_seg(pft,iseg))
+    IF ( PRESENT(kcap_frac) .AND. iseg >= 2 )                                  &
+      k_el = MIN(k_el, MIN(MAX(kcap_frac, 0.0), 1.0) * kmax * seg_kfac(pft,iseg))
+    IF ( k_el <= TINY(1.0_real_jlslsm) ) RETURN
+    r = r + 1.0 / k_el
+  END DO
+ELSE
+  IF ( PRESENT(b) .AND. PRESENT(c) ) THEN
+    k_el = kmax * xylem_f_bc(pft, psi_root, b, c)
+  ELSE
+    k_el = kmax * xylem_f(pft, psi_root)
+  END IF
+  IF ( k_el <= TINY(1.0_real_jlslsm) ) RETURN
+  r = 1.0 / k_el
+END IF
+
+IF ( l_som_rhizo_series ) THEN
+  IF ( ksr_path(l) >= 0.0 ) THEN
+    IF ( ksr_path(l) <= TINY(1.0_real_jlslsm) ) RETURN
+    r = r + 1.0 / ksr_path(l)
+  END IF
+END IF
+
+k0 = 1.0 / r
+
+END FUNCTION k_path_zero_flow
 
 ! *********************************************************************
 ! Contains routines used to calculate conductance and leaf water
@@ -854,6 +1016,7 @@ SUBROUTINE leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
 ! same (impaired) water potentials, for the hydraulic cost.
 
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
+USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 
 IMPLICIT NONE
 
@@ -891,6 +1054,10 @@ REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
       ! Floor on a segment's conductance, as a fraction of its kmax.
 
 INTEGER :: j, l, iseg, it
+LOGICAL :: l_closed(n_e_leaf)
+      ! l_som_rhizo_series: no soil conductance and E > 0 (infeasible).
+REAL(KIND=real_jlslsm) :: k_s
+      ! l_som_rhizo_series: this path's soil-to-root conductance.
 
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_in(n_e_leaf), psi_out(n_e_leaf),                                         &
@@ -915,6 +1082,23 @@ DO j = 1, open_pnts
   psi_in(:)  = root_zone_psi(l)
   dpsi_de(:) = 0.0
   dpsi_de_int(:) = 0.0
+  l_closed(:) = .FALSE.
+  ! l_som_rhizo_series: the soil (rhizosphere) link in series ahead of the
+  ! root segment. Linear in E: psi_root = psi_src - E / K_s, and the chain
+  ! starts from dpsi_root/dE = -1/K_s, so leaf_k is the conductance of the
+  ! whole soil-to-leaf path. The soil is not damage, so the intact chain
+  ! (leaf_k_intact, for the hydraulic cost under impairment: the intact
+  ! segments at the same water potentials) starts the same way.
+  IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
+    k_s = ksr_path(l)
+    IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+      psi_in(:)  = MAX(root_zone_psi(l) - e_leaf(:,j) / k_s, som_psi_in_min)
+      dpsi_de(:) = -1.0 / k_s
+      dpsi_de_int(:) = -1.0 / k_s
+    ELSE
+      l_closed(:) = e_leaf(:,j) > 0.0
+    END IF
+  END IF
 
   DO iseg = 1, n_seg
     kmx = kmax(l) * seg_kfac(pft,iseg)
@@ -936,8 +1120,10 @@ DO j = 1, open_pnts
     END IF
 
     k_in(:) = seg_k(psi_in)
-    IF ( iseg == 1 ) THEN
+    IF ( iseg == 1 .AND. .NOT. ( l_som_rhizo_series .AND.                     &
+                                 ksr_path(l) >= 0.0 ) ) THEN
       ! The root inlet is psi_root_zone for every sample: one evaluation.
+      ! (With l_som_rhizo_series it falls with E, so not here.)
       a_one(:) = seg_a(1, psi_in(1:1))
       a_in(:)  = a_one(1)
     ELSE
@@ -992,6 +1178,16 @@ DO j = 1, open_pnts
       leaf_k_intact(:,j) = 0.0
     END WHERE
   END IF
+  WHERE ( l_closed(:) )
+    leaf_psi(:,j) = som_psi_in_min
+    leaf_k(:,j)   = 0.0
+  END WHERE
+  IF ( PRESENT(leaf_k_intact) ) THEN
+    WHERE ( l_closed(:) ) leaf_k_intact(:,j) = 0.0
+  END IF
+  IF ( PRESENT(stem_psi) ) THEN
+    WHERE ( l_closed(:) ) stem_psi(:,j) = som_psi_in_min
+  END IF
 END DO
 
 CONTAINS
@@ -1039,6 +1235,7 @@ SUBROUTINE leaf_psi_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
                                       root_zone_psi, kmax, leaf_psi, leaf_k )
 
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
+USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 
 IMPLICIT NONE
 
@@ -1060,7 +1257,8 @@ REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
       ! leaf_psi_segments_jls).
 
 INTEGER :: i, j, l, iseg
-REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de
+REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de, &
+                          k_s
 
 CALL build_supply_lut_seg(pft)
 
@@ -1069,6 +1267,19 @@ DO j = 1, open_pnts
   DO i = 1, n_e_leaf
     psi_in  = root_zone_psi(l)
     dpsi_de = 0.0
+    ! l_som_rhizo_series: soil link ahead of the root segment (as
+    ! leaf_psi_segments_jls).
+    IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
+      k_s = ksr_path(l)
+      IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+        psi_in  = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
+        dpsi_de = -1.0 / k_s
+      ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
+        leaf_psi(i,j) = som_psi_in_min
+        leaf_k(i,j)   = 0.0
+        CYCLE
+      END IF
+    END IF
     DO iseg = 1, n_seg
       kmx = kmax(l) * seg_kfac(pft,iseg)
       bs  = conductance_b_seg(pft,iseg)

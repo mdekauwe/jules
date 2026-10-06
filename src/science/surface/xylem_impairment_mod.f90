@@ -427,6 +427,8 @@ USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
 USE xylem_impairment_kmax_mod, ONLY: leaf_psi_impaired_kmax
 USE xylem_impairment_whole_trunk_mod, ONLY: leaf_psi_impaired_whole_trunk
 USE xylem_impairment_memory_mod, ONLY: leaf_psi_impaired_memory
+USE jules_vegetation_mod, ONLY: l_som_rhizo_series
+USE xylem_hydraulics_CW_jls_mod, ONLY: ksr_path, som_psi_in_min
 
 USE um_types, ONLY: real_jlslsm
 
@@ -481,10 +483,18 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
                             ! Leaf conductance for each open point (m/s)
 
 ! Local variables
-INTEGER :: errcode
+INTEGER :: errcode, i, j, l
 
 REAL(KIND=real_jlslsm) :: b_ref(land_pnts), c_ref(land_pnts)
                             ! Unimpaired PFT curve parameters.
+REAL(KIND=real_jlslsm) ::                                                      &
+  psi_in(land_pnts), k_inlet(land_pnts)                                        &
+                            ! l_som_rhizo_series: root inlet potential (Pa)
+                            ! and impaired conductance there, one sample.
+, e1(1, open_pnts), psi1(1, open_pnts), k1(1, open_pnts)                       &
+                            ! One sample per open point.
+, k_s
+                            ! Soil-to-root conductance of the path.
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -541,45 +551,51 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
                                  leaf_k                                        &
             )
 
-  CASE (xylem_impairment_whole_trunk)
-    CALL leaf_psi_impaired_whole_trunk( pft,                                   &
-                                        n_e_leaf,                              &
-                                        land_pnts,                             &
-                                        open_pnts,                             &
-                                        veg_index,                             &
-                                        open_index,                            &
-                                        e_leaf,                                &
-                                        root_zone_psi,                         &
-                                        kmax,                                  &
-                                        kcrit,                                 &
-                                        conductance_b,                         &
-                                        conductance_c,                         &
-                                        psi_leaf_extreme,                      &
-                                        psi_root_extreme,                      &
-                                      ! INTENT OUT
-                                        leaf_psi,                              &
-                                        leaf_k                                 &
-                                        )
-
-  CASE (xylem_impairment_memory)
-    CALL leaf_psi_impaired_memory( pft,                                        &
-                                   n_e_leaf,                                   &
-                                   land_pnts,                                  &
-                                   open_pnts,                                  &
-                                   veg_index,                                  &
-                                   open_index,                                 &
-                                   e_leaf,                                     &
-                                   root_zone_psi,                              &
-                                   kmax_ref,                                   &
-                                   kmax,                                       &
-                                   kcrit,                                      &
-                                   conductance_b,                              &
-                                   conductance_c,                              &
-                                 ! INTENT OUT
-                                   leaf_psi,                                   &
-                                   leaf_k                                      &
-                                   )
-
+  CASE (xylem_impairment_whole_trunk, xylem_impairment_memory)
+    IF ( .NOT. l_som_rhizo_series ) THEN
+      CALL impaired_path( n_e_leaf, e_leaf, root_zone_psi, leaf_psi, leaf_k )
+    ELSE
+      !-----------------------------------------------------------------------
+      ! Soil-to-root conductance in series ahead of the impaired plant, as
+      ! leaf_psi_jls (the kmax model goes through leaf_psi_jls, so it has it
+      ! already): the root inlet of each sample is psi_in = psi_src - E/K_s,
+      ! the impaired plant path runs from there, and the whole-path marginal
+      ! conductance is k_p / (1 + k(psi_in) / K_s), k(psi_in) this model's
+      ! impaired conductance at the inlet. The soil is not damaged.
+      !-----------------------------------------------------------------------
+      DO i = 1, n_e_leaf
+        psi_in(:) = root_zone_psi(:)
+        DO j = 1, open_pnts
+          l = veg_index(open_index(j))
+          k_s = ksr_path(l)
+          IF ( ksr_path(l) < 0.0 ) THEN
+            ! No soil link for this PFT (fsmc_mod /= 2).
+          ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+            psi_in(l) = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
+          ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
+            psi_in(l) = som_psi_in_min
+          END IF
+          e1(1,j) = e_leaf(i,j)
+        END DO
+        CALL impaired_path( 1, e1, psi_in, psi1, k1 )
+        CALL leaf_conductance_impaired_jls( pft, land_pnts, psi_in, kmax_ref,  &
+                                            kmax, kcrit, conductance_b,        &
+                                            conductance_c, psi_leaf_extreme,   &
+                                            k_inlet )
+        DO j = 1, open_pnts
+          l = veg_index(open_index(j))
+          k_s = ksr_path(l)
+          leaf_psi(i,j) = psi1(1,j)
+          IF ( ksr_path(l) < 0.0 ) THEN
+            leaf_k(i,j) = k1(1,j)
+          ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+            leaf_k(i,j) = k1(1,j) / (1.0 + k_inlet(l) / k_s)
+          ELSE
+            leaf_k(i,j) = 0.0
+          END IF
+        END DO
+      END DO
+    END IF
   CASE DEFAULT
     errcode = 101  !  a hard error
     CALL ereport(RoutineName, errcode,                                         &
@@ -587,6 +603,61 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
 END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
+CONTAINS
+
+! The impaired plant path (root inlet to leaf), whole_trunk or memory model.
+SUBROUTINE impaired_path( n_e, e_in, psi_root, psi_out, k_out )
+
+INTEGER, INTENT(IN) :: n_e
+REAL(KIND=real_jlslsm), INTENT(IN)  :: e_in(n_e, open_pnts),                  &
+                                       psi_root(land_pnts)
+REAL(KIND=real_jlslsm), INTENT(OUT) :: psi_out(n_e, open_pnts),               &
+                                       k_out(n_e, open_pnts)
+
+SELECT CASE ( pft_xylem_impairment_model(pft) )
+CASE (xylem_impairment_whole_trunk)
+    CALL leaf_psi_impaired_whole_trunk( pft,                                   &
+                                        n_e,                                   &
+                                        land_pnts,                             &
+                                        open_pnts,                             &
+                                        veg_index,                             &
+                                        open_index,                            &
+                                        e_in,                                  &
+                                        psi_root,                              &
+                                        kmax,                                  &
+                                        kcrit,                                 &
+                                        conductance_b,                         &
+                                        conductance_c,                         &
+                                        psi_leaf_extreme,                      &
+                                        psi_root_extreme,                      &
+                                      ! INTENT OUT
+                                        psi_out,                               &
+                                        k_out                                  &
+                                        )
+
+CASE (xylem_impairment_memory)
+    CALL leaf_psi_impaired_memory( pft,                                        &
+                                   n_e,                                        &
+                                   land_pnts,                                  &
+                                   open_pnts,                                  &
+                                   veg_index,                                  &
+                                   open_index,                                 &
+                                   e_in,                                       &
+                                   psi_root,                                   &
+                                   kmax_ref,                                   &
+                                   kmax,                                       &
+                                   kcrit,                                      &
+                                   conductance_b,                              &
+                                   conductance_c,                              &
+                                 ! INTENT OUT
+                                   psi_out,                                    &
+                                   k_out                                       &
+                                   )
+
+END SELECT
+
+END SUBROUTINE impaired_path
 
 END SUBROUTINE leaf_psi_impaired_jls
 
@@ -791,6 +862,7 @@ SUBROUTINE canopy_impaired_psi_jls( land_pts                                   &
 USE jules_surface_types_mod,  ONLY: npft
 USE ancil_info,               ONLY: nsurft
 USE pftparm, ONLY: kmax_pft_ref => kmax_pft, kcrit
+USE xylem_hydraulics_CW_jls_mod, ONLY: ksr_path
 
 USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
@@ -875,6 +947,11 @@ REAL(KIND=jprb)               :: zhook_handle
 CHARACTER(LEN=*), PARAMETER :: RoutineName='CANOPY_PSI_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+! No soil-to-root link here: this runs after the timestep, when ksr/ksr_path
+! hold the last PFT's and leaf path's values, so the diagnostic stays plant
+! only, as before (sf_stom sets ksr_path again before every solver call).
+IF ( ALLOCATED(ksr_path) ) ksr_path(:) = -1.0
 
 DO pft = 1, npft
 

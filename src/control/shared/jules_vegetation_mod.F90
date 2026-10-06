@@ -405,7 +405,7 @@ LOGICAL ::                                                                     &
   l_som_cuticular_floor = .FALSE.
       ! When .TRUE., leaf water loss never falls below a cuticular floor:
       ! after the profit-max search (and for closed stomata, including at
-      ! night) the canopy conductance is MAX(gs, gcut_io * LAI). The floor is
+      ! night) the canopy conductance is MAX(gs, gcuticular_io * LAI). The floor is
       ! an uncontrolled leak, so it is not part of the optimisation and adds
       ! no carbon; the extra water is taken from the soil through the
       ! normal evaporation path (still bounded by the soil-supply cap when
@@ -439,6 +439,9 @@ LOGICAL ::                                                                     &
       ! consistent with the water actually used; other steps are unchanged.
 LOGICAL ::                                                                     &
   l_som_root_supply = .FALSE.
+      ! RETIRED (2026-10-05): the soil-to-root resistance is now always in
+      ! series in the profit-max path (l_som_rhizo_series). Still read so
+      ! old namelists run; .TRUE. gives a warning and is ignored. Was:
       ! When .TRUE., the stomatal optimisation can only choose transpiration
       ! the roots can take up with the root held at root_psi_crit:
       !   E <= sum_layers soil_to_root_k * MAX(psi_soil - root_psi_crit, 0)
@@ -447,6 +450,45 @@ LOGICAL ::                                                                     &
       ! stops at root_psi_crit, which bounds the soil water potential the
       ! plant can produce. Uses the same cap on gl as l_som_supply_limit
       ! (with which it combines, taking the smaller supply).
+LOGICAL ::                                                                     &
+  l_som_rhizo_series = .FALSE.
+      ! Not a namelist switch: set .TRUE. in check_jules_vegetation for the
+      ! profit max and DESICA. The plant hydraulic path then includes the
+      ! soil-to-root (rhizosphere) conductance ksr in series with the plant,
+      ! as in SPA, MAESPA (KTOT = 1/(TOTSOILRES + 1/PLANTK)) and Bonan et al.
+      ! (2014): ksr is soil_to_root_k summed over the layers (parallel; soil
+      ! part only, Bonan eq. A23), kept apart from the xylem kmax (the
+      ! vulnerability curve, and any impairment, act on kmax only). Profit
+      ! max: the root inlet falls with the flux, psi_root = psi_src - E/ksr,
+      ! with ksr shared between the leaf paths by their share of the
+      ! undamaged plant conductance (set_ksr_path); the marginal conductance
+      ! used by the hydraulic cost and kcrit is that of the whole
+      ! soil-to-leaf path (with l_som_plant_segments the soil link comes
+      ! ahead of the root segment). DESICA: ksr is in series with the
+      ! root-side conductance. Root (radial), stem and leaf resistance stay
+      ! in kmax, so nothing is counted twice. psi_root_zone is the
+      ! conductance-weighted soil psi (smc_ext), and the layer extraction
+      ! weights are k_i (psi_i - psi_root) at the actual root potential
+      ! (physiol). Applied for PFTs with fsmc_mod = 2 only (smc_ext computes
+      ! soil_to_root_k only there). It replaces l_som_root_supply.
+LOGICAL ::                                                                     &
+  l_root_mass_fixed = .FALSE.
+      ! Root mass in the soil-to-root conductance (soil_to_root_k, Bonan et
+      ! al. 2014 eq. A23; used by the l_som_root_supply cap and the root
+      ! zone psi weights). .FALSE. (default): the vegetation's own root
+      ! carbon, the one root respiration uses in sf_stom - lma*lai_bal with
+      ! l_trait_phys, else sigl*lai_bal/rmass, rootc_cpft/rmass for crops -
+      ! with lai_bal from the canopy height (so dynamic with TRIFFID, fixed
+      ! with prescribed height) or from RED, floored at root_mass_min.
+      ! .TRUE.: the fixed min_rootc_pft (kg m-2), the earlier behaviour.
+
+REAL(KIND=real_jlslsm) ::                                                      &
+  root_mass_min = 0.05
+      ! Floor on the vegetation root dry mass (kg m-2; not used with
+      ! l_root_mass_fixed), so a
+      ! vanishing root carbon cannot drive the soil-to-root conductance to
+      ! zero (or its LOG term to a division by zero).
+
 LOGICAL ::                                                                     &
   l_leaf_temp = .FALSE.
       ! When .TRUE., the two-leaf canopy (can_rad_mod = 7) solves a leaf
@@ -592,14 +634,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! hydraulic cost at the most water-demanding candidate Ci is treated
       ! as negligible by l_som_skip_search_wellwatered.
   som_leaf_resist_frac = 0.5
-      ! Multilayer stomatal optimisation only (can_rad_mod 5/6 with
-      ! leaf_flux_mod=2): fraction of whole-plant hydraulic resistance
-      ! (1/kmax_pft) placed in the per-layer leaf segment, the remaining
-      ! (1 - som_leaf_resist_frac) going to the shared root-to-canopy
-      ! segment. The two segments are in series, so each gets conductance
-      ! kmax/frac and kmax/(1-frac) respectively, keeping the total
-      ! root-to-leaf resistance equal to 1/kmax - the same as big-leaf.
-      ! Must be strictly between 0 and 1.
+      ! DESICA only (stomata_desica): fraction of whole-plant hydraulic
+      ! resistance (1/kmax_pft) placed in the leaf segment, the remaining
+      ! (1 - som_leaf_resist_frac) in the root-side segment. The two
+      ! segments are in series, so each gets conductance kmax/frac and
+      ! kmax/(1-frac) respectively, keeping the total root-to-leaf
+      ! resistance equal to 1/kmax. Must be strictly between 0 and 1.
+      ! (The multilayer stomatal optimisation used it for a shared canopy
+      ! node until each layer was given its own full parallel path.)
 
 REAL(KIND=real_jlslsm) ::                                                      &
   som_gl_max = 0.02
@@ -612,8 +654,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! (som_n_sample, the golden bracket, the 1e-2 Pa floor): canopy gc of
       ! 0.1-1.5 m/s at FR-Pue in low-VPD daylight. 0.02 m/s is ~0.8
       ! mol m-2 s-1, generous for most C3 leaves, so it only binds in that
-      ! degenerate regime. Set <= 0 to disable. Big-leaf applies it as
-      ! som_gl_max * fpar (canopy basis, matching its canopy-scale gl).
+      ! degenerate regime. Set <= 0 to disable. Every canopy scheme applies
+      ! it per unit leaf area, so the canopy cap is som_gl_max * LAI (big
+      ! leaf; two-leaf per class leaf area; multilayer per leaf).
 
 REAL(KIND=real_jlslsm) ::                                                      &
   light_curvature_fvcb = 0.90
@@ -739,7 +782,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_ximpair_rec_lai, l_ximpair_rec_growth, l_ximpair_leaf_loss,             &
     ximpair_rec_form,                                                         &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
-    l_som_vcmax_psi, l_som_nsl_sink,                                           &
+    l_som_vcmax_psi, l_som_nsl_sink, l_root_mass_fixed, root_mass_min,         &
     l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
     leaf_shelter, leaf_aero_model, l_leaf_coexp_lai,                           &
     l_som_gain_gross,                                                          &
@@ -1400,12 +1443,23 @@ IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
                'l_use_pft_psi=T')
 END IF
 
-IF ( l_som_root_supply .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.        &
-                               .NOT. l_use_pft_psi ) ) THEN
+IF ( l_som_root_supply ) THEN
+  errcode = -101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_root_supply is retired and ignored: the soil-to-root ' //&
+               'resistance is now always in series in the profit-max path')
+  l_som_root_supply = .FALSE.
+END IF
+
+! The soil-to-root conductance in series (see l_som_rhizo_series) is part of
+! the plant hydraulics of the profit max and DESICA.
+l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt .OR.               &
+                       stomata_model == stomata_desica )
+
+IF ( .NOT. l_root_mass_fixed .AND. root_mass_min <= 0.0 ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_root_supply requires stomata_model=4 or 6 and ' //       &
-               'l_use_pft_psi=T')
+               'root_mass_min must be > 0 (or set l_root_mass_fixed)')
 END IF
 
 IF ( l_leaf_temp .AND. ( can_rad_mod /= 7 .OR.                               &
@@ -1609,6 +1663,12 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_root_supply = ', l_som_root_supply
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_som_rhizo_series = ', l_som_rhizo_series
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_root_mass_fixed = ', l_root_mass_fixed
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' root_mass_min = ', root_mass_min
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_nsl = ', l_som_nsl
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -1790,10 +1850,10 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 22 ! +1 ximpair_rec_form, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
-INTEGER, PARAMETER :: n_real = 17 + (n_photo_coef * 5) ! +2 leaf_width/shelter, +4 for
+INTEGER, PARAMETER :: n_real = 18 + (n_photo_coef * 5) ! +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 46 + npft_max ! +3 l_ximpair_rec_lai/l_ximpair_rec_growth/l_ximpair_leaf_loss,
+INTEGER, PARAMETER :: n_log = 47 + npft_max ! +1 l_root_mass_fixed, +3 l_ximpair_rec_lai/l_ximpair_rec_growth/l_ximpair_leaf_loss,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -1853,10 +1913,12 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: light_curvature_fvcb
   REAL(KIND=real_jlslsm) :: leaf_width
   REAL(KIND=real_jlslsm) :: leaf_shelter
+  REAL(KIND=real_jlslsm) :: root_mass_min
   LOGICAL :: l_som_skip_search_wellwatered
   LOGICAL :: l_som_fast
   LOGICAL :: l_som_supply_limit
   LOGICAL :: l_som_root_supply
+  LOGICAL :: l_root_mass_fixed
   LOGICAL :: l_som_nsl
   LOGICAL :: l_som_vcmax_psi
   LOGICAL :: l_som_nsl_sink
@@ -1961,6 +2023,8 @@ IF (mype == 0) THEN
   my_nml % l_som_fast = l_som_fast
   my_nml % l_som_supply_limit = l_som_supply_limit
   my_nml % l_som_root_supply = l_som_root_supply
+  my_nml % l_root_mass_fixed = l_root_mass_fixed
+  my_nml % root_mass_min = root_mass_min
   my_nml % l_som_nsl = l_som_nsl
   my_nml % l_som_vcmax_psi = l_som_vcmax_psi
   my_nml % l_som_nsl_sink = l_som_nsl_sink
@@ -2058,6 +2122,8 @@ IF (mype /= 0) THEN
   l_som_fast = my_nml % l_som_fast
   l_som_supply_limit = my_nml % l_som_supply_limit
   l_som_root_supply = my_nml % l_som_root_supply
+  l_root_mass_fixed = my_nml % l_root_mass_fixed
+  root_mass_min = my_nml % root_mass_min
   l_som_nsl = my_nml % l_som_nsl
   l_som_vcmax_psi = my_nml % l_som_vcmax_psi
   l_som_nsl_sink = my_nml % l_som_nsl_sink

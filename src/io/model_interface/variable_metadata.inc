@@ -9493,8 +9493,8 @@ DATA metadata(733) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Percentage loss of conductance at the leaf water potential relative" //   &
-    "to maximum conductance",                                                  &
+    "Percentage loss of xylem conductance at the leaf water potential " //     &
+    "(PFT vulnerability curve, no soil term)",                                 &
 ! Units
     "1"                                                                        &
   ) /
@@ -9861,5 +9861,18 @@ DATA metadata(761) / var_metadata(                                             &
     "Leaf-area weighted canopy leaf temperature",                         &
 ! Units
     "K"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for kplant_pft
+!-----------------------------------------------------------------------------
+DATA metadata(762) / var_metadata(                                             &
+! String identifier
+    'kplant_pft',                                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Kplant: soil-to-leaf conductance per leaf area (Ksr + xylem)",            &
+! Units
+    "mol m-2 s-1 Pa-1"                                                         &
   ) /
 #endif

@@ -260,7 +260,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,infil_f(:)                                                                    &
                  ! Infiltration enhancement factor.
 ,min_gl_pft(:)                                                                 & ! JBaguley
-                 ! Minimum leaf conductance to H2O (m/s)
+                 ! Minimum conductance to H2O (m/s) given to closed stomata
+                 ! by the stomatal optimisation: a numerical floor, applied
+                 ! as a canopy value in every canopy scheme (not scaled by
+                 ! LAI). Physical night-time/cuticular loss is gcuticular
+                 ! (l_som_cuticular_floor), per unit leaf area.
 ,min_rootc_pft(:)                                                              & ! JBaguley
                  ! Minimum root C mass per unit area (kg m-2) for each pft.
                  ! Used when calculating water stress using root resistivity
@@ -485,7 +489,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,conductance_c_seg(:,:)                                                        &
                  ! Cumulative Weibull b (Pa) and c of each segment, from the
                  ! segment P50/P88 (default: the PFT's P50/P88). (npft, 3)
-,gcut(:)                                                                       &
+,gcuticular(:)                                                                 &
                  ! Cuticular (minimum) leaf conductance to water vapour, per
                  ! unit leaf area (mmol H2O m-2 s-1), applied as a floor on
                  ! the canopy conductance when l_som_cuticular_floor.
@@ -791,11 +795,11 @@ psi_open(:)     = rmdi
 rootd_ft(:)     = rmdi
 z0v(:)          = rmdi
 calc_rz_psi(:)       = .FALSE. ! JBaguley
-min_gl_pft(:)        = 0.0 ! JBaguley
+min_gl_pft(:)        = 1.0e-9 ! numerical floor, see above
 min_rootc_pft(:)     = 1.0 ! JBaguley M.Williams etal 2001
 root_psi_crit(:)     =-0.1e6 ! JBaguley
-root_radi_pft(:)     = 0.0005 ! JBaguley M.Williams etal 2001
-rootc_density_pft(:) = 0.5e3 ! JBaguley M.Williams etal 2001
+root_radi_pft(:)     = 0.29e-3 ! Bonan et al. 2014 (was 0.0005, Williams 2001)
+rootc_density_pft(:) = 0.31e3  ! Bonan et al. 2014 (was 0.5e3, Williams 2001)
 pft_big_leaf_corection_nitrogen_reduction_factor(:) = 1.0
 
 ! Ozone damage parameters
@@ -892,7 +896,7 @@ ALLOCATE( ximpair_new_kmax_weight(npft))
 ALLOCATE( ximpair_threshold(npft))
 ALLOCATE( ximpair_psi_driver(npft))
 ALLOCATE( seg_kfac(npft,3))
-ALLOCATE( gcut(npft))
+ALLOCATE( gcuticular(npft))
 ALLOCATE( psi_nsl_onset(npft))
 ALLOCATE( psi_nsl0(npft))
 ALLOCATE( fsmc_q(npft))
@@ -940,7 +944,7 @@ ximpair_new_kmax_weight(:) = 1.0
 ximpair_threshold(:) = 0.0
 ximpair_psi_driver(:) = 1
 seg_kfac(:,:) = 1.0
-gcut(:) = 3.0
+gcuticular(:) = 3.0
 psi_nsl_onset(:) = 0.0
 psi_nsl0(:) = -3.0e6
 fsmc_q(:) = 1.0
@@ -1234,7 +1238,7 @@ WRITE(lineBuffer,*)' conductance_b_pft = ',conductance_b_pft
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' conductance_c_pft = ',conductance_c_pft
 CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' gcut = ',gcut
+WRITE(lineBuffer,*)' gcuticular = ',gcuticular
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' psi_nsl_onset = ',psi_nsl_onset
 CALL jules_print('pftparm',lineBuffer)

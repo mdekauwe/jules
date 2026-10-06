@@ -76,7 +76,8 @@ USE theta_field_sizes, ONLY: t_i_length
 USE jules_surface_types_mod, ONLY: nnpft, ncpft
 
 USE pftparm, ONLY:                                                             &
-        kmax_pft, conductance_b_pft, conductance_c_pft, kcrit, gcut, min_gl_pft
+        kmax_pft, conductance_b_pft, conductance_c_pft, kcrit, gcuticular,     &
+        min_gl_pft
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported model ids. JBaguley
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
@@ -90,9 +91,9 @@ USE jules_vegetation_mod, ONLY:                                                &
     dsj_coef, dsv_coef, jv25_coef, act_j_coef, act_v_coef,                     &
     l_bvoc_emis, l_fapar_diag, l_trait_phys, l_stem_resp_fix, l_o3_damage,     &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
-    som_leaf_resist_frac, som_gl_max, l_som_supply_limit,                      &
+    som_gl_max, l_som_supply_limit,                                            &
     l_som_cuticular_floor, l_som_gravity, l_red, l_som_vcmax_psi,              &
-    l_som_nsl_sink,                                                            &
+    l_som_nsl_sink, l_som_rhizo_series,                                        &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model
 
 USE CN_utils_mod, ONLY:                                                        &
@@ -142,6 +143,7 @@ USE jules_vegetation_mod, ONLY: l_ximpair_rec_growth
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
+USE xylem_hydraulics_CW_jls_mod, ONLY: set_ksr_path, ksr
 
 USE planet_constants_mod, ONLY: repsilon, g, r
 USE water_constants_mod, ONLY: rho_water
@@ -151,7 +153,6 @@ USE timestep_mod, ONLY: timestep
 USE nsl_sink_mod, ONLY: nsl_sink_factor, nsl_sink_update
 
 
-USE water_constants_mod, ONLY: Water_kg_per_mol
 
 IMPLICIT NONE
 
@@ -474,6 +475,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,ra_rc(land_pts)                                                               &
                             ! WORK Ratio of aerodynamic resistance
 !                                 !      to canopy resistance.
+,gc_ml_prev(land_pts)                                                          &
+                            ! WORK Multilayer profit max: canopy
+!                                 !      conductance (m s-1) from the previous
+!                                 !      pass of the humidity-deficit
+!                                 !      iteration.
 ,rdc(land_pts)                                                                 &
                             ! WORK Canopy dark respiration,
 !                                 !      without soil water dependence
@@ -704,18 +710,15 @@ REAL(KIND=real_jlslsm) :: kmax_per_lyr(land_pts), kcrit_per_lyr(land_pts)
                             ! of THAT layer's own capacity.
 REAL(KIND=real_jlslsm) :: kmax_leaf_lyr(land_pts), kcrit_leaf_lyr(land_pts)
 REAL(KIND=real_jlslsm) :: kleaf_prof, kleaf_mean, kleaf_a
-                            ! Leaf-segment conductance profile through the
-                            ! canopy (multilayer): layer value, canopy mean
-                            ! and per-layer decay exponent (see kmax_leaf_lyr)
-                            ! Conductance of the per-layer leaf segment
-                            ! (psi_guess -> leaf) in the multilayer
-                            ! stomatal optimisation: kmax_per_lyr /
-                            ! som_leaf_resist_frac, i.e. this layer's share
-                            ! of whole-plant conductance with only the leaf
-                            ! fraction of the whole-plant resistance in it.
-                            ! See the note by the psi_guess leaf_psi_jls
-                            ! call for why the root->canopy and canopy->leaf
-                            ! segments are split this way.
+                            ! Conductance profile through the canopy
+                            ! (multilayer): layer value, canopy mean and
+                            ! per-layer decay exponent (see kmax_leaf_lyr).
+                            ! kmax_leaf_lyr is the conductance per unit leaf
+                            ! area of this layer's whole soil-to-leaf path
+                            ! in the multilayer stomatal optimisation:
+                            ! kmax_per_lyr redistributed by the leaf-N
+                            ! profile (canopy mean kmax_pft), each layer on
+                            ! its own parallel path from psi_src.
 REAL(KIND=real_jlslsm) :: fsmc_leaf_resp(land_pts)
                             ! fsmc as applied to leaf dark respiration in the
                             ! GPP/respiration diagnostics below: fsmc for
@@ -738,6 +741,9 @@ INTEGER, PARAMETER :: n_fw_bisect = 12
                             ! DESICA bisection steps on fw (to 2.4e-4).
 INTEGER :: n_pass, i_pass
                             ! Passes of the big-leaf flux calculation.
+REAL(KIND=real_jlslsm) :: ksr_ds(land_pts)
+                            ! DESICA: soil-to-root conductance in series
+                            ! (ksr, l_som_rhizo_series), < 0: none.
 REAL(KIND=real_jlslsm) :: fw_lo(land_pts), fw_hi(land_pts),                    &
                           el_try(land_pts), psi_try(land_pts), k_try(land_pts),&
                           el_hyd(land_pts)
@@ -755,22 +761,18 @@ REAL(KIND=real_jlslsm) :: f_vc(land_pts)
 REAL(KIND=real_jlslsm) :: gl_max_lf(land_pts), gl_max_bigleaf(land_pts)
                             ! som_gl_max on the basis each stom_opt_mod call
                             ! works on: per leaf area for the multilayer
-                            ! calls, canopy (x fpar) for big-leaf.
+                            ! calls, canopy (x LAI) for big-leaf.
+REAL(KIND=real_jlslsm) :: ci_sun_ml(land_pts), ci_shd_ml(land_pts),            &
+                          ci_gl_ml(land_pts), ci_lai_ml(land_pts)
+                            ! Multilayer stomatal optimisation: ci of the
+                            ! layer's sunlit / shaded leaf (Pa), and the
+                            ! canopy sums of ci weighted by gl*dlai and by
+                            ! dlai, giving the gl-weighted canopy ci (as
+                            ! two-leaf), or the LAI mean when all are closed.
                             ! fsmc passed to leaf_limits in the multilayer
                             ! stomatal optimisation path: 1.0 everywhere, so
                             ! leaf_limits' fsmc == 0 closure test never
                             ! fires there - see the note at that call.
-REAL(KIND=real_jlslsm) :: kmax_canopy(land_pts), kcrit_canopy(land_pts)
-                            ! Canopy-integrated kmax/kcrit for the psi_guess
-                            ! Newton update below: the sum of kmax_per_lyr
-                            ! across all layers, mirroring exactly how el/
-                            ! gc/anetc are canopy-integrated (dlai-weighted
-                            ! sum across layers), rather than using the bare
-                            ! kmax_pft(ft) scalar against a canopy-total
-                            ! (ground-area-integrated) el - see the note by
-                            ! the psi_guess_new calculation. kcrit_canopy
-                            ! preserves the same kcrit/kmax fraction as
-                            ! kcrit_per_lyr does per layer.
 REAL(KIND=real_jlslsm) :: b_pft_pts(land_pts), c_pft_pts(land_pts)
                             ! conductance_b_pft(ft)/conductance_c_pft(ft)
                             ! broadcast onto land_pts arrays, for the
@@ -791,6 +793,10 @@ INTEGER :: open_land_index(land_pts)
                             ! Land point of each open point (i.e.
                             ! veg_index(open_index(:))), for the impairment
                             ! update.
+REAL(KIND=real_jlslsm) :: kx_sun_2l(land_pts), kx_shd_2l(land_pts)
+                            ! Two-leaf: each class's impaired xylem
+                            ! conductance at its psi_leaf, for the
+                            ! impairment update.
 REAL(KIND=real_jlslsm) :: leaf_k_leaf_basis(land_pts)
                             ! leaf_k from the big-leaf stomatal optimisation
                             ! (canopy scale, see kmax_bigleaf) divided back
@@ -895,72 +901,10 @@ INTEGER :: n_pass_2l
                             ! kcrit(ft) here previously (pre-existing code)
                             ! relied on undefined Fortran sequence
                             ! association and could read out of bounds.
-REAL(KIND=real_jlslsm) :: psi_guess(land_pts), psi_guess_new(land_pts)
-INTEGER :: iter_hyd
-REAL(KIND=real_jlslsm), PARAMETER :: tol_hyd = 5.0e3_real_jlslsm
-                            ! Convergence tolerance for the psi_guess
-                            ! Newton iteration below (Pa). This used to be
-                            ! 5e-3 (and separately tried at 1e-3), compared
-                            ! directly against psi_guess_new - psi_guess -
-                            ! but psi here is Pa-scale (O(1e6-1e7) in
-                            ! practice), so a tolerance of a few thousandths
-                            ! of a Pa was numerically unreachable: the
-                            ! MAXVAL(...) < tol_hyd check below never fired,
-                            ! and the loop silently always ran the full
-                            ! max_iter_hyd iterations with no actual
-                            ! verification that it had converged. Also
-                            ! previously declared as default REAL rather
-                            ! than real_jlslsm. Reinterpreted as the
-                            ! original value having been intended in MPa
-                            ! (5e-3 MPa = 5000 Pa, i.e. 0.5% of a 1 MPa-scale
-                            ! psi) and fixed to be expressed in the Pa units
-                            ! it is actually compared in.
-INTEGER, PARAMETER :: max_iter_hyd = 12
-                            ! Maximum model evaluations for the bracketed
-                            ! psi_guess root-find below. Was 5 with a fixed
-                            ! 0.7/0.3 relaxation, which left ~0.7**5 = 17% of
-                            ! the initial error in place and exited silently
-                            ! unconverged; the bracketed Illinois iteration
-                            ! typically converges to tol_hyd in 3-6.
-REAL(KIND=real_jlslsm) :: psi_brk_lo(land_pts), r_brk_lo(land_pts)
-REAL(KIND=real_jlslsm) :: psi_brk_hi(land_pts), r_brk_hi(land_pts)
-REAL(KIND=real_jlslsm) :: r_hyd(land_pts)
-INTEGER :: side_brk(land_pts)
-                            ! Bracket for the psi_guess root-find: residual
-                            ! r(psi) = psi_guess_new(psi) - psi is strictly
-                            ! decreasing in psi (a wetter canopy potential
-                            ! opens the leaves more, raising el and so
-                            ! lowering the canopy-leg solve), r >= 0 at the
-                            ! lo end and r <= 0 at the hi end. side_brk
-                            ! records which end the last update replaced
-                            ! (-1 lo, +1 hi, 0 none yet) for the Illinois
-                            ! modification.
 LOGICAL :: l_multilayer
-! psi_guess used to be solved via a hand-rolled Newton step using k_eff
-! evaluated only at the current psi_guess (a point approximation to the
-! derivative, not the path-integral of k(psi) over [psi_guess,
-! psi_root_zone]). That is numerically unstable for a steep vulnerability
-! curve: checked by hand with more iterations and it diverges (order
-! 1e21 MPa by iteration 20) rather than converging, so max_iter_hyd=5 was
-! an empirically-found point that stops before the blow-up, not a
-! converged answer - same failure mode leaf_psi_CW_jls's NR branch had
-! before tonight's fix, just at canopy scale instead of leaf scale.
-! Fixed the same way: reuse leaf_psi_jls (already validated, properly
-! integrates k(psi) via the incomplete gamma function, has its own
-! bounded/safe convergence loop) to solve for psi_guess given the
-! current el, instead of the unstable single Newton step. e_leaf_equiv
-! holds el gathered onto the veg_pts-compressed index leaf_psi_jls
-! expects; psi_equiv/k_equiv receive its solved psi_guess_new/leaf_k
-! (land_pts-sized here purely to avoid a fussy exact-size dummy-array
-! match - only entries 1:veg_pts are ever set or read). veg_pts_index is
-! the trivial (1,2,3,...) map into veg_index that makes leaf_psi_jls's
-! veg_index(open_index(j)) indexing select veg_index(j) directly, i.e.
-! every vegetated point, matching psi_guess/el/kmax_canopy themselves
-! being indexed by absolute land point rather than a further-restricted
-! open-stomata subset.
-REAL(KIND=real_jlslsm) :: e_leaf_equiv(1, land_pts)
-REAL(KIND=real_jlslsm) :: psi_equiv(1, land_pts)
-REAL(KIND=real_jlslsm) :: k_equiv(1, land_pts)
+! veg_pts_index is the trivial (1,2,3,...) map into veg_index that makes
+! leaf_psi_jls's veg_index(open_index(j)) indexing select veg_index(j)
+! directly, i.e. every vegetated point.
 INTEGER :: veg_pts_index(land_pts)
 REAL(KIND=real_jlslsm) :: k_eff(land_pts)
 
@@ -1073,7 +1017,8 @@ SELECT CASE ( can_rad_mod )
 CASE ( 4,5,6 )
 !$OMP PARALLEL DO IF(land_pts > 1)                                             &
 !$OMP DEFAULT(NONE)                                                            &
-!$OMP SHARED(land_pts,anetc,gc,rdc,rdmean)                                     &
+!$OMP SHARED(land_pts,anetc,gc,rdc,rdmean,psi_leaf,el,leaf_k,hydraulic_cost,   &
+!$OMP        carbon_gain,kmax_per_lyr,kcrit_per_lyr,je_dummy,fapar_dummy)      &
 !$OMP PRIVATE(l)                                                               &
 !$OMP SCHEDULE(STATIC)
   DO l = 1, land_pts
@@ -1455,7 +1400,8 @@ CASE ( 4 )
     expkn = EXP( REAL(n-1) / REAL(ilayers) * (-kn(ft)) )
 !$OMP PARALLEL DO IF(veg_pts > 1) DEFAULT(NONE) PRIVATE(l, m)                  &
 !$OMP             SHARED(dlai, expkn, faparv, faparv_layer, gl, nleaf_layer, n,&
-!$OMP                    nleaf_top, veg_index, veg_pts)                        &
+!$OMP                    nleaf_top, veg_index, veg_pts, kmax_per_lyr,          &
+!$OMP                    kmax_pft, ft, ilayers)                                &
 !$OMP             SCHEDULE(STATIC)
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -1579,50 +1525,40 @@ CASE ( 5, 6 )
   ! ---------------------
   ! Stomatal optimisation
   !
-  ! This has an outer loop for the multi-layer scheme, which helps solve the
-  ! internal plant water potential that is consistent with total demand of the
-  ! canopy.
+  ! Each sunlit and shaded leaf in each layer draws from psi_src on its own
+  ! parallel soil-to-leaf path, as in the big-leaf and two-leaf schemes, so
+  ! every leaf is charged the hydraulic cost of the whole path. There is no
+  ! shared canopy node: an earlier version solved the leaves from a shared
+  ! node psi (outer bracketed iteration on the summed transpiration) and
+  ! charged each leaf only its own leaf segment, som_leaf_resist_frac of the
+  ! path resistance. That left the root-to-canopy drop uncharged, so each
+  ! leaf saw about half the marginal hydraulic cost in moist soil, and E and
+  ! gs came out high relative to big-leaf and two-leaf (see
+  ! runs/roses/RED/notes/multilayer_profit_max_design.md).
   !
   ! ---------------------
   IF (leaf_flux_mod == leaf_flux_stom_opt) THEN
-
-    ! Initialise the first guess for the (shared) canopy water potential to
-    ! the root zone water potential
-    psi_guess(:) = psi_src(:)
 
     ! Unimpaired PFT vulnerability curve parameters: the multilayer stomatal
     ! optimisation does not apply the xylem impairment model.
     b_pft_pts(:) = conductance_b_pft(ft)
     c_pft_pts(:) = conductance_c_pft(ft)
 
-    ! Initial bracket for the psi_guess root-find (see the psi_brk_lo
-    ! declaration). lo end: far enough below psi_src (5 |b|, the same
-    ! floor leaf_psi_CW_jls applies) that xylem conductance is ~0, so every
-    ! leaf sample is infeasible, the stomata close, el = 0 and hence
-    ! psi_guess_new = psi_src - known analytically, no evaluation
-    ! needed: r = psi_src - psi_brk_lo > 0. hi end: psi_src
-    ! itself, where r <= 0 always (el >= 0); its r comes from iteration 1.
-    psi_brk_lo(:) = psi_src(:) - 5.0 * ABS(conductance_b_pft(ft))
-    r_brk_lo(:)   = psi_src(:) - psi_brk_lo(:)
-    psi_brk_hi(:) = psi_src(:)
-    r_brk_hi(:)   = 0.0
-    side_brk(:)   = 0
-
     fsmc_unity(:) = 1.0
     gl_max_lf(:)  = som_gl_max
 
-    ! Trivial (1,2,3,...) index for the leaf_psi_jls call below - see the
-    ! veg_pts_index declaration comment.
-    DO m = 1, veg_pts
-      veg_pts_index(m) = m
-    END DO
+        ! The humidity-deficit iteration (DO k = 1,iter) runs over the whole
+        ! canopy, as in the big-leaf and two-leaf schemes: the deficit at the
+        ! leaves is dq / (1 + ra * gc) with gc the canopy conductance (per m2
+        ! ground) from the previous pass, the conductance the surface energy
+        ! balance (sf_evap) sees. It used to iterate within each layer on that
+        ! layer's per-leaf-area gl, so ra * gl ~ 0 and every leaf saw nearly
+        ! the full above-canopy deficit. Same number of stom_opt_mod calls;
+        ! only the last pass is kept.
+        gc_ml_prev(:) = 0.0
 
-    ! Initialise plant state by guessing the *shared* total water potential
-    ! and then iteratively this is solved to balance so that the total
-    ! transpiration is physically consistent with the leaf water potentials.
-    DO iter_hyd = 1, max_iter_hyd
+        DO k = 1,iter
 
-        ! Reset totals for this iteration
         el(:) = 0.0
         anetl(:) = 0.0
         anetc(:) = 0.0
@@ -1632,7 +1568,11 @@ CASE ( 5, 6 )
         leaf_k(:) = 0.0
         carbon_gain(:) = 0.0
         hydraulic_cost(:) = 0.0
-        kmax_canopy(:) = 0.0
+        ci_gl_ml(:) = 0.0
+        ci_lai_ml(:) = 0.0
+        rdmean(:) = 0.0
+        flux_o3(:) = 0.0
+        IF ( l_o3_damage ) fo3(:) = 0.0
 
         DO n = 1,ilayers
 
@@ -1646,7 +1586,7 @@ CASE ( 5, 6 )
         !$OMP             SHARED(ft, gl, ilayers, kn, knl, n, nleaf_top, nleaf_layer,  &
         !$OMP   veg_index,dlai,can_rad_mod, veg_pts, kmax_pft, kcrit,          &
         !$OMP   kmax_per_lyr, kcrit_per_lyr, kmax_leaf_lyr, kcrit_leaf_lyr,    &
-        !$OMP   kmax_canopy, som_leaf_resist_frac) SCHEDULE(STATIC)
+        !$OMP   share_sup, lai) SCHEDULE(STATIC)
             DO m = 1,veg_pts
             l = veg_index(m)
             gl(l) = 0.0
@@ -1683,9 +1623,9 @@ CASE ( 5, 6 )
             ! kmax_pft is the leaf-area-basis whole-plant conductance,
             ! uniform through the canopy (see the big-leaf note below): the
             ! same value per unit leaf area in every layer, so the canopy
-            ! total (kmax_canopy, sum of kmax_per_lyr * dlai) is
-            ! kmax_pft * LAI. It used to decay with leaf N like
-            ! nleaf_layer, which made kmax_pft a top-of-canopy value.
+            ! total (sum of kmax_per_lyr * dlai) is kmax_pft * LAI. It used
+            ! to decay with leaf N like nleaf_layer, which made kmax_pft a
+            ! top-of-canopy value.
             kmax_per_lyr(l) = kmax_pft(ft)
 
             ! Scale kcrit by the same fraction of whole-plant kmax that this
@@ -1694,22 +1634,20 @@ CASE ( 5, 6 )
             ! capacity (Brodribb & Cochard, 2009; Sabot et al., 2020).
             kcrit_per_lyr(l) = kmax_per_lyr(l) * (kcrit(ft) / kmax_pft(ft))
 
-            ! Leaf segment of this layer's hydraulic path (see the note by
-            ! the psi_guess leaf_psi_jls call): only som_leaf_resist_frac of
-            ! the whole-plant resistance, so its conductance is kmax_per_lyr
-            ! / som_leaf_resist_frac. kcrit keeps the same kcrit/kmax
-            ! fraction, so the kl > kcrit feasibility test is unchanged in
-            ! terms of psi.
-            ! The leaf segment's conductance follows the leaf-N profile
-            ! (sun leaves have higher leaf hydraulic conductance than shade
-            ! leaves and it co-varies with photosynthetic capacity; Sack &
-            ! Holbrook 2006, Brodribb et al. 2007), normalised to a canopy
-            ! mean of 1 so the canopy total stays kmax_pft * LAI /
-            ! som_leaf_resist_frac: conductance is redistributed from
-            ! shaded to sunlit layers, not changed in total. The shared
-            ! root-to-canopy segment (kmax_canopy) stays uniform. kleaf_mean
-            ! is the closed-form mean of the same discrete profile as
-            ! nleaf_layer over the ilayers layers (equal dlai).
+            ! This layer's whole soil-to-leaf path, on its own parallel path
+            ! from psi_src (no shared canopy node). kcrit keeps the same
+            ! kcrit/kmax fraction, so the kl > kcrit feasibility test is
+            ! unchanged in terms of psi.
+            ! The path conductance follows the leaf-N profile (sun leaves
+            ! have higher leaf hydraulic conductance than shade leaves and it
+            ! co-varies with photosynthetic capacity; Sack & Holbrook 2006,
+            ! Brodribb et al. 2007), normalised to a canopy mean of 1 so the
+            ! canopy total stays kmax_pft * LAI: conductance is
+            ! redistributed from shaded to sunlit layers, not changed in
+            ! total. This is the same convention as the two-leaf scheme,
+            ! which splits kmax_pft * LAI by N-weighted leaf area.
+            ! kleaf_mean is the closed-form mean of the same discrete
+            ! profile as nleaf_layer over the ilayers layers (equal dlai).
             IF ( can_rad_mod == 6 ) THEN
                 kleaf_a = knl(ft) * dlai(l)
             ELSE
@@ -1722,20 +1660,16 @@ CASE ( 5, 6 )
             ELSE
                 kleaf_mean = 1.0
             END IF
-            kmax_leaf_lyr(l)  = kmax_per_lyr(l)  * (kleaf_prof / kleaf_mean) &
-                                / som_leaf_resist_frac
-            kcrit_leaf_lyr(l) = kcrit_per_lyr(l) * (kleaf_prof / kleaf_mean) &
-                                / som_leaf_resist_frac
+            kmax_leaf_lyr(l)  = kmax_per_lyr(l)  * (kleaf_prof / kleaf_mean)
+            kcrit_leaf_lyr(l) = kcrit_per_lyr(l) * (kleaf_prof / kleaf_mean)
 
-            ! Canopy-integrated kmax for the psi_guess Newton update after
-            ! this layer loop - see the kmax_canopy declaration comment.
-            ! Weighted by dlai(l) to stay on the same ground-area-
-            ! integrated basis as el's own accumulation below (kmax_per_lyr
-            ! is per-leaf-area, like el_sun/el_shd before their dlai
-            ! weighting) - previously a bare sum, which was only
-            ! dimensionally sound paired with the (now-removed) /ilayers
-            ! above.
-            kmax_canopy(l) = kmax_canopy(l) + kmax_per_lyr(l) * dlai(l)
+            ! Soil supply cap per unit leaf area (el is per leaf area in
+            ! each layer): each leaf may use its kmax share of the supply,
+            ! as in the two-leaf scheme. Summed over the canopy (dlai
+            ! weights) the shares add to 1. Sunlit and shaded leaves of a
+            ! layer have the same kmax per leaf area, so the same share.
+            share_sup(l) = (kleaf_prof / kleaf_mean)                         &
+                           / MAX(lai(l), EPSILON(1.0))
 
             END DO
         !$OMP END PARALLEL DO
@@ -1797,25 +1731,19 @@ CASE ( 5, 6 )
 
             END IF  !  pft_photo_model
 
-            !-------------------------------------------------------------------------
-            ! Iterate to ensure that the canopy humidity deficit is consistent with
-            ! the H2O flux.
-            !-------------------------------------------------------------------------
-
-            DO k = 1,iter
-
             !-----------------------------------------------------------------------
-            ! Diagnose the canopy-level humidity deficit.
+            ! Diagnose the canopy-level humidity deficit from the canopy
+            ! conductance of the previous pass (see DO k above).
             ! Initialise the sunlit and shaded respiration rates with the
             ! uninhibited, sunlit respiration rate.
             !-----------------------------------------------------------------------
         !$OMP PARALLEL IF(veg_pts > 1) DEFAULT(NONE) PRIVATE(l, m)                     &
-        !$OMP          SHARED(dq, dqc, gl, ra, ra_rc, rd_dark, rd_shd, rd_sun,         &
+        !$OMP          SHARED(dq, dqc, gc_ml_prev, ra, ra_rc, rd_dark, rd_shd, rd_sun, &
         !$OMP                 veg_index, veg_pts)
         !$OMP DO SCHEDULE(STATIC)
             DO m = 1,veg_pts
                 l = veg_index(m)
-                ra_rc(l)  = ra(l) * gl(l)
+                ra_rc(l)  = ra(l) * gc_ml_prev(l)
                 dqc(l)    = dq(l) / (1.0 + ra_rc(l))
                 rd_sun(l) = rd_dark(l)
                 rd_shd(l) = rd_dark(l)
@@ -1919,21 +1847,17 @@ CASE ( 5, 6 )
             CASE (leaf_flux_stom_opt)
 
                 l_multilayer = .TRUE.
-                ! Soil supply cap per unit leaf area (el is per leaf area
-                ! in each layer): the supply shared evenly over the LAI.
-                DO m = 1,veg_pts
-                  l = veg_index(m)
-                  share_sup(l) = 1.0 / MAX(lai(l), EPSILON(1.0))
-                END DO
+                ! share_sup: this layer's kmax share, set with kmax_leaf_lyr.
                 CALL apply_supply_limit( land_pts, veg_pts, veg_index,         &
                                          e_supply, share_sup, dqc, tstar,      &
                                          pstar, gl_max_lf, gl_max_eff )
+                CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
                 ! Added gs opt call for sunlit, 29 Apr, MGDK
                 CALL stom_opt_mod (                                            &
                     ! IN
                     land_pts, som_base_parm, ft, open_pts, open_index,         &
-                    pft_photo_model, veg_index,                                &
-                    ca, psi_guess, acr, apar, oa, vcmax, kc, ko, ccp, pstar,   &
+                    pft_photo_model, veg_pts, veg_index,                       &
+                    ca, psi_src, acr, apar, oa, vcmax, kc, ko, ccp, pstar,     &
                     km, dqc, qs, je, tstar, je_sun_ratio, fapar_sun(:,n),      &
                     kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,           &
                     l_multilayer,                                              &
@@ -1942,16 +1866,16 @@ CASE ( 5, 6 )
                     ! IN OUT
                     rd_sun,                                                    &
                     ! OUT
-                    ci, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun, gl_sun,   &
-                    psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun                   &
+                    ci_sun_ml, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun,    &
+                    gl_sun, psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun           &
                 )
 
                 ! Added gs opt call for shaded , 29 Apr, MGDK
                 CALL stom_opt_mod (                                            &
                     ! IN
                     land_pts, som_base_parm, ft, open_pts, open_index,         &
-                    pft_photo_model, veg_index,                                &
-                    ca, psi_guess, acr, apar, oa, vcmax, kc, ko, ccp, pstar,   &
+                    pft_photo_model, veg_pts, veg_index,                       &
+                    ca, psi_src, acr, apar, oa, vcmax, kc, ko, ccp, pstar,     &
                     km, dqc, qs, je, tstar,  je_shd_ratio, fapar_shd(:,n),     &
                     kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,           &
                     l_multilayer,                                              &
@@ -1960,9 +1884,21 @@ CASE ( 5, 6 )
                     ! IN OUT
                     rd_shd,                                                    &
                     ! OUT
-                    ci, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd, gl_shd,   &
-                    psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd                   &
+                    ci_shd_ml, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd,    &
+                    gl_shd, psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd           &
                 )
+
+                ! Closed leaves get min_gl_pft from stom_opt_mod, a canopy
+                ! value: divide by LAI so the canopy total (sum of gl * dlai
+                ! over the layers) is min_gl_pft, as in big leaf and two-leaf
+                ! (review #11).
+                DO i = 1,clos_pts
+                    l = veg_index(clos_index(i))
+                    IF ( lai(l) > EPSILON(0.0) ) THEN
+                        gl_sun(l) = gl_sun(l) / lai(l)
+                        gl_shd(l) = gl_shd(l) / lai(l)
+                    END IF
+                END DO
 
             CASE DEFAULT
                 errcode = 101  !  a hard error
@@ -1984,8 +1920,6 @@ CASE ( 5, 6 )
             END DO
         !$OMP END PARALLEL DO
 
-            END DO                 ! K-ITER
-
             !-------------------------------------------------------------------------
             ! Add to canopy-level values.
             !-------------------------------------------------------------------------
@@ -1995,7 +1929,11 @@ CASE ( 5, 6 )
         !$OMP PRIVATE(m,l)                                                     &
         !$OMP SHARED(veg_pts,veg_index,anetl,fsun,anetl_sun,anetl_shd,anetc,dlai,gc,   &
         !$OMP        gl,rdc,rd,rdmean,ilayers,l_o3_damage,flux_o3_l,flux_o3_l_sun,     &
-        !$OMP        flux_o3_l_shd,fo3_l_sun,fo3_l_shd,flux_o3,fo3,lai,n,fo3_l)
+        !$OMP        flux_o3_l_shd,fo3_l_sun,fo3_l_shd,flux_o3,fo3,lai,n,fo3_l,        &
+        !$OMP        el,el_sun,el_shd,hydraulic_cost,HC_sun,HC_shd,carbon_gain,        &
+        !$OMP        CG_sun,CG_shd,psi_leaf,psi_leaf_sun,psi_leaf_shd,leaf_k,          &
+        !$OMP        leaf_k_sun,leaf_k_shd,ci_gl_ml,ci_lai_ml,gl_sun,gl_shd,           &
+        !$OMP        ci_sun_ml,ci_shd_ml)
             DO m = 1,veg_pts
             l = veg_index(m)
 
@@ -2038,6 +1976,14 @@ CASE ( 5, 6 )
                                     (1.0 - fsun(l,n)) * leaf_k_shd(l)) *       &
                                     dlai(l)
 
+            ci_gl_ml(l) = ci_gl_ml(l) +                                        &
+                          (fsun(l,n) * gl_sun(l) * ci_sun_ml(l) +              &
+                          (1.0 - fsun(l,n)) * gl_shd(l) * ci_shd_ml(l)) *      &
+                          dlai(l)
+            ci_lai_ml(l) = ci_lai_ml(l) +                                      &
+                           (fsun(l,n) * ci_sun_ml(l) +                         &
+                           (1.0 - fsun(l,n)) * ci_shd_ml(l)) * dlai(l)
+
 
 
 
@@ -2056,109 +2002,36 @@ CASE ( 5, 6 )
 
         END DO                   ! N LAYERS
 
+        ! Canopy conductance of this pass, for the next pass's deficit.
+        gc_ml_prev(:) = gc(:)
+
+        END DO                   ! K-ITER (whole canopy)
+
         ! Calculate canopy mean properties
         DO m = 1, veg_pts
             l = veg_index(m)
 
+            ! LAI-weighted canopy means. Carbon gain and hydraulic cost are
+            ! per-leaf 0-1 quantities, as in the big-leaf and two-leaf
+            ! schemes; their dlai-weighted sums ranged 0..LAI.
             IF (lai(l) > 0.0) THEN
-                psi_leaf(l) = psi_leaf(l) / lai(l)
-                leaf_k(l)  = leaf_k(l)   / lai(l)
+                psi_leaf(l)       = psi_leaf(l)       / lai(l)
+                leaf_k(l)         = leaf_k(l)         / lai(l)
+                carbon_gain(l)    = carbon_gain(l)    / lai(l)
+                hydraulic_cost(l) = hydraulic_cost(l) / lai(l)
+            END IF
+
+            ! gl-weighted canopy ci (as two-leaf); the LAI mean when no
+            ! stomata are open (closed leaves have ci = ca).
+            IF ( gc(l) > TINY(gc(l)) ) THEN
+                ci(l) = ci_gl_ml(l) / gc(l)
+            ELSE IF ( lai(l) > 0.0 ) THEN
+                ci(l) = ci_lai_ml(l) / lai(l)
+            ELSE
+                ci(l) = ca(l)
             END IF
 
         END DO
-
-
-
-
-        ! kcrit_canopy preserves the same kcrit/kmax fraction as
-        ! kcrit_per_lyr, applied to the canopy-integrated kmax_canopy
-        ! (rather than the bare kmax_pft(ft)/kcrit(ft) previously used
-        ! here - see the kmax_canopy declaration comment for why: el below
-        ! is canopy-total (ground-area-integrated across all layers), so
-        ! the conductance it is balanced against needs to be on the same
-        ! canopy-integrated basis, not the leaf-basis kmax_pft(ft)).
-        kcrit_canopy(:) = kmax_canopy(:) * (kcrit(ft) / kmax_pft(ft))
-
-        ! Split the whole-plant resistance between the two segments in
-        ! series. Each layer's leaf is solved from psi_guess (not
-        ! psi_src) through kmax_leaf_lyr, and psi_guess itself is
-        ! solved here from psi_src through the canopy-integrated
-        ! conductance. Previously both segments used the full whole-plant
-        ! conductance (kmax_per_lyr per layer, kmax_canopy here), so the
-        ! root->leaf path carried twice big-leaf's resistance per unit leaf
-        ! area, and multilayer was hydraulically much more constrained than
-        ! big-leaf for the same kmax_pft. With conductances kmax/(1-f) here
-        ! and kmax/f per layer (f = som_leaf_resist_frac), and both
-        ! segments sharing the same vulnerability curve, the path integrals
-        ! of k(psi) add up so that root->leaf matches a single whole-plant
-        ! segment of conductance kmax exactly whenever every layer has the
-        ! same el/kmax ratio - f then only controls how strongly layers
-        ! with different demand interact through the shared psi_guess.
-        kmax_canopy(:)  = kmax_canopy(:)  / (1.0 - som_leaf_resist_frac)
-        kcrit_canopy(:) = kcrit_canopy(:) / (1.0 - som_leaf_resist_frac)
-
-        ! Solve for psi_guess_new given the current el via leaf_psi_jls
-        ! (see the veg_pts_index/e_leaf_equiv declaration comment for why -
-        ! this replaces a single-step Newton update that used k evaluated
-        ! only at the current psi_guess, which is numerically unstable for
-        ! this steep a vulnerability curve). Default to no change (safe,
-        ! and matches el/kmax_canopy both being 0) at any land point
-        ! outside veg_index before scattering the solved values in, since
-        ! leaf_psi_jls only touches entries 1:veg_pts of its own arrays.
-        psi_guess_new(:) = psi_guess(:)
-
-        DO m = 1, veg_pts
-          l = veg_index(m)
-          e_leaf_equiv(1,m) = el(l)
-        END DO
-
-        CALL leaf_psi_jls( ft, 1, land_pts, veg_pts, veg_index,               &
-                           veg_pts_index, e_leaf_equiv, psi_src,              &
-                           MAX(kmax_canopy(:), TINY(1.0_real_jlslsm)),        &
-                           kcrit_canopy, b_pft_pts, c_pft_pts,                &
-                         ! OUT
-                           psi_equiv, k_equiv )
-
-        DO m = 1, veg_pts
-          l = veg_index(m)
-          psi_guess_new(l) = psi_equiv(1,m)
-        END DO
-
-        ! Convergence check. Exiting here, straight after an evaluation,
-        ! keeps every layer flux/state above consistent with the final
-        ! psi_guess.
-        r_hyd(:) = psi_guess_new(:) - psi_guess(:)
-        IF (MAXVAL(ABS(r_hyd)) < tol_hyd) EXIT
-
-        ! Bracketed Illinois (modified regula falsi) update, replacing a
-        ! fixed 0.7/0.3 relaxation of psi_guess towards psi_guess_new. The
-        ! relaxation had no convergence guarantee (psi_guess_new is a
-        ! decreasing function of psi_guess, so the plain fixed-point update
-        ! overshoots and the damping was tuned by hand) and in practice
-        ! exited after max_iter_hyd=5 still well short of tol_hyd, silently.
-        ! r(psi) is monotone and bracketed (see the psi_brk_lo declaration),
-        ! so regula falsi always converges; the Illinois halving of the
-        ! retained end's residual stops it stalling on one side.
-        DO m = 1, veg_pts
-          l = veg_index(m)
-          IF (ABS(r_hyd(l)) < tol_hyd) CYCLE
-          IF (r_hyd(l) > 0.0) THEN
-            psi_brk_lo(l) = psi_guess(l)
-            r_brk_lo(l)   = r_hyd(l)
-            IF (side_brk(l) == -1) r_brk_hi(l) = 0.5 * r_brk_hi(l)
-            side_brk(l) = -1
-          ELSE
-            psi_brk_hi(l) = psi_guess(l)
-            r_brk_hi(l)   = r_hyd(l)
-            IF (side_brk(l) == 1) r_brk_lo(l) = 0.5 * r_brk_lo(l)
-            side_brk(l) = 1
-          END IF
-          psi_guess(l) = psi_brk_hi(l) - r_brk_hi(l)                           &
-                         * (psi_brk_hi(l) - psi_brk_lo(l))                     &
-                         / (r_brk_hi(l) - r_brk_lo(l))
-        END DO
-
-    END DO  ! Hydraulic iteration
 ELSE
 
     !-----------------------------------------------
@@ -2442,6 +2315,8 @@ CASE ( 1 )
     n_pass = n_fw_bisect + 1
     fw_lo(:) = 0.0
     fw_hi(:) = 1.0
+    ksr_ds(:) = -1.0
+    IF ( l_som_rhizo_series ) ksr_ds(:) = ksr(:)
   END IF
 
   DO i_pass = 1,n_pass
@@ -2578,11 +2453,14 @@ CASE ( 1 )
        ! for LAI 1.5-2.3, kpar 0.5) for a data-derived kmax_pft.
        kmax_bigleaf(:) = kmax_pft(ft) * lai(:)
        kcrit_bigleaf(:) = kcrit(ft) * lai(:)
-       gl_max_bigleaf(:) = som_gl_max * fpar(:)
+       ! som_gl_max is per unit leaf area, so the canopy cap is x LAI, as
+       ! kmax_bigleaf (and the multilayer and two-leaf totals).
+       gl_max_bigleaf(:) = som_gl_max * lai(:)
        share_sup(:) = 1.0
        CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,        &
                                 share_sup, dqc, tstar, pstar,                  &
                                 gl_max_bigleaf, gl_max_eff )
+       CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
        ! Xylem impairment (JBaguley): k_max/conductance_b/conductance_c hold
        ! the (leaf-basis) impaired vulnerability curve for each point, so
@@ -2595,7 +2473,7 @@ CASE ( 1 )
        CALL stom_opt_mod (                                                  &
               ! IN
                 land_pts, som_base_parm, ft, open_pts, open_index,           &
-                pft_photo_model, veg_index,                                  &
+                pft_photo_model, veg_pts, veg_index,                         &
                 ca, psi_src, acrc, apar, oa, vcmaxc, kc, ko, ccp, pstar,      &
                 km, dqc, qs, je, tstar, je_dummy, fapar_dummy,               &
                 kmax_bigleaf, kcrit_bigleaf, gl_max_eff, ipar,               &
@@ -2610,21 +2488,16 @@ CASE ( 1 )
                 psi_stem = psi_stem                                            &
         )
 
-        ! Convert transpiration to kg H2O m-2 s-1 to match other transpiration
-        ! outputs by JULES. JBaguley
-        ! NOTE: only done for the big-leaf path (as on the xylem impairment
-        !       branch, where this was TEMPORARY and done at the end of
-        !       stom_opt_mod_ci); the multilayer path above still returns el
-        !       in mol H2O m-2 s-1, as its psi_guess solve needs.
-        el(:) = el(:) * Water_kg_per_mol
+        ! el stays in mol H2O m-2 s-1 (ground), as in every path: physiol uses
+        ! it for the layer uptake at the actual root potential
+        ! (l_som_rhizo_series). (It used to be converted to kg here, a
+        ! leftover with no other consumer.)
 
         ! Pass the stomatal optimisation out
         gc_som = gc
 
         ! leaf_k from stom_opt_mod is canopy scale (see kmax_bigleaf). Return
-        ! it per unit leaf area, as the multilayer path does, so that it is
-        ! comparable with kmax_pft (e.g. the PLC_pft diagnostic) and with the
-        ! (leaf-basis) impairment model state.
+        ! it per unit leaf area, as the multilayer path does (kplant_pft).
         leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
 
         ! Update the impairment state only once per timestep, on the final
@@ -2634,11 +2507,17 @@ CASE ( 1 )
         IF (k == iter) THEN
 
           ! The impairment model state (k_max, and the kcrit it is floored at)
-          ! is leaf-basis, whereas leaf_k above is canopy scale (see
-          ! kmax_bigleaf), so pass leaf-basis conductances to the update.
+          ! is leaf-basis, so pass leaf-basis conductances to the update.
           kmax_leaf_basis(:) = kmax_pft(ft)
           kcrit_leaf_basis(:) = kcrit(ft)
-          leaf_k_leaf_basis(:) = leaf_k(:)
+          ! The damage follows the xylem: the impaired xylem conductance at
+          ! psi_leaf, not leaf_k (Kplant, which includes the soil-to-root
+          ! conductance, so would let soil drying damage the xylem).
+          CALL leaf_conductance_impaired_jls( ft, land_pts, psi_leaf,           &
+                                              kmax_leaf_basis, k_max,          &
+                                              kcrit_leaf_basis, conductance_b, &
+                                              conductance_c, psi_leaf_extreme, &
+                                              leaf_k_leaf_basis )
 
           ! calculate the root zone conductance to pass to imparment calculation.
           ! psi_src: the root-zone psi with gravity (l_som_gravity), as the
@@ -2744,13 +2623,13 @@ CASE ( 1 )
       ! Trial E for this fw, with the cuticular floor if it is on (here
       ! without its supply/xylem bounds, which only act near closure).
       gl_cut_ds = 0.0
-      IF ( l_som_cuticular_floor ) gl_cut_ds = gcut(ft) * 1.0e-3 * rmol        &
+      IF ( l_som_cuticular_floor ) gl_cut_ds = gcuticular(ft) * 1.0e-3 * rmol  &
                                                * tstar(l) / pstar(l) * lai(l)
       el_try(l) = MAX(dqc(l), 0.0) * pstar(l) / repsilon                     &
                   * MAX(gc(l), gl_cut_ds) / (rmol * tstar(l))
     END DO
     CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,       &
-                            lai, ht, psi_root_zone, el_try, .FALSE.,         &
+                            lai, ht, psi_root_zone, ksr_ds, el_try, .FALSE., &
                             psi_try, k_try, el_hyd )
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -2864,8 +2743,9 @@ CASE ( 7 )
                      / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
     kcrit_sun_2l(l) = kmax_ref_sun_2l(l) * (kcrit(ft) / kmax_pft(ft))
     kcrit_shd_2l(l) = kmax_ref_shd_2l(l) * (kcrit(ft) / kmax_pft(ft))
-    gl_max_sun_2l(l) = som_gl_max * nw_sun_2l(l)
-    gl_max_shd_2l(l) = som_gl_max * nw_shd_2l(l)
+    ! som_gl_max is per unit leaf area: x the class leaf area.
+    gl_max_sun_2l(l) = som_gl_max * lai_sun_2l(l)
+    gl_max_shd_2l(l) = som_gl_max * lai_shd_2l(l)
 
     ! Radiation to photosystem II of each class (cf. i2 = alpha_elec*acr).
     i2_sun(l) = alpha_elec(ft) * acr_sun_2l(l)
@@ -3024,22 +2904,26 @@ CASE ( 7 )
       END IF
     END DO
 
-    ! Soil supply cap: this class may use its kmax share of the supply.
+    ! Soil supply cap, and this class's share of the soil-to-root
+    ! conductance (set_ksr_path): its share of the undamaged plant
+    ! conductance (kmax_ref), so that xylem impairment does not touch the
+    ! soil term.
     DO m = 1,veg_pts
       l = veg_index(m)
-      share_sup(l) = kmax_sun_2l(l) /                                          &
-                     MAX(kmax_sun_2l(l) + kmax_shd_2l(l), TINY(1.0))
+      share_sup(l) = kmax_ref_sun_2l(l) /                                      &
+                     MAX(kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l), TINY(1.0))
     END DO
 
     IF ( l_leaf_temp ) THEN
       CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,         &
                                share_sup, dq_sun_lt, t_sun_lt, pstar,          &
                                gl_max_sun_2l, gl_max_eff )
+      CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
       CALL stom_opt_mod (                                                      &
               ! IN
                 land_pts, som_base_parm, ft, open_pts, open_index,             &
-                pft_photo_model, veg_index,                                    &
+                pft_photo_model, veg_pts, veg_index,                           &
                 ca, psi_src, acr_sun_2l, apar_sun_2l, oa, vcmax_sun_2l,        &
                 kc_sun_lt, ko_sun_lt, ccp_sun_lt, pstar,                       &
                 km_sun_lt, dq_sun_lt, qs_sun_lt, je_sun, t_sun_lt, je_dummy,   &
@@ -3059,11 +2943,12 @@ CASE ( 7 )
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
                              share_sup, dqc, tstar, pstar, gl_max_sun_2l,      &
                              gl_max_eff )
+    CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
     CALL stom_opt_mod (                                                        &
             ! IN
               land_pts, som_base_parm, ft, open_pts, open_index,               &
-              pft_photo_model, veg_index,                                      &
+              pft_photo_model, veg_pts, veg_index,                             &
               ca, psi_src, acr_sun_2l, apar_sun_2l, oa, vcmax_sun_2l,          &
               kc, ko, ccp, pstar,                                              &
               km, dqc, qs, je_sun, tstar, je_dummy, fapar_dummy,               &
@@ -3108,22 +2993,26 @@ CASE ( 7 )
       END IF
     END DO
 
-    ! Soil supply cap: this class may use its kmax share of the supply.
+    ! Soil supply cap, and this class's share of the soil-to-root
+    ! conductance (set_ksr_path): its share of the undamaged plant
+    ! conductance (kmax_ref), so that xylem impairment does not touch the
+    ! soil term.
     DO m = 1,veg_pts
       l = veg_index(m)
-      share_sup(l) = kmax_shd_2l(l) /                                          &
-                     MAX(kmax_sun_2l(l) + kmax_shd_2l(l), TINY(1.0))
+      share_sup(l) = kmax_ref_shd_2l(l) /                                      &
+                     MAX(kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l), TINY(1.0))
     END DO
 
     IF ( l_leaf_temp ) THEN
       CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,         &
                                share_sup, dq_shd_lt, t_shd_lt, pstar,          &
                                gl_max_shd_2l, gl_max_eff )
+      CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
       CALL stom_opt_mod (                                                      &
               ! IN
                 land_pts, som_base_parm, ft, open_pts, open_index,             &
-                pft_photo_model, veg_index,                                    &
+                pft_photo_model, veg_pts, veg_index,                           &
                 ca, psi_src, acr_shd_2l, apar_shd_2l, oa, vcmax_shd_2l,        &
                 kc_shd_lt, ko_shd_lt, ccp_shd_lt, pstar,                       &
                 km_shd_lt, dq_shd_lt, qs_shd_lt, je_shd, t_shd_lt, je_dummy,   &
@@ -3143,11 +3032,12 @@ CASE ( 7 )
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
                              share_sup, dqc, tstar, pstar, gl_max_shd_2l,      &
                              gl_max_eff )
+    CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
     CALL stom_opt_mod (                                                        &
             ! IN
               land_pts, som_base_parm, ft, open_pts, open_index,               &
-              pft_photo_model, veg_index,                                      &
+              pft_photo_model, veg_pts, veg_index,                             &
               ca, psi_src, acr_shd_2l, apar_shd_2l, oa, vcmax_shd_2l,          &
               kc, ko, ccp, pstar,                                              &
               km, dqc, qs, je_shd, tstar, je_dummy, fapar_dummy,               &
@@ -3208,6 +3098,8 @@ CASE ( 7 )
     anetc(l) = anetl_sun(l) + anetl_shd(l)
     rdc(l)   = rd_sun(l) + rd_shd(l)
     el(l)    = el_sun(l) + el_shd(l)
+    ! Sun + shade is the canopy conductance (per unit leaf area below, after
+    ! the class loop, as the big-leaf path).
     leaf_k(l) = leaf_k_sun(l) + leaf_k_shd(l)
 
     psi_leaf(l)       = f_sun_2l * psi_leaf_sun(l)                             &
@@ -3272,9 +3164,8 @@ CASE ( 7 )
     END IF
   END DO
 
-  ! As the big-leaf path: transpiration in kg H2O m-2 s-1, leaf_k per unit
-  ! leaf area, and the stomatal optimisation conductance passed out.
-  el(:) = el(:) * Water_kg_per_mol
+  ! As the big-leaf path: el in mol H2O m-2 s-1, leaf_k per unit leaf area,
+  ! and the stomatal optimisation conductance passed out.
   leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
   gc_som = gc
 
@@ -3284,7 +3175,22 @@ CASE ( 7 )
   ! there is a single damage state per point, as for the big leaf.
   kmax_leaf_basis(:) = kmax_pft(ft)
   kcrit_leaf_basis(:) = kcrit(ft)
-  leaf_k_leaf_basis(:) = leaf_k(:)
+  ! The damage follows the xylem: each class's impaired xylem conductance at
+  ! its psi_leaf, summed per unit leaf area, not leaf_k (Kplant, which
+  ! includes the soil-to-root conductance, so would let soil drying damage
+  ! the xylem).
+  CALL leaf_conductance_impaired_jls( ft, land_pts, psi_leaf_sun,              &
+                                      kmax_ref_sun_2l, kmax_sun_2l,            &
+                                      kcrit_sun_2l, conductance_b,             &
+                                      conductance_c, psi_leaf_extreme,         &
+                                      kx_sun_2l )
+  CALL leaf_conductance_impaired_jls( ft, land_pts, psi_leaf_shd,              &
+                                      kmax_ref_shd_2l, kmax_shd_2l,            &
+                                      kcrit_shd_2l, conductance_b,             &
+                                      conductance_c, psi_leaf_extreme,         &
+                                      kx_shd_2l )
+  leaf_k_leaf_basis(:) = ( kx_sun_2l(:) + kx_shd_2l(:) )                       &
+                         / MAX(lai(:), TINY(1.0_real_jlslsm))
   ! psi_src: the root-zone psi with gravity (l_som_gravity), as the
   ! hydraulics see it.
   CALL leaf_conductance_impaired_jls(                                          &
@@ -3342,7 +3248,7 @@ END IF
 !-----------------------------------------------------------------------------
 ! Cuticular floor (l_som_cuticular_floor). Water still leaks through the
 ! cuticle once the stomata have (nearly) shut, whatever the carbon: the
-! canopy conductance is not allowed below gcut * LAI. This is applied after
+! canopy conductance is not allowed below gcuticular * LAI. This is applied after
 ! the optimisation, so it is not traded against carbon (A is unchanged), but
 ! it is charged to the plant water: the soil-supply cap still bounds it and
 ! psi_leaf / leaf_k are re-solved for the total flux. Applies at night too
@@ -3353,12 +3259,13 @@ IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
   DO m = 1,veg_pts
     l = veg_index(m)
     ! mmol m-2 leaf s-1 -> m s-1, times LAI for the canopy.
-    gl_cut(l) = gcut(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
+    gl_cut(l) = gcuticular(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
     share_sup(l) = 1.0
     veg_pts_index(m) = m
   END DO
   CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
                            share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
+  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
   ! Without plant water storage the leak must also pass the xylem: try
   ! E_floor * i / n_cut and keep the largest flux with k > kcrit (the
   ! feasibility rule of stom_opt_mod), so psi_leaf cannot run away in a
@@ -3395,9 +3302,10 @@ IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
         IF ( gl_cut_eff(l) * REAL(i_cut) / REAL(n_cut) > gc(l) ) THEN
           gc(l)       = gl_cut_eff(l) * REAL(i_cut) / REAL(n_cut)
           gc_som(l)   = gc(l)
-          ! el is kg H2O m-2 s-1 and leaf_k per unit leaf area here.
-          el(l)       = e_cut(i_cut,m) * Water_kg_per_mol
+          ! el is mol H2O m-2 s-1 and leaf_k per unit leaf area here.
+          el(l)       = e_cut(i_cut,m)
           psi_leaf(l) = psi_cut(i_cut,m)
+          ! k_cut is canopy scale (kmax_cut); leaf_k is per unit leaf area.
           leaf_k(l)   = k_cut(i_cut,m) / MAX(lai(l), TINY(1.0_real_jlslsm))
         END IF
       END IF
@@ -3415,7 +3323,7 @@ END IF
 !-----------------------------------------------------------------------------
 IF ( stomata_model == stomata_desica ) THEN
   CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
-                          lai, ht, psi_root_zone, el, .FALSE.,               &
+                          lai, ht, psi_root_zone, ksr_ds, el, .FALSE.,       &
                           psi_try, k_try, el_hyd )
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -3425,13 +3333,13 @@ IF ( stomata_model == stomata_desica ) THEN
     END IF
   END DO
   CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
-                          lai, ht, psi_root_zone, el, .FALSE.,               &
+                          lai, ht, psi_root_zone, ksr_ds, el, .FALSE.,       &
                           psi_leaf, leaf_k, el_hyd )
-  ! desica_hydraulics returns the plant conductance per m2 ground; per unit
-  ! leaf area, as the other paths (PLC_pft).
+  ! desica_hydraulics returns Kplant (soil-to-leaf) per m2 ground; per unit
+  ! leaf area, as the other paths (kplant_pft).
   leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
   CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,        &
-                            psi_root_zone )
+                            psi_root_zone, ksr_ds )
 END IF
 
 !-----------------------------------------------------------------------------
@@ -4933,7 +4841,7 @@ SUBROUTINE apply_supply_limit( land_pts, veg_pts, veg_index, e_supply, share,  &
 
 USE c_rmol, ONLY: rmol
 USE planet_constants_mod, ONLY: repsilon
-USE jules_vegetation_mod, ONLY: l_som_supply_limit, l_som_root_supply
+USE jules_vegetation_mod, ONLY: l_som_supply_limit
 
 IMPLICIT NONE
 
@@ -4963,7 +4871,7 @@ REAL(KIND=real_jlslsm) :: gl_sup
 INTEGER :: l, m
 
 gl_max_out(:) = gl_max_in(:)
-IF ( .NOT. ( l_som_supply_limit .OR. l_som_root_supply ) ) RETURN
+IF ( .NOT. l_som_supply_limit ) RETURN
 
 DO m = 1,veg_pts
   l = veg_index(m)
