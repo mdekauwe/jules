@@ -14,6 +14,10 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='SF_STOM_MOD'
 
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: f_vcmax_state(:,:)
+    ! Soil-water capacity factor of l_som_vcmax_psi after the recovery lag
+    ! (land_pts, npft); < 0 until first set.
+
 PRIVATE
 PUBLIC sf_stom
 
@@ -86,6 +90,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_gl_max, l_som_supply_limit,                                            &
     l_som_cuticular_floor, l_som_gravity, l_red, l_som_rhizo_series,           &
+    l_som_vcmax_psi,                                                           &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model
 
 USE CN_utils_mod, ONLY:                                                        &
@@ -712,6 +717,8 @@ REAL(KIND=real_jlslsm) :: fw_lo(land_pts), fw_hi(land_pts),                    &
                             ! transpiration (mol m-2 s-1), end-of-step
                             ! psi_leaf (Pa) and plant conductance, and the
                             ! transpiration the plant can deliver.
+REAL(KIND=real_jlslsm) :: f_vc(land_pts)
+                            ! Soil-water capacity factor (l_som_vcmax_psi).
 REAL(KIND=real_jlslsm) :: psi_src(land_pts)
                             ! Water potential at the base of the plant path
                             ! seen by the stomatal optimisation (Pa):
@@ -873,6 +880,13 @@ IF ( l_som_gravity .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
     psi_src(l) = psi_root_zone(l) - rho_water * g * MAX(ht(l), 0.0)
   END DO
 END IF
+
+! Soil-water capacity factor of Vcmax/Jmax (l_som_vcmax_psi), once per
+! timestep, so the recovery lag advances once whatever the number of leaf
+! classes and leaf temperature iterations.
+f_vc(:) = 1.0
+IF ( l_som_vcmax_psi ) CALL vcmax_psi_factor( ft, land_pts, veg_pts,          &
+                                              veg_index, psi_root_zone, f_vc )
 
 !-----------------------------------------------------------------------------
 ! Initialisation.
@@ -1259,7 +1273,7 @@ CASE ( photo_farquhar )
                             pft_photo_model, tstar, oa, acr, actj, actv,       &
                             dsj, dsv, ccp, kc, ko, km, denom, qtenf_term,      &
                             vcmax_temp, jmax_temp, i2,                  &
-                            psi_rz = psi_root_zone )
+                            f_vc = f_vc )
 
 CASE DEFAULT
   errcode = 101  !  a hard error
@@ -2685,14 +2699,14 @@ CASE ( 7 )
                                pstar, q_c_lt, dq_min,                          &
                                ccp_sun_lt, kc_sun_lt, ko_sun_lt, km_sun_lt,    &
                                vcmax_sun_2l, je_sun, rd_sun, qs_sun_lt,        &
-                               dq_sun_lt, psi_rz = psi_root_zone )
+                               dq_sun_lt, f_vc = f_vc )
       CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
                                pft_photo_model, t_shd_lt, oa, actj, actv,      &
                                dsj, dsv, jv25, nleaf_top, nw_shd_2l, i2_shd,   &
                                pstar, q_c_lt, dq_min,                          &
                                ccp_shd_lt, kc_shd_lt, ko_shd_lt, km_shd_lt,    &
                                vcmax_shd_2l, je_shd, rd_shd, qs_shd_lt,        &
-                               dq_shd_lt, psi_rz = psi_root_zone )
+                               dq_shd_lt, f_vc = f_vc )
     END IF
 
     !-------------------------------------------------------------------------
@@ -3540,7 +3554,7 @@ SUBROUTINE leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
                                pft_photo_model, t_leaf, oa, actj, actv, dsj,   &
                                dsv, jv25, nleaf_top, nw, i2c, pstar, q_c,      &
                                dq_min, ccp, kc, ko, km, vcmax_c, je_c, rd_c,   &
-                               qs_c, dq_c, psi_rz )
+                               qs_c, dq_c, f_vc )
 
 ! Two-leaf leaf energy balance (l_leaf_temp): the photosynthesis parameters
 ! of one leaf class at its temperature t_leaf - the temperature responses,
@@ -3567,8 +3581,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   vcmax_c(land_pts), je_c(land_pts), rd_c(land_pts), qs_c(land_pts),           &
   dq_c(land_pts)
 
-REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: psi_rz(land_pts)
-    ! Root-zone water potential (Pa), for l_som_vcmax_psi.
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: f_vc(land_pts)
+    ! Soil-water capacity factor (l_som_vcmax_psi).
 
 REAL(KIND=real_jlslsm) ::                                                      &
   acr0(land_pts), denom_t(land_pts), qtenf_t(land_pts), vtemp(land_pts),       &
@@ -3594,7 +3608,7 @@ dq_c(:)    = 0.0
 CALL leaf_temp_responses( ft, land_pts, veg_pts, veg_index,                    &
                           pft_photo_model, t_leaf, oa, acr0, actj, actv,       &
                           dsj, dsv, ccp, kc, ko, km, denom_t, qtenf_t,         &
-                          vtemp, jtemp, i2_t, psi_rz = psi_rz )
+                          vtemp, jtemp, i2_t, f_vc = f_vc )
 
 CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,            &
                             veg_index, denom_t, jtemp, jv25,                   &
@@ -4006,7 +4020,7 @@ END SUBROUTINE leaf_temp_update
 SUBROUTINE leaf_temp_responses( ft, land_pts, veg_pts, veg_index,              &
                                 pft_photo_model, t_leaf, oa, acr, actj, actv,  &
                                 dsj, dsv, ccp, kc, ko, km, denom, qtenf_term,  &
-                                vcmax_temp, jmax_temp, i2, psi_rz )
+                                vcmax_temp, jmax_temp, i2, f_vc )
 
 ! Temperature responses of the photosynthesis parameters at leaf
 ! temperature t_leaf: denom, qtenf_term, ccp, kc, ko (Collatz; C3 only for
@@ -4017,8 +4031,7 @@ USE conversions_mod, ONLY: zerodegc
 USE c_rmol, ONLY: rmol
 USE jules_vegetation_mod, ONLY: photo_collatz, photo_farquhar
 USE pftparm, ONLY: alpha_elec, c3, deact_jmax, deact_vcmax, q10_leaf, tlow,    &
-                   tupp, psi_vcmax_f, sf_vcmax
-USE jules_vegetation_mod, ONLY: l_som_vcmax_psi
+                   tupp
 
 IMPLICIT NONE
 
@@ -4040,9 +4053,9 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
       ! IN OUT: each model sets only its own terms (and ccp stays zero for
       ! C4 with Collatz).
 
-REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: psi_rz(land_pts)
-      ! Root-zone water potential (Pa): with l_som_vcmax_psi, Vcmax and Jmax
-      ! (Farquhar) are scaled by the soil-water down-regulation factor.
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: f_vc(land_pts)
+      ! Soil-water capacity factor (l_som_vcmax_psi, vcmax_psi_factor):
+      ! Vcmax and Jmax (Farquhar) are scaled by it.
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
   t_ref = zerodegc + 25.0,                                                     &
@@ -4052,7 +4065,7 @@ REAL(KIND=real_jlslsm), PARAMETER ::                                           &
 
 INTEGER :: l, m
 REAL(KIND=real_jlslsm) :: jmax_numerator, kc_val, ko_val, power, tau, tdegc,  &
-                          t_minus_ref, t_term, vcmax_numerator, f_psi, psi_mpa
+                          t_minus_ref, t_term, vcmax_numerator
 
 SELECT CASE ( pft_photo_model )
 
@@ -4124,29 +4137,92 @@ CASE ( photo_farquhar )
   END DO
 !$OMP END PARALLEL DO
 
-  !---------------------------------------------------------------------------
-  ! Soil-water down-regulation of photosynthetic capacity (l_som_vcmax_psi):
-  ! Zhou et al. (2013) form on the root-zone (predawn) water potential,
-  ! f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi))), psi in MPa; f = 1
-  ! in wet soil and about 0.5 at psi = psi_f. Applied to Vcmax and Jmax
-  ! (so Rd, which scales with Vcmax, follows).
-  !---------------------------------------------------------------------------
-  IF ( l_som_vcmax_psi .AND. PRESENT(psi_rz) ) THEN
+  ! Soil-water down-regulation of photosynthetic capacity (l_som_vcmax_psi;
+  ! see vcmax_psi_factor). Applied to Vcmax and Jmax, so Rd follows.
+  IF ( PRESENT(f_vc) ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
-      psi_mpa = MIN(psi_rz(l), 0.0) * 1.0e-6
-      f_psi = ( 1.0 + EXP( sf_vcmax(ft) * psi_vcmax_f(ft) * 1.0e-6 ) )        &
-              / ( 1.0 + EXP( sf_vcmax(ft) * ( psi_vcmax_f(ft) * 1.0e-6         &
-                                              - psi_mpa ) ) )
-      f_psi = MIN(MAX(f_psi, 0.0_real_jlslsm), 1.0_real_jlslsm)
-      vcmax_temp(l) = vcmax_temp(l) * f_psi
-      jmax_temp(l)  = jmax_temp(l)  * f_psi
+      vcmax_temp(l) = vcmax_temp(l) * f_vc(l)
+      jmax_temp(l)  = jmax_temp(l)  * f_vc(l)
     END DO
   END IF
 
 END SELECT
 
 END SUBROUTINE leaf_temp_responses
+
+!#############################################################################
+!#############################################################################
+
+SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
+
+! Soil-water down-regulation factor of photosynthetic capacity
+! (l_som_vcmax_psi): the Zhou et al. (2013) form on the root-zone (predawn)
+! water potential, as used by De Kauwe et al. (2015, Biogeosciences 12:
+! 7503-7518, Eq. 4),
+!   f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi))), psi in MPa,
+! f = 1 in wet soil and about 0.5 at psi = psi_f.
+! Adjustments to De Kauwe et al. (2015), which had neither (both added
+! Oct 2026 after FR-Pue tests, where f -> 0 drove drought GPP to ~0 and
+! capacity recovered within the timestep of the first rain):
+! (1) an optional floor,
+!   f_vc = fmin + (1 - fmin) f   (psi_vcmax_fmin, default 0),
+! so the stomatal (hydraulic) limitation, not capacity, sets photosynthesis
+! in the driest soil.
+! (2) a recovery lag: the factor follows f at once as the soil dries
+! (psi_rz itself changes slowly) but relaxes back towards it with a fixed
+! 5-day e-folding
+! time (90 % back in about 11 days) as the soil rewets, so capacity recovers
+! over days rather than within the timestep of the rain. 5 days sits between
+! fast reversible downregulation (Rubisco activation, mesophyll conductance:
+! hours to days) and protein resynthesis (a week or more), weighted towards
+! the slow end because FR-Pue droughts are long and severe. 3 days changes
+! little (FR-Pue 2005-07 GPP RMSE 0.86 vs 0.85; instant 0.93), so this is a
+! fixed choice, not a parameter. The state is not in the dump (it starts at
+! the instant value).
+
+USE pftparm, ONLY: psi_vcmax_f, sf_vcmax, psi_vcmax_fmin
+USE jules_surface_types_mod, ONLY: npft
+USE timestep_mod, ONLY: timestep
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_rz(land_pts)
+    ! Root-zone water potential (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: f_vc(land_pts)
+    ! Capacity factor (-); only veg points are set.
+
+REAL(KIND=real_jlslsm), PARAMETER :: tau_rec = 5.0 * 86400.0
+    ! Recovery e-folding time (s).
+
+INTEGER :: l, m
+REAL(KIND=real_jlslsm) :: psi_mpa, f_psi, f_now, w_rec
+
+IF ( .NOT. ALLOCATED(f_vcmax_state) ) THEN
+  ALLOCATE( f_vcmax_state(land_pts, npft) )
+  f_vcmax_state(:,:) = -1.0
+END IF
+w_rec = 1.0 - EXP( -timestep / tau_rec )
+
+DO m = 1,veg_pts
+  l = veg_index(m)
+  psi_mpa = MIN(psi_rz(l), 0.0) * 1.0e-6
+  f_psi = ( 1.0 + EXP( sf_vcmax(ft) * psi_vcmax_f(ft) * 1.0e-6 ) )            &
+          / ( 1.0 + EXP( sf_vcmax(ft) * ( psi_vcmax_f(ft) * 1.0e-6             &
+                                          - psi_mpa ) ) )
+  f_psi = MIN(MAX(f_psi, 0.0_real_jlslsm), 1.0_real_jlslsm)
+  f_now = psi_vcmax_fmin(ft) + (1.0 - psi_vcmax_fmin(ft)) * f_psi
+  IF ( f_vcmax_state(l,ft) < 0.0 .OR. f_now <= f_vcmax_state(l,ft) ) THEN
+    f_vcmax_state(l,ft) = f_now
+  ELSE
+    f_vcmax_state(l,ft) = f_vcmax_state(l,ft)                                  &
+                          + w_rec * ( f_now - f_vcmax_state(l,ft) )
+  END IF
+  f_vc(l) = f_vcmax_state(l,ft)
+END DO
+
+END SUBROUTINE vcmax_psi_factor
 
 !#############################################################################
 !#############################################################################

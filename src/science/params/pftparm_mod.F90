@@ -476,6 +476,10 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! et al. 2013).
 ,sf_vcmax(:)                                                                   &
                  ! Steepness of that down-regulation (MPa-1).
+,psi_vcmax_fmin(:)                                                             &
+                 ! Floor of that down-regulation (-): f = fmin + (1 - fmin)
+                 ! f_Zhou, so capacity never falls below fmin (0 = none, as
+                 ! in De Kauwe et al. 2015; the floor is an adjustment).
 ,g1_tuzet(:)                                                                   &
                  ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
@@ -805,6 +809,7 @@ ALLOCATE( psi_nsl0(npft))
 ALLOCATE( fsmc_q(npft))
 ALLOCATE( psi_vcmax_f(npft))
 ALLOCATE( sf_vcmax(npft))
+ALLOCATE( psi_vcmax_fmin(npft))
 ALLOCATE( g1_tuzet(npft))
 ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
@@ -833,6 +838,7 @@ psi_nsl0(:) = -3.0e6
 fsmc_q(:) = 1.0
 psi_vcmax_f(:) = -2.0e6
 sf_vcmax(:) = 2.0
+psi_vcmax_fmin(:) = 0.0
 g1_tuzet(:) = 4.19
 sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
@@ -1119,6 +1125,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' psi_vcmax_f = ',psi_vcmax_f
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' sf_vcmax = ',sf_vcmax
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' psi_vcmax_fmin = ',psi_vcmax_fmin
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
 CALL jules_print('pftparm',lineBuffer)
