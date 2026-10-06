@@ -115,10 +115,12 @@ USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 
 USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
-  l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit, l_som_root_supply,    &
-  l_leaf_temp
+  l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                       &
+  l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
+  l_som_rhizo_series
+USE xylem_hydraulics_CW_jls_mod, ONLY: ksr
 USE planet_constants_mod, ONLY: g
-USE pftparm, ONLY: root_psi_crit
+USE pftparm, ONLY: root_psi_crit, fsmc_mod
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
@@ -127,6 +129,7 @@ USE jules_hydrology_mod, ONLY: l_limit_gsoil, l_soil_evap_or
 USE soil_evap_or_mod, ONLY: gsoil_or
 
 USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft
+USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, sigl, lma, rmass, kmax_pft
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs,                    &
                                l_spec_alb_bs
@@ -689,7 +692,35 @@ REAL(KIND=real_jlslsm) ::                                                      &
   e_root_sup
       ! Root uptake limit (l_som_root_supply, kg m-2 s-1).
 
+! Root mass for the soil-to-root conductance (see l_root_mass_fixed)
+REAL(KIND=real_jlslsm) ::                                                      &
+  root_mass(land_pts),                                                         &
+      ! Root dry mass (kg m-2) passed to smc_ext: the vegetation's root
+      ! carbon, or min_rootc_pft with l_root_mass_fixed.
+  lai_bal_rt
+      ! Balanced-growth LAI, as sf_stom computes it.
+
+! Output soil-to-root conductance with one soil tile (see the PFT loop)
+REAL(KIND=real_jlslsm) ::                                                      &
+  soil_root_k_sum(land_pts,sm_levels),                                         &
+      ! Sum over PFTs of frac * soil_to_root_k (kg m-3 s-1).
+  soil_root_k_frac(land_pts)
+      ! Sum of the PFT fractions in soil_root_k_sum.
+
 LOGICAL :: l_getprofile     ! Switch IN to albpft
+
+REAL(KIND=real_jlslsm) ::                                                      &
+  q_rs(sm_levels),                                                             &
+      ! Uptake from each layer at the actual root potential (kg m-2 s-1 per
+      ! unit of rho_water g, i.e. relative).
+  ksum_rs, psi_root_rs
+      ! Soil-to-root conductance summed over layers (kg m-3 s-1); root
+      ! potential (Pa).
+LOGICAL, SAVE :: l_warned_ksr = .FALSE.
+                            ! Warned once about fsmc_mod /= 2.
+REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_rs = 0.018015
+                            ! Molar mass of water (kg mol-1), for
+                            ! l_som_rhizo_series.
 
 INTEGER, PARAMETER :: omp_cutoff=50   ! Cut off for loop multithreading
                                       ! This variable was introduced to do
@@ -722,8 +753,8 @@ l_do_omp    = land_pts>omp_cutoff
 !$OMP PRIVATE(i, j, k, l, n, m, il, i_wt)                                      &
 !$OMP SHARED(dim_cslayer, l_do_omp)                                            &
 !$OMP SHARED(npft,land_pts,el_pft,gpp_pft,npp_pft,resp_p_pft,resp_w_pft,       &
-!$OMP resp_l_pft,resp_r_pft,fsmc_pft,apar_diag_pft,psi_leaf_pft,cica_ratio_pft &
-!$OMP leaf_k_pft                                                               &
+!$OMP resp_l_pft,resp_r_pft,fsmc_pft,apar_diag_pft,psi_leaf_pft,               &
+!$OMP cica_ratio_pft,leaf_k_pft,                                               &
 !$OMP isoprene_pft,terpene_pft,                                                &
 !$OMP methanol_pft,acetone_pft, nsoilt,smc_soilt,g_leaf,fsmc_irr,root_param,   &
 !$OMP sm_levels,rib,f_root,tdims, ilayers,faparv,nsurft,gc_stom_surft,         &
@@ -1106,6 +1137,14 @@ END IF
 ! turnover rate
 !-----------------------------------------------------------------------
 
+! With one soil tile every PFT's smc_ext call writes the same
+! soil_root_k_soilt, so after the loop it would hold the last PFT's
+! conductance (including PFTs with no cover). Within the loop it holds the
+! current PFT's values, which the l_som_root_supply limit uses; for output it
+! is replaced after the loop by the cover-weighted mean over the PFTs present.
+soil_root_k_sum(:,:) = 0.0
+soil_root_k_frac(:)  = 0.0
+
 DO n = 1,npft
 
   !Set the current soil tile (see notice above)
@@ -1217,6 +1256,35 @@ DO n = 1,npft
   END IF
 !$OMP END PARALLEL
 
+  !-----------------------------------------------------------------------
+  ! Root dry mass for the soil-to-root conductance. Unless
+  ! l_root_mass_fixed, this is the root carbon that root respiration uses
+  ! (sf_stom: root = leaf carbon at the balanced LAI, or the crop root
+  ! carbon), so it
+  ! follows TRIFFID / RED when they are on and the prescribed canopy
+  ! height when they are off. Carbon to dry mass with rmass (kg C per kg
+  ! root); the trait-based root is already a mass (lma * lai_bal).
+  !-----------------------------------------------------------------------
+  root_mass(:) = min_rootc_pft(n)
+  IF ( .NOT. l_root_mass_fixed ) THEN
+    DO j = 1,surft_pts(n)
+      l = surft_index(j,n)
+      IF ( l_crop .AND. n > nnpft ) THEN
+        root_mass(l) = rootc_cpft(l,n - nnpft) / rmass(n)
+      ELSE
+        lai_bal_rt = ( a_ws(n) * eta_sl(n) * canht_pft(l,n) / a_wl(n) )       &
+                     **(1.0 / (b_wl(n) - 1.0))
+        IF ( l_red ) lai_bal_rt = veg_state%lai_bal(l,n)
+        IF ( l_trait_phys ) THEN
+          root_mass(l) = lma(n) * lai_bal_rt
+        ELSE
+          root_mass(l) = sigl(n) * lai_bal_rt / rmass(n)
+        END IF
+      END IF
+      root_mass(l) = MAX(root_mass(l), root_mass_min)
+    END DO
+  END IF
+
   ! Tile-based irrigated surface types do not extract water so routine is not called
   ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
   ! psi_root_zone_pft
@@ -1230,7 +1298,51 @@ DO n = 1,npft
                   bexp_soilt(:,m,:), sathh_soilt(:,m,:),                       &
                   soil_wp_soilt(:,m,:),soil_k_soilt(:,m,:),                    &
                   soil_root_k_soilt(:,m,:),wt_ext_type(:,:,n),fsmc_pft(:,n),   &
-                  psi_root_zone_pft(:,n))
+                  psi_root_zone_pft(:,n), root_mass)
+
+    IF ( nsoilt == 1 ) THEN
+      DO j = 1,surft_pts(n)
+        l = surft_index(j,n)
+        IF ( frac(l,n) > 0.0 ) THEN
+          soil_root_k_sum(l,:) = soil_root_k_sum(l,:)                          &
+                                 + frac(l,n) * soil_root_k_soilt(l,1,:)
+          soil_root_k_frac(l)  = soil_root_k_frac(l) + frac(l,n)
+        END IF
+      END DO
+    END IF
+
+    !-------------------------------------------------------------------------
+    ! l_som_rhizo_series: this PFT's soil-to-root conductance Ksr, summed
+    ! over the layers (in parallel), per m2 ground. soil_to_root_k is per
+    ! ground area per metre of head (kg m-3 s-1); / (rho_water g) gives
+    ! kg m-2 s-1 Pa-1 and / m_h2o mol m-2 s-1 Pa-1, the units of
+    ! kmax_pft * LAI. It is kept apart from kmax: sf_stom shares it between
+    ! the leaf paths (set_ksr_path) and leaf_psi_jls puts it in series.
+    !-------------------------------------------------------------------------
+    IF ( l_som_rhizo_series ) THEN
+      IF ( .NOT. ALLOCATED(ksr) ) ALLOCATE(ksr(land_pts))
+      ! ksr < 0: no soil link (smc_ext computes soil_to_root_k only for
+      ! fsmc_mod = 2).
+      ksr(:) = -1.0
+      IF ( fsmc_mod(n) /= 2 ) THEN
+        IF ( .NOT. l_warned_ksr .AND. surft_pts(n) > 0 ) THEN
+          errorstatus = -1
+          CALL ereport(RoutineName, errorstatus,                               &
+                       'soil-to-root resistance not applied: needs ' //        &
+                       'fsmc_mod = 2 (no soil_to_root_k otherwise)')
+          l_warned_ksr = .TRUE.
+        END IF
+      ELSE
+      ksr(:) = 0.0
+      DO j = 1,surft_pts(n)
+        l = surft_index(j,n)
+        ! No leaves, no leaf path: no soil link either (as before).
+        IF ( kmax_pft(n) * lai_pft(l,n) > 0.0 ) THEN
+          ksr(l) = SUM(soil_root_k_soilt(l,m,:)) / (rho_water * g * m_h2o_rs)
+        END IF
+      END DO
+      END IF
+    END IF
   END IF
 
   ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
@@ -1244,7 +1356,7 @@ DO n = 1,npft
                   bexp_soilt(:,m,:), sathh_soilt(:,m,:),                       &
                   soil_wp_soilt(:,m,:),soil_k_soilt(:,m,:),                    &
                   soil_root_k_soilt(:,m,:),wt_ext_irr_type(:,:,n),             &
-                  fsmc_irr(:,n),psi_root_zone_irr(:,n))
+                  fsmc_irr(:,n),psi_root_zone_irr(:,n), root_mass)
   END IF
 
   CALL raero (land_pts,land_index,surft_pts(n),surft_index(:,n)                &
@@ -1362,28 +1474,6 @@ DO n = 1,npft
     END DO
   END IF
 
-  ! Root uptake limit (l_som_root_supply): the uptake the roots can make
-  ! with the root held at root_psi_crit, summed over the layers (the raw
-  ! smc_ext uptake weights; soil_to_root_k is per metre of head). It falls
-  ! as the soil and rhizosphere dry, and is zero once every layer is at or
-  ! below root_psi_crit. Combined with l_som_supply_limit if both are set.
-  IF ( l_som_root_supply .AND. n <= npft ) THEN
-    DO k_sup = 1,surft_pts(n)
-      l = surft_index(k_sup,n)
-      e_root_sup = 0.0
-      DO kl_sup = 1,sm_levels
-        e_root_sup = e_root_sup + soil_root_k_soilt(l,m,kl_sup)                &
-                     * MAX(soil_wp_soilt(l,m,kl_sup) - root_psi_crit(n), 0.0)  &
-                     / (rho_water * g)
-      END DO
-      IF ( e_supply(l) < 0.0 ) THEN
-        e_supply(l) = e_root_sup
-      ELSE
-        e_supply(l) = MIN(e_supply(l), e_root_sup)
-      END IF
-    END DO
-  END IF
-
   fsun_tmp(:,:) = fsun(:,n,:)
 
   CALL sf_stom (land_pts,land_index                                            &
@@ -1423,6 +1513,32 @@ DO n = 1,npft
 
   ! Store conductance before adjustment for soil evaporation
   gc_corr(:,n) = gs_type(:,n)
+
+  !-----------------------------------------------------------------------
+  ! Profit max (soil-to-root resistance in series): the layers feed one
+  ! root node, so each layer supplies k_i (psi_i - psi_root) at the actual
+  ! root potential psi_root = psi_root_zone - E / K_s, where psi_root_zone
+  ! is the conductance-weighted soil psi from smc_ext, E the optimiser's
+  ! transpiration (el_pft, mol m-2 s-1, ground) and K_s = sum k_i. The
+  ! extraction weights become those uptakes, normalised, with layers drier
+  ! than the root giving nothing (no hydraulic redistribution). This
+  ! replaces the weights at the fixed root_psi_crit. soil_to_root_k is
+  ! per metre of head (kg m-3 s-1), soil_wp in Pa.
+  !-----------------------------------------------------------------------
+  IF ( l_som_rhizo_series .AND. fsmc_mod(n) == 2 .AND. irrig_tile(n) /= 1 ) THEN
+    DO j = 1,surft_pts(n)
+      l = surft_index(j,n)
+      ksum_rs = SUM(MAX(soil_root_k_soilt(l,m,:), 0.0))
+      IF ( ksum_rs <= TINY(1.0_real_jlslsm) ) CYCLE
+      psi_root_rs = psi_root_zone_pft(l,n)                                     &
+                    - el_pft(l,n) * m_h2o_rs * rho_water * g / ksum_rs
+      q_rs(:) = MAX(soil_root_k_soilt(l,m,:)                                   &
+                    * (soil_wp_soilt(l,m,:) - psi_root_rs), 0.0)
+      IF ( SUM(q_rs(:)) > TINY(1.0_real_jlslsm) ) THEN
+        wt_ext_type(l,:,n) = q_rs(:) / SUM(q_rs(:))
+      END IF
+    END DO
+  END IF
 
   IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
     IF (l_aggregate) THEN
@@ -1533,6 +1649,18 @@ DO n = 1,npft
 !$OMP END PARALLEL DO
 
 END DO
+
+! Output soil-to-root conductance: cover-weighted mean over the PFTs present
+! (zero where no PFT has cover). Diagnostic only; nothing below uses it.
+IF ( nsoilt == 1 ) THEN
+  DO l = 1,land_pts
+    IF ( soil_root_k_frac(l) > 0.0 ) THEN
+      soil_root_k_soilt(l,1,:) = soil_root_k_sum(l,:) / soil_root_k_frac(l)
+    ELSE
+      soil_root_k_soilt(l,1,:) = 0.0
+    END IF
+  END DO
+END IF
 
 !==============================================================================
 ! *END NOTICE REGARDING SOIL TILING**

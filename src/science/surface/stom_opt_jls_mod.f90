@@ -31,7 +31,7 @@ CONTAINS
 SUBROUTINE stom_opt_mod (                                                      &
 ! IN
         land_pts, som_base_parm, pft, open_pts, open_index,                    &
-        pft_photo_model, veg_index,                                            &
+        pft_photo_model, veg_pts, veg_index,                                   &
         ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,           &
         km, dq, qs, je, t_leaf, je_ratio, fapar_lf, kmax, kcrit,               &
         gl_max, ipar, l_multilayer,                                            &
@@ -61,10 +61,12 @@ USE pftparm, ONLY:                                                             &
 
 USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls, leaf_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
+USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow, ksr_path
 
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft,                        &
                    pft_xylem_impairment_model
-USE jules_vegetation_mod, ONLY: xylem_impairment_none, l_som_plant_segments
+USE jules_vegetation_mod, ONLY: xylem_impairment_none, l_som_plant_segments,  &
+                                l_som_rhizo_series
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE model_time_mod, ONLY: is_spinup
 
@@ -107,6 +109,8 @@ INTEGER, INTENT(IN) ::                                                         &
 ,pft_photo_model                                                               &
                             ! Indicates which photosynthesis model to use for
                             ! the current PFT.
+,veg_pts                                                                       &
+                            ! Number of vegetated points.
 ,veg_index(land_pts)
                             ! Index of vegetated points on the land grid.
 
@@ -198,7 +202,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,psi_leaf(land_pts)                                                            &
                             ! Leaf water potential (Pa)
 ,leaf_k(land_pts)
-                            ! Xylem conductance at leaf water potential (m/s)
+                            ! Whole-path (soil-to-leaf) conductance
+                            ! -dE/dpsi_leaf, in the units of kmax (Kplant).
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
  psi_stem(land_pts)
                             ! Stem water potential (Pa): the outlet of the
@@ -223,7 +228,7 @@ INTEGER ::                                                                     &
  optimal_index                                                                 &
                             ! Holds index of the optimal stomatal conductance
                             !  for each land point. Used by SOX_profit_model.
-,i,j,l,iseg                                                                    &
+,i,j,l,iseg,m                                                                  &
                             ! Iterators
 ,errcode
                             ! Error code to pass to ereport.
@@ -361,6 +366,9 @@ REAL(KIND=real_jlslsm) :: hc_ref(open_pts)
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
+REAL(KIND=real_jlslsm) :: kx_closed(land_pts)
+                            ! Impaired xylem conductance at psi_root_zone,
+                            ! for the closed-stomata leaf_k.
 LOGICAL :: l_xylem_impairment
                             ! l_xylem_impairment_in, but only where an
                             ! impairment model is actually in use (not
@@ -389,8 +397,42 @@ flux_o3(:) = 0.0
 fo3(:)     = 0.0
 gl(:)      = min_gl_pft(pft)
 psi_leaf(:)= psi_root_zone(:)
+! Closed stomata: the whole-path conductance at zero flow (xylem at
+! psi_root_zone, in series with the soil-to-root ksr_path), the same
+! definition as the optimiser's leaf_k for open points.
 leaf_k(:)  = kmax
+IF (l_xylem_impairment .AND. .NOT. l_som_plant_segments) THEN
+  ! Impaired xylem at psi_root_zone (any impairment model), with the
+  ! soil-to-root conductance in series.
+  CALL leaf_conductance_impaired_jls( pft, land_pts, psi_root_zone, kmax_ref, &
+                                      kmax, kcrit, conductance_b,              &
+                                      conductance_c, psi_leaf_extreme,         &
+                                      kx_closed )
+  DO m = 1, veg_pts
+    l = veg_index(m)
+    leaf_k(l) = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l),           &
+                                 kx = kx_closed(l))
+  END DO
+ELSE IF (l_xylem_impairment) THEN
+  ! Segments (memory model): the stem and leaf segments capped at
+  ! kmax / kmax_ref of the intact ones, as leaf_psi_segments_jls.
+  DO m = 1, veg_pts
+    l = veg_index(m)
+    leaf_k(l) = k_path_zero_flow(pft, l, kmax_ref(l), psi_root_zone(l),       &
+                  kcap_frac = kmax(l) / MAX(kmax_ref(l), TINY(1.0_real_jlslsm)))
+  END DO
+ELSE
+  DO m = 1, veg_pts
+    l = veg_index(m)
+    leaf_k(l) = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
+  END DO
+END IF
 IF (PRESENT(psi_stem)) psi_stem(:) = psi_root_zone(:)
+! Default outputs for points with closed stomata. Overwritten below for
+! points with open stomata. Set before the early return, so that a call
+! with no open points does not return the previous call's values.
+carbon_gain_out(:) = 0.0
+hydraulic_cost_out(:) = 0.0
 
 carbon_gain(:,:) = 0.0
 hydraulic_cost(:,:) = 0.0
@@ -398,15 +440,8 @@ profit(:,:) = 0.0
 kl_SOX(:,:) = 0.0
 
 ! If there are no land points with open stomata then no calculation is
-! needed, other than (with xylem impairment) the leaf xylem conductance.
+! needed (leaf_k holds the closed-stomata value set above).
 IF(0 == open_pts) THEN
-  IF (l_xylem_impairment .AND. .NOT. l_som_plant_segments) THEN
-    ! Calculate the xylem conductance at the leaf water potential.
-    CALL leaf_conductance_impaired_jls( pft, land_pts, psi_leaf, kmax_ref,     &
-                                        kmax, kcrit, conductance_b,            &
-                                        conductance_c, psi_leaf_extreme,       &
-                                        leaf_k )
-  END IF
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
   return
 END IF
@@ -434,14 +469,23 @@ IF (l_xylem_impairment) THEN
     CALL leaf_conductance_jls( pft, land_pts, psi_root_zone, kmax_ref, kcrit,  &
                                b_ref, c_ref, kl_hc_max )
   END IF
+  ! The soil-to-root conductance in series (l_som_rhizo_series): the soil is
+  ! not damage, so the stomata see it, as in the unimpaired cost (where
+  ! leaf_k is the whole soil-to-leaf path). Zero flow: the series sum.
+  IF ( l_som_rhizo_series ) THEN
+    DO m = 1, veg_pts
+      l = veg_index(m)
+      IF ( ksr_path(l) >= 0.0 ) THEN
+        IF ( ksr_path(l) > TINY(1.0_real_jlslsm) .AND.                         &
+             kl_hc_max(l) > TINY(1.0_real_jlslsm) ) THEN
+          kl_hc_max(l) = 1.0 / ( 1.0 / kl_hc_max(l) + 1.0 / ksr_path(l) )
+        ELSE
+          kl_hc_max(l) = 0.0
+        END IF
+      END IF
+    END DO
+  END IF
 END IF
-
-! ----------------------------------------------------------------------------
-!  Default outputs for points with closed stomata. Overwritten below for
-!  points with open stomata.
-! ----------------------------------------------------------------------------
-carbon_gain_out(:) = 0.0
-hydraulic_cost_out(:) = 0.0
 
 ! ----------------------------------------------------------------------------
 !  Calculate leaf properties as a function of the selected parameter,
@@ -768,16 +812,10 @@ SELECT CASE ( som_base_parm )
                'som_base_parm should be 1 or 2')
 END SELECT
 
-IF (l_xylem_impairment .AND. .NOT. l_som_plant_segments) THEN
-  ! Calculate the xylem conductance at the leaf water potential, for all
-  ! points (open and closed), on the impaired vulnerability curve. (With
-  ! segments leaf_k is the chosen sample's whole-plant conductance.)
-  ! JBaguley
-  CALL leaf_conductance_impaired_jls( pft, land_pts, psi_leaf, kmax_ref,       &
-                                      kmax, kcrit, conductance_b,              &
-                                      conductance_c, psi_leaf_extreme,         &
-                                      leaf_k )
-END IF
+! leaf_k is Kplant, the chosen sample's whole-path (soil-to-leaf)
+! conductance, also with xylem impairment (it used to be replaced here by
+! the impaired xylem conductance at psi_leaf, for PLC_pft; PLC_pft now comes
+! from psi_leaf on the curve itself).
 
 !TODO: Redetermine if stomata are open or closed?
 
@@ -809,12 +847,13 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls, xylem_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_psi_impaired_jls
-USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_segments_jls
+USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_segments_jls, ksr_path,      &
+                                       som_psi_in_min, xylem_f
 
 USE jules_vegetation_mod, ONLY:                                                &
         photo_collatz, photo_farquhar, photo_johnson, photo_model,             &
         CW_conductance, SOX_conductance, som_psi_solver,                       &
-        l_som_plant_segments
+        l_som_plant_segments, l_som_rhizo_series
 
 USE jb_photo_mod, ONLY: jb_eta_scale
 
@@ -1004,6 +1043,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Unimpaired PFT curve gathered onto the
                             ! open-point index, for kl_hc_sample.
 
+REAL(KIND=real_jlslsm) :: k_s, psi_in_s
+                            ! l_som_rhizo_series: the path's soil-to-root
+                            ! conductance and a sample's root inlet psi (Pa),
+                            ! for the impaired hydraulic cost.
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
@@ -1063,7 +1106,7 @@ CASE ( photo_collatz )
 !$OMP PRIVATE(l,j,i)                                                           &
 !$OMP SHARED(open_pts,veg_index,open_index,wcarb_sample,vcmax,ci_sample,       &
 !$OMP        ccp,kc,oi,ko,wlite_sample,pft,wexpt_sample,fwe_c3,alpha,acr,      &
-!$OMP        n_sample)
+!$OMP        n_sample,l_multilayer,apar,fapar_lf,ipar)
     DO j = 1,open_pts
       l = veg_index(open_index(j))
       ! The numbers in these equations are from Cox, HCTN 24,
@@ -1089,12 +1132,17 @@ CASE ( photo_collatz )
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(l,j,i)                                                           &
 !$OMP SHARED(open_pts,veg_index,open_index,wcarb_sample,vcmax,wlite_sample,    &
-!$OMP        pft,wexpt_sample,pstar,alpha,fwe_c4,ci_sample,acr,n_sample)
+!$OMP        pft,wexpt_sample,pstar,alpha,fwe_c4,ci_sample,acr,n_sample,       &
+!$OMP        l_multilayer,apar,fapar_lf,ipar)
     DO j = 1,open_pts
       l = veg_index(open_index(j))
       wcarb_sample(:,j) = vcmax(l)
       wlite_sample(:,j) = alpha(pft) * acr(l)
       wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
+      ! Scale to this leaf's absorbed light in multi-layer calls, as for C3.
+      IF (l_multilayer) THEN
+          wlite_sample(:,j) = wlite_sample(:,j) / apar(l) * fapar_lf(l) * ipar(l)
+      END IF
       wexpt_sample(:,j) = fwe_c4 * vcmax(l) * ci_sample(:,j) / pstar(l)
     END DO
 !$OMP END PARALLEL DO
@@ -1132,7 +1180,7 @@ CASE ( photo_farquhar )
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(l,j,i)                                                           &
 !$OMP SHARED(open_pts,veg_index,open_index,wcarb_sample,vcmax,wlite_sample,    &
-!$OMP        ci_sample,ccp,km,je,n_sample,photo_model)
+!$OMP        ci_sample,ccp,km,je,n_sample,photo_model,l_multilayer,je_ratio)
   DO j = 1,open_pts
     l = veg_index(open_index(j))
       wcarb_sample(:,j) = vcmax(l) * ( ci_sample(:,j) - ccp(l) )               &
@@ -1305,6 +1353,31 @@ ELSE IF (l_xylem_impairment) THEN
                               psi_sample(1:n_sample,:),                        &
                               kmax_open, kcrit_open, b_open, c_open,           &
                               kl_hc_sample(1:n_sample,:) )
+
+  ! With the soil-to-root conductance in series (l_som_rhizo_series), the
+  ! cost uses the whole path as the unimpaired cost does: the intact xylem
+  ! at the same water potentials, in series with the soil (which is not
+  ! damage, so the stomata see it). As leaf_psi_jls, the marginal
+  ! conductance of the path is k(psi_leaf) / (1 + k(psi_in) / K_s), with the
+  ! root inlet psi_in = psi_src - E / K_s and k the intact curve.
+  IF ( l_som_rhizo_series ) THEN
+    DO j = 1, open_pts
+      l = veg_index(open_index(j))
+      k_s = ksr_path(l)
+      IF ( k_s < 0.0 ) CYCLE
+      DO i = 1, n_sample
+        IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+          psi_in_s = MAX(psi_root_zone(l) - el_sample(i,j) / k_s,             &
+                         som_psi_in_min)
+          kl_hc_sample(i,j) = kl_hc_sample(i,j)                                &
+                              / (1.0 + kmax_ref(l) * xylem_f(pft, psi_in_s)    &
+                                       / k_s)
+        ELSE IF ( el_sample(i,j) > 0.0 ) THEN
+          kl_hc_sample(i,j) = 0.0
+        END IF
+      END DO
+    END DO
+  END IF
 ELSE
   CALL leaf_psi_jls( pft,                                                      &
                      n_sample,                                                 &
@@ -1323,16 +1396,6 @@ ELSE
                      kl_sample(1:n_sample,:)                                   &
     )
 
-  ! Closed-stomata conductance (entry 0, below): the vulnerability curve at
-  ! zero flow, K(psi_root_zone). With impairment, stom_opt_mod recomputes
-  ! leaf_k for every point at the end, so only this path needs it.
-  el_closed(:,:) = 0.0
-  CALL leaf_psi_jls( pft, 1, land_pts, open_pts, veg_index, open_index,        &
-                     el_closed, psi_root_zone, kmax, kcrit,                    &
-                     conductance_b, conductance_c,                             &
-                   ! INTENT OUT
-                     psi_closed, kl_closed )
-
   kl_hc_sample(:,:) = kl_sample(:,:)
 END IF
 
@@ -1346,20 +1409,45 @@ END IF
 ! when the hydraulics said the stomata should shut. Closed stomata: no
 ! conductance or transpiration, net assimilation = -rd, leaf at the root
 ! zone water potential.
+!
+! The conductance of the closed state is the whole path at zero flow,
+! K(psi_root_zone), from the same solve as the samples. It used to be set to 0, which made PLC_pft report 100 % whenever
+! the stomata shut (e.g. at twilight, when net A <= 0 at every ci). Entry 0
+! is never a candidate in the profit selection, so this only changes the
+! reported leaf_k.
+! The closed state is solved at E = 0 on the same path as the samples, so
+! it includes the soil-to-root conductance (l_som_rhizo_series) and any
+! impairment.
+el_closed(:,:) = 0.0
+IF (l_xylem_impairment .AND. l_som_plant_segments) THEN
+  CALL leaf_psi_segments_jls( pft, 1, land_pts, open_pts, veg_index,          &
+                              open_index, el_closed, psi_root_zone, kmax_ref,  &
+                              kcrit, psi_closed, kl_closed,                    &
+                              kcap_frac = kcap_frac_pts )
+ELSE IF (l_xylem_impairment) THEN
+  CALL leaf_psi_impaired_jls( pft, 1, land_pts, open_pts, veg_index,          &
+                              open_index, el_closed, psi_root_zone, kmax_ref,  &
+                              kmax, kcrit, conductance_b, conductance_c,       &
+                              psi_leaf_extreme, psi_root_extreme,              &
+                              psi_closed, kl_closed )
+ELSE
+  CALL leaf_psi_jls( pft, 1, land_pts, open_pts, veg_index, open_index,        &
+                     el_closed, psi_root_zone, kmax, kcrit,                    &
+                     conductance_b, conductance_c,                             &
+                   ! INTENT OUT
+                     psi_closed, kl_closed )
+END IF
 DO j = 1, open_pts
   l = veg_index(open_index(j))
   ci_sample(0,j)  = ca(l)
   al_sample(0,j)  = -rd(l)
   gl_sample(0,j)  = 0.0
   el_sample(0,j)  = 0.0
-  ! K(psi_root_zone), not 0: 0 made PLC_pft report 100 % whenever the
-  ! stomata shut (e.g. at twilight, when net A <= 0 at every ci). Entry 0 is
-  ! never a profit candidate, so this only changes the reported leaf_k.
-  IF (l_xylem_impairment) THEN
-    kl_sample(0,j)  = 0.0
-  ELSE
-    kl_sample(0,j)  = kl_closed(1,j)
-  END IF
+  ! K(psi_root_zone) at zero flow (with the soil in series), not 0: 0 made
+  ! PLC_pft report 100 % whenever the stomata shut (e.g. at twilight, when
+  ! net A <= 0 at every ci). Entry 0 is never a profit candidate, so this
+  ! only changes the reported leaf_k.
+  kl_sample(0,j)  = kl_closed(1,j)
   kl_hc_sample(0,j) = kl_sample(0,j)
   psi_sample(0,j) = psi_root_zone(l)
 END DO
@@ -1577,10 +1665,11 @@ USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 CW_conductance,                                &
                                 SOX_conductance,                               &
                                 som_psi_solver, psi_solver_lut,           &
-                                l_som_plant_segments, l_som_nsl
+                                l_som_plant_segments, l_som_nsl,               &
+                                l_som_rhizo_series
 USE jb_photo_mod, ONLY: jb_eta_scale
 USE pftparm, ONLY: c3, alpha, pft_conductance_model, conductance_b_pft,        &
-                   conductance_c_pft, psi_nsl_onset, psi_nsl0
+                   conductance_c_pft, psi_nsl_onset, psi_nsl0, fsmc_mod
 USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
 USE planet_constants_mod, ONLY: repsilon
 USE c_rmol, ONLY: rmol
@@ -1654,6 +1743,11 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 l_lut = ( pft_conductance_model(pft) == CW_conductance .OR.                    &
           pft_conductance_model(pft) == SOX_conductance ) .AND.                &
         som_psi_solver == psi_solver_lut .AND. .NOT. l_som_plant_segments
+! With the soil resistance in series the root inlet varies with E, so the
+! direct table lookup (psi_root_zone as the inlet) and the table's e_crit in
+! edge_by_gl_cap do not apply: use leaf_psi_jls, which adds the soil link, and
+! the margin-based edge.
+IF ( l_som_rhizo_series .AND. fsmc_mod(pft) == 2 ) l_lut = .FALSE.
 idx1(:) = 1
 b_curve(:) = conductance_b_pft(pft)
 c_curve(:) = conductance_c_pft(pft)
@@ -1894,6 +1988,7 @@ CONTAINS
     ELSE
       wcarb = vcmax(l)
       wlite = MAX(alpha(pft) * acr(l), TINY(1.0e0))
+      IF (l_multilayer) wlite = wlite / apar(l) * fapar_lf(l) * ipar(l)
       wexpt = fwe_c4 * vcmax(l) * ci / pstar(l)
     END IF
     b1 = beta1

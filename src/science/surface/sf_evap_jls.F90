@@ -445,11 +445,14 @@ DO n = 1,nsurft
           esoil_surft(l,n) = esoil_surft(l,n) + resfs(l,n) *                   &
                              (ecan_surft(l,n) - canopy(l,n) / timestep)
           IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
-            !           Check that we can use ecan_surft here.
+            ! The excess over the canopy store, as for esoil_surft above.
+            ! (Upstream has canopy/edt, a dimensionless ratio subtracted from
+            ! a flux, which gave et_stom spikes of ~ -0.5 kg m-2 s-1 when the
+            ! interception store emptied.)
             sf_diag%et_stom_surft(l,n) = sf_diag%et_stom_surft(l,n) +          &
                                          sf_diag%resfs_stom(l,n) *             &
                                          (ecan_surft(l,n) -                    &
-                                          canopy(l,n) / edt)
+                                          canopy(l,n) / timestep)
           END IF
         ELSE
           esoil_surft(l,n) = (1.0 - flake(l,n)) *                              &

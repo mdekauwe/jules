@@ -40,8 +40,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
   psi_close_io(npft_max) = rmdi,                                               &
   psi_open_io(npft_max) = rmdi,                                                &
   root_psi_crit_io(npft_max) = rmdi,                                           & ! JBaguley
-  root_radi_pft_io(npft_max) = rmdi,                                           & ! JBaguley
-  rootc_density_pft_io(npft_max) = rmdi                                          ! JBaguley
+  root_radi_pft_io(npft_max) = 0.29e-3,                                        & ! Bonan 2014
+  rootc_density_pft_io(npft_max) = 0.31e3                                        ! Bonan 2014
+      ! Fine-root radius (m) and specific root density (kg m-3) for the
+      ! soil-to-root conductance: Bonan et al. (2014) Table 3, from the
+      ! fine-root data (<= 2 mm diameter) of Jackson et al. (1997) for trees
+      ! (specific root length 12.2 m g-1). Were 0.5e-3 m and 0.5e3 kg m-3
+      ! (Williams et al. 2001, ponderosa pine) and had to be set.
 #endif
 
 INTEGER ::                                                                     &
@@ -196,7 +201,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   p88_leaf_io(npft_max) = rmdi,                                                &
   ! Cuticular leaf conductance (mmol H2O m-2 leaf s-1), the floor used when
   ! l_som_cuticular_floor (default 3, SurEau-Ecos Q. ilex, Ruffault 2022).
-  gcut_io(npft_max) = 3.0,                                                     &
+  gcuticular_io(npft_max) = 3.0,                                               &
   ! Nonstomatal limitation (l_som_nsl): onset and zero point of the
   ! leaf-psi ramp on photosynthesis (Pa; missing = pftparm defaults 0 and
   ! -3 MPa, i.e. Dewar et al. 2022 Eqn 3(b)). Onset at the turgor loss
@@ -305,7 +310,7 @@ NAMELIST  / jules_pftparm/                                                     &
   seg_frac_root_io, seg_frac_stem_io, seg_frac_leaf_io,                        &
   p50_root_io,     p50_stem_io,      p50_leaf_io,                              &
   p88_root_io,     p88_stem_io,      p88_leaf_io,                              &
-  gcut_io,         psi_nsl_onset_io, psi_nsl0_io,                              &
+  gcuticular_io,   psi_nsl_onset_io, psi_nsl0_io,                              &
   fsmc_q_io,       psi_vcmax_f_io,   sf_vcmax_io,      psi_vcmax_fmin_io,      &
   nsl_sink_umax_io, nsl_sink_tau_io, nsl_sink_maint_io,                    &
   nsl_sink_psi50_io, nsl_sink_sf_io,                                  &
@@ -472,7 +477,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: p50_io(npft_max) ! JBaguley
   REAL(KIND=real_jlslsm) :: p88_io(npft_max) ! JBaguley
   REAL(KIND=real_jlslsm) :: seg_frac_root_io(npft_max)
-  REAL(KIND=real_jlslsm) :: gcut_io(npft_max)
+  REAL(KIND=real_jlslsm) :: gcuticular_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_nsl_onset_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_nsl0_io(npft_max)
   REAL(KIND=real_jlslsm) :: fsmc_q_io(npft_max)
@@ -647,7 +652,7 @@ IF (mype == 0) THEN
   my_nml % p50_io         = p50_io ! JBaguley
   my_nml % p88_io         = p88_io ! JBaguley
   my_nml % seg_frac_root_io = seg_frac_root_io
-  my_nml % gcut_io        = gcut_io
+  my_nml % gcuticular_io        = gcuticular_io
   my_nml % psi_nsl_onset_io = psi_nsl_onset_io
   my_nml % psi_nsl0_io    = psi_nsl0_io
   my_nml % fsmc_q_io      = fsmc_q_io
@@ -810,7 +815,7 @@ IF (mype /= 0) THEN
   p50_io          = my_nml % p50_io ! JBaguley
   p88_io          = my_nml % p88_io ! JBaguley
   seg_frac_root_io = my_nml % seg_frac_root_io
-  gcut_io         = my_nml % gcut_io
+  gcuticular_io         = my_nml % gcuticular_io
   psi_nsl_onset_io = my_nml % psi_nsl_onset_io
   psi_nsl0_io     = my_nml % psi_nsl0_io
   fsmc_q_io       = my_nml % fsmc_q_io
@@ -885,7 +890,7 @@ USE pftparm, ONLY:                                                             &
   calc_rz_psi,     fsmc_mod,         psi_close,                                & ! JBaguley
   psi_open,        min_rootc_pft,    root_psi_crit,                            & ! JBaguley
   root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
-  gcut,            psi_nsl_onset,    psi_nsl0,         fsmc_q,                 &
+  gcuticular,      psi_nsl_onset,    psi_nsl0,         fsmc_q,                 &
   psi_vcmax_f,     sf_vcmax,         psi_vcmax_fmin,                           &
   nsl_sink_umax, nsl_sink_tau, nsl_sink_maint,                       &
   nsl_sink_psi50, nsl_sink_sf,                                     &
@@ -952,7 +957,7 @@ USE c_z0h_z0m,    ONLY: z0h_z0m,  z0h_z0m_classic
 USE jules_surface_types_mod, ONLY: npft
 
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
-                                l_som_root_supply, l_som_vcmax_psi,            &
+                                l_som_vcmax_psi,                               &
                                 l_som_nsl_sink, xylem_impairment_memory,       &
                                 ximpair_driver_stem
 USE jules_soil_mod, ONLY: l_bound_soil_wp
@@ -1053,11 +1058,11 @@ tleaf_of(:)     = tleaf_of_io(1:npft)
 #if !defined(UM_JULES)
 calc_rz_psi(:)      = calc_rz_psi_io(1:npft) ! JBaguley
 fsmc_mod(:)         = fsmc_mod_io(1:npft)
-! Keep the pftparm_alloc default (0) where not given: rmdi here would set
-! the closed-stomata conductance to ~ -1e9.
-WHERE (ABS(min_gl_pft_io(1:npft) - rmdi) > EPSILON(1.0))                       &
+! Keep the pftparm_alloc default (1e-9) where unset; copying rmdi would
+! give closed leaves a large negative conductance.
+WHERE (ABS(min_gl_pft_io(1:npft) - rmdi) > EPSILON(1.0))                     &
   min_gl_pft(:) = min_gl_pft_io(1:npft) ! JBaguley
-gcut(:)            = gcut_io(1:npft)
+gcuticular(:)      = gcuticular_io(1:npft)
 ! Nonstomatal limitation ramp: keep the pftparm_alloc defaults where unset.
 WHERE (ABS(psi_nsl_onset_io(1:npft) - rmdi) > EPSILON(1.0))                  &
   psi_nsl_onset(:) = psi_nsl_onset_io(1:npft)
@@ -1122,34 +1127,6 @@ psi_open(:)         = psi_open_io(1:npft)
 root_psi_crit(:)    = root_psi_crit_io(1:npft) ! JBaguley
 root_radi_pft(:)    = root_radi_pft_io(1:npft) ! JBaguley
 rootc_density_pft(:)= rootc_density_pft_io(1:npft) ! JBaguley
-! The root supply limit uses soil_to_root_k, which smc_ext computes only for
-! fsmc_mod = 2; with fsmc_mod 0/1 it is zero and the stomata shut silently.
-IF ( l_som_root_supply ) THEN
-  IF ( ANY(fsmc_mod(:) /= 2) ) THEN
-    errcode = 101
-    CALL ereport(RoutineName, errcode,                                         &
-                 'l_som_root_supply needs fsmc_mod_io = 2 for every PFT.')
-  END IF
-  IF ( ANY(min_rootc_pft(:) <= 0.0) .OR. ANY(root_radi_pft(:) <= 0.0) .OR.    &
-       ANY(rootc_density_pft(:) <= 0.0) ) THEN
-    errcode = 101
-    CALL ereport(RoutineName, errcode,                                         &
-                 'l_som_root_supply needs min_rootc_pft_io, root_radi_pft_io ' &
-                 // 'and rootc_density_pft_io > 0.')
-  END IF
-  ! With the soil psi bound on (l_bound_soil_wp), a hard clamp at psi_close
-  ! means no layer is seen drier than psi_close. If psi_close were above
-  ! root_psi_crit, root supply (psi - root_psi_crit > 0) would never run
-  ! out. Keep psi_close <= root_psi_crit; never tie them.
-  IF ( l_bound_soil_wp ) THEN
-    IF ( ANY(psi_close(:) > root_psi_crit(:)) ) THEN
-      errcode = 101
-      CALL ereport(RoutineName, errcode,                                       &
-                   'l_som_root_supply with l_bound_soil_wp needs '            //&
-                   'psi_close_io <= root_psi_crit_io for every PFT.')
-    END IF
-  END IF
-END IF
 #endif
 catch0(:)       = catch0_io(1:npft)
 dcatch_dlai(:)  = dcatch_dlai_io(1:npft)
