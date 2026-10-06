@@ -43,11 +43,14 @@ MODULE desica_jls_mod
 ! stomatal optimisation (profit max): the plant conductance is
 ! kmax_pft * LAI, on the PFT's P50/P88 vulnerability curve evaluated at
 ! psi_stem (Eqn S2b uses psi_stem too), and the soil water potential is
-! psi_root_zone, the uptake-weighted root-zone value; there is no soil-root
-! resistance (as in the profit max). DESICA's placement of the stem store
-! halfway along the plant is som_leaf_resist_frac (0.5 = DESICA): the
-! leaf-side conductance is k_xylem / som_leaf_resist_frac and the root-side
-! one k_xylem / (1 - som_leaf_resist_frac).
+! psi_root_zone, the conductance-weighted root-zone value, and the
+! soil-to-root conductance ksr (l_som_rhizo_series, as the profit max) is in
+! series ahead of the root. DESICA's placement of the stem store halfway
+! along the plant is som_leaf_resist_frac (0.5 = DESICA): the leaf-side
+! conductance is k_xylem / som_leaf_resist_frac and the root-side one
+! k_xylem / (1 - som_leaf_resist_frac), in series with ksr. The
+! vulnerability curve acts on the xylem only. Conductances are held fixed
+! over a sub-step, so the series sums are exact.
 !
 ! Water accounting: sf_stom solves gs with a projected E and stores the
 ! step's inputs (desica_store_inputs). Once the surface fluxes are final,
@@ -91,10 +94,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE ::                                   &
   dw_plant_desica(:,:),                                                        &
                             ! Change of plant water store, Q - T
                             ! (kg m-2 ground s-1).
-  lai_desica(:,:), ht_desica(:,:), psi_soil_desica(:,:)
-                            ! This step's LAI, canopy height (m) and root
-                            ! zone water potential (Pa), stored by sf_stom
-                            ! for desica_commit.
+  lai_desica(:,:), ht_desica(:,:), psi_soil_desica(:,:), ksr_desica(:,:)
+                            ! This step's LAI, canopy height (m), root
+                            ! zone water potential (Pa) and soil-to-root
+                            ! conductance (mol m-2 s-1 Pa-1, < 0: none),
+                            ! stored by sf_stom for desica_commit.
 
 REAL(KIND=real_jlslsm), PARAMETER :: dt_max = 600.0
                             ! Longest sub-step (s), Xu et al. (2016).
@@ -122,7 +126,8 @@ IF ( .NOT. ALLOCATED(psi_leaf_desica) ) THEN
   ALLOCATE( psi_leaf_desica(land_pts,npft), psi_stem_desica(land_pts,npft),   &
             flux_root_desica(land_pts,npft), flux_sap_desica(land_pts,npft),  &
             dw_plant_desica(land_pts,npft), lai_desica(land_pts,npft),        &
-            ht_desica(land_pts,npft), psi_soil_desica(land_pts,npft) )
+            ht_desica(land_pts,npft), psi_soil_desica(land_pts,npft),         &
+            ksr_desica(land_pts,npft) )
   psi_leaf_desica(:,:)  = 0.0
   psi_stem_desica(:,:)  = 0.0
   flux_root_desica(:,:) = 0.0
@@ -131,6 +136,7 @@ IF ( .NOT. ALLOCATED(psi_leaf_desica) ) THEN
   lai_desica(:,:)       = 0.0
   ht_desica(:,:)        = 0.0
   psi_soil_desica(:,:)  = 0.0
+  ksr_desica(:,:)       = -1.0
 END IF
 
 END SUBROUTINE desica_alloc
@@ -188,7 +194,7 @@ END FUNCTION tuzet_fw
 ! transpiration el (Xu et al. 2016, Eqns S1, S2, S4).
 !-----------------------------------------------------------------------------
 SUBROUTINE desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,     &
-                              lai, canht, psi_root_zone, el, l_commit,         &
+                              lai, canht, psi_root_zone, ksr, el, l_commit,    &
                               psi_leaf, leaf_k, el_hyd )
 
 USE pftparm, ONLY: kmax_pft, conductance_b, conductance_c, p50,               &
@@ -208,6 +214,9 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   psi_root_zone(land_pts),                                                     &
                             ! Root zone (uptake-weighted) soil water
                             ! potential (Pa).
+  ksr(land_pts),                                                               &
+                            ! Soil-to-root conductance, per m2 ground
+                            ! (mol m-2 s-1 Pa-1); < 0: no soil link.
   el(land_pts)
                             ! Canopy transpiration (mol H2O m-2 s-1).
 LOGICAL, INTENT(IN) :: l_commit
@@ -216,7 +225,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   psi_leaf(land_pts),                                                          &
                             ! Leaf water potential at the end of the step (Pa).
   leaf_k(land_pts),                                                            &
-                            ! Plant conductance at psi_stem
+                            ! Kplant: soil-to-leaf conductance, ksr in
+                            ! series with the xylem at psi_stem
                             ! (mol m-2 ground s-1 Pa-1).
   el_hyd(land_pts)
                             ! Transpiration the plant can deliver over the
@@ -225,7 +235,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 
 INTEGER :: l, m, n, n_sub
 REAL(KIND=real_jlslsm) ::                                                      &
-  dt, kmax_c, k_xylem, k_leaf, k_root, c_leaf, c_stem, psi_h, psi_stem_min,    &
+  dt, kmax_c, k_xylem, k_leaf, k_root, k_plant, c_leaf, c_stem, psi_h,         &
+  psi_stem_min,                                                                &
   pl, ps, pl_new, ps_new, ap, bp, ex, j_sap, j_cap, q_root, q_sum, j_sum,     &
   e, e_sub, e_sum
 
@@ -269,11 +280,17 @@ DO m = 1,veg_pts
 
   DO n = 1,n_sub
     ! Xylem conductance on the PFT vulnerability curve at psi_stem
-    ! (Eqn S2b), split either side of the stem store.
+    ! (Eqn S2b), split either side of the stem store; the soil-to-root ksr
+    ! is in series on the root side (soil -> root -> stem store).
     k_xylem = kmax_c * EXP(-(ABS(ps / conductance_b(ft)))**conductance_c(ft))
     k_xylem = MAX(k_xylem, 1.0e-6 * kmax_c)
     k_leaf  = k_xylem / som_leaf_resist_frac
     k_root  = k_xylem / (1.0 - som_leaf_resist_frac)
+    k_plant = k_xylem
+    IF ( ksr(l) >= 0.0 ) THEN
+      k_root  = 1.0 / ( 1.0 / k_root + 1.0 / MAX(ksr(l), 1.0e-6 * kmax_c) )
+      k_plant = 1.0 / ( 1.0 / k_xylem + 1.0 / MAX(ksr(l), 1.0e-6 * kmax_c) )
+    END IF
 
     ! The lower bounds on psi_leaf and psi_stem are met by capping the
     ! fluxes, not the potentials, so that the stores stay in balance
@@ -348,7 +365,7 @@ DO m = 1,veg_pts
   END IF
 
   psi_leaf(l) = pl
-  leaf_k(l)   = k_xylem
+  leaf_k(l)   = k_plant
 END DO
 
 END SUBROUTINE desica_hydraulics
@@ -357,11 +374,11 @@ END SUBROUTINE desica_hydraulics
 ! Store this step's plant inputs for desica_commit (called from sf_stom).
 !-----------------------------------------------------------------------------
 SUBROUTINE desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, canht, &
-                                psi_root_zone )
+                                psi_root_zone, ksr )
 
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: lai(land_pts), canht(land_pts),        &
-                                      psi_root_zone(land_pts)
+                                      psi_root_zone(land_pts), ksr(land_pts)
 INTEGER :: l, m
 
 CALL desica_alloc( land_pts )
@@ -370,6 +387,7 @@ DO m = 1,veg_pts
   lai_desica(l,ft)      = lai(l)
   ht_desica(l,ft)       = canht(l)
   psi_soil_desica(l,ft) = psi_root_zone(l)
+  ksr_desica(l,ft)      = ksr(l)
 END DO
 
 END SUBROUTINE desica_store_inputs
@@ -399,7 +417,8 @@ DO m = 1,npts
 END DO
 CALL desica_hydraulics( ft, land_pts, npts, pts_index, timestep,              &
                         lai_desica(:,ft), ht_desica(:,ft),                    &
-                        psi_soil_desica(:,ft), el, .TRUE., psi_l, k_l, el_hyd )
+                        psi_soil_desica(:,ft), ksr_desica(:,ft), el, .TRUE.,  &
+                        psi_l, k_l, el_hyd )
 DO m = 1,npts
   l = pts_index(m)
   ! Transpiration the plant could not deliver (psi at a bound) comes

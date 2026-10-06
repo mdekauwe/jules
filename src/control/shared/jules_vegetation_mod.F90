@@ -418,21 +418,25 @@ LOGICAL ::                                                                     &
       ! (with which it combines, taking the smaller supply).
 LOGICAL ::                                                                     &
   l_som_rhizo_series = .FALSE.
-      ! Not a namelist switch: set .TRUE. in check_jules_vegetation whenever
-      ! the profit-max optimisation is on. The profit-max hydraulic path then
-      ! includes the soil (rhizosphere) resistance in series with the plant,
+      ! Not a namelist switch: set .TRUE. in check_jules_vegetation for the
+      ! profit max and DESICA. The plant hydraulic path then includes the
+      ! soil-to-root (rhizosphere) conductance ksr in series with the plant,
       ! as in SPA, MAESPA (KTOT = 1/(TOTSOILRES + 1/PLANTK)) and Bonan et al.
-      ! (2014): the root inlet falls with the flux, psi_root = psi_src - E/K_s,
-      ! where K_s is the soil-to-root conductance soil_to_root_k summed over
-      ! the layers (parallel; soil part only, Bonan eq. A23), shared between
-      ! the leaf paths in proportion to their kmax. Root (radial), stem and
-      ! leaf resistance stay in kmax, so nothing is counted twice. The
-      ! marginal conductance used by the hydraulic cost and kcrit is that of
-      ! the whole soil-to-leaf path. With l_som_plant_segments the soil link
-      ! comes ahead of the root segment. Layer weights and psi_root_zone are
-      ! unchanged (root_psi_crit, as MAESPA's MINROOTWP). Applied for PFTs
-      ! with fsmc_mod = 2 only (smc_ext computes soil_to_root_k only there).
-      ! It replaces l_som_root_supply.
+      ! (2014): ksr is soil_to_root_k summed over the layers (parallel; soil
+      ! part only, Bonan eq. A23), kept apart from the xylem kmax (the
+      ! vulnerability curve, and any impairment, act on kmax only). Profit
+      ! max: the root inlet falls with the flux, psi_root = psi_src - E/ksr,
+      ! with ksr shared between the leaf paths by their share of the
+      ! undamaged plant conductance (set_ksr_path); the marginal conductance
+      ! used by the hydraulic cost and kcrit is that of the whole
+      ! soil-to-leaf path (with l_som_plant_segments the soil link comes
+      ! ahead of the root segment). DESICA: ksr is in series with the
+      ! root-side conductance. Root (radial), stem and leaf resistance stay
+      ! in kmax, so nothing is counted twice. psi_root_zone is the
+      ! conductance-weighted soil psi (smc_ext), and the layer extraction
+      ! weights are k_i (psi_i - psi_root) at the actual root potential
+      ! (physiol). Applied for PFTs with fsmc_mod = 2 only (smc_ext computes
+      ! soil_to_root_k only there). It replaces l_som_root_supply.
 LOGICAL ::                                                                     &
   l_root_mass_fixed = .FALSE.
       ! Root mass in the soil-to-root conductance (soil_to_root_k, Bonan et
@@ -1367,9 +1371,10 @@ IF ( l_som_root_supply ) THEN
   l_som_root_supply = .FALSE.
 END IF
 
-! The soil-to-root resistance in series (see l_som_rhizo_series) is part of
-! the profit-max hydraulics.
-l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt )
+! The soil-to-root conductance in series (see l_som_rhizo_series) is part of
+! the plant hydraulics of the profit max and DESICA.
+l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt .OR.               &
+                       stomata_model == stomata_desica )
 
 IF ( .NOT. l_root_mass_fixed .AND. root_mass_min <= 0.0 ) THEN
   errcode = 101

@@ -85,7 +85,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_bvoc_emis, l_fapar_diag, l_trait_phys, l_stem_resp_fix, l_o3_damage,     &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_gl_max, l_som_supply_limit,                                            &
-    l_som_cuticular_floor, l_som_gravity, l_red,                               &
+    l_som_cuticular_floor, l_som_gravity, l_red, l_som_rhizo_series,           &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model
 
 USE CN_utils_mod, ONLY:                                                        &
@@ -129,7 +129,7 @@ USE sugar_mod, ONLY: sugar
 USE stom_opt_jls_mod, ONLY: stom_opt_mod
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
-USE xylem_hydraulics_CW_jls_mod, ONLY: set_ksr_path
+USE xylem_hydraulics_CW_jls_mod, ONLY: set_ksr_path, ksr
 
 USE planet_constants_mod, ONLY: repsilon, g, r
 USE water_constants_mod, ONLY: rho_water
@@ -702,6 +702,9 @@ INTEGER, PARAMETER :: n_fw_bisect = 12
                             ! DESICA bisection steps on fw (to 2.4e-4).
 INTEGER :: n_pass, i_pass
                             ! Passes of the big-leaf flux calculation.
+REAL(KIND=real_jlslsm) :: ksr_ds(land_pts)
+                            ! DESICA: soil-to-root conductance in series
+                            ! (ksr, l_som_rhizo_series), < 0: none.
 REAL(KIND=real_jlslsm) :: fw_lo(land_pts), fw_hi(land_pts),                    &
                           el_try(land_pts), psi_try(land_pts), k_try(land_pts),&
                           el_hyd(land_pts)
@@ -2216,6 +2219,8 @@ CASE ( 1 )
     n_pass = n_fw_bisect + 1
     fw_lo(:) = 0.0
     fw_hi(:) = 1.0
+    ksr_ds(:) = -1.0
+    IF ( l_som_rhizo_series ) ksr_ds(:) = ksr(:)
   END IF
 
   DO i_pass = 1,n_pass
@@ -2439,7 +2444,7 @@ CASE ( 1 )
                   * MAX(gc(l), gl_cut_ds) / (rmol * tstar(l))
     END DO
     CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,       &
-                            lai, ht, psi_root_zone, el_try, .FALSE.,         &
+                            lai, ht, psi_root_zone, ksr_ds, el_try, .FALSE., &
                             psi_try, k_try, el_hyd )
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -3049,7 +3054,7 @@ END IF
 !-----------------------------------------------------------------------------
 IF ( stomata_model == stomata_desica ) THEN
   CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
-                          lai, ht, psi_root_zone, el, .FALSE.,               &
+                          lai, ht, psi_root_zone, ksr_ds, el, .FALSE.,       &
                           psi_try, k_try, el_hyd )
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -3059,13 +3064,13 @@ IF ( stomata_model == stomata_desica ) THEN
     END IF
   END DO
   CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,         &
-                          lai, ht, psi_root_zone, el, .FALSE.,               &
+                          lai, ht, psi_root_zone, ksr_ds, el, .FALSE.,       &
                           psi_leaf, leaf_k, el_hyd )
-  ! desica_hydraulics returns the plant conductance per m2 ground; per unit
-  ! leaf area, as the other paths (PLC_pft).
+  ! desica_hydraulics returns Kplant (soil-to-leaf) per m2 ground; per unit
+  ! leaf area, as the other paths (kplant_pft).
   leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
   CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,        &
-                            psi_root_zone )
+                            psi_root_zone, ksr_ds )
 END IF
 
 !-----------------------------------------------------------------------------
