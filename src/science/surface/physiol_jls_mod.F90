@@ -116,7 +116,7 @@ USE jules_vegetation_mod, ONLY:                                                &
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                       &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
   l_som_rhizo_series
-USE xylem_hydraulics_CW_jls_mod, ONLY: som_ksr_frac
+USE xylem_hydraulics_CW_jls_mod, ONLY: ksr
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: root_psi_crit, fsmc_mod
 
@@ -1299,17 +1299,18 @@ DO n = 1,npft
     END IF
 
     !-------------------------------------------------------------------------
-    ! l_som_rhizo_series: this PFT's soil-to-root conductance, summed over the
-    ! layers (in parallel), as a fraction of the whole-plant conductance
-    ! kmax_pft * LAI. soil_to_root_k is per ground area per metre of head
-    ! (kg m-3 s-1); / (rho_water g) gives kg m-2 s-1 Pa-1 and / m_h2o
-    ! mol m-2 s-1 Pa-1, the units of kmax_pft. Read by leaf_psi_jls.
+    ! l_som_rhizo_series: this PFT's soil-to-root conductance Ksr, summed
+    ! over the layers (in parallel), per m2 ground. soil_to_root_k is per
+    ! ground area per metre of head (kg m-3 s-1); / (rho_water g) gives
+    ! kg m-2 s-1 Pa-1 and / m_h2o mol m-2 s-1 Pa-1, the units of
+    ! kmax_pft * LAI. It is kept apart from kmax: sf_stom shares it between
+    ! the leaf paths (set_ksr_path) and leaf_psi_jls puts it in series.
     !-------------------------------------------------------------------------
     IF ( l_som_rhizo_series ) THEN
-      IF ( .NOT. ALLOCATED(som_ksr_frac) ) ALLOCATE(som_ksr_frac(land_pts))
-      ! som_ksr_frac < 0: no soil link (smc_ext computes soil_to_root_k only
-      ! for fsmc_mod = 2).
-      som_ksr_frac(:) = -1.0
+      IF ( .NOT. ALLOCATED(ksr) ) ALLOCATE(ksr(land_pts))
+      ! ksr < 0: no soil link (smc_ext computes soil_to_root_k only for
+      ! fsmc_mod = 2).
+      ksr(:) = -1.0
       IF ( fsmc_mod(n) /= 2 ) THEN
         IF ( .NOT. l_warned_ksr .AND. surft_pts(n) > 0 ) THEN
           errorstatus = -1
@@ -1319,13 +1320,12 @@ DO n = 1,npft
           l_warned_ksr = .TRUE.
         END IF
       ELSE
-      som_ksr_frac(:) = 0.0
+      ksr(:) = 0.0
       DO j = 1,surft_pts(n)
         l = surft_index(j,n)
+        ! No leaves, no leaf path: no soil link either (as before).
         IF ( kmax_pft(n) * lai_pft(l,n) > 0.0 ) THEN
-          som_ksr_frac(l) = SUM(soil_root_k_soilt(l,m,:))                      &
-                            / (rho_water * g * m_h2o_rs)                       &
-                            / (kmax_pft(n) * lai_pft(l,n))
+          ksr(l) = SUM(soil_root_k_soilt(l,m,:)) / (rho_water * g * m_h2o_rs)
         END IF
       END DO
       END IF

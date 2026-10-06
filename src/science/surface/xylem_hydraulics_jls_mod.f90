@@ -142,7 +142,7 @@ USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,             &
                                 som_psi_solver, psi_solver_lut,           &
                                 l_som_plant_segments, l_som_rhizo_series
 USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls, leaf_psi_lut_jls,     &
-                                       supply_lut_f, som_ksr_frac,             &
+                                       supply_lut_f, ksr_path,                 &
                                        som_psi_in_min
 USE xylem_hydraulics_SOX_jls_mod, ONLY: leaf_psi_SOX_jls
 
@@ -222,8 +222,8 @@ ELSE
     psi_in(:) = root_zone_psi(:)
     DO j = 1, open_pnts
       l = veg_index(open_index(j))
-      k_s = som_ksr_frac(l) * kmax(l)
-      IF ( som_ksr_frac(l) < 0.0 ) THEN
+      k_s = ksr_path(l)
+      IF ( ksr_path(l) < 0.0 ) THEN
         ! No soil link for this PFT (fsmc_mod /= 2).
       ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
         psi_in(l) = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
@@ -235,10 +235,10 @@ ELSE
     CALL plant_path( 1, e1, psi_in, psi1, k1 )
     DO j = 1, open_pnts
       l = veg_index(open_index(j))
-      k_s  = som_ksr_frac(l) * kmax(l)
+      k_s  = ksr_path(l)
       k_in = kmax(l) * supply_lut_f(pft, psi_in(l))
       leaf_psi(i,j) = psi1(1,j)
-      IF ( som_ksr_frac(l) < 0.0 ) THEN
+      IF ( ksr_path(l) < 0.0 ) THEN
         leaf_k(i,j) = k1(1,j)
       ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
         leaf_k(i,j) = k1(1,j) / (1.0 + k_in / k_s)

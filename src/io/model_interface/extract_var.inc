@@ -24,6 +24,7 @@ USE timestep_mod, ONLY: timestep
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
                           flux_sap_desica, dw_plant_desica
 USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
+USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f
 
 !Use variables
 !Science variables
@@ -96,9 +97,6 @@ USE jules_rivers_mod, ONLY: nstep_rivers, np_rivers, n_rivers,                 &
    calc_outflow_per_river
 
 USE coastal, ONLY: flandg
-
-USE pftparm, ONLY:                                                             &
-  kmax_pft
 
 !Others
 USE io_constants, ONLY:                                                        &
@@ -3687,10 +3685,28 @@ CASE ( 'sapflow_pft' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-CASE ('PLC_pft')
+CASE ( 'kplant_pft' )
+  ! leaf_k_pft is the solver's -dE/dpsi_leaf for the whole path: with
+  ! l_som_rhizo_series it includes the soil-to-root conductance Ksr in series
+  ! with the xylem.
+  cube_land = cube_from_array(psparms%leaf_k_pft)
+  cube = map_from_land(cube_land)
 
+CASE ('PLC_pft')
+  ! Xylem only: the loss on the PFT vulnerability curve at psi_leaf. Not
+  ! from leaf_k_pft (kplant_pft), which includes the soil-to-root
+  ! conductance, so would count soil drying as embolism. DESICA: the state
+  ! psi_leaf, as psi_leaf_pft.
   DO i = 1, npft
-    workspace_pft(:,i) = 100.0 * (1 - psparms%leaf_k_pft(:,i)/kmax_pft(i))
+    DO l = 1, land_pts
+      IF ( stomata_model == stomata_desica .AND.                               &
+           ALLOCATED(psi_leaf_desica) ) THEN
+        workspace_pft(l,i) = 100.0 * (1.0 - xylem_f(i, psi_leaf_desica(l,i)))
+      ELSE
+        workspace_pft(l,i) = 100.0                                             &
+                             * (1.0 - xylem_f(i, psparms%psi_leaf_pft(l,i)))
+      END IF
+    END DO
   END DO
 
   cube_land = cube_from_array(workspace_pft)

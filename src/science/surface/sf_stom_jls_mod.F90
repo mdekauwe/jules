@@ -129,6 +129,7 @@ USE sugar_mod, ONLY: sugar
 USE stom_opt_jls_mod, ONLY: stom_opt_mod
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
+USE xylem_hydraulics_CW_jls_mod, ONLY: set_ksr_path
 
 USE planet_constants_mod, ONLY: repsilon, g, r
 USE water_constants_mod, ONLY: rho_water
@@ -1755,11 +1756,12 @@ CASE ( 5, 6 )
                 CALL apply_supply_limit( land_pts, veg_pts, veg_index,         &
                                          e_supply, share_sup, dqc, tstar,      &
                                          pstar, gl_max_lf, gl_max_eff )
+                CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
                 ! Added gs opt call for sunlit, 29 Apr, MGDK
                 CALL stom_opt_mod (                                            &
                     ! IN
                     land_pts, som_base_parm, ft, open_pts, open_index,         &
-                    pft_photo_model, veg_index,                                &
+                    pft_photo_model, veg_pts, veg_index,                       &
                     ca, psi_src, acr, apar, oa, vcmax, kc, ko, ccp, pstar,     &
                     km, dqc, qs, je, tstar, je_sun_ratio, fapar_sun(:,n),      &
                     kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,           &
@@ -1775,7 +1777,7 @@ CASE ( 5, 6 )
                 CALL stom_opt_mod (                                            &
                     ! IN
                     land_pts, som_base_parm, ft, open_pts, open_index,         &
-                    pft_photo_model, veg_index,                                &
+                    pft_photo_model, veg_pts, veg_index,                       &
                     ca, psi_src, acr, apar, oa, vcmax, kc, ko, ccp, pstar,     &
                     km, dqc, qs, je, tstar,  je_shd_ratio, fapar_shd(:,n),     &
                     kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,           &
@@ -2357,11 +2359,12 @@ CASE ( 1 )
        CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,        &
                                 share_sup, dqc, tstar, pstar,                  &
                                 gl_max_bigleaf, gl_max_eff )
+       CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
        CALL stom_opt_mod (                                                  &
               ! IN
                 land_pts, som_base_parm, ft, open_pts, open_index,           &
-                pft_photo_model, veg_index,                                  &
+                pft_photo_model, veg_pts, veg_index,                         &
                 ca, psi_src, acrc, apar, oa, vcmaxc, kc, ko, ccp, pstar,      &
                 km, dqc, qs, je, tstar, je_dummy, fapar_dummy,               &
                 kmax_bigleaf, kcrit_bigleaf, gl_max_eff, ipar,               &
@@ -2714,11 +2717,12 @@ CASE ( 7 )
       CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,         &
                                share_sup, dq_sun_lt, t_sun_lt, pstar,          &
                                gl_max_sun_2l, gl_max_eff )
+      CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
       CALL stom_opt_mod (                                                      &
               ! IN
                 land_pts, som_base_parm, ft, open_pts, open_index,             &
-                pft_photo_model, veg_index,                                    &
+                pft_photo_model, veg_pts, veg_index,                           &
                 ca, psi_src, acr_sun_2l, apar_sun_2l, oa, vcmax_sun_2l,        &
                 kc_sun_lt, ko_sun_lt, ccp_sun_lt, pstar,                       &
                 km_sun_lt, dq_sun_lt, qs_sun_lt, je_sun, t_sun_lt, je_dummy,   &
@@ -2735,11 +2739,12 @@ CASE ( 7 )
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
                              share_sup, dqc, tstar, pstar, gl_max_sun_2l,      &
                              gl_max_eff )
+    CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
     CALL stom_opt_mod (                                                        &
             ! IN
               land_pts, som_base_parm, ft, open_pts, open_index,               &
-              pft_photo_model, veg_index,                                      &
+              pft_photo_model, veg_pts, veg_index,                             &
               ca, psi_src, acr_sun_2l, apar_sun_2l, oa, vcmax_sun_2l,          &
               kc, ko, ccp, pstar,                                              &
               km, dqc, qs, je_sun, tstar, je_dummy, fapar_dummy,               &
@@ -2792,11 +2797,12 @@ CASE ( 7 )
       CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,         &
                                share_sup, dq_shd_lt, t_shd_lt, pstar,          &
                                gl_max_shd_2l, gl_max_eff )
+      CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
       CALL stom_opt_mod (                                                      &
               ! IN
                 land_pts, som_base_parm, ft, open_pts, open_index,             &
-                pft_photo_model, veg_index,                                    &
+                pft_photo_model, veg_pts, veg_index,                           &
                 ca, psi_src, acr_shd_2l, apar_shd_2l, oa, vcmax_shd_2l,        &
                 kc_shd_lt, ko_shd_lt, ccp_shd_lt, pstar,                       &
                 km_shd_lt, dq_shd_lt, qs_shd_lt, je_shd, t_shd_lt, je_dummy,   &
@@ -2813,11 +2819,12 @@ CASE ( 7 )
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
                              share_sup, dqc, tstar, pstar, gl_max_shd_2l,      &
                              gl_max_eff )
+    CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
     CALL stom_opt_mod (                                                        &
             ! IN
               land_pts, som_base_parm, ft, open_pts, open_index,               &
-              pft_photo_model, veg_index,                                      &
+              pft_photo_model, veg_pts, veg_index,                             &
               ca, psi_src, acr_shd_2l, apar_shd_2l, oa, vcmax_shd_2l,          &
               kc, ko, ccp, pstar,                                              &
               km, dqc, qs, je_shd, tstar, je_dummy, fapar_dummy,               &
@@ -2986,6 +2993,7 @@ IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
   END DO
   CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
                            share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
+  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
   ! Without plant water storage the leak must also pass the xylem: try
   ! E_floor * i / n_cut and keep the largest flux with k > kcrit (the
   ! feasibility rule of stom_opt_mod), so psi_leaf cannot run away in a

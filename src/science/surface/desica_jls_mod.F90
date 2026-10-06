@@ -46,8 +46,8 @@ MODULE desica_jls_mod
 ! psi_root_zone, the uptake-weighted root-zone value; there is no soil-root
 ! resistance (as in the profit max). DESICA's placement of the stem store
 ! halfway along the plant is som_leaf_resist_frac (0.5 = DESICA): the
-! leaf-side conductance is k_plant / som_leaf_resist_frac and the root-side
-! one k_plant / (1 - som_leaf_resist_frac).
+! leaf-side conductance is k_xylem / som_leaf_resist_frac and the root-side
+! one k_xylem / (1 - som_leaf_resist_frac).
 !
 ! Water accounting: sf_stom solves gs with a projected E and stores the
 ! step's inputs (desica_store_inputs). Once the surface fluxes are final,
@@ -225,7 +225,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 
 INTEGER :: l, m, n, n_sub
 REAL(KIND=real_jlslsm) ::                                                      &
-  dt, kmax_c, k_plant, k_leaf, k_root, c_leaf, c_stem, psi_h, psi_stem_min,    &
+  dt, kmax_c, k_xylem, k_leaf, k_root, c_leaf, c_stem, psi_h, psi_stem_min,    &
   pl, ps, pl_new, ps_new, ap, bp, ex, j_sap, j_cap, q_root, q_sum, j_sum,     &
   e, e_sub, e_sum
 
@@ -268,12 +268,12 @@ DO m = 1,veg_pts
   e_sum  = 0.0
 
   DO n = 1,n_sub
-    ! Plant conductance on the PFT vulnerability curve at psi_stem
+    ! Xylem conductance on the PFT vulnerability curve at psi_stem
     ! (Eqn S2b), split either side of the stem store.
-    k_plant = kmax_c * EXP(-(ABS(ps / conductance_b(ft)))**conductance_c(ft))
-    k_plant = MAX(k_plant, 1.0e-6 * kmax_c)
-    k_leaf  = k_plant / som_leaf_resist_frac
-    k_root  = k_plant / (1.0 - som_leaf_resist_frac)
+    k_xylem = kmax_c * EXP(-(ABS(ps / conductance_b(ft)))**conductance_c(ft))
+    k_xylem = MAX(k_xylem, 1.0e-6 * kmax_c)
+    k_leaf  = k_xylem / som_leaf_resist_frac
+    k_root  = k_xylem / (1.0 - som_leaf_resist_frac)
 
     ! The lower bounds on psi_leaf and psi_stem are met by capping the
     ! fluxes, not the potentials, so that the stores stay in balance
@@ -348,7 +348,7 @@ DO m = 1,veg_pts
   END IF
 
   psi_leaf(l) = pl
-  leaf_k(l)   = k_plant
+  leaf_k(l)   = k_xylem
 END DO
 
 END SUBROUTINE desica_hydraulics

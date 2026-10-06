@@ -31,7 +31,7 @@ CONTAINS
 SUBROUTINE stom_opt_mod (                                                      &
 ! IN
         land_pts, som_base_parm, pft, open_pts, open_index,                    &
-        pft_photo_model, veg_index,                                            &
+        pft_photo_model, veg_pts, veg_index,                                   &
         ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,           &
         km, dq, qs, je, t_leaf, je_ratio, fapar_lf, kmax, kcrit,               &
         gl_max, ipar, l_multilayer,                                            &
@@ -56,6 +56,7 @@ USE pftparm, ONLY:                                                             &
         min_gl_pft, kcrit_fractional_loss
 
 USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls
+USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow
 
 LOGICAL, INTENT(IN) :: l_multilayer
 
@@ -81,6 +82,8 @@ INTEGER, INTENT(IN) ::                                                         &
 ,pft_photo_model                                                               &
                             ! Indicates which photosynthesis model to use for
                             ! the current PFT.
+,veg_pts                                                                       &
+                            ! Number of vegetated points.
 ,veg_index(land_pts)
                             ! Index of vegetated points on the land grid.
 
@@ -159,7 +162,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,psi_leaf(land_pts)                                                            &
                             ! Leaf water potential (Pa)
 ,leaf_k(land_pts)
-                            ! Xylem conductance at leaf water potential (m/s)
+                            ! Whole-path (soil-to-leaf) conductance
+                            ! -dE/dpsi_leaf, in the units of kmax (Kplant).
 
 ! TEMPORARY: output variables for testing
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -175,7 +179,7 @@ INTEGER ::                                                                     &
  optimal_index                                                                 &
                             ! Holds index of the optimal stomatal conductance
                             !  for each land point. Used by SOX_profit_model.
-,i,j,l                                                                         &
+,i,j,l,m                                                                       &
                             ! Iterators
 ,errcode
                             ! Error code to pass to ereport.
@@ -309,7 +313,14 @@ flux_o3(:) = 0.0
 fo3(:)     = 0.0
 gl(:)      = min_gl_pft(pft)
 psi_leaf(:)= psi_root_zone(:)
+! Closed stomata: the whole-path conductance at zero flow (xylem at
+! psi_root_zone, in series with the soil-to-root ksr_path), the same
+! definition as the optimiser's leaf_k for open points.
 leaf_k(:)  = kmax
+DO m = 1, veg_pts
+  l = veg_index(m)
+  leaf_k(l) = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
+END DO
 ! Default outputs for points with closed stomata. Overwritten below for
 ! points with open stomata. Set before the early return, so that a call
 ! with no open points does not return the previous call's values.
