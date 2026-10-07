@@ -212,6 +212,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   psi_vcmax_f_io(npft_max) = rmdi,                                             &
   sf_vcmax_io(npft_max) = rmdi,                                                &
   psi_vcmax_fmin_io(npft_max) = rmdi,                                          &
+  soil_litter_depth_io(npft_max) = rmdi,                                       &
+  or_z0soil_fac_io(npft_max) = rmdi,                                           &
   ! DESICA (stomata_model = 5). Tuzet et al. (2003) closure
   ! fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf))), with
   ! gs = g1 fw An / ca; defaults are the CABLE-DESICA evergreen broadleaf
@@ -294,6 +296,7 @@ NAMELIST  / jules_pftparm/                                                     &
   p88_root_io,     p88_stem_io,      p88_leaf_io,                              &
   gcuticular_io,         psi_nsl_onset_io, psi_nsl0_io,                        &
   fsmc_q_io,       psi_vcmax_f_io,   sf_vcmax_io,      psi_vcmax_fmin_io,      &
+  soil_litter_depth_io, or_z0soil_fac_io,                                      &
   g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
   cap_leaf_io,     cap_stem_io,                                                &
   q10_leaf_io,      r_grow_io,                                &
@@ -338,7 +341,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 5 * npft_max ! = the INTEGER arrays in my_namelist
-INTEGER, PARAMETER :: n_real = 135 * npft_max ! = the REAL arrays in my_namelist
+INTEGER, PARAMETER :: n_real = 137 * npft_max ! = the REAL arrays in my_namelist
 
 TYPE :: my_namelist
   SEQUENCE
@@ -450,6 +453,8 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: psi_vcmax_f_io(npft_max)
   REAL(KIND=real_jlslsm) :: sf_vcmax_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_vcmax_fmin_io(npft_max)
+  REAL(KIND=real_jlslsm) :: soil_litter_depth_io(npft_max)
+  REAL(KIND=real_jlslsm) :: or_z0soil_fac_io(npft_max)
   REAL(KIND=real_jlslsm) :: g1_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: sf_tuzet_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_f_tuzet_io(npft_max)
@@ -608,6 +613,8 @@ IF (mype == 0) THEN
   my_nml % psi_vcmax_f_io = psi_vcmax_f_io
   my_nml % sf_vcmax_io    = sf_vcmax_io
   my_nml % psi_vcmax_fmin_io = psi_vcmax_fmin_io
+  my_nml % soil_litter_depth_io = soil_litter_depth_io
+  my_nml % or_z0soil_fac_io = or_z0soil_fac_io
   my_nml % g1_tuzet_io    = g1_tuzet_io
   my_nml % sf_tuzet_io    = sf_tuzet_io
   my_nml % psi_f_tuzet_io = psi_f_tuzet_io
@@ -754,6 +761,8 @@ IF (mype /= 0) THEN
   psi_vcmax_f_io  = my_nml % psi_vcmax_f_io
   sf_vcmax_io     = my_nml % sf_vcmax_io
   psi_vcmax_fmin_io = my_nml % psi_vcmax_fmin_io
+  soil_litter_depth_io = my_nml % soil_litter_depth_io
+  or_z0soil_fac_io = my_nml % or_z0soil_fac_io
   g1_tuzet_io     = my_nml % g1_tuzet_io
   sf_tuzet_io     = my_nml % sf_tuzet_io
   psi_f_tuzet_io  = my_nml % psi_f_tuzet_io
@@ -810,7 +819,8 @@ USE pftparm, ONLY:                                                             &
   psi_open,        min_rootc_pft,    root_psi_crit,                            & ! JBaguley
   root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
   gcuticular,            psi_nsl_onset,    psi_nsl0,         fsmc_q,           &
-  psi_vcmax_f,     sf_vcmax,         psi_vcmax_fmin,                           &
+  psi_vcmax_f,     sf_vcmax,         psi_vcmax_fmin,   soil_litter_depth,      &
+  or_z0soil_fac,                                                               &
   g1_tuzet,        sf_tuzet,                                                   &
   psi_f_tuzet,     cap_leaf,         cap_stem,                                 &
 #endif
@@ -1000,6 +1010,18 @@ IF ( l_som_vcmax_psi .AND. ( ANY(psi_vcmax_f(:) >= 0.0) .OR.                  &
 END IF
 WHERE (ABS(psi_vcmax_fmin_io(1:npft) - rmdi) > EPSILON(1.0))                 &
   psi_vcmax_fmin(:) = psi_vcmax_fmin_io(1:npft)
+WHERE (ABS(soil_litter_depth_io(1:npft) - rmdi) > EPSILON(1.0))              &
+  soil_litter_depth(:) = soil_litter_depth_io(1:npft)
+IF ( ANY(soil_litter_depth(:) < 0.0) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode, 'soil_litter_depth_io must be >= 0.')
+END IF
+WHERE (ABS(or_z0soil_fac_io(1:npft) - rmdi) > EPSILON(1.0))                  &
+  or_z0soil_fac(:) = or_z0soil_fac_io(1:npft)
+IF ( ANY(or_z0soil_fac(:) <= 0.0) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode, 'or_z0soil_fac_io must be > 0.')
+END IF
 IF ( l_som_vcmax_psi .AND. ( ANY(psi_vcmax_fmin(:) < 0.0) .OR.               &
                              ANY(psi_vcmax_fmin(:) >= 1.0) ) ) THEN
   errcode = 101

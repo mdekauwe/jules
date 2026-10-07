@@ -126,7 +126,8 @@ USE jules_hydrology_mod, ONLY: l_limit_gsoil, l_soil_evap_or
 
 USE soil_evap_or_mod, ONLY: gsoil_or
 
-USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft
+USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft,       &
+                   soil_litter_depth, or_z0soil_fac
 USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, sigl, lma, rmass, kmax_pft
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs,                    &
@@ -1595,13 +1596,17 @@ DO n = 1,npft
       IF ( l_soil_point(l) ) THEN
         ustar_or = vonk_or * vshr(i_or,j_or)                                   &
                    / LOG((z1_uv_ij(i_or,j_or) + z0(l)) / z0(l))
-        gsoil_under_canopy(l) = gsoil_f(n) *                                   &
+        ! No gsoil_f: it is the canopy factor of the gs_nvg (theta /
+        ! theta_crit)**2 conductance; the Or resistance includes the canopy
+        ! through the within-canopy wind profile (CABLE has no such factor).
+        gsoil_under_canopy(l) =                                                &
           gsoil_or(vshr(i_or,j_or), ustar_or, canht_pft(l,n),                  &
                    lai_pft_soil_evap(l,n), tstar(l),                           &
                    sathh_soilt(l,m,1), bexp_soilt(l,m,1),                      &
                    satcon_soilt(l,m,1),                                        &
                    sthu_soilt(l,m,1) * smvcst_soilt(l,m,1),                    &
-                   smvcst_soilt(l,m,1))
+                   smvcst_soilt(l,m,1), soil_litter_depth(n),                  &
+                   or_z0soil_fac(n))
       ELSE
         gsoil_under_canopy(l) = 0.0
       END IF
@@ -1732,7 +1737,8 @@ IF ( l_soil_evap_or ) THEN
                               tstar_surft(l,n), sathh_soilt(l,m,1),            &
                               bexp_soilt(l,m,1), satcon_soilt(l,m,1),          &
                               sthu_soilt(l,m,1) * smvcst_soilt(l,m,1),         &
-                              smvcst_soilt(l,m,1))
+                              smvcst_soilt(l,m,1), 0.0_real_jlslsm,            &
+                              1.0_real_jlslsm)
     ELSE
       gs_type(l,n) = 0.0
     END IF

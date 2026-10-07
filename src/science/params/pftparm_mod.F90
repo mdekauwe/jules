@@ -477,6 +477,18 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! et al. 2013).
 ,sf_vcmax(:)                                                                   &
                  ! Steepness of that down-regulation (MPa-1).
+,or_z0soil_fac(:)                                                              &
+                 ! Multiplier on the Or scheme's soil-surface roughness z0soil
+                 ! beneath this PFT (l_soil_evap_or; CABLE: 0.01 min(1, LAI) +
+                 ! 0.02 min(u*2/g, 1) m). In wet soil the Or resistance is
+                 ! ~z0soil / D_vapour (~400 s m-1 at 1 cm), so this sets the
+                 ! wet-soil evaporation rate. 1 = CABLE.
+,soil_litter_depth(:)                                                          &
+                 ! Litter layer depth over the soil (m) for the Or soil
+                 ! evaporation scheme (l_soil_evap_or): a vapour diffusion
+                 ! resistance depth / DvLitt in series with the soil
+                 ! resistance, as CABLE's default-scheme litter (relitt; CABLE
+                 ! depth = clitt * 0.003 m per t C ha-1). 0 = none.
 ,psi_vcmax_fmin(:)                                                             &
                  ! Floor of that down-regulation (-): f = fmin + (1 - fmin)
                  ! f_Zhou, so capacity never falls below fmin (0 = none, as
@@ -811,6 +823,8 @@ ALLOCATE( fsmc_q(npft))
 ALLOCATE( psi_vcmax_f(npft))
 ALLOCATE( sf_vcmax(npft))
 ALLOCATE( psi_vcmax_fmin(npft))
+ALLOCATE( soil_litter_depth(npft))
+ALLOCATE( or_z0soil_fac(npft))
 ALLOCATE( g1_tuzet(npft))
 ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
@@ -840,6 +854,8 @@ fsmc_q(:) = 1.0
 psi_vcmax_f(:) = -2.0e6
 sf_vcmax(:) = 2.0
 psi_vcmax_fmin(:) = 0.0
+soil_litter_depth(:) = 0.0
+or_z0soil_fac(:) = 1.0
 g1_tuzet(:) = 4.19
 sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
@@ -1128,6 +1144,10 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' sf_vcmax = ',sf_vcmax
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' psi_vcmax_fmin = ',psi_vcmax_fmin
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' soil_litter_depth = ',soil_litter_depth
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' or_z0soil_fac = ',or_z0soil_fac
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
 CALL jules_print('pftparm',lineBuffer)
