@@ -204,6 +204,7 @@ USE jules_surface_mod, ONLY: l_aggregate, formdrag, l_anthrop_heat_src,        &
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod, ilayers, leaf_flux_mod,&
                                 som_base_parm, l_triffid,  l_vegdrag_surft,   &
                                 stomata_model, stomata_desica
+USE jules_hydrology_mod, ONLY: l_soil_evap_or
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd, irrig_option, tile_based_irrigation
 
@@ -2292,7 +2293,7 @@ DO n = 1,nsurft
   ! We should only attempt to access sf_diag%resfs_stom(:,n) if it has
   ! been fully allocated.
   IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR.                      &
-      stomata_model == stomata_desica) THEN
+      stomata_model == stomata_desica .OR. l_soil_evap_or) THEN
     n_diag = n
   ELSE
     n_diag = 1
@@ -2304,7 +2305,7 @@ DO n = 1,nsurft
    gc_stom_surft(:,n),snowdep_surft(:,n),snow_surft(:,n),vshr_land,            &
    tstar_surft(:,n),fracaero_t(:,n),fracaero_s(:,n),resfs(:,n),resft(:,n),     &
    sf_diag%resfs_stom(:,n_diag),                                               &
-   sf_diag%l_et_stom .OR. stomata_model == stomata_desica,                     &
+   sf_diag%l_et_stom .OR. stomata_model == stomata_desica .OR. l_soil_evap_or, &
    sf_diag%l_et_stom_surft)
 
 END DO
@@ -2649,7 +2650,7 @@ DO n = 1,nsurft
   ! We should only attempt to access sf_diag%resfs_stom(:,n) if it has
   ! been fully allocated.
   IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR.                      &
-      stomata_model == stomata_desica) THEN
+      stomata_model == stomata_desica .OR. l_soil_evap_or) THEN
     n_diag = n
   ELSE
     n_diag = 1
@@ -2661,7 +2662,7 @@ DO n = 1,nsurft
    gc_stom_surft(:,n),snowdep_surft(:,n),snow_surft(:,n),vshr_land,            &
    tstar_surft(:,n),fracaero_t(:,n),fracaero_s(:,n),resfs(:,n),resft(:,n),     &
    sf_diag%resfs_stom(:,n_diag),                                               &
-   sf_diag%l_et_stom .OR. stomata_model == stomata_desica,                     &
+   sf_diag%l_et_stom .OR. stomata_model == stomata_desica .OR. l_soil_evap_or, &
    sf_diag%l_et_stom_surft)
 
   CALL sf_flux (                                                               &
