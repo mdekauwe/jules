@@ -204,6 +204,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! point is an optional variant.
   psi_nsl_onset_io(npft_max) = rmdi,                                           &
   psi_nsl0_io(npft_max) = rmdi,                                                &
+  ! Supply-loss stomata (stomata_model = 9): ci/ca of the carbon demand
+  ! (missing = pftparm default 0.8).
+  sl_cica_well_watered_io(npft_max) = rmdi,                                    &
   ! Curvature exponent of the soil moisture stress factor (missing = 1,
   ! linear).
   fsmc_q_io(npft_max) = rmdi,                                                  &
@@ -293,6 +296,7 @@ NAMELIST  / jules_pftparm/                                                     &
   p50_root_io,     p50_stem_io,      p50_leaf_io,                              &
   p88_root_io,     p88_stem_io,      p88_leaf_io,                              &
   gcuticular_io,         psi_nsl_onset_io, psi_nsl0_io,                        &
+  sl_cica_well_watered_io,                                                     &
   fsmc_q_io,       psi_vcmax_f_io,   sf_vcmax_io,      psi_vcmax_fmin_io,      &
   g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
   cap_leaf_io,     cap_stem_io,                                                &
@@ -338,7 +342,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 5 * npft_max ! = the INTEGER arrays in my_namelist
-INTEGER, PARAMETER :: n_real = 135 * npft_max ! = the REAL arrays in my_namelist
+INTEGER, PARAMETER :: n_real = 136 * npft_max ! = the REAL arrays in my_namelist
 
 TYPE :: my_namelist
   SEQUENCE
@@ -446,6 +450,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: gcuticular_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_nsl_onset_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_nsl0_io(npft_max)
+  REAL(KIND=real_jlslsm) :: sl_cica_well_watered_io(npft_max)
   REAL(KIND=real_jlslsm) :: fsmc_q_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_vcmax_f_io(npft_max)
   REAL(KIND=real_jlslsm) :: sf_vcmax_io(npft_max)
@@ -604,6 +609,7 @@ IF (mype == 0) THEN
   my_nml % gcuticular_io        = gcuticular_io
   my_nml % psi_nsl_onset_io = psi_nsl_onset_io
   my_nml % psi_nsl0_io    = psi_nsl0_io
+  my_nml % sl_cica_well_watered_io = sl_cica_well_watered_io
   my_nml % fsmc_q_io      = fsmc_q_io
   my_nml % psi_vcmax_f_io = psi_vcmax_f_io
   my_nml % sf_vcmax_io    = sf_vcmax_io
@@ -750,6 +756,7 @@ IF (mype /= 0) THEN
   gcuticular_io         = my_nml % gcuticular_io
   psi_nsl_onset_io = my_nml % psi_nsl_onset_io
   psi_nsl0_io     = my_nml % psi_nsl0_io
+  sl_cica_well_watered_io = my_nml % sl_cica_well_watered_io
   fsmc_q_io       = my_nml % fsmc_q_io
   psi_vcmax_f_io  = my_nml % psi_vcmax_f_io
   sf_vcmax_io     = my_nml % sf_vcmax_io
@@ -810,6 +817,7 @@ USE pftparm, ONLY:                                                             &
   psi_open,        min_rootc_pft,    root_psi_crit,                            & ! JBaguley
   root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
   gcuticular,            psi_nsl_onset,    psi_nsl0,         fsmc_q,           &
+  sl_cica_well_watered,                                                        &
   psi_vcmax_f,     sf_vcmax,         psi_vcmax_fmin,                           &
   g1_tuzet,        sf_tuzet,                                                   &
   psi_f_tuzet,     cap_leaf,         cap_stem,                                 &
@@ -867,7 +875,8 @@ USE c_z0h_z0m,    ONLY: z0h_z0m,  z0h_z0m_classic
 USE jules_surface_types_mod, ONLY: npft
 
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
-                                l_som_vcmax_psi
+                                l_som_vcmax_psi, stomata_model,                &
+                                stomata_supply_loss
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -986,6 +995,16 @@ IF ( l_som_nsl .AND. ( ANY(psi_nsl_onset(:) > 0.0) .OR.                       &
   errcode = 101
   CALL ereport(RoutineName, errcode,                                         &
                'l_som_nsl needs psi_nsl0_io < psi_nsl_onset_io <= 0.')
+END IF
+! Supply-loss demand ci/ca: keep the pftparm_alloc default where unset.
+WHERE (ABS(sl_cica_well_watered_io(1:npft) - rmdi) > EPSILON(1.0))            &
+  sl_cica_well_watered(:) = sl_cica_well_watered_io(1:npft)
+IF ( stomata_model == stomata_supply_loss .AND.                                &
+     ( ANY(sl_cica_well_watered(:) <= 0.0) .OR.                                &
+       ANY(sl_cica_well_watered(:) >= 1.0) ) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                         &
+               'sl_cica_well_watered_io must be in (0, 1).')
 END IF
 ! Soil-water down-regulation of capacity: keep the defaults where unset.
 WHERE (ABS(psi_vcmax_f_io(1:npft) - rmdi) > EPSILON(1.0))                    &
