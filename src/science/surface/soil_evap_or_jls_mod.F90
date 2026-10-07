@@ -25,6 +25,9 @@ REAL(KIND=real_jlslsm), PARAMETER ::                                           &
       ! Unit conversion constant in the liquid-supply resistance (m).
   rtevap_max = 10000.0,                                                        &
       ! Upper limit on the soil evaporation resistance (s m-1).
+  dv_litt = 3.1415841138194147e-05,                                            &
+      ! Vapour diffusivity through litter (m2 s-1), CABLE canopy%DvLitt
+      ! (Matthews 2006; u = 1 m s-1, bulk litter density 63.5 kg m-3).
   sublayer_dz_guess = 0.005,                                                   &
       ! Height (m) at which the canopy wind profile is evaluated to set the
       ! eddy shape. CABLE resets canopy%sublayer_dz to this every call.
@@ -80,7 +83,7 @@ CONTAINS
 !     maths, avoids overflow for large eddy shapes).
 !-----------------------------------------------------------------------------
 FUNCTION gsoil_or(ua, ustar, hc, lai, t_k, sathh, bexp, satcon,          &
-                  theta_liq, theta_sat)
+                  theta_liq, theta_sat, litter_dz, z0soil_fac)
 
 IMPLICIT NONE
 
@@ -103,8 +106,16 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
       ! Saturated hydraulic conductivity of the top layer (kg m-2 s-1).
   theta_liq,                                                                   &
       ! Volumetric liquid water content of the top layer (m3 m-3).
-  theta_sat
+  theta_sat,                                                                   &
       ! Volumetric water content at saturation of the top layer (m3 m-3).
+  litter_dz,                                                                   &
+      ! Litter layer depth (m); its diffusion resistance litter_dz / dv_litt
+      ! is added in series, as CABLE's default-scheme litter resistance
+      ! (relitt). CABLE's Or scheme instead adds the litter depth to the
+      ! viscous sublayer, which, through the z0soil / sublayer_dz factor,
+      ! lowers the resistance; not followed here.
+  z0soil_fac
+      ! Multiplier on z0soil (1 = CABLE).
 
 REAL(KIND=real_jlslsm) :: gsoil_or
       ! Soil surface conductance (m s-1).
@@ -131,7 +142,7 @@ visc = 1.0e-5 * MAX(1.0, 1.35 + 0.0092 * (t_k - 273.15))
 us = MAX(1.0e-3, ustar)
 
 ! Soil roughness length used by CABLE when or_evap = T.
-z0soil = 0.01 * MIN(1.0, lai) + 0.02 * MIN(us**2 / grav_or, 1.0)
+z0soil = z0soil_fac * ( 0.01 * MIN(1.0, lai) + 0.02 * MIN(us**2 / grav_or, 1.0) )
 
 !-----------------------------------------------------------------------------
 ! Viscous sublayer depth from the eddy spectrum at the surface.
@@ -185,7 +196,7 @@ ELSE
            + (sublayer_dz + pore_size * soil_moisture_mod) / rt_dff)
 END IF
 
-gsoil_or = 1.0 / rtevap
+gsoil_or = 1.0 / (rtevap + MAX(litter_dz, 0.0) / dv_litt)
 
 END FUNCTION gsoil_or
 
