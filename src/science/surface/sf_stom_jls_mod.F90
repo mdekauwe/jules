@@ -81,7 +81,7 @@ USE jules_vegetation_mod, ONLY:                                                &
 ! imported parameters
     photo_collatz, photo_farquhar, photo_sox_collatz, photo_johnson,           &
     stomata_medlyn, stomata_sox, stomata_desica, stomata_profit_max,           &
-    stomata_sox_profit,                                                        &
+    stomata_sox_profit, stomata_supply_loss,                                   &
     photo_adapt, photo_acclim, photo_adapt_acclim,                             &
     photo_act_model, photo_act_pft, photo_act_gb, n_photo_coef,                &
 ! imported scalars that are not changed
@@ -724,6 +724,9 @@ REAL(KIND=real_jlslsm) :: psi_src(land_pts)
                             ! seen by the stomatal optimisation (Pa):
                             ! psi_root_zone, less the gravitational drop
                             ! rho_water g ht when l_som_gravity.
+REAL(KIND=real_jlslsm) :: gl_leaf_cap
+                            ! som_gl_max, or 0 (no cap) for the supply-loss
+                            ! stomata (stomata_model = 9), which have none.
 REAL(KIND=real_jlslsm) :: gl_max_lf(land_pts), gl_max_bigleaf(land_pts)
                             ! som_gl_max on the basis each stom_opt_mod call
                             ! works on: per leaf area for the multilayer
@@ -863,6 +866,9 @@ REAL(KIND=jprb)               :: zhook_handle
 CHARACTER(LEN=*), PARAMETER :: RoutineName='SF_STOM'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+gl_leaf_cap = som_gl_max
+IF ( stomata_model == stomata_supply_loss ) gl_leaf_cap = 0.0
 
 !-----------------------------------------------------------------------------
 ! Gravity (l_som_gravity). Lifting water to the top of the canopy costs
@@ -1037,7 +1043,8 @@ CALL qsat(qs,tstar,pstar,land_pts)
 ! leaf_flux_mod = 2 and stomata_model = 2.)
 IF ( ( stomata_model == stomata_medlyn ) .OR. ( stomata_model == stomata_sox ) &
      .OR. ( stomata_model == stomata_profit_max )                              &
-     .OR. ( stomata_model == stomata_sox_profit ) ) THEN
+     .OR. ( stomata_model == stomata_sox_profit )                              &
+     .OR. ( stomata_model == stomata_supply_loss ) ) THEN
   ! Avoid dq=0 as this would cause the model to blow up.
   dq_min = 0.0001
 ELSE
@@ -1467,7 +1474,7 @@ CASE ( 5, 6 )
   IF (leaf_flux_mod == leaf_flux_stom_opt) THEN
 
     fsmc_unity(:) = 1.0
-    gl_max_lf(:)  = som_gl_max
+    gl_max_lf(:)  = gl_leaf_cap
 
         ! The humidity-deficit iteration (DO k = 1,iter) runs over the whole
         ! canopy, as in the big-leaf and two-leaf schemes: the deficit at the
@@ -2373,7 +2380,7 @@ CASE ( 1 )
        kcrit_bigleaf(:) = kcrit(ft) * lai(:)
        ! som_gl_max is per unit leaf area, so the canopy cap is x LAI, as
        ! kmax_bigleaf (and the multilayer and two-leaf totals).
-       gl_max_bigleaf(:) = som_gl_max * lai(:)
+       gl_max_bigleaf(:) = gl_leaf_cap * lai(:)
        share_sup(:) = 1.0
        CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,        &
                                 share_sup, dqc, tstar, pstar,                  &
@@ -2565,8 +2572,8 @@ CASE ( 7 )
     kcrit_sun_2l(l) = kmax_sun_2l(l) * (kcrit(ft) / kmax_pft(ft))
     kcrit_shd_2l(l) = kmax_shd_2l(l) * (kcrit(ft) / kmax_pft(ft))
     ! som_gl_max is per unit leaf area: x the class leaf area.
-    gl_max_sun_2l(l) = som_gl_max * lai_sun_2l(l)
-    gl_max_shd_2l(l) = som_gl_max * lai_shd_2l(l)
+    gl_max_sun_2l(l) = gl_leaf_cap * lai_sun_2l(l)
+    gl_max_shd_2l(l) = gl_leaf_cap * lai_shd_2l(l)
 
     ! Radiation to photosystem II of each class (cf. i2 = alpha_elec*acr).
     i2_sun(l) = alpha_elec(ft) * acr_sun_2l(l)

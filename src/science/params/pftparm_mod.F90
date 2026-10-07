@@ -470,6 +470,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Leaf water potential (Pa) at which the nonstomatal
                  ! limitation reduces photosynthesis to zero (l_som_nsl);
                  ! psi_0 of Dewar et al. (2022). Must be < psi_nsl_onset.
+,sl_cica_well_watered(:)                                                       &
+                 ! Supply-loss stomata (stomata_model = 9): ci/ca of the
+                 ! carbon demand when water is not limiting,
+                 ! ci = sl_cica_well_watered ca (Medlyn with D fixed at
+                 ! 1 kPa: ci/ca = g1/(g1 + 1)). In (0, 1); default 0.8.
 ,psi_vcmax_f(:)                                                                &
                  ! Root-zone water potential (Pa) at which photosynthetic
                  ! capacity is about halved (l_som_vcmax_psi; psi_f of Zhou
@@ -806,6 +811,7 @@ ALLOCATE( seg_kfac(npft,3))
 ALLOCATE( gcuticular(npft))
 ALLOCATE( psi_nsl_onset(npft))
 ALLOCATE( psi_nsl0(npft))
+ALLOCATE( sl_cica_well_watered(npft))
 ALLOCATE( fsmc_q(npft))
 ALLOCATE( psi_vcmax_f(npft))
 ALLOCATE( sf_vcmax(npft))
@@ -835,6 +841,7 @@ seg_kfac(:,:) = 1.0
 gcuticular(:) = 3.0
 psi_nsl_onset(:) = 0.0
 psi_nsl0(:) = -3.0e6
+sl_cica_well_watered(:) = 0.8
 fsmc_q(:) = 1.0
 psi_vcmax_f(:) = -2.0e6
 sf_vcmax(:) = 2.0
@@ -1119,6 +1126,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' psi_nsl_onset = ',psi_nsl_onset
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' psi_nsl0 = ',psi_nsl0
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' sl_cica_well_watered = ',sl_cica_well_watered
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' fsmc_q = ',fsmc_q
 CALL jules_print('pftparm',lineBuffer)
