@@ -100,7 +100,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! can_rad_mod=4, 5 (decay is a function of layers).
 ,knl(:)                                                                        &
                  ! Decay coefficient for N profile in canopy, used with
-                 ! can_rad_mod=6 (decay is a function of LAI).
+                 ! can_rad_mod=6 and 7 (decay is a function of LAI; for the
+                 ! two-leaf scheme the extkn of Wang & Leuning 1998).
 ,neff(:)                                                                       &
                 ! Constant relating VCMAX and leaf N (mol/m2/s)
 !                   from Schulze et al. 1994
@@ -1633,7 +1634,8 @@ IF ( ANY( ABS( kn(:) - rmdi ) < EPSILON(1.0) ) ) THEN
   ERROR = 1
   CALL jules_print(routinename, "No value for kn")
 END IF
-IF ( can_rad_mod == 6 .AND. ANY( ABS( knl(:) - rmdi ) < EPSILON(1.0) ) ) THEN
+IF ( ( can_rad_mod == 6 .OR. can_rad_mod == 7 ) .AND.                         &
+     ANY( ABS( knl(:) - rmdi ) < EPSILON(1.0) ) ) THEN
   ERROR = 1
   CALL jules_print(routinename, "No value for knl")
 END IF
