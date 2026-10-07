@@ -92,12 +92,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ! Or et al. soil evaporation parameters
 !-----------------------------------------------------------------------------
 REAL(KIND=real_jlslsm) ::                                                      &
-  or_k_min = 1.0e-12
+  or_k_min = 1.0e-8
       ! Floor on the liquid-phase hydraulic conductivity in the Or
-      ! resistance (m/s). CABLE versions use 1e-8 (Decker's groundwater
-      ! branches 1e-12). With 1e-8 the Or resistance no longer stops
-      ! evaporation from dry soil; sf_evap then limits the soil evaporation
-      ! to the layer-1 water above half the wilting point, as CABLE.
+      ! resistance (m/s), as CABLE (Decker's groundwater branches use
+      ! 1e-12). The Or resistance then does not stop evaporation from dry
+      ! soil; sf_evap limits the soil evaporation to the layer-1 water above
+      ! half the wilting point, as CABLE.
 
 !------------------------------------------------------------------------------
 ! Single namelist definition for UM and standalone
