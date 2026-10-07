@@ -471,6 +471,21 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Leaf water potential (Pa) at which the nonstomatal
                  ! limitation reduces photosynthesis to zero (l_som_nsl);
                  ! psi_0 of Dewar et al. (2022). Must be < psi_nsl_onset.
+,cmax_a(:)                                                                     &
+                 ! CMax stomata (stomata_model = 6; Wolf et al. 2016,
+                 ! Anderegg et al. 2018): curvature a of the carbon cost of
+                 ! low leaf water potential, Theta = a/2 psi^2 + b |psi|
+                 ! (umol CO2 m-2 leaf s-1 MPa-2). No default: must be set
+                 ! (> 0) for stomata_model = 6.
+,cmax_b(:)                                                                     &
+                 ! CMax: linear term b of Theta (umol CO2 m-2 s-1 MPa-1).
+                 ! Default 0: Sabot et al. (2022, JAMES) found it of low
+                 ! influence and hard to constrain.
+,cgain_varpi(:)                                                                &
+                 ! CGain stomata (stomata_model = 7; Lu et al. 2020): carbon
+                 ! cost varpi of losing the whole of the path conductance
+                 ! (umol CO2 m-2 leaf s-1). No default: must be set (> 0)
+                 ! for stomata_model = 7.
 ,psi_vcmax_f(:)                                                                &
                  ! Root-zone water potential (Pa) at which photosynthetic
                  ! capacity is about halved (l_som_vcmax_psi; psi_f of Zhou
@@ -494,7 +509,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! f_Zhou, so capacity never falls below fmin (0 = none, as
                  ! in De Kauwe et al. 2015; the floor is an adjustment).
 ,g1_tuzet(:)                                                                   &
-                 ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
+                 ! DESICA (stomata_model = 8): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
                  ! DESICA: sensitivity of the Tuzet closure (MPa-1).
 ,psi_f_tuzet(:)                                                                &
@@ -819,6 +834,9 @@ ALLOCATE( seg_kfac(npft,3))
 ALLOCATE( gcuticular(npft))
 ALLOCATE( psi_nsl_onset(npft))
 ALLOCATE( psi_nsl0(npft))
+ALLOCATE( cmax_a(npft))
+ALLOCATE( cmax_b(npft))
+ALLOCATE( cgain_varpi(npft))
 ALLOCATE( fsmc_q(npft))
 ALLOCATE( psi_vcmax_f(npft))
 ALLOCATE( sf_vcmax(npft))
@@ -850,6 +868,9 @@ seg_kfac(:,:) = 1.0
 gcuticular(:) = 3.0
 psi_nsl_onset(:) = 0.0
 psi_nsl0(:) = -3.0e6
+cmax_a(:) = 0.0
+cmax_b(:) = 0.0
+cgain_varpi(:) = 0.0
 fsmc_q(:) = 1.0
 psi_vcmax_f(:) = -2.0e6
 sf_vcmax(:) = 2.0
@@ -1137,6 +1158,12 @@ WRITE(lineBuffer,*)' psi_nsl_onset = ',psi_nsl_onset
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' psi_nsl0 = ',psi_nsl0
 CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' cmax_a = ',cmax_a
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' cmax_b = ',cmax_b
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' cgain_varpi = ',cgain_varpi
+CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' fsmc_q = ',fsmc_q
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' psi_vcmax_f = ',psi_vcmax_f
@@ -1182,7 +1209,8 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  l_o3_damage, l_trif_fire, photo_acclim_model, &
                                  photo_act_model, photo_act_pft,               &
                                  photo_farquhar, photo_johnson, photo_model,   &
-                                 stomata_jacobs, stomata_medlyn, stomata_sox,  &
+                                 stomata_jacobs, stomata_medlyn,              &
+                                 stomata_sox_analytical,                      &
                                  stomata_model, l_spec_veg_z0, l_sugar,        &
                                  l_scale_resp_pm
 
@@ -1347,7 +1375,7 @@ CASE ( stomata_medlyn )
     ERROR = 1
     CALL jules_print(routinename, "No value for g1_stomata")
   END IF
-CASE ( stomata_sox )
+CASE ( stomata_sox_analytical )
   IF ( ANY( ABS( sox_p50(:) - rmdi ) < EPSILON(1.0) ) ) THEN
     ERROR = 1
     CALL jules_print(routinename, "No value for sox_p50")
@@ -1812,11 +1840,11 @@ IF ( l_layeredC .AND. ( soil_bgc_model == soil_model_4pool ) .AND.             &
 END IF
 
 !-----------------------------------------------------------------------------
-! stomata_model = stomata_sox must be used with fsmc_mod = 1
+! stomata_model = stomata_sox_analytical must be used with fsmc_mod = 1
 ! Cannot be run with l_scale_resp_pm
 ! Must be run with can_rad_mod = 1 (implementation for can_rad_mod = 6 ongoing)
 !-----------------------------------------------------------------------------
-IF ( stomata_model == stomata_sox ) THEN ! SOX
+IF ( stomata_model == stomata_sox_analytical ) THEN ! SOX
   IF ( l_scale_resp_pm ) THEN
     ERROR = 1
     CALL ereport(routinename, ERROR,                                           &
