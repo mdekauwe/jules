@@ -783,8 +783,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Internal CO2 of each leaf class (Pa).
   f_sun_2l,                                                                    &
       ! Sunlit fraction of LAI.
-  dnw_2l
-      ! Layer integral of exp(-kpar*L) over dlai.
+  dnw_2l,                                                                      &
+      ! Layer integral of exp(-kn_2l*L) over dlai.
+  kn_2l
+      ! N extinction per unit LAI of the two-leaf classes (= knl).
 
 ! Two-leaf leaf temperatures (l_leaf_temp).
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -2527,10 +2529,13 @@ CASE ( 7 )
     nw_shd_2l(l)   = 0.0
     apar_sun_2l(l) = 0.0
     apar_shd_2l(l) = 0.0
+    ! N extinction per unit LAI (extkn of Wang & Leuning 1998): knl, as the
+    ! multilayer scheme (can_rad_mod = 6). kpar is the PAR extinction only.
+    kn_2l = knl(ft)
     DO n = 1,ilayers
-      IF ( kpar(ft) > EPSILON(0.0) ) THEN
-        dnw_2l = ( EXP(-kpar(ft) * REAL(n-1) * dlai(l))                        &
-                   - EXP(-kpar(ft) * REAL(n) * dlai(l)) ) / kpar(ft)
+      IF ( kn_2l > EPSILON(0.0) ) THEN
+        dnw_2l = ( EXP(-kn_2l * REAL(n-1) * dlai(l))                          &
+                   - EXP(-kn_2l * REAL(n) * dlai(l)) ) / kn_2l
       ELSE
         dnw_2l = dlai(l)
       END IF
