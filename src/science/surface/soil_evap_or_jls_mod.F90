@@ -11,7 +11,14 @@ USE um_types, ONLY: real_jlslsm
 IMPLICIT NONE
 
 PRIVATE
-PUBLIC :: gsoil_or
+PUBLIC :: gsoil_or, w1_or
+
+! Water in soil layer 1 available to soil evaporation (kg m-2): liquid water
+! above half the wilting point, as CABLE's lower limit on soil evaporation
+! (cable_canopy.F90, flower_limit = wb(1) - swilt/2). Set in physiol each
+! timestep with l_soil_evap_or and used by sf_evap to cap the soil
+! evaporation alone (the Or resistance does not stop it in dry soil).
+REAL(KIND=real_jlslsm), ALLOCATABLE :: w1_or(:,:)
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='SOIL_EVAP_OR_MOD'
 
@@ -84,6 +91,8 @@ CONTAINS
 !-----------------------------------------------------------------------------
 FUNCTION gsoil_or(ua, ustar, hc, lai, t_k, sathh, bexp, satcon,          &
                   theta_liq, theta_sat, litter_dz, z0soil_fac)
+
+USE jules_hydrology_mod, ONLY: or_k_min
 
 IMPLICIT NONE
 
@@ -179,7 +188,7 @@ wb_liq = MAX(0.0001, MIN(pi_or / 4.0, theta_liq))
 ! kg m-2 s-1 == mm s-1, so 0.001 converts to m s-1 as CABLE does for hyds.
 rel_s   = MAX(wb_liq, 0.0) / theta_sat
 hk_zero = MAX(0.001 * satcon * (MIN(MAX(rel_s, 0.001), 1.0)                  &
-              **(2.0 * bexp + 3.0)), 1.0e-12)
+              **(2.0 * bexp + 3.0)), or_k_min)
 
 soil_moisture_mod = 1.0 / pi_or / SQRT(wb_liq)                                 &
                     * (SQRT(pi_or / (4.0 * wb_liq)) - 1.0)

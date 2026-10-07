@@ -126,7 +126,7 @@ USE jules_irrig_mod, ONLY: l_irrig_dmd
 
 USE jules_hydrology_mod, ONLY: l_limit_gsoil, l_soil_evap_or
 
-USE soil_evap_or_mod, ONLY: gsoil_or
+USE soil_evap_or_mod, ONLY: gsoil_or, w1_or
 
 USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft,       &
                    soil_litter_depth, or_z0soil_fac
@@ -2403,6 +2403,23 @@ DO m = 1, nsoilt
   END DO
 !$OMP END PARALLEL DO
 END DO
+
+! Or soil evaporation: water in layer 1 above half the wilting point, the
+! CABLE limit on soil evaporation (applied in sf_evap)
+IF (l_soil_evap_or) THEN
+  IF (ALLOCATED(w1_or)) THEN
+    IF (SIZE(w1_or, 1) /= land_pts .OR. SIZE(w1_or, 2) /= nsoilt)             &
+      DEALLOCATE(w1_or)
+  END IF
+  IF (.NOT. ALLOCATED(w1_or)) ALLOCATE(w1_or(land_pts,nsoilt))
+  DO m = 1, nsoilt
+    DO l = 1,land_pts
+      w1_or(l,m) = rho_water * dzsoil(1) *                                     &
+                   MAX(0.0, MAX(0.0,sthu_soilt(l,m,1)) * smvcst_soilt(l,m,1)   &
+                            - 0.5 * smvcwt_soilt(l,m,1))
+    END DO
+  END DO
+END IF
 
 ! Water tracers - add available water tracer for evaporation from bare soil
 

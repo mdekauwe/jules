@@ -26,6 +26,7 @@ SUBROUTINE soil_evap (npnts,nshyd,surft_pts,surft_index,                       &
                       )
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd
+USE jules_hydrology_mod, ONLY: l_soil_evap_or
 USE yomhook, ONLY: lhook, dr_hook
 USE parkind1, ONLY: jprb, jpim
 IMPLICIT NONE
@@ -75,6 +76,11 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
  fsoil(npnts)         ! Fraction of ground below canopy
 !                           ! contributing to evaporation.
 
+REAL(KIND=real_jlslsm) ::                                                      &
+ fsoil_gs(npnts)      ! Factor on gsoil when combined with gs: fsoil, or 1
+!                           ! with l_soil_evap_or (as in CABLE: the Or
+!                           ! resistance already includes the canopy).
+
 INTEGER ::                                                                     &
  j,k,l                ! Loop indices
 
@@ -92,7 +98,8 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(l,j,k)                                                           &
 !$OMP SHARED(npnts,fsoil,surft_pts,surft_index,lai,nshyd,wt_ext,gs,gsoil,      &
-!$OMP        wt_ext_irr,gs_irr,gsoil_irr,l_irrig_dmd,irrig_tile)
+!$OMP        wt_ext_irr,gs_irr,gsoil_irr,l_irrig_dmd,irrig_tile,fsoil_gs,      &
+!$OMP        l_soil_evap_or)
 
 ! Initialisations
 
@@ -106,6 +113,11 @@ END DO
 DO j = 1,surft_pts
   l = surft_index(j)
   fsoil(l) = EXP(-0.5 * lai(l))
+  IF (l_soil_evap_or) THEN
+    fsoil_gs(l) = 1.0
+  ELSE
+    fsoil_gs(l) = fsoil(l)
+  END IF
 END DO
 !$OMP END DO NOWAIT
 
@@ -115,7 +127,7 @@ DO k = 2,nshyd
 !$OMP DO SCHEDULE(STATIC)
     DO j = 1,surft_pts
       l = surft_index(j)
-      wt_ext(l,k) = gs(l) * wt_ext(l,k) / (gs(l) + fsoil(l) * gsoil(l))
+      wt_ext(l,k) = gs(l) * wt_ext(l,k) / (gs(l) + fsoil_gs(l) * gsoil(l))
     END DO
 !$OMP END DO NOWAIT
   END IF
@@ -124,7 +136,7 @@ DO k = 2,nshyd
     DO j = 1,surft_pts
       l = surft_index(j)
       wt_ext_irr(l,k) = gs_irr(l) * wt_ext_irr(l,k)                            &
-             / (gs_irr(l) + fsoil(l) * gsoil_irr(l))
+             / (gs_irr(l) + fsoil_gs(l) * gsoil_irr(l))
     END DO
 !$OMP END DO NOWAIT
   END IF
@@ -136,8 +148,8 @@ IF (irrig_tile /= 1) THEN
   !CDIR NODEP
   DO j = 1,surft_pts
     l = surft_index(j)
-    wt_ext(l,1) = (gs(l) * wt_ext(l,1) + fsoil(l) * gsoil(l))                  &
-                   / (gs(l) + fsoil(l) * gsoil(l))
+    wt_ext(l,1) = (gs(l) * wt_ext(l,1) + fsoil_gs(l) * gsoil(l))               &
+                   / (gs(l) + fsoil_gs(l) * gsoil(l))
   END DO
 !$OMP END DO NOWAIT
 END IF
@@ -146,7 +158,7 @@ END IF
 !CDIR NODEP
 DO j = 1,surft_pts
   l = surft_index(j)
-  gs(l) = gs(l) + fsoil(l) * gsoil(l)
+  gs(l) = gs(l) + fsoil_gs(l) * gsoil(l)
 END DO
 !$OMP END DO NOWAIT
 
@@ -156,13 +168,13 @@ IF (l_irrig_dmd) THEN
   DO j = 1,surft_pts
     l = surft_index(j)
     wt_ext_irr(l,1) = (gs_irr(l) * wt_ext_irr(l,1)                             &
-                        + fsoil(l) * gsoil_irr(l))                             &
-                        / (gs_irr(l) + fsoil(l) * gsoil_irr(l))
+                        + fsoil_gs(l) * gsoil_irr(l))                          &
+                        / (gs_irr(l) + fsoil_gs(l) * gsoil_irr(l))
 
     ! Transpiration and soil conductances over irrigated fraction of tile
     ! relative to tile mean conductance (scaled by relative area later).
     ! Assume soil evaporation uses grid box mean soil moisture:
-    gs_irr(l) = gs_irr(l) + fsoil(l) * gsoil_irr(l)
+    gs_irr(l) = gs_irr(l) + fsoil_gs(l) * gsoil_irr(l)
   END DO
 !$OMP END DO NOWAIT
 END IF

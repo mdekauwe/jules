@@ -51,7 +51,10 @@ LOGICAL ::                                                                     &
       ! Switch for the Or et al. / Haghighi et al. (2013) pore-scale soil
       ! evaporation resistance, as implemented in CABLE by Decker et al.
       ! (2017) (cable_psm.F90, cable_user%or_evap). Replaces the
-      ! gs_nvg*(theta/theta_crit)**2 soil surface conductance.
+      ! gs_nvg*(theta/theta_crit)**2 soil surface conductance. The Or
+      ! conductance is added to the canopy conductance without the
+      ! exp(-0.5*LAI) fsoil factor, as in CABLE (the Or resistance already
+      ! includes the canopy); fsoil itself is unchanged.
   l_inland = .FALSE.
       ! Switch for putting inland water from from rivers into soil moisture
 
@@ -85,14 +88,24 @@ REAL(KIND=real_jlslsm) ::                                                      &
   zw_max = rmdi
       ! Maximum allowed water table depth (m)
 
+!-----------------------------------------------------------------------------
+! Or et al. soil evaporation parameters
+!-----------------------------------------------------------------------------
+REAL(KIND=real_jlslsm) ::                                                      &
+  or_k_min = 1.0e-12
+      ! Floor on the liquid-phase hydraulic conductivity in the Or
+      ! resistance (m/s). CABLE versions use 1e-8 (Decker's groundwater
+      ! branches 1e-12). With 1e-8 the Or resistance no longer stops
+      ! evaporation from dry soil; sf_evap then limits the soil evaporation
+      ! to the layer-1 water above half the wilting point, as CABLE.
+
 !------------------------------------------------------------------------------
 ! Single namelist definition for UM and standalone
 !------------------------------------------------------------------------------
 NAMELIST  / jules_hydrology/                                                   &
   l_hydrology, l_top, l_pdm, l_spdmvar, l_baseflow_corr, l_var_rainfrac,       &
-  l_wetland_unfrozen, l_limit_gsoil, l_soil_evap_or,                           &
-  l_wetland_unfrozen, l_limit_gsoil, l_inland,                                 &
-  dz_pdm, b_pdm, s_pdm, slope_pdm_max, ti_max, ti_wetl, zw_max, nfita
+  l_wetland_unfrozen, l_limit_gsoil, l_soil_evap_or, l_inland,                 &
+  dz_pdm, b_pdm, s_pdm, slope_pdm_max, ti_max, ti_wetl, zw_max, nfita, or_k_min
 
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='JULES_HYDROLOGY_MOD'
@@ -203,6 +216,12 @@ IF ( l_top ) THEN
 
 END IF  !  l_top
 
+IF ( l_soil_evap_or .AND. or_k_min <= 0.0 ) THEN
+  errorstatus = 101  !  a hard error
+  CALL ereport(RoutineName, errorstatus,                                       &
+               "or_k_min must be > 0")
+END IF
+
 END SUBROUTINE check_jules_hydrology
 
 !#############################################################################
@@ -240,6 +259,9 @@ WRITE(lineBuffer, *) '  l_limit_gsoil = ', l_limit_gsoil
 CALL jules_print('jules_hydrology', lineBuffer)
 
 WRITE(lineBuffer, *) '  l_soil_evap_or = ', l_soil_evap_or
+CALL jules_print('jules_hydrology', lineBuffer)
+
+WRITE(lineBuffer, *) '  or_k_min = ', or_k_min
 CALL jules_print('jules_hydrology', lineBuffer)
 
 WRITE(lineBuffer, *) '  l_inland = ', l_inland
@@ -310,7 +332,7 @@ INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 1
-INTEGER, PARAMETER :: n_real = 7
+INTEGER, PARAMETER :: n_real = 8 ! upstream 7 + or_k_min
 INTEGER, PARAMETER :: n_log = 10 ! upstream 9 (+l_inland) + l_soil_evap_or
 
 TYPE :: my_namelist
@@ -323,6 +345,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: ti_max
   REAL(KIND=real_jlslsm) :: ti_wetl
   REAL(KIND=real_jlslsm) :: zw_max
+  REAL(KIND=real_jlslsm) :: or_k_min
   LOGICAL :: l_hydrology
   LOGICAL :: l_top
   LOGICAL :: l_pdm
@@ -359,6 +382,7 @@ IF (mype == 0) THEN
   my_nml % ti_max          = ti_max
   my_nml % ti_wetl         = ti_wetl
   my_nml % zw_max          = zw_max
+  my_nml % or_k_min        = or_k_min
   ! end of reals
   my_nml % l_hydrology     = l_hydrology
   my_nml % l_top           = l_top
@@ -386,6 +410,7 @@ IF (mype /= 0) THEN
   ti_max        = my_nml % ti_max
   ti_wetl       = my_nml % ti_wetl
   zw_max        = my_nml % zw_max
+  or_k_min      = my_nml % or_k_min
   ! end of reals
   l_hydrology     = my_nml % l_hydrology
   l_top           = my_nml % l_top

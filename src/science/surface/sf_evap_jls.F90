@@ -50,7 +50,9 @@ USE ancil_info, ONLY: nsoilt
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
 USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
-USE jules_surface_types_mod, ONLY: lake, npft
+USE jules_surface_types_mod, ONLY: lake, npft, soil
+USE jules_hydrology_mod, ONLY: l_soil_evap_or
+USE soil_evap_or_mod, ONLY: w1_or
 USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
 USE desica_jls_mod, ONLY: desica_commit, desica_cut_uptake
 USE ereport_mod, ONLY: ereport
@@ -211,8 +213,16 @@ REAL(KIND=real_jlslsm) ::                                                      &
 !                            !     esoil_surft, except that for DESICA the
 !                            !     transpiration is replaced by the root
 !                            !     uptake.
-,q_ds(land_pts)
+,q_ds(land_pts)                                                                &
 !                            ! DESICA root uptake of one PFT (kg/m2/s).
+,des_or(land_pts,nsurft)
+!                            ! Or: soil evaporation removed by the CABLE
+!                            !     limit (kg/m2/s); taken off layer 1 only.
+
+REAL(KIND=real_jlslsm) ::                                                      &
+ es_or, t_or, t1_or
+                       ! Or: soil evaporation, transpiration and its layer-1
+                       ! part on a tile (kg/m2/s).
 
 REAL(KIND=real_jlslsm) ::                                                      &
  sum_t, sum_q, excess, dq_cut
@@ -266,7 +276,7 @@ END IF
 !$OMP PARALLEL                                                                 &
 !$OMP DEFAULT(SHARED)                                                          &
 !$OMP PRIVATE(i,j,k,m,l,n,mm,edt,rhokh1_prime,diff_lat_htf,dtstar,             &
-!$OMP diff_sens_htf)
+!$OMP diff_sens_htf,es_or,t_or,t1_or)
 
 DO n = 1,nsurft
 !$OMP DO SCHEDULE(STATIC)
@@ -274,6 +284,7 @@ DO n = 1,nsurft
     ecan_surft(l,n) = 0.0
     esoil_surft(l,n) = 0.0
     t_stom(l,n) = 0.0
+    des_or(l,n) = 0.0
     IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
       sf_diag%et_stom_surft(l,n) = 0.0
     END IF
@@ -478,6 +489,25 @@ DO n = 1,nsurft
         ! zeroed.
         IF (l_fix_neg_snow)                                                    &
           ecan_surft(l,n) = 0.0
+      END IF
+    END IF
+    ! Or soil evaporation: limit the soil evaporation alone (not the
+    ! transpiration) to the water in layer 1 above half the wilting point
+    ! less the transpiration taken from layer 1, as CABLE (cable_canopy.F90,
+    ! fupper_limit). The Or resistance does not stop evaporation from dry
+    ! soil. The cut comes off layer 1 in the extraction below, and the
+    ! energy balance is adjusted with the other limits at the end.
+    IF ( l_soil_evap_or .AND. ( n <= npft .OR. n == soil ) .AND.               &
+         esoil_surft(l,n) > 0.0 ) THEN
+      t_or = 0.0
+      IF ( n <= npft .AND. resfs(l,n) > EPSILON(1.0) )                         &
+        t_or = esoil_surft(l,n) * sf_diag%resfs_stom(l,n) / resfs(l,n)
+      es_or = esoil_surft(l,n) - t_or
+      t1_or = MAX(0.0, wt_ext_surft(l,1,n) * esoil_surft(l,n) - es_or)
+      IF ( es_or > 0.0 ) THEN
+        des_or(l,n) = MAX(0.0, es_or                                           &
+                      - MAX(0.0, w1_or(l,mm) / timestep - t1_or))
+        esoil_surft(l,n) = esoil_surft(l,n) - des_or(l,n)
       END IF
     END IF
     ecan(i,j) = ecan(i,j) + tile_frac(l,n) * ecan_surft(l,n)
@@ -690,6 +720,7 @@ DO l = 1,land_pts
       IF ( edt > smc_soilt(l,mm) ) THEN
         DO n = 1,nsurft
           esoil_surft(l,n) = smc_soilt(l,mm) * esoil_surft(l,n) / edt
+          des_or(l,n) = smc_soilt(l,mm) * des_or(l,n) / edt
           ! The stomatal transpiration diagnostic is part of esoil and is
           ! reduced by the same factor, so TVeg is the water actually taken.
           IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
@@ -711,6 +742,7 @@ DO l = 1,land_pts
         edt = esoil_soilt(i,j,mm) * timestep
         IF ( edt > smc_soilt(l,mm) ) THEN
           esoil_surft(l,n) = smc_soilt(l,mm) * esoil_surft(l,n) / edt
+          des_or(l,n) = smc_soilt(l,mm) * des_or(l,n) / edt
           esoil_soilt(i,j,mm) = smc_soilt(l,mm) / timestep
           ! As above: reduce the transpiration diagnostic by the same factor.
           IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
@@ -744,7 +776,8 @@ IF ( l_desica ) THEN
     DO k = 1,surft_pts(n)
       l = surft_index(k,n)
       IF ( resfs(l,n) > EPSILON(1.0) ) THEN
-        t_stom(l,n) = esoil_surft(l,n) * sf_diag%resfs_stom(l,n) / resfs(l,n)
+        t_stom(l,n) = ( esoil_surft(l,n) + des_or(l,n) )                       &
+                      * sf_diag%resfs_stom(l,n) / resfs(l,n)
       END IF
     END DO
     CALL desica_commit( n, land_pts, surft_pts(n), surft_index(:,n),          &
@@ -810,7 +843,9 @@ DO m = 1,sm_levels
           l = surft_index(k,n)
           ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                                &
                             + tile_frac(l,n) * wt_ext_surft(l,m,n)             &
-                            * esoil_ext(l,n)
+                            * ( esoil_ext(l,n) + des_or(l,n) )
+          IF ( m == 1 ) ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                  &
+                                            - tile_frac(l,n) * des_or(l,n)
         END DO
 !$OMP END DO
       END IF
@@ -822,7 +857,8 @@ DO m = 1,sm_levels
         l = surft_index(k,n)
         ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                                  &
                             + wt_ext_surft(l,m,n)                              &
-                            * esoil_ext(l,n)
+                            * ( esoil_ext(l,n) + des_or(l,n) )
+        IF ( m == 1 ) ext_soilt(l,mm,m) = ext_soilt(l,mm,m) - des_or(l,n)
       END DO
 !$OMP END DO
     END IF !nsoilt
