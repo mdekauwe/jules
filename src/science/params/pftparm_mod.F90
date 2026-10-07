@@ -513,6 +513,18 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! et al. 2013).
 ,sf_vcmax(:)                                                                   &
                  ! Steepness of that down-regulation (MPa-1).
+,or_z0soil_fac(:)                                                              &
+                 ! Multiplier on the Or scheme's soil-surface roughness z0soil
+                 ! beneath this PFT (l_soil_evap_or; CABLE: 0.01 min(1, LAI) +
+                 ! 0.02 min(u*2/g, 1) m). In wet soil the Or resistance is
+                 ! ~z0soil / D_vapour (~400 s m-1 at 1 cm), so this sets the
+                 ! wet-soil evaporation rate. 1 = CABLE.
+,soil_litter_depth(:)                                                          &
+                 ! Litter layer depth over the soil (m) for the Or soil
+                 ! evaporation scheme (l_soil_evap_or): a vapour diffusion
+                 ! resistance depth / DvLitt in series with the soil
+                 ! resistance, as CABLE's default-scheme litter (relitt; CABLE
+                 ! depth = clitt * 0.003 m per t C ha-1). 0 = none.
 ,psi_vcmax_fmin(:)                                                             &
                  ! Floor of that down-regulation (-): f = fmin + (1 - fmin)
                  ! f_Zhou, so capacity never falls below fmin (0 = none, as
@@ -909,6 +921,8 @@ ALLOCATE( nsl_sink_tau(npft))
 ALLOCATE( nsl_sink_maint(npft))
 ALLOCATE( nsl_sink_psi50(npft))
 ALLOCATE( nsl_sink_sf(npft))
+ALLOCATE( soil_litter_depth(npft))
+ALLOCATE( or_z0soil_fac(npft))
 ALLOCATE( g1_tuzet(npft))
 ALLOCATE( sf_tuzet(npft))
 ALLOCATE( psi_f_tuzet(npft))
@@ -957,6 +971,8 @@ nsl_sink_tau(:) = 10.0
 nsl_sink_maint(:) = 0.15
 nsl_sink_psi50(:) = -0.75e6
 nsl_sink_sf(:) = 6.0
+soil_litter_depth(:) = 0.0
+or_z0soil_fac(:) = 1.0
 g1_tuzet(:) = 4.19
 sf_tuzet(:) = 2.0
 psi_f_tuzet(:) = -2.05e6
@@ -1262,6 +1278,10 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsl_sink_psi50 = ',nsl_sink_psi50
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsl_sink_sf = ',nsl_sink_sf
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' soil_litter_depth = ',soil_litter_depth
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' or_z0soil_fac = ',or_z0soil_fac
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
 CALL jules_print('pftparm',lineBuffer)
