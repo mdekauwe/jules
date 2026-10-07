@@ -491,6 +491,18 @@ DO n = 1,nsurft
           ecan_surft(l,n) = 0.0
       END IF
     END IF
+    ! Stomatal transpiration diagnostic: the stomatal share of esoil by
+    ! conductance, g_stom / g_c (see below), as the soil-moisture extraction
+    ! splits it (soil_evap). The share resfs_stom / resfs computed above
+    ! (as upstream) is larger whenever there is a soil conductance, and can
+    ! exceed esoil itself after the limits below.
+    IF ( ( sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft ) .AND.              &
+         n <= npft .AND. resfs(l,n) > EPSILON(1.0) .AND.                       &
+         sf_diag%resfs_stom(l,n) < 1.0 ) THEN
+      sf_diag%et_stom_surft(l,n) = esoil_surft(l,n) *                          &
+        MIN(1.0, sf_diag%resfs_stom(l,n) * (1.0 - resfs(l,n))                  &
+                 / (resfs(l,n) * (1.0 - sf_diag%resfs_stom(l,n))))
+    END IF
     ! Or soil evaporation: limit the soil evaporation alone (not the
     ! transpiration) to the water in layer 1 above half the wilting point
     ! less the transpiration taken from layer 1, as CABLE (cable_canopy.F90,
@@ -499,9 +511,18 @@ DO n = 1,nsurft
     ! energy balance is adjusted with the other limits at the end.
     IF ( l_soil_evap_or .AND. ( n <= npft .OR. n == soil ) .AND.               &
          esoil_surft(l,n) > 0.0 ) THEN
+      ! Transpiration share by conductance, g_stom / g_c, as in the
+      ! extraction weights (soil_evap): with resfs = g_c / (g_c + g_a) and
+      ! resfs_stom = g_stom / (g_stom + g_a), g_stom / g_c =
+      ! resfs_stom (1 - resfs) / (resfs (1 - resfs_stom)). (The et_stom
+      ! share resfs_stom / resfs is larger when gsoil > 0, and would leave
+      ! part of the soil evaporation on layer 1 uncapped.)
       t_or = 0.0
-      IF ( n <= npft .AND. resfs(l,n) > EPSILON(1.0) )                         &
-        t_or = esoil_surft(l,n) * sf_diag%resfs_stom(l,n) / resfs(l,n)
+      IF ( n <= npft .AND. resfs(l,n) > EPSILON(1.0) .AND.                     &
+           sf_diag%resfs_stom(l,n) < 1.0 )                                     &
+        t_or = esoil_surft(l,n) * MIN(1.0, sf_diag%resfs_stom(l,n)             &
+               * (1.0 - resfs(l,n))                                            &
+               / (resfs(l,n) * (1.0 - sf_diag%resfs_stom(l,n))))
       es_or = esoil_surft(l,n) - t_or
       t1_or = MAX(0.0, wt_ext_surft(l,1,n) * esoil_surft(l,n) - es_or)
       IF ( es_or > 0.0 ) THEN
