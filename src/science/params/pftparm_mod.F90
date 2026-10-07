@@ -486,6 +486,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! cost varpi of losing the whole of the path conductance
                  ! (umol CO2 m-2 leaf s-1). No default: must be set (> 0)
                  ! for stomata_model = 7.
+,sl_cica_well_watered(:)                                                       &
+                 ! Supply-loss stomata (stomata_model = 9): ci/ca of the
+                 ! carbon demand when water is not limiting,
+                 ! ci = sl_cica_well_watered ca (Medlyn with D fixed at
+                 ! 1 kPa: ci/ca = g1/(g1 + 1)). In (0, 1); default 0.8.
 ,psi_vcmax_f(:)                                                                &
                  ! Root-zone water potential (Pa) at which photosynthetic
                  ! capacity is about halved (l_som_vcmax_psi; psi_f of Zhou
@@ -837,6 +842,7 @@ ALLOCATE( psi_nsl0(npft))
 ALLOCATE( cmax_a(npft))
 ALLOCATE( cmax_b(npft))
 ALLOCATE( cgain_varpi(npft))
+ALLOCATE( sl_cica_well_watered(npft))
 ALLOCATE( fsmc_q(npft))
 ALLOCATE( psi_vcmax_f(npft))
 ALLOCATE( sf_vcmax(npft))
@@ -871,6 +877,7 @@ psi_nsl0(:) = -3.0e6
 cmax_a(:) = 0.0
 cmax_b(:) = 0.0
 cgain_varpi(:) = 0.0
+sl_cica_well_watered(:) = 0.8
 fsmc_q(:) = 1.0
 psi_vcmax_f(:) = -2.0e6
 sf_vcmax(:) = 2.0
@@ -1163,6 +1170,7 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' cmax_b = ',cmax_b
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' cgain_varpi = ',cgain_varpi
+WRITE(lineBuffer,*)' sl_cica_well_watered = ',sl_cica_well_watered
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' fsmc_q = ',fsmc_q
 CALL jules_print('pftparm',lineBuffer)
