@@ -48,14 +48,14 @@ USE yomhook, ONLY: lhook, dr_hook
 
 USE jules_vegetation_mod, ONLY:                                                &
         som_base_parm_ci, som_base_parm_psi, som_n_sample,                     &
-        profit_max_profit_model, SOX_profit_model, som_profit_model,          &
+        profit_max_profit_model, sox_opt_profit_model, som_profit_model,       &
+        cmax_profit_model, cgain_profit_model,                                 &
         som_ci_search, som_ci_bounded, som_n_ci_golden_iter,                  &
         l_som_skip_search_wellwatered, som_hc_negligible_tol, l_som_nsl
 
 USE pftparm, ONLY:                                                             &
         min_gl_pft, kcrit_fractional_loss
 
-USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls
 USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow
 
 LOGICAL, INTENT(IN) :: l_multilayer
@@ -178,7 +178,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 INTEGER ::                                                                     &
  optimal_index                                                                 &
                             ! Holds index of the optimal stomatal conductance
-                            !  for each land point. Used by SOX_profit_model.
+                            !  for each land point. Used by sox_opt_profit_model.
 ,i,j,l,m                                                                       &
                             ! Iterators
 ,errcode
@@ -193,7 +193,7 @@ INTEGER ::                                                                     &
 LOGICAL ::                                                                     &
  l_good_sample(som_n_sample, open_pts)                                        &
                             ! Feasibility mask for the single-pass
-                            ! SOX_profit_model search.
+                            ! sox_opt_profit_model search.
 ,l_good_sample_flat(som_n_sample, open_pts)
                             ! Feasibility mask for the flat search.
 
@@ -212,7 +212,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Upper bound of the Ci sampling range for the
                             ! pass about to be run.
 
-! -- Flat-search sample arrays (SOX_profit_model, and profit_max_profit_model
+! -- Flat-search sample arrays (sox_opt_profit_model, and profit_max_profit_model
 ! -- with som_ci_search = 1) --
 REAL(KIND=real_jlslsm) ::                                                      &
  ci_sample(0:som_n_sample, open_pts)                                           &
@@ -224,14 +224,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,kl_sample(0:som_n_sample, open_pts)                                           &
                             ! Xylem conductance at leaf (m/s).
 ,kl_SOX(0:som_n_sample, open_pts)                                              &
-                            ! Xylem conductance for SOX profit model.
+                            ! Xylem conductance for SOX_opt model.
                             !  Calculated from the average of the leaf and
                             !  root zone water potentials. (m/s)
 ,psi_sample(0:som_n_sample, open_pts)                                          &
                             ! Water potential at leaf (Pa)
 ,SOX_mean_psi(0:som_n_sample, open_pts)                                        &
                             ! Mean water potential between leaf and root zone
-                            ! (Pa). Used in SOX profit model.
+                            ! (Pa). Used in SOX_opt model.
 ,el_sample(0:som_n_sample, open_pts)                                           &
                             ! Transpiration rate (mol H2O/m2/s)
 ,profit(0:som_n_sample, open_pts)                                              &
@@ -242,14 +242,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Hydraulic cost for each leaf state
 ,max_al(open_pts)                                                              &
                             ! Maximum net leaf photosynthesis (mol CO2/m2/s)
-,max_kl(open_pts)                                                              &
+,max_kl(open_pts)
                             ! Maximum xylem conductance (m/s)
-,kmax_open(open_pts)                                                          &
-                            ! kmax gathered onto the open-point index, for
-                            ! the SOX xylem_conductance_jls call.
-,kcrit_open(open_pts)
-                            ! kcrit gathered onto the open-point index, for
-                            ! the SOX xylem_conductance_jls call.
 
 ! -- stom_opt_bounded_search outputs (scalar per open point) --
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -506,11 +500,68 @@ SELECT CASE ( som_base_parm )
         END DO
       END IF
 
-    CASE (SOX_profit_model)
+    CASE (cmax_profit_model, cgain_profit_model)
       !-------------------------------------------------------------------
-      ! SOX_profit_model: unaffected by som_ci_search, always a
+      ! CMax (Wolf et al. 2016; stomata_model = 6): A_n - Theta(psi_leaf),
+      ! and CGain (Lu et al. 2020; stomata_model = 7):
+      ! A_n - varpi (k_max - k)/k_max, in absolute carbon units, on the
+      ! bounded Ci search for every open point (no fast path). See
+      ! stom_opt_bounded_search.
+      !-------------------------------------------------------------------
+      CALL stom_opt_bounded_search(                                           &
+      ! IN
+          land_pts, pft, open_pts, open_index,                                &
+          pft_photo_model, veg_index,                                         &
+          rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,    &
+          km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,          &
+          gl_max, l_multilayer, som_n_sample, som_n_ci_golden_iter,           &
+      ! OUT
+          ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                            &
+          el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                         &
+              )
+
+      DO j = 1, open_pts
+        l = veg_index(open_index(j))
+        ci(l) = ci_bnd(j)
+        al(l) = al_bnd(j)
+        gl(l) = gl_bnd(j)
+        psi_leaf(l) = psi_bnd(j)
+        el(l) = el_bnd(j)
+        leaf_k(l) = kl_bnd(j)
+        carbon_gain_out(l) = carbon_gain_bnd(j)
+        hydraulic_cost_out(l) = hydraulic_cost_bnd(j)
+      END DO
+
+    CASE (sox_opt_profit_model)
+      !-------------------------------------------------------------------
+      ! sox_opt_profit_model: with som_ci_search = 2 the bounded search (as
+      ! the profit max; A_n (k - kcrit) is unimodal in Ci), otherwise a
       ! single-pass search at som_n_sample resolution over [ccp, ca].
       !-------------------------------------------------------------------
+      IF (som_ci_search == som_ci_bounded) THEN
+        CALL stom_opt_bounded_search(                                         &
+        ! IN
+            land_pts, pft, open_pts, open_index,                              &
+            pft_photo_model, veg_index,                                       &
+            rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,  &
+            km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,        &
+            gl_max, l_multilayer, som_n_sample, som_n_ci_golden_iter,         &
+        ! OUT
+            ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                          &
+            el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                       &
+                )
+        DO j = 1, open_pts
+          l = veg_index(open_index(j))
+          ci(l) = ci_bnd(j)
+          al(l) = al_bnd(j)
+          gl(l) = gl_bnd(j)
+          psi_leaf(l) = psi_bnd(j)
+          el(l) = el_bnd(j)
+          leaf_k(l) = kl_bnd(j)
+          carbon_gain_out(l) = carbon_gain_bnd(j)
+          hydraulic_cost_out(l) = hydraulic_cost_bnd(j)
+        END DO
+      ELSE
       carbon_gain(:,:) = 0.0
       hydraulic_cost(:,:) = 0.0
       profit(:,:) = 0.0
@@ -550,23 +601,20 @@ SELECT CASE ( som_base_parm )
       END DO
 
       ! Sox uses the xylem conductance for the average of the
-      !  leaf and root zone water potentials.
+      !  leaf and root zone water potentials (Eller et al. 2018), here of the
+      !  whole path (k_path_zero_flow: every element - root, stem and leaf
+      !  segments, and the soil-to-root link in series - at psi_bar), the
+      !  same path as psi_leaf and the k > kcrit test. Without segments and
+      !  the soil link this is the PFT curve at psi_bar, as before (except
+      !  that xylem_conductance_jls floored k at kcrit).
       DO j = 1, open_pts
         l = veg_index(open_index(j))
 
         SOX_mean_psi(:,j) = 0.5 * (psi_sample(:,j) + psi_root_zone(l))
-        kmax_open(j) = kmax(l)
-        kcrit_open(j) = kcrit(l)
+        DO i = 1, som_n_sample
+          kl_SOX(i,j) = k_path_zero_flow(pft, l, kmax(l), SOX_mean_psi(i,j))
+        END DO
       END DO
-
-      ! See the note above the leaf_psi_jls call in stom_opt_mod_ci: pass the
-      ! (1:som_n_sample,:) sections so the actual/dummy shapes match exactly
-      ! and avoid the same sequence-association misalignment. Entry 0 of
-      ! kl_SOX is left at the 0.0 it was initialised to above.
-      CALL xylem_conductance_jls(pft, som_n_sample, open_pts,                  &
-                                 SOX_mean_psi(1:som_n_sample,:),               &
-                                 kmax_open, kcrit_open,                        &
-                                 kl_SOX(1:som_n_sample,:))
 
       ! Get the maximum xylem conductance for each land point.
       max_kl = MAXVAL(kl_SOX(1:,:), MASK = l_good_sample, DIM = 1)
@@ -611,11 +659,12 @@ SELECT CASE ( som_base_parm )
         carbon_gain_out(l) = carbon_gain(optimal_index,j)
         hydraulic_cost_out(l) = hydraulic_cost(optimal_index,j)
       END DO
+      END IF  ! som_ci_search (SOX)
 
     CASE DEFAULT
       errcode = 101  !  a hard error
       CALL ereport(RoutineName, errcode,                                       &
-                 'profit_model should be profit_max or SOX')
+                 'profit_model should be profit_max, SOX or CMax')
 
     END SELECT ! som_profit_model
 
@@ -1299,6 +1348,8 @@ SUBROUTINE stom_opt_bounded_search(                                            &
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 USE ereport_mod, ONLY: ereport
+USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,          &
+                                cgain_profit_model, sox_opt_profit_model
 USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 photo_farquhar, photo_johnson, photo_model,    &
                                 CW_conductance,                                &
@@ -1308,7 +1359,8 @@ USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 l_som_rhizo_series
 USE jb_photo_mod, ONLY: jb_eta_scale
 USE pftparm, ONLY: c3, alpha, pft_conductance_model, psi_nsl_onset, psi_nsl0,  &
-                   fsmc_mod
+                   fsmc_mod, cmax_a, cmax_b, kmax_pft, cgain_varpi
+USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow
 USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
 USE planet_constants_mod, ONLY: repsilon
 USE c_rmol, ONLY: rmol
@@ -1354,7 +1406,19 @@ REAL(KIND=real_jlslsm), PARAMETER :: nsl_tol = 1.0e-3
                             ! Tolerance on f - f(psi_leaf(f)) (l_som_nsl).
 
 INTEGER :: i, j, l, side, idx1(land_pts)
-LOGICAL :: l_lut, ok_u, l_edge
+LOGICAL :: l_lut, ok_u, l_edge, l_cmax, l_cgain, l_abs, l_sox
+
+REAL(KIND=real_jlslsm) :: cmax_scale, k_unstressed, k_sox_ref
+                            ! k_sox_ref: SOX's whole-path k at zero flow
+                            ! (psi_bar = psi_root_zone), which normalises
+                            ! the SOX factor (a constant for the point, so
+                            ! it does not move the optimum).
+                            ! cmax_scale: leaf area of this call
+                            ! (kmax/kmax_pft), so the CMax and CGain costs,
+                            ! given per unit leaf area, are on the same basis
+                            ! as A (canopy, class or leaf).
+                            ! k_unstressed: CGain's k_max, the whole-path
+                            ! conductance at psi = 0 (soil link included).
 
 REAL(KIND=real_jlslsm) ::                                                      &
   g_off, max_al, max_kl, ci_lo, ci_top, tol1,                                  &
@@ -1385,11 +1449,30 @@ l_lut = ( pft_conductance_model(pft) == CW_conductance .OR.                    &
 ! the margin-based edge.
 IF ( l_som_rhizo_series .AND. fsmc_mod(pft) == 2 ) l_lut = .FALSE.
 idx1(:) = 1
+! CMax (stomata_model = 6): profit A_n - Theta(psi_leaf) in absolute carbon
+! units instead of CG - HC (see the profit function below).
+l_cmax = som_profit_model == cmax_profit_model
+! CGain (stomata_model = 7): A_n - varpi (k_max - k)/k_max.
+l_cgain = som_profit_model == cgain_profit_model
+! SOX_opt (Eller et al. 2018; stomata_model = 5 with som_ci_search = 2):
+! A_n (k(psi_bar) - kcrit)/(k_ref - kcrit), psi_bar the mean of the root
+! zone and leaf water potentials, k of the whole path.
+l_sox = som_profit_model == sox_opt_profit_model
+l_abs = l_cmax .OR. l_cgain .OR. l_sox
 
 DO j = 1, open_pts
   l = veg_index(open_index(j))
   idx1(1) = open_index(j)
   g_off = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
+  ! (CMax and CGain work on net A, as Wolf et al. 2016 and Lu et al. 2020.)
+  IF ( l_abs ) g_off = 0.0
+  cmax_scale = 1.0
+  IF ( l_abs ) cmax_scale = kmax(l) / MAX(kmax_pft(pft), TINY(1.0_real_jlslsm))
+  k_unstressed = 1.0
+  k_sox_ref = 1.0
+  IF ( l_sox ) k_sox_ref = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
+  IF ( l_cgain ) k_unstressed = MAX(k_path_zero_flow(pft, l, kmax(l), 0.0_real_jlslsm), &
+                                    TINY(1.0_real_jlslsm))
   ci_lo = MAX(ccp(l), 0.0)
   ! With the gl_max cap the edge is found to the 1e-2 Pa floor on ca - Ci
   ! used for gl; without it (gl unbounded near ca) stop at the top of the
@@ -1450,9 +1533,9 @@ DO j = 1, open_pts
   END IF
 
   ! Both ends of the feasible range are candidates.
-  best_f = profit(best_al, best_kl)
-  IF ( profit(e_al, e_kl) > best_f ) THEN
-    best_f = profit(e_al, e_kl); best_ci = e_ci; best_al = e_al
+  best_f = profit(best_al, best_kl, best_psi)
+  IF ( profit(e_al, e_kl, e_psi) > best_f ) THEN
+    best_f = profit(e_al, e_kl, e_psi); best_ci = e_ci; best_al = e_al
     best_gl = e_gl; best_el = e_el; best_psi = e_psi; best_kl = e_kl
   END IF
 
@@ -1501,6 +1584,11 @@ DO j = 1, open_pts
   kl_g(j) = best_kl
   carbon_gain_g(j) = (best_al + g_off) / max_al
   hydraulic_cost_g(j) = (max_kl - best_kl) / (max_kl - kcrit(l))
+  ! CMax, CGain: the cost as a fraction of the maximum A on the range.
+  IF ( l_cmax .OR. l_cgain ) hydraulic_cost_g(j) = (best_al - profit(best_al, &
+                                                    best_kl, best_psi)) / max_al
+  ! SOX: 1 - the factor on A (as the flat-grid SOX).
+  IF ( l_sox ) hydraulic_cost_g(j) = 1.0 - sox_factor(best_psi)
 END DO
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -1756,16 +1844,50 @@ CONTAINS
   END IF
   END FUNCTION margin
 
-  ! Profit = CG - HC, as stom_opt_profit_max_select.
-  REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in)
-  REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in
-  profit = (al_in + g_off) / max_al - (max_kl - kl_in) / (max_kl - kcrit(l))
+  ! Profit = CG - HC, as stom_opt_profit_max_select; for CMax (l_cmax)
+  ! A_n - Theta(psi_leaf) in mol CO2 m-2 s-1 (Wolf et al. 2016, Eq. 8).
+  REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in, psi_in)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in, psi_in
+  IF ( l_cmax ) THEN
+    profit = al_in - theta_cmax(psi_in)
+  ELSE IF ( l_sox ) THEN
+    profit = al_in * sox_factor(psi_in)
+  ELSE IF ( l_cgain ) THEN
+    ! Lu et al. (2020) / Sabot et al. (2022, Eq. 15), varpi per unit leaf
+    ! area (umol m-2 s-1) scaled to this call.
+    profit = al_in - cmax_scale * 1.0e-6_real_jlslsm * cgain_varpi(pft)        &
+                     * MAX(k_unstressed - kl_in, 0.0_real_jlslsm) / k_unstressed
+  ELSE
+    profit = (al_in + g_off) / max_al - (max_kl - kl_in) / (max_kl - kcrit(l))
+  END IF
   END FUNCTION profit
+
+  ! SOX factor (k(psi_bar) - kcrit)/(k_ref - kcrit), psi_bar the mean of
+  ! the root zone and leaf water potentials, k of the whole path.
+  REAL(KIND=real_jlslsm) FUNCTION sox_factor(psi)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+  sox_factor = ( k_path_zero_flow(pft, l, kmax(l), 0.5 * (psi + psi_root_zone(l))) &
+                 - kcrit(l) ) / MAX(k_sox_ref - kcrit(l), TINY(1.0_real_jlslsm))
+  sox_factor = MAX(sox_factor, 0.0_real_jlslsm)
+  END FUNCTION sox_factor
+
+  ! CMax carbon cost of leaf water potential psi (Pa), Anderegg et al.
+  ! (2018) / Sabot et al. (2022, Eq. 12): Theta = a/2 psi^2 + b |psi| with
+  ! psi in MPa and a, b per unit leaf area in umol m-2 s-1 MPa-2 and MPa-1;
+  ! returned in mol CO2 s-1 on the basis of this call (x cmax_scale).
+  REAL(KIND=real_jlslsm) FUNCTION theta_cmax(psi)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+  REAL(KIND=real_jlslsm) :: p_mpa
+  p_mpa = ABS(MIN(psi, 0.0_real_jlslsm)) * 1.0e-6_real_jlslsm
+  theta_cmax = cmax_scale * 1.0e-6_real_jlslsm                                 &
+               * ( 0.5_real_jlslsm * cmax_a(pft) * p_mpa * p_mpa               &
+                   + cmax_b(pft) * p_mpa )
+  END FUNCTION theta_cmax
 
   ! Profit of the latest evaluation (-HUGE if infeasible), kept if best.
   REAL(KIND=real_jlslsm) FUNCTION profit_u()
   IF ( ok_u ) THEN
-    profit_u = profit(al_u, kl_u)
+    profit_u = profit(al_u, kl_u, psi_u)
   ELSE
     profit_u = -HUGE(1.0_real_jlslsm)
   END IF

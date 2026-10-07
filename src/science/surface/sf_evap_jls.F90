@@ -258,7 +258,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 l_desica = ( stomata_model == stomata_desica )
 IF ( l_desica .AND. ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
   errcode = 101
-  CALL ereport('sf_evap', errcode, 'stomata_model = 5 (DESICA) water '     //  &
+  CALL ereport('sf_evap', errcode, 'stomata_model = 8 (DESICA) water '     //  &
                'accounting is coded for nsoilt = 1, no l_irrig_dmd and '   //  &
                'no l_aggregate')
 END IF

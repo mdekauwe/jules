@@ -36,7 +36,8 @@ USE jules_vegetation_mod, ONLY: jules_vegetation, photo_acclim_model,          &
                                 photo_adapt_acclim, photo_act_model,           &
                                 photo_act_pft, photo_act_gb, photo_jv_model,   &
                                 jv_scale, jv_ntotal, stomata_model,            &
-                                stomata_jacobs, stomata_medlyn, stomata_sox,   &
+                                stomata_jacobs, stomata_medlyn,               &
+                                stomata_sox_analytical,                       &
                                 l_inferno, l_trif_eq, triffid_period,          &
                                 ignition_method, check_jules_vegetation,       &
                                 ignition_constant, ignition_vary_natural,      &
@@ -176,7 +177,7 @@ CASE ( stomata_jacobs )
 CASE ( stomata_medlyn )
   CALL log_info("init_vegetation",                                             &
                 "Using the Medlyn et al. model of stomatal conductance.")
-CASE ( stomata_sox )
+CASE ( stomata_sox_analytical )
   CALL log_info("init_vegetation",                                             &
                 "Using the SOX model of stomatal conductance.")
 END SELECT

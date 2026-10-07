@@ -80,8 +80,9 @@ USE jules_vegetation_mod, ONLY:                                                &
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
 ! imported parameters
     photo_collatz, photo_farquhar, photo_sox_collatz, photo_johnson,           &
-    stomata_medlyn, stomata_sox, stomata_desica, stomata_profit_max,           &
-    stomata_sox_profit,                                                        &
+    stomata_medlyn, stomata_sox_analytical, stomata_desica,                    &
+    stomata_profit_max,                                                        &
+    stomata_sox_opt, stomata_cmax, stomata_cgain,                              &
     photo_adapt, photo_acclim, photo_adapt_acclim,                             &
     photo_act_model, photo_act_pft, photo_act_gb, n_photo_coef,                &
 ! imported scalars that are not changed
@@ -229,7 +230,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 ,psi_root_zone(land_pts)                                                       &
                             ! IN Root zone water potential (Pa). Used by the
                             !    stomatal optimisation and by SOX
-                            !    (stomata_model = stomata_sox).
+                            !    (stomata_model = stomata_sox_analytical).
 ,e_supply(land_pts)
                             ! IN Transpiration the soil can supply this
                             !    timestep (kg m-2 s-1); negative = no limit
@@ -933,7 +934,7 @@ DO l = 1, land_pts
 
   fsmc_scale(l) = 1.0  !  Value used if l_scale_resp_pm =.FALSE..
   ! leaf water potential variables for lwp_c diagnostic if SOX is used
-  IF ( stomata_model == stomata_sox ) THEN
+  IF ( stomata_model == stomata_sox_analytical ) THEN
     ! initialise to zero to allow accumulation
     lwp_c(l) = 0.0
   END IF
@@ -1037,9 +1038,12 @@ CALL qsat(qs,tstar,pstar,land_pts)
 ! Set the minimum-allowed humidity deficit.
 ! (The stomatal optimisation keeps the dq_min it had when selected with
 ! leaf_flux_mod = 2 and stomata_model = 2.)
-IF ( ( stomata_model == stomata_medlyn ) .OR. ( stomata_model == stomata_sox ) &
+IF ( ( stomata_model == stomata_medlyn )                                       &
+     .OR. ( stomata_model == stomata_sox_analytical )                          &
      .OR. ( stomata_model == stomata_profit_max )                              &
-     .OR. ( stomata_model == stomata_sox_profit ) ) THEN
+     .OR. ( stomata_model == stomata_sox_opt )                                 &
+     .OR. ( stomata_model == stomata_cmax )                                    &
+     .OR. ( stomata_model == stomata_cgain ) ) THEN
   ! Avoid dq=0 as this would cause the model to blow up.
   dq_min = 0.0001
 ELSE
@@ -2263,7 +2267,7 @@ CASE ( 1 )
 
     SELECT CASE ( leaf_flux_mod)
       CASE (leaf_flux_fsmc)
-        IF (stomata_model == stomata_sox) THEN
+        IF (stomata_model == stomata_sox_analytical) THEN
           !-------------------------------------------------------------------
           ! SOX (Eller et al. 2020, semi-analytical; trunk vn7.9).
           !-------------------------------------------------------------------

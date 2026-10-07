@@ -33,7 +33,8 @@ SUBROUTINE smc_ext (npnts,nshyd,surft_pts,surft_index,ft                       &
 USE pftparm, ONLY: calc_rz_psi, fsmc_mod, root_psi_crit
 USE hyd_psi_mod, ONLY: psi_from_sthu, bound_soil_psi
 USE jules_vegetation_mod, ONLY: fsmc_shape, leaf_flux_mod, leaf_flux_stom_opt, &
-                                stomata_model, stomata_sox, stomata_desica,    &
+                                stomata_model, stomata_sox_analytical,        &
+                                stomata_desica,                               &
                                 l_som_rhizo_series
 USE hyd_con_ic_mod, ONLY: hyd_con_ic
 USE jules_soil_mod, ONLY: l_bound_soil_wp, ds_psi, dzsoil
@@ -241,9 +242,10 @@ IF ( fsmc_mod(ft) == 1 ) THEN
   v_open_root_zone  = calc_weighted_mean(npnts, nshyd, surft_pts,              &
                                          surft_index, v_open, f_root)
 
-  ! SOX (stomata_model = stomata_sox) also needs psi_root_zone.
+  ! SOX (stomata_model = stomata_sox_analytical) also needs psi_root_zone.
   IF ( fsmc_shape == 1 .OR. leaf_flux_mod == leaf_flux_stom_opt                &
-       .OR. calc_rz_psi(ft) .OR. stomata_model == stomata_sox                  &
+       .OR. calc_rz_psi(ft)                                                    &
+       .OR. stomata_model == stomata_sox_analytical                            &
        .OR. stomata_model == stomata_desica ) THEN
 !$OMP PARALLEL DO                                                              &
 !$OMP SCHEDULE(STATIC)                                                         &
@@ -261,7 +263,7 @@ IF ( fsmc_mod(ft) == 1 ) THEN
 !$OMP END PARALLEL DO
   END IF
 
-  IF ( stomata_model == stomata_sox ) THEN
+  IF ( stomata_model == stomata_sox_analytical ) THEN
     ! fsmc_shape is not used by SOX - fsmc is always 1.0 (psi_root_zone is
     ! set above).
     fsmc(:) = 1.0
