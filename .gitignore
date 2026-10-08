@@ -30,3 +30,6 @@ venv.bak/
 
 # UV
 .python-version
+
+# ignore local build logs
+build_*.log
