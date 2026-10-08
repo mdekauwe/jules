@@ -9600,7 +9600,7 @@ DATA metadata(741) / var_metadata(                                             &
 ! Long name
     "Maximum conductance impaired by hydraulic failure",                       &
 ! Units
-    "kg m-2 s-1"                                                               &
+    "mmol m-2 s-1 MPa-1"                                                       &
   ) /
 !-----------------------------------------------------------------------------
 ! Metadata for conductance_b_impaired_pft
@@ -9678,7 +9678,7 @@ DATA metadata(747) / var_metadata(                                             &
 ! Long name
     "Impaired maximum xylem conductance (0 = intact)",                     &
 ! Units
-    "m s-1"                                                                &
+    "mol m-2 s-1 Pa-1"                                                     &
   ) /
 !-----------------------------------------------------------------------------
 ! Metadata for cond_b_impaired (xylem impairment prognostic)
@@ -9873,6 +9873,6 @@ DATA metadata(762) / var_metadata(                                             &
 ! Long name
     "Kplant: soil-to-leaf conductance per leaf area (Ksr + xylem)",            &
 ! Units
-    "mol m-2 s-1 Pa-1"                                                         &
+    "mmol m-2 s-1 MPa-1"                                                       &
   ) /
 #endif
