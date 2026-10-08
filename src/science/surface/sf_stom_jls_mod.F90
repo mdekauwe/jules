@@ -93,7 +93,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_gl_max, l_som_supply_limit,                                            &
     l_som_cuticular_floor, l_som_gravity, l_red, l_som_vcmax_psi,              &
-    l_som_nsl_sink, l_som_rhizo_series,                                        &
+    l_som_rhizo_series,                                                        &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model
 
 USE CN_utils_mod, ONLY:                                                        &
@@ -150,7 +150,6 @@ USE water_constants_mod, ONLY: rho_water
 USE desica_jls_mod, ONLY: desica_fw, desica_hydraulics, tuzet_fw,             &
                           desica_store_inputs
 USE timestep_mod, ONLY: timestep
-USE nsl_sink_mod, ONLY: nsl_sink_factor, nsl_sink_update
 
 
 
@@ -951,14 +950,12 @@ IF ( l_som_gravity .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
   psi_stem_shd(:) = psi_src(:)
 END IF
 
-! Capacity factor of Vcmax/Jmax, once per timestep: soil-water
-! down-regulation (l_som_vcmax_psi) and the sink-limited NSL (l_som_nsl_sink).
+! Soil-water capacity factor of Vcmax/Jmax (l_som_vcmax_psi), once per
+! timestep, so the recovery lag advances once whatever the number of leaf
+! classes and leaf temperature iterations.
 f_vc(:) = 1.0
 IF ( l_som_vcmax_psi ) CALL vcmax_psi_factor( ft, land_pts, veg_pts,          &
                                               veg_index, psi_root_zone, f_vc )
-! Sink-limited NSL (l_som_nsl_sink): the pool of the last timestep.
-IF ( l_som_nsl_sink ) CALL nsl_sink_factor( ft, land_pts, veg_pts, veg_index, &
-                                            f_vc )
 
 !-----------------------------------------------------------------------------
 ! Initialisation.
@@ -3549,11 +3546,6 @@ DO m = 1,veg_pts
 END DO
 !$OMP END PARALLEL DO
 
-! Sink-limited NSL (l_som_nsl_sink): advance the imbalance pool with this
-! timestep's GPP.
-IF ( l_som_nsl_sink ) CALL nsl_sink_update( ft, land_pts, veg_pts, veg_index, &
-                                            gpp, tair, psi_root_zone )
-
 !-----------------------------------------------------------------------------
 ! Calculate BVOC emissions
 !-----------------------------------------------------------------------------
@@ -4436,8 +4428,7 @@ SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
 ! (1) an optional floor,
 !   f_vc = fmin + (1 - fmin) f   (psi_vcmax_fmin, default 0),
 ! so the stomatal (hydraulic) limitation, not capacity, sets photosynthesis
-! in the driest soil (the steady state of the sink-limited NSL,
-! l_som_nsl_sink, levels off at about the maintenance demand).
+! in the driest soil.
 ! (2) a recovery lag: the factor follows f at once as the soil dries
 ! (psi_rz itself changes slowly) but relaxes back towards it with a fixed
 ! 5-day e-folding
