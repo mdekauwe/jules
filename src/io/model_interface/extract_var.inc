@@ -3771,8 +3771,9 @@ CASE ( 'sapflow_pft' )
 CASE ( 'kplant_pft' )
   ! leaf_k_pft is the solver's -dE/dpsi_leaf for the whole path: with
   ! l_som_rhizo_series it includes the soil-to-root conductance Ksr in series
-  ! with the xylem.
-  cube_land = cube_from_array(psparms%leaf_k_pft)
+  ! with the xylem. Written in the input units of kmax_pft_io,
+  ! mmol m-2 s-1 MPa-1 (the model works in mol m-2 s-1 Pa-1).
+  cube_land = cube_from_array(psparms%leaf_k_pft * 1.0e9)
   cube = map_from_land(cube_land)
 
 CASE ('PLC_pft')
@@ -3813,15 +3814,18 @@ CASE ('PLC_pft')
   cube = map_from_land(cube_land)
 
   ! Maximum hydraulic conducance for each plant following hydraulic impairment
-  ! JBaguley
+  ! JBaguley. Written in the input units of kmax_pft_io, mmol m-2 s-1 MPa-1
+  ! (the model works in mol m-2 s-1 Pa-1; the dumped state kmax_impaired
+  ! stays in model units).
 CASE ('impaired_kmax_pft')
-  cube_land = cube_from_array(psparms%kmax_impaired_pft)
+  cube_land = cube_from_array(psparms%kmax_impaired_pft * 1.0e9)
   cube = map_from_land(cube_land)
 
   ! Hydraulic conductance b parameter for each plant functional type following
   ! hydraulic impairment JBaguley
 CASE ('conductance_b_impaired_pft')
-  cube_land = cube_from_array(psparms%conductance_b_impaired_pft)
+  ! Pa in the model; written in MPa.
+  cube_land = cube_from_array(psparms%conductance_b_impaired_pft * 1.0e-6)
   cube = map_from_land(cube_land)
 
   ! Hydraulic conductance c parameter for each plant functional type following
