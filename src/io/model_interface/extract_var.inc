@@ -3688,8 +3688,9 @@ CASE ( 'sapflow_pft' )
 CASE ( 'kplant_pft' )
   ! leaf_k_pft is the solver's -dE/dpsi_leaf for the whole path: with
   ! l_som_rhizo_series it includes the soil-to-root conductance Ksr in series
-  ! with the xylem.
-  cube_land = cube_from_array(psparms%leaf_k_pft)
+  ! with the xylem. Written in the input units of kmax_pft_io,
+  ! mmol m-2 s-1 MPa-1 (the model works in mol m-2 s-1 Pa-1).
+  cube_land = cube_from_array(psparms%leaf_k_pft * 1.0e9)
   cube = map_from_land(cube_land)
 
 CASE ('PLC_pft')
