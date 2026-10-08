@@ -140,9 +140,10 @@ END FUNCTION xylem_f
 ! (one element on the PFT curve without l_som_plant_segments; no soil term
 ! without l_som_rhizo_series or for ksr_path < 0). This is what the solvers
 ! give at E = 0, for points the optimiser does not visit (closed stomata).
-! ksr_path must be set (set_ksr_path) for this path.
+! ksr_path must be set (set_ksr_path) for this path. With l_plant_only
+! present and .TRUE., the plant only (no soil term), e.g. CGain's k_max.
 ! *****************************************************************************
-FUNCTION k_path_zero_flow( pft, l, kmax, psi_root ) RESULT( k0 )
+FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, l_plant_only ) RESULT( k0 )
 
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_rhizo_series
@@ -151,8 +152,13 @@ IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: pft, l
 REAL(KIND=real_jlslsm), INTENT(IN) :: kmax, psi_root
+LOGICAL, INTENT(IN), OPTIONAL :: l_plant_only
 REAL(KIND=real_jlslsm) :: k0, r, k_el
 INTEGER :: iseg
+LOGICAL :: l_soil
+
+l_soil = l_som_rhizo_series
+IF ( PRESENT(l_plant_only) ) l_soil = l_soil .AND. .NOT. l_plant_only
 
 k0 = 0.0
 IF ( kmax <= 0.0 ) RETURN
@@ -172,7 +178,7 @@ ELSE
   r = 1.0 / k_el
 END IF
 
-IF ( l_som_rhizo_series ) THEN
+IF ( l_soil ) THEN
   IF ( ksr_path(l) >= 0.0 ) THEN
     IF ( ksr_path(l) <= TINY(1.0_real_jlslsm) ) RETURN
     r = r + 1.0 / ksr_path(l)
