@@ -450,6 +450,11 @@ LOGICAL ::                                                                     &
 
 LOGICAL ::                                                                     &
   l_som_coupled_e = .FALSE.
+      ! Off by default for now (8 Oct 2026). It is the more consistent form
+      ! and is intended to become the default, but calibrations so far (e.g.
+      ! FR-Pue) were made with it off and it shifts their fits slightly (at
+      ! FR-Pue: annual GPP +0.8 %, TVeg -0.3 %), so it is being tested
+      ! through a recalibration first. See NOTE_coupled_e_handoff_2026-10-08.
       ! When .TRUE., the stomatal optimisation (stomata_model = 4 to 7, 10;
       ! can_rad_mod = 1 or 7) evaluates the transpiration of each trial
       ! stomatal conductance g with the resistances it passes through,
