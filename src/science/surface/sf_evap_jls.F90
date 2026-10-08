@@ -797,8 +797,15 @@ IF ( l_desica ) THEN
     DO k = 1,surft_pts(n)
       l = surft_index(k,n)
       IF ( resfs(l,n) > EPSILON(1.0) ) THEN
-        t_stom(l,n) = ( esoil_surft(l,n) + des_or(l,n) )                       &
-                      * sf_diag%resfs_stom(l,n) / resfs(l,n)
+        ! Stomatal share by conductance, g_stom / g_c (as et_stom and the
+        ! Or limit), before the Or limit (des_or).
+        IF ( sf_diag%resfs_stom(l,n) < 1.0 ) THEN
+          t_stom(l,n) = ( esoil_surft(l,n) + des_or(l,n) )                     &
+                        * MIN(1.0, sf_diag%resfs_stom(l,n) * (1.0 - resfs(l,n)) &
+                        / (resfs(l,n) * (1.0 - sf_diag%resfs_stom(l,n))))
+        ELSE
+          t_stom(l,n) = esoil_surft(l,n) + des_or(l,n)
+        END IF
       END IF
     END DO
     CALL desica_commit( n, land_pts, surft_pts(n), surft_index(:,n),          &
