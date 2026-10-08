@@ -1312,9 +1312,8 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  photo_farquhar, photo_johnson, photo_model,   &
                                  stomata_jacobs, stomata_medlyn, stomata_sox,  &
                                  stomata_model, l_spec_veg_z0, l_sugar,        &
-                                 l_scale_resp_pm, stomata_desica, som_ci_search,   &
-                                 som_ci_bounded, som_psi_solver,              &
-                                 psi_solver_lut
+                                 l_scale_resp_pm, stomata_desica,              &
+                                 som_psi_solver, psi_solver_lut
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs, l_snow_albedo
 
@@ -1973,17 +1972,11 @@ IF ( stomata_model == stomata_sox ) THEN ! SOX
 END IF
 
 !-----------------------------------------------------------------------------
-! Xylem impairment is coded for the stomatal optimisation's flat Ci search
-! with the Taylor or Newton leaf-psi solvers: the bounded search, the lookup
-! table (keyed by PFT) and DESICA use the intact PFT curve.
+! Xylem impairment is coded for the stomatal optimisation's flat and bounded
+! Ci searches with the Taylor or Newton leaf-psi solvers: the lookup table
+! (keyed by PFT) and DESICA use the intact PFT curve.
 !-----------------------------------------------------------------------------
 IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
-  IF ( som_ci_search == som_ci_bounded ) THEN
-    ERROR = 1
-    CALL ereport(routinename, ERROR,                                           &
-    'xylem impairment (pft_xylem_impairment_model /= 0) is not coded for '  // &
-    'som_ci_search = 2 (or l_som_fast)')
-  END IF
   IF ( som_psi_solver == psi_solver_lut ) THEN
     ERROR = 1
     CALL ereport(routinename, ERROR,                                           &

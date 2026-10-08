@@ -590,6 +590,8 @@ SELECT CASE ( som_base_parm )
               rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,&
               km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,      &
               gl_max, l_multilayer, som_n_sample, som_n_ci_golden_iter,       &
+              kmax_ref, conductance_b, conductance_c, psi_leaf_extreme,       &
+              psi_root_extreme, l_xylem_impairment, kl_hc_max,                &
           ! OUT
               ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                        &
               el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                     &
@@ -1653,6 +1655,8 @@ SUBROUTINE stom_opt_bounded_search(                                            &
         rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,       &
         km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,             &
         gl_max, l_multilayer, n_top, n_iter,                                   &
+        kmax_ref, conductance_b, conductance_c, psi_leaf_extreme,              &
+        psi_root_extreme, l_xylem_impairment, kl_hc_max,                       &
 ! OUT
         ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g   &
 )
@@ -1666,6 +1670,8 @@ USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 SOX_conductance,                               &
                                 som_psi_solver, psi_solver_lut,           &
                                 l_som_plant_segments, l_som_nsl,               &
+                                ximpair_cost_model, ximpair_cost_intact,       &
+                                ximpair_cost_sperry,                           &
                                 l_som_rhizo_series
 USE jb_photo_mod, ONLY: jb_eta_scale
 USE pftparm, ONLY: c3, alpha, pft_conductance_model, conductance_b_pft,        &
@@ -1673,9 +1679,11 @@ USE pftparm, ONLY: c3, alpha, pft_conductance_model, conductance_b_pft,        &
 USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
 USE planet_constants_mod, ONLY: repsilon
 USE c_rmol, ONLY: rmol
-USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
+USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls, xylem_conductance_jls
 USE xylem_hydraulics_CW_jls_mod, ONLY: supply_lut_psi, supply_lut_e_crit,       &
-                                       supply_lut_f
+                                       supply_lut_f, leaf_psi_segments_jls,     &
+                                       ksr_path, som_psi_in_min, xylem_f
+USE xylem_impairment_mod, ONLY: leaf_psi_impaired_jls
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts, pft, open_pts, open_index(land_pts), pft_photo_model,             &
@@ -1687,6 +1695,15 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   ccp(land_pts), pstar(land_pts), km(land_pts), dq(land_pts), je(land_pts),   &
   t_leaf(land_pts), je_ratio(land_pts), fapar_lf(land_pts), ipar(land_pts),   &
   kmax(land_pts), kcrit(land_pts), gl_max(land_pts)
+
+! Xylem impairment (as stom_opt_mod_ci): the leaf state on the impaired path
+! (kmax, conductance_b/c and the extremes; segments: stem/leaf capped at
+! kmax / kmax_ref), the hydraulic cost on the intact path (kmax_ref, the PFT
+! curve) in series with the soil, relative to kl_hc_max.
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  kmax_ref(land_pts), conductance_b(land_pts), conductance_c(land_pts),       &
+  psi_leaf_extreme(land_pts), psi_root_extreme(land_pts), kl_hc_max(land_pts)
+LOGICAL, INTENT(IN) :: l_xylem_impairment
 
 LOGICAL, INTENT(IN) :: l_multilayer
 
@@ -1713,8 +1730,21 @@ INTEGER, PARAMETER :: n_nsl_iter = 12
                             ! limitation factor f (l_som_nsl).
 REAL(KIND=real_jlslsm), PARAMETER :: nsl_tol = 1.0e-3
                             ! Tolerance on f - f(psi_leaf(f)) (l_som_nsl).
+INTEGER, PARAMETER :: n_sperry_iter = 40
+                            ! Sperry mode: maximum bisection steps.
+REAL(KIND=real_jlslsm), PARAMETER :: sperry_psi_tol = 100.0
+                            ! Sperry mode: tolerance on psi_leaf (Pa).
 
 INTEGER :: i, j, l, side, idx1(land_pts)
+LOGICAL :: l_intact_search
+                            ! Sperry mode (ximpair_cost_model = 2): .TRUE.
+                            ! while the search runs on the intact path.
+REAL(KIND=real_jlslsm) :: psi_star, hc_star, cg_star, s_lo, s_hi, s_mid
+                            ! Sperry mode: target psi_leaf and the intact-path
+                            ! gain/cost, and the Ci bisection bracket.
+REAL(KIND=real_jlslsm) :: kcap_pts(land_pts)
+                            ! Impairment with segments: stem/leaf cap,
+                            ! kmax / kmax_ref.
 REAL(KIND=real_jlslsm) :: b_curve(land_pts), c_curve(land_pts)
                             ! The PFT's intact vulnerability curve on land_pts
                             ! (l_som_fast is not coded for xylem impairment).
@@ -1722,12 +1752,14 @@ LOGICAL :: l_lut, ok_u, l_edge
 
 REAL(KIND=real_jlslsm) ::                                                      &
   g_off, max_al, max_kl, ci_lo, ci_top, tol1,                                  &
-  ! Evaluation state (eval_ci); al0_u is A without the nonstomatal limitation
-  last_ci, al_u, gl_u, el_u, psi_u, kl_u, al0_u,                               &
+  ! Evaluation state (eval_ci); al0_u is A without the nonstomatal limitation;
+  ! khc_u the conductance for the hydraulic cost (kl_u unless impaired)
+  last_ci, al_u, gl_u, el_u, psi_u, kl_u, al0_u, khc_u,                        &
   ! Edge (last feasible) and the infeasible end of its bracket
   e_ci, e_al, e_gl, e_el, e_psi, e_kl, e_g, b_ci, b_g, g_u, c_ci, t_al,        &
+  e_khc,                                                                       &
   ! Best seen
-  best_f, best_ci, best_al, best_gl, best_el, best_psi, best_kl,               &
+  best_f, best_ci, best_al, best_gl, best_el, best_psi, best_kl, best_khc,     &
   ! Golden-section bracket
   a, b, d_ci, fc, fd
 
@@ -1748,7 +1780,10 @@ l_lut = ( pft_conductance_model(pft) == CW_conductance .OR.                    &
 ! edge_by_gl_cap do not apply: use leaf_psi_jls, which adds the soil link, and
 ! the margin-based edge.
 IF ( l_som_rhizo_series .AND. fsmc_mod(pft) == 2 ) l_lut = .FALSE.
+! The table is the intact PFT curve: not for the impaired path.
+IF ( l_xylem_impairment ) l_lut = .FALSE.
 idx1(:) = 1
+kcap_pts(:) = 1.0
 b_curve(:) = conductance_b_pft(pft)
 c_curve(:) = conductance_c_pft(pft)
 
@@ -1769,15 +1804,26 @@ DO j = 1, open_pts
   !---------------------------------------------------------------------------
   ! 1. Lower end (max k) and top of the range.
   !---------------------------------------------------------------------------
+  IF ( l_xylem_impairment .AND. l_som_plant_segments )                         &
+    kcap_pts(l) = kmax(l) / MAX(kmax_ref(l), TINY(1.0_real_jlslsm))
+  ! Sperry mode: search on the intact path (as no impairment, at kmax_ref);
+  ! the impaired path is used after the search (section 4).
+  l_intact_search = l_xylem_impairment .AND. ximpair_cost_model == ximpair_cost_sperry
   CALL eval_ci(ci_lo)
   max_kl = kl_u
+  ! Impairment, ximpair_cost_model = 0: the cost is relative to the intact
+  ! path at zero flow (stomata blind to the damage, as the flat search).
+  ! = 1: the impaired path's own (kl_u at ci_lo, as without impairment).
+  ! = 2: the intact path's (kl_u, the search being on it).
+  IF ( l_xylem_impairment .AND. ximpair_cost_model == ximpair_cost_intact )    &
+    max_kl = kl_hc_max(l)
   IF ( .NOT. ok_u ) THEN
     CALL set_closed()
     CYCLE
   END IF
   CALL store_best(-HUGE(1.0_real_jlslsm), ci_lo)
   e_ci = ci_lo; e_al = al_u; e_gl = gl_u; e_el = el_u; e_psi = psi_u
-  e_kl = kl_u; e_g = margin()
+  e_kl = kl_u; e_khc = khc_u; e_g = margin()
 
   CALL eval_ci(ci_top)
   ! (al0_u = al_u without the nonstomatal limitation, which can make A at
@@ -1794,7 +1840,7 @@ DO j = 1, open_pts
   !---------------------------------------------------------------------------
   IF ( ok_u ) THEN
     e_ci = ci_top; e_al = al_u; e_gl = gl_u; e_el = el_u; e_psi = psi_u
-    e_kl = kl_u
+    e_kl = kl_u; e_khc = khc_u
   ELSE
     l_edge = .FALSE.
     ! (edge_by_gl_cap finds the edge from A without the hydraulics, which
@@ -1816,10 +1862,11 @@ DO j = 1, open_pts
   END IF
 
   ! Both ends of the feasible range are candidates.
-  best_f = profit(best_al, best_kl)
-  IF ( profit(e_al, e_kl) > best_f ) THEN
-    best_f = profit(e_al, e_kl); best_ci = e_ci; best_al = e_al
+  best_f = profit(best_al, best_khc)
+  IF ( profit(e_al, e_khc) > best_f ) THEN
+    best_f = profit(e_al, e_khc); best_ci = e_ci; best_al = e_al
     best_gl = e_gl; best_el = e_el; best_psi = e_psi; best_kl = e_kl
+    best_khc = e_khc
   END IF
 
   !---------------------------------------------------------------------------
@@ -1866,7 +1913,48 @@ DO j = 1, open_pts
   el_g(j) = best_el
   kl_g(j) = best_kl
   carbon_gain_g(j) = (best_al + g_off) / max_al
-  hydraulic_cost_g(j) = (max_kl - best_kl) / (max_kl - kcrit(l))
+  hydraulic_cost_g(j) = (max_kl - best_khc) / (max_kl - kcrit(l))
+
+  !---------------------------------------------------------------------------
+  ! 4. Sperry mode: the regulated psi_leaf is that of the intact optimum;
+  !    the impaired path delivers less at it. Find Ci in [ci_lo, best_ci]
+  !    whose transpiration on the impaired path gives psi_leaf = psi_star
+  !    (psi falls as Ci, gl and E rise), by bisection. If even ci_lo is
+  !    below psi_star, take ci_lo. The gain and cost are those of the intact-path optimum.
+  !---------------------------------------------------------------------------
+  IF ( l_intact_search .AND. gl_g(j) > 0.0 ) THEN
+    psi_star = best_psi
+    cg_star  = carbon_gain_g(j)
+    hc_star  = hydraulic_cost_g(j)
+    l_intact_search = .FALSE.
+    s_lo = ci_lo
+    s_hi = best_ci
+    CALL eval_ci(s_hi)
+    IF ( psi_u < psi_star ) THEN
+      CALL eval_ci(s_lo)
+      IF ( psi_u > psi_star ) THEN
+        DO i = 1, n_sperry_iter
+          s_mid = 0.5 * (s_lo + s_hi)
+          CALL eval_ci(s_mid)
+          IF ( psi_u > psi_star ) THEN
+            s_lo = s_mid
+          ELSE
+            s_hi = s_mid
+          END IF
+          IF ( ABS(psi_u - psi_star) < sperry_psi_tol ) EXIT
+        END DO
+      END IF
+    END IF
+    ci_g(j) = MAX(0.0, last_ci)
+    al_g(j) = MAX(-rd(l), al_u)
+    gl_g(j) = MAX(0.0, gl_u)
+    IF (gl_g(j) <= 0.0) al_g(j) = -rd(l)
+    psi_g(j) = psi_u
+    el_g(j) = el_u
+    kl_g(j) = kl_u
+    carbon_gain_g(j) = cg_star
+    hydraulic_cost_g(j) = hc_star
+  END IF
 END DO
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -1940,7 +2028,7 @@ CONTAINS
   SUBROUTINE hydraulic_state(ci, al)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci, al
   REAL(KIND=real_jlslsm) :: vpd
-  REAL(KIND=real_jlslsm) :: el1(1,1), psi1(1,1), kl1(1,1)
+  REAL(KIND=real_jlslsm) :: el1(1,1), psi1(1,1), kl1(1,1), khc1(1,1)
 
   al_u = al
   gl_u = ratio * (al_u * rmol * t_leaf(l)) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
@@ -1951,6 +2039,19 @@ CONTAINS
     psi_u = supply_lut_psi(pft, psi_root_zone(l),                              &
                            el_u / MAX(kmax(l), TINY(1.0_real_jlslsm)))
     kl_u = kmax(l) * supply_lut_f(pft, psi_u)
+  ELSE IF ( l_xylem_impairment .AND. .NOT. l_intact_search ) THEN
+    el1(1,1) = el_u
+    CALL impaired_state( el1, psi1, kl1, khc1 )
+    psi_u = psi1(1,1)
+    kl_u = kl1(1,1)
+  ELSE IF ( l_intact_search ) THEN
+    ! Sperry mode search: the intact path (kmax_ref, PFT curve).
+    el1(1,1) = el_u
+    CALL leaf_psi_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,              &
+                       psi_root_zone, kmax_ref, kcrit, b_curve, c_curve,       &
+                       psi1, kl1 )
+    psi_u = psi1(1,1)
+    kl_u = kl1(1,1)
   ELSE
     el1(1,1) = el_u
     CALL leaf_psi_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,              &
@@ -1959,7 +2060,51 @@ CONTAINS
     psi_u = psi1(1,1)
     kl_u = kl1(1,1)
   END IF
+  khc_u = kl_u
+  IF ( l_xylem_impairment .AND. .NOT. l_intact_search .AND.                          &
+       ximpair_cost_model == ximpair_cost_intact ) khc_u = khc1(1,1)
   END SUBROUTINE hydraulic_state
+
+  !---------------------------------------------------------------------------
+  ! Xylem impairment, one transpiration el1 at point l (as stom_opt_mod_ci):
+  ! leaf psi and conductance on the impaired path, and the conductance for
+  ! the hydraulic cost, the intact path (kmax_ref, PFT curve) at the same
+  ! water potentials in series with the soil (k_int(psi_leaf) /
+  ! (1 + k_int(psi_in) / K_s), psi_in = psi_src - E / K_s; segments: the
+  ! intact chain, leaf_k_intact).
+  !---------------------------------------------------------------------------
+  SUBROUTINE impaired_state( el1, psi1, kl1, khc1 )
+  REAL(KIND=real_jlslsm), INTENT(IN)  :: el1(1,1)
+  REAL(KIND=real_jlslsm), INTENT(OUT) :: psi1(1,1), kl1(1,1), khc1(1,1)
+  REAL(KIND=real_jlslsm) :: kmx1(1), kcr1(1), b1(1), c1(1), psi_in1, k_s1
+
+  IF ( l_som_plant_segments ) THEN
+    CALL leaf_psi_segments_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,     &
+                                psi_root_zone, kmax_ref, kcrit, psi1, kl1,     &
+                                kcap_frac = kcap_pts, leaf_k_intact = khc1 )
+  ELSE
+    CALL leaf_psi_impaired_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,     &
+                                psi_root_zone, kmax_ref, kmax, kcrit,          &
+                                conductance_b, conductance_c,                  &
+                                psi_leaf_extreme, psi_root_extreme,            &
+                                psi1, kl1 )
+    kmx1(1) = kmax_ref(l)
+    kcr1(1) = kcrit(l)
+    b1(1)   = conductance_b_pft(pft)
+    c1(1)   = conductance_c_pft(pft)
+    CALL xylem_conductance_jls( pft, 1, 1, psi1, kmx1, kcr1, b1, c1, khc1 )
+    IF ( l_som_rhizo_series ) THEN
+      k_s1 = ksr_path(l)
+      IF ( k_s1 > TINY(1.0_real_jlslsm) ) THEN
+        psi_in1 = MAX(psi_root_zone(l) - el1(1,1) / k_s1, som_psi_in_min)
+        khc1(1,1) = khc1(1,1)                                                  &
+                    / (1.0 + kmax_ref(l) * xylem_f(pft, psi_in1) / k_s1)
+      ELSE IF ( k_s1 >= 0.0 .AND. el1(1,1) > 0.0 ) THEN
+        khc1(1,1) = 0.0
+      END IF
+    END IF
+  END IF
+  END SUBROUTINE impaired_state
 
   ! Nonstomatal limitation factor at leaf psi (Pa): Dewar et al. (2022)
   ! Eqn 3(b) generalised to an onset, f = 1 - (psi - psi_on)/(psi0 - psi_on)
@@ -2071,7 +2216,7 @@ CONTAINS
     CALL eval_ci(ea)
     IF ( ok_u ) THEN
       e_ci = ea; e_al = al_u; e_gl = gl_u; e_el = el_u; e_psi = psi_u
-      e_kl = kl_u
+      e_kl = kl_u; e_khc = khc_u
       l_edge = .TRUE.
       RETURN
     END IF
@@ -2100,7 +2245,7 @@ CONTAINS
     g_u = margin()
     IF ( ok_u ) THEN
       e_ci = c_ci; e_al = al_u; e_gl = gl_u; e_el = el_u; e_psi = psi_u
-      e_kl = kl_u; e_g = g_u
+      e_kl = kl_u; e_khc = khc_u; e_g = g_u
       IF ( side == 1 ) b_g = 0.5 * b_g
       side = 1
     ELSE
@@ -2132,7 +2277,7 @@ CONTAINS
   ! Profit of the latest evaluation (-HUGE if infeasible), kept if best.
   REAL(KIND=real_jlslsm) FUNCTION profit_u()
   IF ( ok_u ) THEN
-    profit_u = profit(al_u, kl_u)
+    profit_u = profit(al_u, khc_u)
   ELSE
     profit_u = -HUGE(1.0_real_jlslsm)
   END IF
@@ -2142,7 +2287,7 @@ CONTAINS
   SUBROUTINE store_best(f, ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: f, ci
   best_f = f; best_ci = ci; best_al = al_u; best_gl = gl_u; best_el = el_u
-  best_psi = psi_u; best_kl = kl_u
+  best_psi = psi_u; best_kl = kl_u; best_khc = khc_u
   END SUBROUTINE store_best
 
   SUBROUTINE set_closed()
@@ -2150,8 +2295,12 @@ CONTAINS
   ! same curve as hydraulic_state, not 0 (0 made PLC_pft report 100 %; see
   ! stom_opt_mod_ci).
   REAL(KIND=real_jlslsm) :: el0(1,1), psi0(1,1), kl0(1,1)
+  REAL(KIND=real_jlslsm) :: khc0(1,1)
   IF ( l_lut ) THEN
     kl0(1,1) = kmax(l) * supply_lut_f(pft, psi_root_zone(l))
+  ELSE IF ( l_xylem_impairment ) THEN
+    el0(1,1) = 0.0
+    CALL impaired_state( el0, psi0, kl0, khc0 )
   ELSE
     el0(1,1) = 0.0
     CALL leaf_psi_jls( pft, 1, land_pts, 1, veg_index, idx1, el0,              &
