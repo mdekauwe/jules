@@ -54,8 +54,22 @@ REAL(KIND=real_jlslsm), PARAMETER ::                                           &
       ! Maximum of us/uh.
   vonk_or = 0.40,                                                              &
       ! von Karman constant (CABLE value).
-  grav_or = 9.81
+  grav_or = 9.81,                                                              &
       ! Gravitational acceleration (m s-2), CABLE value.
+  ! CABLE constants for the below-canopy turbulent resistance rt0
+  ! (cable_roughness.F90, cable_canopy.F90).
+  csw = 0.50,                                                                  &
+      ! Canopy sw decay (Weil theory).
+  a33 = 1.25,                                                                  &
+      ! Inertial sublayer sw/us.
+  ctl = 0.40,                                                                  &
+      ! Lagrangian timescale constant.
+  zdlin = 1.0,                                                                 &
+      ! Height fraction of d below which TL is linear.
+  lai_thresh_or = 0.001,                                                       &
+      ! CABLE LAI_THRESH: below it the surface is bare soil.
+  rt_min_or = 5.0
+      ! CABLE minimum turbulent resistance (s m-1).
 
 CONTAINS
 
@@ -69,9 +83,15 @@ CONTAINS
 !   The resistance is the sum of a liquid-supply term (lm / 4K) and vapour
 !   diffusion across a viscous sublayer plus the pore-scale boundary layer,
 !   the sublayer depth set from the turbulent eddy spectrum at the soil
-!   surface. It returns the conductance of the unsaturated part of the
-!   surface (CABLE's rtevap_unsat); CABLE's saturated fraction (satfrac) is
-!   only evolved by its groundwater model, so is taken as zero here.
+!   surface. Under a canopy CABLE's below-canopy turbulent resistance rt0
+!   (cable_roughness.F90 rt0us, eq. 3.54 of the CSIRO SCAM manual;
+!   cable_canopy.F90 ssnow%rtsoil = rt0) is added in series; over bare soil
+!   JULES's own aerodynamic resistance (ch vshr) already plays CABLE's
+!   rt0 + rt1 role. It returns the conductance of the unsaturated part of the
+!   surface (CABLE's rtevap_unsat), i.e. a saturated fraction of zero, as
+!   CABLE's groundwater configuration with real slopes. (Offline CABLE
+!   without a groundwater elevation file has satfrac ~ 0.99, so nearly the
+!   whole surface uses the moisture-independent rtevap_sat there.)
 !
 !   Differences from CABLE:
 !   - The sublayer depth uses visc / u*_surface, dividing by the canopy
@@ -83,7 +103,13 @@ CONTAINS
 !     same b is far smaller in the top layer (e.g. ~50x at S = 0.7 for
 !     FR-Pue, b = 6.7), which pins the resistance at rtevap_max almost
 !     permanently.
-!   - No snow or litter adjustments (JULES handles snow separately).
+!   - No snow adjustments (JULES handles snow separately); litter is a
+!     series resistance (see litter_dz).
+!   - Residual water content watr = 0 (CABLE default 0.05).
+!   - The sublayer depth is evaluated each call from a fixed first guess
+!     (CABLE carries canopy%sublayer_dz over from the previous step).
+!   - rt0 uses CABLE's default (non-SLI) formulation, neutral stability, and
+!     the same z0soil (scaled by z0soil_fac) as the Or resistance.
 !   - The soil surface relative humidity (CABLE rh_srf) is not applied: with
 !     CABLE's -10 m cap on the suction it is >= 0.9992, i.e. ~1.
 !   - The eddy_mod gamma-function ratio is evaluated in log space (same
@@ -132,7 +158,7 @@ REAL(KIND=real_jlslsm) :: gsoil_or
 REAL(KIND=real_jlslsm) ::                                                      &
   hruff, usuh, xx, dh, coexp, visc, us, us_surf, z0soil, eddy_shape, log_em,            &
   eddy_mod, sublayer_dz, wb_liq, rel_s, hk_zero, soil_moisture_mod, pore_radius,      &
-  pore_size, rtevap
+  pore_size, rtevap, disp, term2, term3, term5, rt0us, rt0
 
 INTEGER :: k, int_eddy_shape
 
@@ -184,7 +210,8 @@ sublayer_dz = MIN(0.05, MAX(eddy_mod * visc / MAX(1.0e-4, us_surf), 1.0e-7))
 !-----------------------------------------------------------------------------
 wb_liq = MAX(0.0001, MIN(pi_or / 4.0, theta_liq))
 
-! Relative saturation (CABLE watr = 0) and Campbell conductivity.
+! Relative saturation (watr = 0; CABLE's default is 0.05) and Campbell
+! conductivity.
 ! kg m-2 s-1 == mm s-1, so 0.001 converts to m s-1 as CABLE does for hyds.
 rel_s   = MAX(wb_liq, 0.0) / theta_sat
 hk_zero = MAX(0.001 * satcon * (MIN(MAX(rel_s, 0.001), 1.0)                  &
@@ -205,7 +232,25 @@ ELSE
            + (sublayer_dz + pore_size * soil_moisture_mod) / rt_dff)
 END IF
 
-gsoil_or = 1.0 / (rtevap + MAX(litter_dz, 0.0) / dv_litt)
+!-----------------------------------------------------------------------------
+! Below-canopy turbulent resistance (CABLE default scheme, neutral):
+! rt0 = max(rt_min, rt0us / u*), rt0us from cable_roughness.F90 (eq. 3.54,
+! CSIRO SCAM manual). Only under a canopy (lai >= LAI_THRESH and the canopy
+! taller than z0soil); over bare soil JULES's ch vshr is the full path.
+!-----------------------------------------------------------------------------
+rt0 = 0.0
+IF ( lai >= lai_thresh_or .AND. hruff >= MAX(z0soil, 1.0e-7) ) THEN
+  disp  = dh * hruff
+  term2 = EXP(2.0 * csw * lai * (1.0 - disp / hruff))
+  term3 = a33**2 * ctl * 2.0 * csw * lai
+  term5 = MAX((2.0 / 3.0) * hruff / disp, 1.0)
+  rt0us = term5 * (zdlin * LOG(zdlin * disp / MAX(z0soil, 1.0e-7))           &
+                   + (1.0 - zdlin))                                            &
+          * (EXP(2.0 * csw * lai) - term2) / term3
+  rt0   = MAX(rt_min_or, rt0us / us)
+END IF
+
+gsoil_or = 1.0 / (rt0 + rtevap + MAX(litter_dz, 0.0) / dv_litt)
 
 END FUNCTION gsoil_or
 
