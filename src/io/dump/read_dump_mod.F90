@@ -19,7 +19,7 @@ USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, ainfo, trif_vars,      &
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
-    ximpair_npp_prev, ximpair_lai_prev, ximpair_wood_prev, ximpair_plc_dam,    &
+    ximpair_npp_prev, ximpair_wood_prev, ximpair_plc_dam,                      &
     ximpair_renew_mean, ximpair_renew_wt
 
 
@@ -215,7 +215,7 @@ DO i = 1,nvars
            'psi_leaf_desica', 'psi_stem_desica',                               &
            'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',              &
            'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',             &
-           'ximpair_npp_prev', 'ximpair_lai_prev', 'ximpair_wood_prev',  &
+           'ximpair_npp_prev', 'ximpair_wood_prev',                      &
            'ximpair_plc_dam', 'ximpair_renew_mean', 'ximpair_renew_wt' )
       CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 
@@ -599,12 +599,6 @@ DO i = 1,nvars
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), ximpair_npp_prev(:,n))
-    END DO
-
-  CASE ( 'ximpair_lai_prev' )
-    CALL ximpair_memory_alloc( land_pts )
-    DO n = 1,npft
-      CALL scatter_land_field(global_data_2d(:,n), ximpair_lai_prev(:,n))
     END DO
 
   CASE ( 'ximpair_wood_prev' )

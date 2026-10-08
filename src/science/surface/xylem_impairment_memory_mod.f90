@@ -35,9 +35,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_npp_prev(:,:)
 ! where not yet set.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock(:,:)
 
-! LAI and wood carbon of each PFT at the last update, for the leaf-area and
-! growth recovery terms; -1 = not yet seen.
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lai_prev(:,:)
+! Wood carbon of each PFT at the last update, for the growth recovery term
+! (ximpair_growth_basis = 3); -1 = not yet seen.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_wood_prev(:,:)
 
 ! Slow recovery (ximpair_rec_years > 0): loss of conductivity at the last
@@ -46,7 +45,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_wood_prev(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_plc_dam(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_renew_mean(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_renew_wt(:,:)
-! ximpair_npp_prev, ximpair_lock, ximpair_lai_prev, ximpair_wood_prev,
+! ximpair_npp_prev, ximpair_lock, ximpair_wood_prev,
 ! ximpair_plc_dam, ximpair_renew_mean and ximpair_renew_wt are written to and
 ! read from dumps (ximpair_memory_alloc allocates them).
 
@@ -69,10 +68,6 @@ END IF
 IF (.NOT. ALLOCATED(ximpair_lock)) THEN
   ALLOCATE(ximpair_lock(n_land_pts, npft))
   ximpair_lock(:,:) = 0.0
-END IF
-IF (.NOT. ALLOCATED(ximpair_lai_prev)) THEN
-  ALLOCATE(ximpair_lai_prev(n_land_pts, npft))
-  ximpair_lai_prev(:,:) = -1.0
 END IF
 IF (.NOT. ALLOCATED(ximpair_wood_prev)) THEN
   ALLOCATE(ximpair_wood_prev(n_land_pts, npft))
@@ -112,8 +107,8 @@ END SUBROUTINE ximpair_memory_alloc
 !   - damage:   k_cap = MIN(k_cap, k_intact(psi_x)), psi_x the damage driver
 !               (leaf, mean of leaf and root zone, or root zone water
 !               potential)
-!   - recovery: optional, from new leaf area (l_ximpair_rec_lai) and/or new
-!               xylem grown from carbon gain (l_ximpair_rec_growth), plus
+!   - recovery: optional, from new xylem grown from carbon gain
+!               (l_ximpair_rec_growth), plus
 !               refilling (ximpair_tau_rec) and an annual reset
 !               (ximpair_reset_mmdd).
 !
@@ -475,13 +470,10 @@ END SUBROUTINE leaf_psi_impaired_memory
 !   1: leaf, 2: mean of leaf and root zone, 3: root zone (~predawn, as used
 !   for Kcav by Mackay et al. 2015).
 !
-! Recovery (switches in jules_vegetation):
-!   l_ximpair_rec_lai    - new leaf area (a rise in LAI) comes with undamaged
-!                          xylem: k_cap is the leaf-area weighted mean of the
-!                          existing cap and kmax for the new leaf area,
-!                            k_cap' = (LAI_old k_cap + dLAI kmax) / LAI_new
-!                          (no parameters; with prescribed LAI this captures
-!                          e.g. new earlywood at leaf flush).
+! Recovery (switch in jules_vegetation). A leaf-area term (a rise in LAI
+! renewing the cap) was retired on 2026-10-08: the net (prescribed) LAI rise
+! is not leaf production, and new leaves renew leaf and twig xylem, not the
+! stem (see runs/roses/FR_Pue/recovery_review_2026-10-08/REPORT.md).
 !   l_ximpair_rec_growth - new conducting xylem grown from carbon gain
 !                          replaces damaged xylem: the fraction renewed per
 !                          timestep is
@@ -514,7 +506,7 @@ END SUBROUTINE leaf_psi_impaired_memory
 ! xylem replaces the damaged conduits over ximpair_rec_years years of growth
 ! (sapwood turnover; growth recovers over 3-5 years after drought, e.g.
 ! Anderegg et al. 2015, Kannenberg et al. 2019). The fraction renewed this
-! timestep, f = f_lai + f_growth, is scaled by its running mean, <f>
+! timestep, f = f_growth, is scaled by its running mean, <f>
 ! (e-folding time ximpair_rec_years, bias-corrected at the start), to the
 ! growth g = f / (<f> * 1 year) in units of a typical year's growth, and the
 ! loss of conductivity falls with growth (ximpair_rec_form), either
@@ -528,8 +520,10 @@ END SUBROUTINE leaf_psi_impaired_memory
 !     gives the same integrated loss after an isolated event as the linear
 !     form (the one-pool limit of renewing the sapwood with new, intact
 !     conduits). There is no clock to restart.
-! Either way recovery has the seasonal timing of leaf flush / growth, and
-! is slower after years of low growth.
+! Either way recovery has the seasonal timing of growth, and is slower after
+! years of low growth. Read as sapwood turnover: the conducting sapwood holds
+! about ximpair_rec_years years of typical growth, and each year's new
+! (intact) wood replaces an equal amount of old wood.
 !
 ! Also (per PFT, off by default): refilling with timescale ximpair_tau_rec
 ! while psi_x > ximpair_psi_refill, and an annual reset on
@@ -551,10 +545,10 @@ SUBROUTINE update_xylem_impairment_memory ( n_land_pts                         &
 USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
                    eta_sl, ximpair_psi_driver, ximpair_reset_mmdd,             &
                    ximpair_tau_rec, ximpair_psi_refill, ximpair_wood_alloc,    &
-                   ximpair_growth_basis, ximpair_rec_years, a_wl, a_ws, b_wl
+                   ximpair_growth_basis, ximpair_rec_years, a_wl, a_ws, b_wl, &
+                   ximpair_psi_growth
 USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 ximpair_driver_root, ximpair_driver_stem,      &
-                                l_ximpair_rec_lai,                             &
                                 l_ximpair_rec_growth, l_triffid,               &
                                 ximpair_rec_form, ximpair_rec_exp
 USE trif, ONLY: g_wood
@@ -655,25 +649,6 @@ c_pts(:)     = conductance_c_pft(pft)
 l_slow = ximpair_rec_years(pft) > 0.0
 f_new(:) = 0.0
 
-IF (l_ximpair_rec_lai) THEN
-  IF (.NOT. ALLOCATED(ximpair_lai_prev)) THEN
-    ALLOCATE(ximpair_lai_prev(n_land_pts, npft))
-    ximpair_lai_prev(:,:) = -1.0
-  END IF
-  DO l = 1, n_land_pts
-    IF (ximpair_lai_prev(l,pft) >= 0.0 .AND. lai(l) > ximpair_lai_prev(l,pft) .AND.            &
-        lai(l) > lai_min) THEN
-      IF (l_slow) THEN
-        f_new(l) = (lai(l) - ximpair_lai_prev(l,pft)) / lai(l)
-      ELSE
-        kcap(l) = ( MAX(ximpair_lai_prev(l,pft), 0.0) * kcap(l)                        &
-                    + (lai(l) - ximpair_lai_prev(l,pft)) * kmax_pts(l) ) / lai(l)
-      END IF
-    END IF
-    ximpair_lai_prev(l,pft) = lai(l)
-  END DO
-END IF
-
 IF (l_ximpair_rec_growth) THEN
   ! New (fully conductive) wood carbon this timestep, c_new (kg C m-2).
   SELECT CASE (ximpair_growth_basis(pft))
@@ -718,6 +693,10 @@ IF (l_ximpair_rec_growth) THEN
                  'ximpair_growth_basis should be anet (1), npp (2) or '     // &
                  'triffid wood (3)')
   END SELECT
+  ! No new conducting xylem while the root zone (~predawn) is drier than
+  ! ximpair_psi_growth: stem growth stops in drought (sink limitation),
+  ! although photosynthesis continues.
+  WHERE (psi_root(:) < ximpair_psi_growth(pft)) c_new(:) = 0.0
   ! Renew that fraction of the conducting (live stem) wood.
   f_renew(:) = c_new(:)                                                        &
                / MAX(eta_sl(pft) * canht(:) * lai(:),                          &
@@ -730,7 +709,7 @@ IF (l_ximpair_rec_growth) THEN
   END IF
 END IF
 
-IF (l_slow .AND. (l_ximpair_rec_lai .OR. l_ximpair_rec_growth)) THEN
+IF (l_slow .AND. l_ximpair_rec_growth) THEN
   CALL ximpair_memory_alloc( n_land_pts )
   ! Running mean of the renewed fraction (s-1), and its weight.
   a_mean = MIN(REAL(timestep_len) / (ximpair_rec_years(pft) * sec_per_year), &

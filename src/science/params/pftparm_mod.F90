@@ -580,9 +580,16 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  (l_ximpair_leaf_loss): the phenological state is capped
                  !  at 1 - ximpair_leaf_sens * (1 - k_cap/kmax). 1 keeps leaf
                  !  area in proportion to the conducting capacity, 0 disables.
+,ximpair_psi_growth(:)                                                         &
+                 ! Root-zone (~predawn) water potential below which no new
+                 !  conducting xylem grows, for the growth recovery term
+                 !  (l_ximpair_rec_growth; Pa). Stem growth at Puechabon stops
+                 !  near predawn -1.1 MPa (Lempereur et al. 2015, New Phytol
+                 !  207: 579), so recovery falls in the growth windows (spring
+                 !  and autumn), not in summer drought. Default -1e30: no gate.
 ,ximpair_rec_years(:)
-                 ! Years of typical growth for the leaf-area and growth
-                 !  recovery terms (l_ximpair_rec_lai, l_ximpair_rec_growth)
+                 ! Years of typical growth for the growth recovery term
+                 !  (l_ximpair_rec_growth)
                  !  to recover the loss of conductivity: the loss falls
                  !  linearly, by (loss at the last damage) / ximpair_rec_years
                  !  per year of typical growth. <= 0 applies the renewed
@@ -921,6 +928,7 @@ ALLOCATE( ximpair_tau_rec(npft))
 ALLOCATE( ximpair_psi_refill(npft))
 ALLOCATE( ximpair_wood_alloc(npft))
 ALLOCATE( ximpair_leaf_sens(npft))
+ALLOCATE( ximpair_psi_growth(npft))
 ALLOCATE( ximpair_rec_years(npft))
 
 leaf_crit(:) = 0.0
@@ -966,6 +974,7 @@ ximpair_tau_rec(:) = 0.0
 ximpair_psi_refill(:) = -0.5e6
 ximpair_wood_alloc(:) = 0.25
 ximpair_leaf_sens(:) = 0.0
+ximpair_psi_growth(:) = -1.0e30
 ximpair_rec_years(:) = 0.0
 
 ! SOX parameters
@@ -1284,6 +1293,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_wood_alloc = ',ximpair_wood_alloc
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_leaf_sens = ',ximpair_leaf_sens
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' ximpair_psi_growth = ',ximpair_psi_growth
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_rec_years = ',ximpair_rec_years
 CALL jules_print('pftparm',lineBuffer)

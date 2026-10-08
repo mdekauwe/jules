@@ -612,10 +612,6 @@ INTEGER ::                                                                     &
   ximpair_cost_model = ximpair_cost_intact
       ! See ximpair_cost_*. 1 and 2 need som_ci_search = 2 (bounded).
 LOGICAL ::                                                                     &
-  l_ximpair_rec_lai = .FALSE.,                                                 &
-      ! Xylem impairment models 3 and 4: recover lost conductance with new
-      ! leaf area (a rise in LAI comes with undamaged xylem) - see
-      ! update_xylem_impairment_memory.
   l_ximpair_rec_growth = .FALSE.,                                              &
       ! Xylem impairment models 3 and 4: recover lost conductance with new
       ! xylem grown from carbon gain (ximpair_wood_alloc) - see
@@ -793,7 +789,7 @@ NAMELIST  / jules_vegetation/                                                  &
     som_base_parm, som_n_sample, som_n_ci_golden_iter,                        &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
-    l_ximpair_rec_lai, l_ximpair_rec_growth, l_ximpair_leaf_loss,             &
+    l_ximpair_rec_growth, l_ximpair_leaf_loss,                                &
     ximpair_cost_model, ximpair_rec_form,                                     &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
     l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
@@ -1726,9 +1722,6 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_cuticular_floor = ', l_som_cuticular_floor
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' l_ximpair_rec_lai = ', l_ximpair_rec_lai
-CALL jules_print('jules_vegetation_mod',lineBuffer)
-
 WRITE(lineBuffer,*) ' l_ximpair_rec_growth = ', l_ximpair_rec_growth
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -1876,7 +1869,7 @@ INTEGER, PARAMETER :: n_int = 23 ! +1 ximpair_cost_model, +1 ximpair_rec_form, +
 INTEGER, PARAMETER :: n_real = 18 + (n_photo_coef * 5) ! +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 46 + npft_max ! +1 l_root_mass_fixed, +3 l_ximpair_rec_lai/l_ximpair_rec_growth/l_ximpair_leaf_loss,
+INTEGER, PARAMETER :: n_log = 45 + npft_max ! +1 l_root_mass_fixed, +2 l_ximpair_rec_growth/l_ximpair_leaf_loss,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -1886,8 +1879,8 @@ INTEGER, PARAMETER :: n_log = 46 + npft_max ! +1 l_root_mass_fixed, +3 l_ximpair
                                   ! l_som_supply_limit, +1 for
                                   ! l_som_root_supply, +1 for l_som_nsl,
                                   ! +1 for
-                                  ! l_som_plant_segments, +3 for
-                                  ! l_ximpair_rec_lai/l_ximpair_rec_growth/
+                                  ! l_som_plant_segments, +2 for
+                                  ! l_ximpair_rec_growth/
                                   ! l_ximpair_leaf_loss (trunk vn7.9: 29)
 
 TYPE :: my_namelist
@@ -1951,7 +1944,6 @@ TYPE :: my_namelist
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_floor
-  LOGICAL :: l_ximpair_rec_lai
   LOGICAL :: l_ximpair_rec_growth
   LOGICAL :: l_ximpair_leaf_loss
   LOGICAL :: l_som_gravity
@@ -2061,7 +2053,6 @@ IF (mype == 0) THEN
   my_nml % l_som_plant_segments = l_som_plant_segments
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
-  my_nml % l_ximpair_rec_lai = l_ximpair_rec_lai
   my_nml % l_ximpair_rec_growth = l_ximpair_rec_growth
   my_nml % l_ximpair_leaf_loss = l_ximpair_leaf_loss
   my_nml % l_som_gravity = l_som_gravity
@@ -2160,7 +2151,6 @@ IF (mype /= 0) THEN
   l_som_plant_segments = my_nml % l_som_plant_segments
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor
-  l_ximpair_rec_lai = my_nml % l_ximpair_rec_lai
   l_ximpair_rec_growth = my_nml % l_ximpair_rec_growth
   l_ximpair_leaf_loss = my_nml % l_ximpair_leaf_loss
   l_som_gravity = my_nml % l_som_gravity
