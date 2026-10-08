@@ -15,10 +15,39 @@ IMPLICIT NONE
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='STOM_OPT_JLS_MOD'
 
 PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_bounded_search, &
-        stom_opt_supply_loss
-PUBLIC stom_opt_mod
+        stom_opt_supply_loss, g_eff_e
+PUBLIC stom_opt_mod, g_of_geff
 
 CONTAINS
+
+!-----------------------------------------------------------------------------
+! Coupled transpiration (l_som_coupled_e): the conductance for water of a
+! stomatal conductance g (m/s, >= 0) in series with the leaf boundary layer
+! r_bl (s/m) and, shared with the other leaf class (effective conductance
+! g_o, m/s), the canopy air resistance r_ca (s/m),
+!   g' = g / (1 + g r_bl),   g_eff = g' / (1 + r_ca (g' + g_o)),
+! so that E = D g_eff for the deficit D from the leaf to the level-1 air.
+!-----------------------------------------------------------------------------
+ELEMENTAL FUNCTION g_eff_e( g, r_bl, r_ca, g_o ) RESULT( g_eff )
+REAL(KIND=real_jlslsm), INTENT(IN) :: g, r_bl, r_ca, g_o
+REAL(KIND=real_jlslsm) :: g_eff, gp
+gp    = g / ( 1.0 + g * r_bl )
+g_eff = gp / ( 1.0 + r_ca * ( gp + g_o ) )
+END FUNCTION g_eff_e
+
+! The inverse: the stomatal conductance with effective conductance x (HUGE
+! where no finite g reaches it).
+ELEMENTAL FUNCTION g_of_geff( x, r_bl, r_ca, g_o ) RESULT( g )
+REAL(KIND=real_jlslsm), INTENT(IN) :: x, r_bl, r_ca, g_o
+REAL(KIND=real_jlslsm) :: g, gp, den
+g   = HUGE(1.0_real_jlslsm)
+den = 1.0 - r_ca * x
+IF ( den <= 0.0 ) RETURN
+gp  = x * ( 1.0 + r_ca * g_o ) / den
+den = 1.0 - gp * r_bl
+IF ( den <= 0.0 ) RETURN
+g   = gp / den
+END FUNCTION g_of_geff
 
 ! *********************************************************************
 ! Contains routines to calculate the optimal stomatal conductance and
@@ -36,6 +65,7 @@ SUBROUTINE stom_opt_mod (                                                      &
         ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,           &
         km, dq, qs, je, t_leaf, je_ratio, fapar_lf, kmax, kcrit,               &
         gl_max, ipar, l_multilayer,                                            &
+        r_bl, r_ca, g_oth,                                                     &
 ! IN OUT
         rd,                                                                    &
 ! OUT
@@ -51,7 +81,7 @@ USE jules_vegetation_mod, ONLY:                                                &
         som_base_parm_ci, som_base_parm_psi, som_n_sample,                     &
         profit_max_profit_model, sox_opt_profit_model, som_profit_model,       &
         cmax_profit_model, cgain_profit_model, supply_loss_model,              &
-        som_ci_search, som_ci_bounded, som_n_ci_golden_iter,                  &
+        cap_profit_model, som_ci_search, som_ci_bounded, som_n_ci_golden_iter,                  &
         l_som_skip_search_wellwatered, som_hc_negligible_tol, l_som_nsl
 
 USE pftparm, ONLY:                                                             &
@@ -87,6 +117,18 @@ INTEGER, INTENT(IN) ::                                                         &
                             ! Number of vegetated points.
 ,veg_index(land_pts)
                             ! Index of vegetated points on the land grid.
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  r_bl(land_pts),                                                              &
+                            ! Leaf boundary layer resistance (s/m, on the
+                            ! basis of gl), for l_som_coupled_e.
+  r_ca(land_pts),                                                              &
+                            ! Canopy air to level-1 resistance (s/m), for
+                            ! l_som_coupled_e.
+  g_oth(land_pts)
+                            ! Effective conductance of the other leaf class
+                            ! sharing the canopy air (m/s), for
+                            ! l_som_coupled_e.
 
 !-----------------------------------------------------------------------------
 ! IN real variables
@@ -365,7 +407,7 @@ SELECT CASE ( som_base_parm )
             1, ci_lo, ci_hi,                                                   &
             rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,   &
             km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,     &
-            l_multilayer,                                                     &
+            l_multilayer, r_bl, r_ca, g_oth,                                  &
         ! OUT
             ci_e_fp, al_e_fp, gl_e_fp, kl_e_fp, psi_e_fp, el_e_fp              &
                 )
@@ -423,7 +465,8 @@ SELECT CASE ( som_base_parm )
               pft_photo_model, veg_index,                                     &
               rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,&
               km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,      &
-              gl_max, l_multilayer, som_n_sample, som_n_ci_golden_iter,       &
+              gl_max, l_multilayer, r_bl, r_ca, g_oth,                         &
+              som_n_sample, som_n_ci_golden_iter,       &
           ! OUT
               ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                        &
               el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                     &
@@ -465,7 +508,7 @@ SELECT CASE ( som_base_parm )
             som_n_sample, ci_lo, ci_hi,                                       &
             rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,  &
             km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,    &
-            l_multilayer,                                                     &
+            l_multilayer, r_bl, r_ca, g_oth,                                  &
         ! OUT
             ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample &
                 )
@@ -501,7 +544,7 @@ SELECT CASE ( som_base_parm )
         END DO
       END IF
 
-    CASE (cmax_profit_model, cgain_profit_model)
+    CASE (cmax_profit_model, cgain_profit_model, cap_profit_model)
       !-------------------------------------------------------------------
       ! CMax (Wolf et al. 2016; stomata_model = 6): A_n - Theta(psi_leaf),
       ! and CGain (Lu et al. 2020; stomata_model = 7):
@@ -515,7 +558,8 @@ SELECT CASE ( som_base_parm )
           pft_photo_model, veg_index,                                         &
           rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,    &
           km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,          &
-          gl_max, l_multilayer, som_n_sample, som_n_ci_golden_iter,           &
+          gl_max, l_multilayer, r_bl, r_ca, g_oth,                             &
+          som_n_sample, som_n_ci_golden_iter,           &
       ! OUT
           ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                            &
           el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                         &
@@ -546,7 +590,8 @@ SELECT CASE ( som_base_parm )
             pft_photo_model, veg_index,                                       &
             rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,  &
             km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,        &
-            gl_max, l_multilayer, som_n_sample, som_n_ci_golden_iter,         &
+            gl_max, l_multilayer, r_bl, r_ca, g_oth,                             &
+          som_n_sample, som_n_ci_golden_iter,         &
         ! OUT
             ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                          &
             el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                       &
@@ -577,7 +622,7 @@ SELECT CASE ( som_base_parm )
           som_n_sample, ci_lo, ci_hi,                                          &
           rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,     &
           km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,       &
-          l_multilayer,                                                       &
+          l_multilayer, r_bl, r_ca, g_oth,                                    &
       ! OUT
           ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample    &
               )
@@ -694,7 +739,8 @@ SELECT CASE ( som_base_parm )
     CASE DEFAULT
       errcode = 101  !  a hard error
       CALL ereport(RoutineName, errcode,                                       &
-                 'profit_model should be profit_max, SOX_opt, CMax, CGain or supply-loss')
+                 'profit_model should be profit_max, SOX_opt, CMax, CGain, ' //  &
+                 'supply-loss or CAP')
 
     END SELECT ! som_profit_model
 
@@ -725,7 +771,7 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
         n_sample, ci_lo, ci_hi,                                                &
         rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp,              &
         pstar, km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax,         &
-        kcrit, l_multilayer,                                                  &
+        kcrit, l_multilayer, r_bl, r_ca, g_oth,                               &
 ! OUT
         ci_sample, al_sample, gl_sample, kl_sample, psi_sample,el_sample       &
 )
@@ -734,7 +780,7 @@ USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
 
 USE jules_vegetation_mod, ONLY:                                                &
         photo_collatz, photo_farquhar, photo_johnson, photo_model,             &
-        CW_conductance, SOX_conductance, som_psi_solver
+        CW_conductance, SOX_conductance, som_psi_solver, l_som_coupled_e
 
 USE jb_photo_mod, ONLY: jb_eta_scale
 
@@ -778,6 +824,10 @@ INTEGER, INTENT(IN) ::                                                         &
                             ! resolutions/ranges in stom_opt_mod rather
                             ! than being fixed to the module-level
                             ! som_n_sample.
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  r_bl(land_pts), r_ca(land_pts), g_oth(land_pts)
+                            ! Coupled transpiration (see stom_opt_mod).
 
 !-----------------------------------------------------------------------------
 ! IN real variables
@@ -1135,6 +1185,11 @@ DO j = 1,open_pts
   ! Convert from m/s to mol H2O/m2/s
   el_sample(:,j) = el_sample(:,j) * pstar(l) / (rmol * t_leaf(l))
 
+  ! Coupled: E = D g_eff(g), dq the deficit to the level-1 air.
+  IF ( l_som_coupled_e ) el_sample(:,j) = vpd(l)                               &
+       * g_eff_e(MAX(gl_sample(:,j), 0.0_real_jlslsm), r_bl(l), r_ca(l),     &
+                 g_oth(l)) / (rmol * t_leaf(l))
+
 END DO
 
 ! Transpiration can't be negative
@@ -1370,7 +1425,7 @@ SUBROUTINE stom_opt_bounded_search(                                            &
         land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,       &
         rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,       &
         km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,             &
-        gl_max, l_multilayer, n_top, n_iter,                                   &
+        gl_max, l_multilayer, r_bl, r_ca, g_oth, n_top, n_iter,                &
 ! OUT
         ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g   &
 )
@@ -1379,7 +1434,8 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 USE ereport_mod, ONLY: ereport
 USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,          &
-                                cgain_profit_model, sox_opt_profit_model
+                                cgain_profit_model, sox_opt_profit_model,      &
+                                cap_profit_model, l_som_coupled_e
 USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 photo_farquhar, photo_johnson, photo_model,    &
                                 CW_conductance,                                &
@@ -1411,6 +1467,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 LOGICAL, INTENT(IN) :: l_multilayer
 
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  r_bl(land_pts), r_ca(land_pts), g_oth(land_pts)
+                            ! Coupled transpiration (see stom_opt_mod).
+
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   ci_g(open_pts), al_g(open_pts), gl_g(open_pts), kl_g(open_pts),            &
   psi_g(open_pts), el_g(open_pts), carbon_gain_g(open_pts),                  &
@@ -1436,7 +1496,7 @@ REAL(KIND=real_jlslsm), PARAMETER :: nsl_tol = 1.0e-3
                             ! Tolerance on f - f(psi_leaf(f)) (l_som_nsl).
 
 INTEGER :: i, j, l, side, idx1(land_pts)
-LOGICAL :: l_lut, ok_u, l_edge, l_cmax, l_cgain, l_abs, l_sox
+LOGICAL :: l_lut, ok_u, l_edge, l_cmax, l_cgain, l_abs, l_sox, l_cap
 
 REAL(KIND=real_jlslsm) :: cmax_scale, k_unstressed, k_sox_ref
                             ! k_sox_ref: SOX's whole-path k at zero flow
@@ -1484,11 +1544,19 @@ idx1(:) = 1
 l_cmax = som_profit_model == cmax_profit_model
 ! CGain (stomata_model = 7): A_n - varpi (k_max - k)/k_max.
 l_cgain = som_profit_model == cgain_profit_model
-! SOX_opt (Eller et al. 2018; stomata_model = 5 with som_ci_search = 2):
-! A_n (k(psi_bar) - kcrit)/(k_ref - kcrit), psi_bar the mean of the root
-! zone and leaf water potentials, k of the whole path.
+! SOX_opt (stomata_model = 5 with som_ci_search = 2): Eller et al. (2018)
+! solved as Sabot et al. (2022) do,
+!   A_n (k(psi_bar) - kcrit)/(k_ref - kcrit),
+! k of the whole path at psi_bar, the mean of the root zone and leaf water
+! potentials. The halfway point is Eller et al.'s (2018, Eqs 2.7-2.8, for
+! the path-averaged conductance); Sabot et al. (2022, Eq. 16) use k at
+! psi_leaf, which we do not. The kcrit subtraction is Sabot et al.'s
+! (Eller: k/k_max).
 l_sox = som_profit_model == sox_opt_profit_model
-l_abs = l_cmax .OR. l_cgain .OR. l_sox
+! CAP (stomata_model = 10): A_n with the nonstomatal limitation (l_som_nsl,
+! set with it), no stomatal cost.
+l_cap = som_profit_model == cap_profit_model
+l_abs = l_cmax .OR. l_cgain .OR. l_sox .OR. l_cap
 
 DO j = 1, open_pts
   l = veg_index(open_index(j))
@@ -1501,7 +1569,10 @@ DO j = 1, open_pts
   k_unstressed = 1.0
   k_sox_ref = 1.0
   IF ( l_sox ) k_sox_ref = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
-  IF ( l_cgain ) k_unstressed = MAX(k_path_zero_flow(pft, l, kmax(l), 0.0_real_jlslsm), &
+  ! (The plant's k_max: without the soil-to-root link, which would shrink
+  ! the reference, and so the cost of a given embolism, as the soil dries.)
+  IF ( l_cgain ) k_unstressed = MAX(k_path_zero_flow(pft, l, kmax(l),         &
+                                    0.0_real_jlslsm, l_plant_only = .TRUE.),   &
                                     TINY(1.0_real_jlslsm))
   ci_lo = MAX(ccp(l), 0.0)
   ! With the gl_max cap the edge is found to the 1e-2 Pa floor on ca - Ci
@@ -1619,6 +1690,8 @@ DO j = 1, open_pts
                                                     best_kl, best_psi)) / max_al
   ! SOX: 1 - the factor on A (as the flat-grid SOX).
   IF ( l_sox ) hydraulic_cost_g(j) = 1.0 - sox_factor(best_psi)
+  ! CAP: the nonstomatal loss of A as a fraction of the maximum A.
+  IF ( l_cap ) hydraulic_cost_g(j) = (photo_al(best_ci) - best_al) / max_al
 END DO
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -1698,6 +1771,8 @@ CONTAINS
   gl_u = ratio * (al_u * rmol * t_leaf(l)) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
   vpd = dq(l) * pstar(l) / repsilon
   el_u = MAX(0.0, vpd * gl_u / pstar(l) * pstar(l) / (rmol * t_leaf(l)))
+  IF ( l_som_coupled_e ) el_u = vpd * g_eff_e(MAX(gl_u, 0.0_real_jlslsm),     &
+                                    r_bl(l), r_ca(l), g_oth(l)) / (rmol * t_leaf(l))
 
   IF ( l_lut ) THEN
     psi_u = supply_lut_psi(pft, psi_root_zone(l),                              &
@@ -1786,9 +1861,19 @@ CONTAINS
   conv_e = dq(l) * pstar(l) / repsilon / (rmol * t_leaf(l))
   g_cap = HUGE(1.0_real_jlslsm)
   IF ( gl_max(l) > 0.0 ) g_cap = gl_max(l)
-  IF ( conv_e > 0.0 ) g_cap = MIN(g_cap, kmax(l)                              &
+  IF ( conv_e > 0.0 ) THEN
+    ! (Coupled: the g whose transpiration is E_crit.)
+    IF ( l_som_coupled_e ) THEN
+      g_cap = MIN(g_cap, g_of_geff(kmax(l)                                     &
+       * supply_lut_e_crit(pft, psi_root_zone(l),                              &
+                           kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm)))     &
+       / conv_e, r_bl(l), r_ca(l), g_oth(l)))
+    ELSE
+      g_cap = MIN(g_cap, kmax(l)                                               &
        * supply_lut_e_crit(pft, psi_root_zone(l),                              &
                            kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm))) / conv_e)
+    END IF
+  END IF
   IF ( g_cap >= HUGE(1.0_real_jlslsm) ) RETURN
 
   rk = ratio * rmol * t_leaf(l)
@@ -1880,6 +1965,9 @@ CONTAINS
   REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in, psi_in
   IF ( l_cmax ) THEN
     profit = al_in - theta_cmax(psi_in)
+  ELSE IF ( l_cap ) THEN
+    ! CAP: carbon gain only (al_in carries the nonstomatal limitation).
+    profit = al_in
   ELSE IF ( l_sox ) THEN
     profit = al_in * sox_factor(psi_in)
   ELSE IF ( l_cgain ) THEN
