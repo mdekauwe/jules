@@ -117,7 +117,7 @@ USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                       &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
-  l_som_rhizo_series
+  l_som_rhizo_series, stomata_model, stomata_desica
 USE xylem_hydraulics_CW_jls_mod, ONLY: ksr
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: root_psi_crit, fsmc_mod
@@ -1541,7 +1541,10 @@ DO n = 1,npft
     END DO
   END IF
 
-  IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
+  ! The stomatal conductance is also needed, whatever the diagnostics, by
+  ! the Or soil-evaporation limit and by DESICA (via resfs_stom in sf_evap).
+  IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR. l_soil_evap_or      &
+      .OR. stomata_model == stomata_desica) THEN
     IF (l_aggregate) THEN
       DO l = 1,land_pts
         gc_stom_surft(l,1) = gs_type(l,1)
