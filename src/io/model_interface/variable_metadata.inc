@@ -9639,6 +9639,6 @@ DATA metadata(744) / var_metadata(                                             &
 ! Long name
     "Kplant: soil-to-leaf conductance per leaf area (Ksr + xylem)",            &
 ! Units
-    "mol m-2 s-1 Pa-1"                                                         &
+    "mmol m-2 s-1 MPa-1"                                                       &
   ) /
 #endif
