@@ -19,7 +19,7 @@ USE imgn_drive_mod, ONLY: imgn_drive
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
-    ximpair_npp_prev, ximpair_lai_prev, ximpair_wood_prev, ximpair_plc_dam,    &
+    ximpair_npp_prev, ximpair_wood_prev, ximpair_plc_dam,                      &
     ximpair_renew_mean, ximpair_renew_wt
 
 USE ancil_info, ONLY:                                                          &
@@ -1971,7 +1971,7 @@ CASE ( 'psi_stem_desica' )
   END IF
 
   ! Xylem impairment state (see required_vars_for_configuration). Initial
-  ! values: 0 for all but ximpair_lai_prev / ximpair_wood_prev (-1).
+  ! values: 0 for all but ximpair_wood_prev (-1).
 
 CASE ( 'kmax_impaired' )
   IF ( PRESENT(cube) ) THEN
@@ -2029,15 +2029,6 @@ CASE ( 'ximpair_npp_prev' )
     CALL cube_get_data(cube_land, ximpair_npp_prev(:,:))
   ELSE
     ximpair_npp_prev(:,:) = const_val
-  END IF
-
-CASE ( 'ximpair_lai_prev' )
-  CALL ximpair_memory_alloc( land_pts )
-  IF ( PRESENT(cube) ) THEN
-    cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, ximpair_lai_prev(:,:))
-  ELSE
-    ximpair_lai_prev(:,:) = const_val
   END IF
 
 CASE ( 'ximpair_wood_prev' )

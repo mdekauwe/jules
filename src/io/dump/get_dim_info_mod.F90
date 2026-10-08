@@ -161,7 +161,7 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                        &
        'psi_leaf_desica', 'psi_stem_desica',                                    &
        'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',                  &
        'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',                 &
-       'ximpair_npp_prev', 'ximpair_lai_prev', 'ximpair_wood_prev',      &
+       'ximpair_npp_prev', 'ximpair_wood_prev',                          &
        'ximpair_plc_dam', 'ximpair_renew_mean', 'ximpair_renew_wt' )
   ndims = 2
   dim_names(1:ndims) = [ land_dim_name, pft_dim_name ]
