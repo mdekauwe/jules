@@ -548,9 +548,13 @@ fsmc_irr(land_pts,npft)                                                        &
 ,gsoil_under_canopy(land_pts)                                                  &
 !                                 ! WORK Bare soil conductance under
 !                                 !      canopy
-,gsoil_irr_under_canopy(land_pts)
+,gsoil_irr_under_canopy(land_pts)                                              &
 !                                 ! WORK Bare soil conductance under
 !                                 !      canopy on irrigated fraction.
+,gsoil_can_air(land_pts)
+!                                 ! WORK Soil evaporation conductance
+!                                 !      beneath the canopy (m s-1), as
+!                                 !      soil_evap adds it to gc.
 
 REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
  ratio_wt(:,:,:,:)
@@ -1475,6 +1479,67 @@ DO n = 1,npft
     END DO
   END IF
 
+  ! Un-do scaling of lai by RP scheme to preserve the value of fsoil
+  ! (calculated in the routine soil_evap).  This is to prevent
+  ! bare-soil evaporation from taking over.
+  IF (l_rp2 .AND. i_rp_scheme == i_rp2b) THEN
+    ! lai_mult_rp is always non-zero
+    lai_pft_soil_evap(:,n) = lai_pft(:,n) / lai_mult_rp(n)
+  ELSE
+    lai_pft_soil_evap(:,n) = lai_pft(:,n)
+  END IF
+
+  IF ( ABS(gsoil_f(n) - 1.0) <= EPSILON(0.0) ) THEN
+    ! only needed for bit compatibility
+    ! with code before gsoil_f parameter was added
+    gsoil_under_canopy(:) = gsoil_soilt(:,m)
+    gsoil_irr_under_canopy(:) = gsoil_irr_soilt(:,m)
+  ELSE
+    gsoil_under_canopy(:) = gsoil_soilt(:,m) * gsoil_f(n)
+    gsoil_irr_under_canopy(:) = gsoil_irr_soilt(:,m) * gsoil_f(n)
+  END IF
+
+  ! Or scheme: replace the soil conductance beneath this PFT's canopy.
+  IF ( l_soil_evap_or ) THEN
+    DO k = 1,surft_pts(n)
+      l = surft_index(k,n)
+      j_or = (land_index(l) - 1) / t_i_length + 1
+      i_or = land_index(l) - (j_or-1) * t_i_length
+      IF ( l_soil_point(l) ) THEN
+        ustar_or = vonk_or * vshr(i_or,j_or)                                   &
+                   / LOG((z1_uv_ij(i_or,j_or) + z0(l)) / z0(l))
+        ! No gsoil_f: it is the canopy factor of the gs_nvg (theta /
+        ! theta_crit)**2 conductance; the Or resistance includes the canopy
+        ! through the within-canopy wind profile (CABLE has no such factor).
+        gsoil_under_canopy(l) =                                                &
+          gsoil_or(vshr(i_or,j_or), ustar_or, canht_pft(l,n),                  &
+                   lai_pft_soil_evap(l,n), tstar(l),                           &
+                   sathh_soilt(l,m,1), bexp_soilt(l,m,1),                      &
+                   satcon_soilt(l,m,1),                                        &
+                   sthu_soilt(l,m,1) * smvcst_soilt(l,m,1),                    &
+                   smvcst_soilt(l,m,1), soil_litter_depth(n),                  &
+                   or_z0soil_fac(n))
+      ELSE
+        gsoil_under_canopy(l) = 0.0
+      END IF
+    END DO
+  END IF
+
+  ! Soil evaporation conductance beneath the canopy, for sf_stom (canopy
+  ! air and the stomata's share of ra): the conductance soil_evap adds to
+  ! the canopy's (x fsoil, except with the Or scheme, whose conductance
+  ! includes the canopy through rt0).
+  gsoil_can_air(:) = 0.0
+  DO k = 1,surft_pts(n)
+    l = surft_index(k,n)
+    IF ( l_soil_evap_or ) THEN
+      gsoil_can_air(l) = gsoil_under_canopy(l)
+    ELSE
+      gsoil_can_air(l) = gsoil_under_canopy(l)                                 &
+                         * EXP(-0.5 * lai_pft_soil_evap(l,n))
+    END IF
+  END DO
+
   fsun_tmp(:,:) = fsun(:,n,:)
 
   CALL sf_stom (land_pts,land_index                                            &
@@ -1485,7 +1550,7 @@ DO n = 1,npft
 ,               ipar_land,lai_pft(:,n)                                         &
 ,               canht_pft(:,n),pstar_land                                      &
 ,               q1_land,ra,tstar,o3,t_home_gb,t_growth_gb                      &
-,               psi_root_zone_pft(:,n),e_supply                                &
+,               psi_root_zone_pft(:,n),e_supply,gsoil_can_air                  &
 ,               can_rad_mod,ilayers,leaf_flux_mod,som_base_parm,faparv         &
 ,               lwp_c_pft(:,n)                                                 &
 ,               el_pft(:,n),gpp_pft(:,n),npp_pft(:,n),resp_p_pft(:,n)          &
@@ -1583,52 +1648,6 @@ DO n = 1,npft
               "***warning fsmc <= 0 in physiol.F90***" //                      &
                ERRMSG )
         END IF
-      END IF
-    END DO
-  END IF
-
-  ! Un-do scaling of lai by RP scheme to preserve the value of fsoil
-  ! (calculated in the routine soil_evap).  This is to prevent
-  ! bare-soil evaporation from taking over.
-  IF (l_rp2 .AND. i_rp_scheme == i_rp2b) THEN
-    ! lai_mult_rp is always non-zero
-    lai_pft_soil_evap(:,n) = lai_pft(:,n) / lai_mult_rp(n)
-  ELSE
-    lai_pft_soil_evap(:,n) = lai_pft(:,n)
-  END IF
-
-  IF ( ABS(gsoil_f(n) - 1.0) <= EPSILON(0.0) ) THEN
-    ! only needed for bit compatibility
-    ! with code before gsoil_f parameter was added
-    gsoil_under_canopy(:) = gsoil_soilt(:,m)
-    gsoil_irr_under_canopy(:) = gsoil_irr_soilt(:,m)
-  ELSE
-    gsoil_under_canopy(:) = gsoil_soilt(:,m) * gsoil_f(n)
-    gsoil_irr_under_canopy(:) = gsoil_irr_soilt(:,m) * gsoil_f(n)
-  END IF
-
-  ! Or scheme: replace the soil conductance beneath this PFT's canopy.
-  IF ( l_soil_evap_or ) THEN
-    DO k = 1,surft_pts(n)
-      l = surft_index(k,n)
-      j_or = (land_index(l) - 1) / t_i_length + 1
-      i_or = land_index(l) - (j_or-1) * t_i_length
-      IF ( l_soil_point(l) ) THEN
-        ustar_or = vonk_or * vshr(i_or,j_or)                                   &
-                   / LOG((z1_uv_ij(i_or,j_or) + z0(l)) / z0(l))
-        ! No gsoil_f: it is the canopy factor of the gs_nvg (theta /
-        ! theta_crit)**2 conductance; the Or resistance includes the canopy
-        ! through the within-canopy wind profile (CABLE has no such factor).
-        gsoil_under_canopy(l) =                                                &
-          gsoil_or(vshr(i_or,j_or), ustar_or, canht_pft(l,n),                  &
-                   lai_pft_soil_evap(l,n), tstar(l),                           &
-                   sathh_soilt(l,m,1), bexp_soilt(l,m,1),                      &
-                   satcon_soilt(l,m,1),                                        &
-                   sthu_soilt(l,m,1) * smvcst_soilt(l,m,1),                    &
-                   smvcst_soilt(l,m,1), soil_litter_depth(n),                  &
-                   or_z0soil_fac(n))
-      ELSE
-        gsoil_under_canopy(l) = 0.0
       END IF
     END DO
   END IF

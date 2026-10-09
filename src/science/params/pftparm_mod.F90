@@ -530,7 +530,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! f_Zhou, so capacity never falls below fmin (0 = none, as
                  ! in De Kauwe et al. 2015; the floor is an adjustment).
 ,g1_tuzet(:)                                                                   &
-                 ! DESICA (stomata_model = 5): slope of gs = g1 fw An / ca (-).
+                 ! DESICA (stomata_model = 8): slope of gs = g1 fw An / ca (-).
 ,sf_tuzet(:)                                                                   &
                  ! DESICA: sensitivity of the Tuzet closure (MPa-1).
 ,psi_f_tuzet(:)                                                                &
@@ -1321,7 +1321,8 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  l_o3_damage, l_trif_fire, photo_acclim_model, &
                                  photo_act_model, photo_act_pft,               &
                                  photo_farquhar, photo_johnson, photo_model,   &
-                                 stomata_jacobs, stomata_medlyn, stomata_sox,  &
+                                 stomata_jacobs, stomata_medlyn,              &
+                                 stomata_sox_analytical,                      &
                                  stomata_model, l_spec_veg_z0, l_sugar,        &
                                  l_scale_resp_pm, stomata_desica,              &
                                  som_psi_solver, psi_solver_lut
@@ -1487,7 +1488,7 @@ CASE ( stomata_medlyn )
     ERROR = 1
     CALL jules_print(routinename, "No value for g1_stomata")
   END IF
-CASE ( stomata_sox )
+CASE ( stomata_sox_analytical )
   IF ( ANY( ABS( sox_p50(:) - rmdi ) < EPSILON(1.0) ) ) THEN
     ERROR = 1
     CALL jules_print(routinename, "No value for sox_p50")
@@ -1952,11 +1953,11 @@ IF ( l_layeredC .AND. ( soil_bgc_model == soil_model_4pool ) .AND.             &
 END IF
 
 !-----------------------------------------------------------------------------
-! stomata_model = stomata_sox must be used with fsmc_mod = 1
+! stomata_model = stomata_sox_analytical must be used with fsmc_mod = 1
 ! Cannot be run with l_scale_resp_pm
 ! Must be run with can_rad_mod = 1 (implementation for can_rad_mod = 6 ongoing)
 !-----------------------------------------------------------------------------
-IF ( stomata_model == stomata_sox ) THEN ! SOX
+IF ( stomata_model == stomata_sox_analytical ) THEN ! SOX
   IF ( l_scale_resp_pm ) THEN
     ERROR = 1
     CALL ereport(routinename, ERROR,                                           &
@@ -1998,7 +1999,7 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
     ERROR = 1
     CALL ereport(routinename, ERROR,                                           &
     'xylem impairment (pft_xylem_impairment_model /= 0) is not coded for '  // &
-    'DESICA (stomata_model=5)')
+    'DESICA (stomata_model=8)')
   END IF
 END IF
 

@@ -3657,7 +3657,7 @@ CASE ('hydraulic_cost_pft')
 
   ! Percentage loss of conductance at the leaf water potential compared to the
   ! maximum conductance JBaguley
-  ! DESICA (stomata_model = 5) stem water potential (Pa -> MPa) and root
+  ! DESICA (stomata_model = 8) stem water potential (Pa -> MPa) and root
   ! uptake / sap flow (kg m-2 s-1); zero when DESICA is not in use.
 CASE ( 'psi_stem_pft' )
   workspace_pft(:,:) = 0.0
