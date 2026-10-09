@@ -22,8 +22,7 @@ USE gridbox_mean_mod, ONLY:                                                    &
 
 USE timestep_mod, ONLY: timestep
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_npp_prev,         &
-                                       ximpair_wood_prev,                      &
-                                       ximpair_plc_dam, ximpair_renew_mean,    &
+                                       ximpair_wood_prev, ximpair_renew_mean,  &
                                        ximpair_renew_wt
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
                           flux_sap_desica, dw_plant_desica
@@ -3723,12 +3722,6 @@ CASE ( 'ximpair_npp_prev' )
 CASE ( 'ximpair_wood_prev' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(ximpair_wood_prev) ) workspace_pft(:,:) = ximpair_wood_prev
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
-CASE ( 'ximpair_plc_dam' )
-  workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(ximpair_plc_dam) ) workspace_pft(:,:) = ximpair_plc_dam
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

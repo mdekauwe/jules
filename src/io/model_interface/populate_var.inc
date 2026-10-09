@@ -19,8 +19,7 @@ USE imgn_drive_mod, ONLY: imgn_drive
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
-    ximpair_npp_prev, ximpair_wood_prev, ximpair_plc_dam,                      &
-    ximpair_renew_mean, ximpair_renew_wt
+    ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt
 
 USE ancil_info, ONLY:                                                          &
   dim_cslayer, land_pts, nsurft, nsoilt
@@ -2038,15 +2037,6 @@ CASE ( 'ximpair_wood_prev' )
     CALL cube_get_data(cube_land, ximpair_wood_prev(:,:))
   ELSE
     ximpair_wood_prev(:,:) = const_val
-  END IF
-
-CASE ( 'ximpair_plc_dam' )
-  CALL ximpair_memory_alloc( land_pts )
-  IF ( PRESENT(cube) ) THEN
-    cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, ximpair_plc_dam(:,:))
-  ELSE
-    ximpair_plc_dam(:,:) = const_val
   END IF
 
 CASE ( 'ximpair_renew_mean' )

@@ -9772,22 +9772,9 @@ DATA metadata(754) / var_metadata(                                             &
     "kg m-2"                                                               &
   ) /
 !-----------------------------------------------------------------------------
-! Metadata for ximpair_plc_dam (xylem impairment prognostic)
-!-----------------------------------------------------------------------------
-DATA metadata(755) / var_metadata(                                             &
-! String identifier
-    'ximpair_plc_dam',                                              &
-! Variable type
-    var_type_pft,                                                              &
-! Long name
-    "Loss of conductivity at the last xylem damage",                &
-! Units
-    "-"                                                               &
-  ) /
-!-----------------------------------------------------------------------------
 ! Metadata for ximpair_renew_mean (xylem impairment prognostic)
 !-----------------------------------------------------------------------------
-DATA metadata(756) / var_metadata(                                             &
+DATA metadata(755) / var_metadata(                                             &
 ! String identifier
     'ximpair_renew_mean',                                           &
 ! Variable type
@@ -9800,7 +9787,7 @@ DATA metadata(756) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for ximpair_renew_wt (xylem impairment prognostic)
 !-----------------------------------------------------------------------------
-DATA metadata(757) / var_metadata(                                             &
+DATA metadata(756) / var_metadata(                                             &
 ! String identifier
     'ximpair_renew_wt',                                             &
 ! Variable type
@@ -9813,7 +9800,7 @@ DATA metadata(757) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for t_leaf_sun_pft
 !-----------------------------------------------------------------------------
-DATA metadata(758) / var_metadata(                                             &
+DATA metadata(757) / var_metadata(                                             &
 ! String identifier
     't_leaf_sun_pft',                                                     &
 ! Variable type
@@ -9826,7 +9813,7 @@ DATA metadata(758) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for t_leaf_shd_pft
 !-----------------------------------------------------------------------------
-DATA metadata(759) / var_metadata(                                             &
+DATA metadata(758) / var_metadata(                                             &
 ! String identifier
     't_leaf_shd_pft',                                                     &
 ! Variable type
@@ -9839,7 +9826,7 @@ DATA metadata(759) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for t_can_pft
 !-----------------------------------------------------------------------------
-DATA metadata(760) / var_metadata(                                             &
+DATA metadata(759) / var_metadata(                                             &
 ! String identifier
     't_can_pft',                                                          &
 ! Variable type
@@ -9852,7 +9839,7 @@ DATA metadata(760) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for kplant_pft
 !-----------------------------------------------------------------------------
-DATA metadata(761) / var_metadata(                                             &
+DATA metadata(760) / var_metadata(                                             &
 ! String identifier
     'kplant_pft',                                                              &
 ! Variable type

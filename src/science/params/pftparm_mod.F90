@@ -591,9 +591,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Years of typical growth for the growth recovery term
                  !  (l_ximpair_rec_growth)
                  !  to recover the loss of conductivity: the loss falls
-                 !  linearly, by (loss at the last damage) / ximpair_rec_years
-                 !  per year of typical growth. <= 0 applies the renewed
-                 !  fraction directly (fast recovery).
+                 !  exponentially with growth, e-folding over
+                 !  ximpair_rec_years / 2 years of typical growth. <= 0 applies
+                 !  the renewed fraction directly (fast recovery).
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
