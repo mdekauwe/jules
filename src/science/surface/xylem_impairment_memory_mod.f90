@@ -39,15 +39,12 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock(:,:)
 ! (ximpair_growth_basis = 3); -1 = not yet seen.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_wood_prev(:,:)
 
-! Slow recovery (ximpair_rec_years > 0): loss of conductivity at the last
-! damage, which sets the recovery rate, and the running mean (s-1) of the
+! Slow recovery (ximpair_rec_years > 0): the running mean (s-1) of the
 ! renewed fraction with its weight (for the start-up bias correction).
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_plc_dam(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_renew_mean(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_renew_wt(:,:)
 ! ximpair_npp_prev, ximpair_lock, ximpair_wood_prev,
-! ximpair_plc_dam, ximpair_renew_mean and ximpair_renew_wt are written to and
-! read from dumps (ximpair_memory_alloc allocates them).
+! ximpair_renew_mean and ximpair_renew_wt are written to and read from dumps (ximpair_memory_alloc allocates them).
 
 CONTAINS
 
@@ -72,10 +69,6 @@ END IF
 IF (.NOT. ALLOCATED(ximpair_wood_prev)) THEN
   ALLOCATE(ximpair_wood_prev(n_land_pts, npft))
   ximpair_wood_prev(:,:) = -1.0
-END IF
-IF (.NOT. ALLOCATED(ximpair_plc_dam)) THEN
-  ALLOCATE(ximpair_plc_dam(n_land_pts, npft))
-  ximpair_plc_dam(:,:) = 0.0
 END IF
 IF (.NOT. ALLOCATED(ximpair_renew_mean)) THEN
   ALLOCATE(ximpair_renew_mean(n_land_pts, npft))
@@ -509,19 +502,13 @@ END SUBROUTINE leaf_psi_impaired_memory
 ! timestep, f = f_growth, is scaled by its running mean, <f>
 ! (e-folding time ximpair_rec_years, bias-corrected at the start), to the
 ! growth g = f / (<f> * 1 year) in units of a typical year's growth, and the
-! loss of conductivity falls with growth (ximpair_rec_form), either
-!   1 (linear):      PLC' = MAX(PLC - PLC_dam * g / ximpair_rec_years, 0),
-!     with PLC_dam the loss at the last damage (reset each time damage
-!     raises PLC). The loss recovers in ximpair_rec_years years of typical
-!     growth after the last damage, and any new damage, however small,
-!     restarts that clock from the whole current loss;
-!   2 (exponential): PLC' = PLC * EXP(-2 g / ximpair_rec_years),
-!     e-folding over ximpair_rec_years / 2 typical years of growth, which
-!     gives the same integrated loss after an isolated event as the linear
-!     form (the one-pool limit of renewing the sapwood with new, intact
-!     conduits). There is no clock to restart.
-! Either way recovery has the seasonal timing of growth, and is slower after
-! years of low growth. Read as sapwood turnover: the conducting sapwood holds
+! loss of conductivity falls exponentially with growth,
+!   PLC' = PLC * EXP(-2 g / ximpair_rec_years),
+! e-folding over ximpair_rec_years / 2 typical years of growth: the same
+! integrated loss after an isolated event as a linear recovery over
+! ximpair_rec_years (the one-pool limit of renewing the sapwood with new,
+! intact conduits). Recovery has the seasonal timing of growth, and is
+! slower after years of low growth. Read as sapwood turnover: the conducting sapwood holds
 ! about ximpair_rec_years years of typical growth, and each year's new
 ! (intact) wood replaces an equal amount of old wood.
 !
@@ -549,8 +536,7 @@ USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
                    ximpair_psi_growth
 USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 ximpair_driver_root, ximpair_driver_stem,      &
-                                l_ximpair_rec_growth, l_triffid,               &
-                                ximpair_rec_form, ximpair_rec_exp
+                                l_ximpair_rec_growth, l_triffid
 USE trif, ONLY: g_wood
 USE jules_surface_types_mod, ONLY: npft
 USE model_time_mod, ONLY: current_time, timestep_len
@@ -597,7 +583,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   psi_x(n_land_pts), k_x(n_land_pts), kmax_pts(n_land_pts),                   &
   kcrit_pts(n_land_pts), b_pts(n_land_pts), c_pts(n_land_pts),                &
   f_renew(n_land_pts), c_new(n_land_pts), wood(n_land_pts),                  &
-  f_new(n_land_pts), growth(n_land_pts), kcap_old(n_land_pts),                &
+  f_new(n_land_pts), growth(n_land_pts),                                      &
   plc(n_land_pts)
 REAL(KIND=real_jlslsm) :: f_rec, a_mean
 LOGICAL :: l_slow
@@ -726,14 +712,9 @@ IF (l_slow .AND. l_ximpair_rec_growth) THEN
   ELSEWHERE
     growth(:) = 0.0
   END WHERE
-  ! Recovery of the loss of conductivity with growth (ximpair_rec_form).
+  ! Exponential recovery of the loss of conductivity with growth.
   plc(:) = 1.0 - kcap(:) / kmax_pts(:)
-  IF (ximpair_rec_form == ximpair_rec_exp) THEN
-    plc(:) = plc(:) * EXP(-2.0 * growth(:) / ximpair_rec_years(pft))
-  ELSE
-    plc(:) = MAX(plc(:) - ximpair_plc_dam(:,pft) * growth(:)                   &
-                          / ximpair_rec_years(pft), 0.0)
-  END IF
+  plc(:) = plc(:) * EXP(-2.0 * growth(:) / ximpair_rec_years(pft))
   kcap(:) = kmax_pts(:) * (1.0 - plc(:))
 END IF
 
@@ -755,7 +736,6 @@ END IF
 ! Damage: the cap can not exceed the intact conductance at the damage
 ! driver. Only points with open stomata (i.e. under tension) are damaged.
 !-----------------------------------------------------------------------------
-kcap_old(:) = kcap(:)
 CALL leaf_conductance_jls( pft, n_land_pts, psi_x, kmax_pts, kcrit_pts,        &
                            b_pts, c_pts, k_x )
 DO j = 1, n_open_pts
@@ -764,14 +744,6 @@ DO j = 1, n_open_pts
 END DO
 
 kcap(:) = MAX(MIN(kcap(:), kmax_pts(:)), kcrit_pts(:))
-
-! Slow recovery restarts from the loss at the latest damage.
-IF (l_slow) THEN
-  CALL ximpair_memory_alloc( n_land_pts )
-  WHERE (kcap(:) < kcap_old(:))
-    ximpair_plc_dam(:,pft) = 1.0 - kcap(:) / kmax_pts(:)
-  END WHERE
-END IF
 
 IF (.NOT. ALLOCATED(ximpair_lock)) THEN
   ALLOCATE(ximpair_lock(n_land_pts, npft))

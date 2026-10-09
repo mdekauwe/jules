@@ -578,20 +578,6 @@ LOGICAL ::                                                                     &
       ! 5-day recovery after rewetting (see vcmax_psi_factor in sf_stom).
       ! Unlike l_som_nsl it does not act in wet soil and does not depend on
       ! the midday leaf psi. Profit max (stomata_model = 4) only.
-! Forms of the slow recovery of the memory impairment model
-! (ximpair_rec_form; used when ximpair_rec_years > 0).
-INTEGER, PARAMETER ::                                                          &
-  ximpair_rec_linear = 1,                                                      &
-    ! The loss falls linearly with growth, by PLC_dam / ximpair_rec_years per
-    ! typical year of growth (PLC_dam the loss at the last damage).
-  ximpair_rec_exp = 2
-    ! The loss falls exponentially with growth, e-folding over
-    ! ximpair_rec_years / 2 typical years of growth (the same integrated
-    ! loss after an isolated event as the linear form).
-INTEGER ::                                                                     &
-  ximpair_rec_form = ximpair_rec_linear
-      ! Form of the slow recovery of the memory impairment model - see
-      ! update_xylem_impairment_memory.
 ! How the stomatal optimisation sees xylem impairment (ximpair_cost_model).
 INTEGER, PARAMETER ::                                                          &
   ximpair_cost_intact = 0,                                                     &
@@ -790,7 +776,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
     l_ximpair_rec_growth, l_ximpair_leaf_loss,                                &
-    ximpair_cost_model, ximpair_rec_form,                                     &
+    ximpair_cost_model,                                                       &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
     l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
     l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
@@ -1054,13 +1040,6 @@ CASE DEFAULT
      'som_psi_solver should be Taylor series (1), Newton-Raphson (2) ' //      &
      'or lookup table (3)')
 END SELECT
-
-IF ( ximpair_rec_form /= ximpair_rec_linear .AND.                             &
-     ximpair_rec_form /= ximpair_rec_exp ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'ximpair_rec_form should be linear (1) or exponential (2)')
-END IF
 
 ! Check that the som_ci_search is suitable.
 SELECT CASE( som_ci_search )
@@ -1731,7 +1710,6 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' ximpair_cost_model = ', ximpair_cost_model
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' ximpair_rec_form = ', ximpair_rec_form
 WRITE(lineBuffer,*) ' l_som_gravity = ', l_som_gravity
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -1864,7 +1842,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 23 ! +1 ximpair_cost_model, +1 ximpair_rec_form, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
+INTEGER, PARAMETER :: n_int = 22 ! +1 ximpair_cost_model, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
 INTEGER, PARAMETER :: n_real = 18 + (n_photo_coef * 5) ! +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
@@ -1899,7 +1877,6 @@ TYPE :: my_namelist
   INTEGER :: som_psi_aprox_method !JBaguley
   INTEGER :: som_psi_solver
   INTEGER :: som_ci_search
-  INTEGER :: ximpair_rec_form
   INTEGER :: ximpair_cost_model
   INTEGER :: som_profit_model !JBaguley
   INTEGER :: ignition_method
@@ -2006,7 +1983,6 @@ IF (mype == 0) THEN
   my_nml % som_psi_aprox_method = som_psi_aprox_method !JBaguley
   my_nml % som_psi_solver = som_psi_solver
   my_nml % som_ci_search = som_ci_search
-  my_nml % ximpair_rec_form = ximpair_rec_form
   my_nml % ximpair_cost_model = ximpair_cost_model
   my_nml % som_profit_model = som_profit_model !JBaguley
   my_nml % ignition_method = ignition_method
@@ -2104,7 +2080,6 @@ IF (mype /= 0) THEN
   som_psi_aprox_method = my_nml % som_psi_aprox_method !JBaguley
   som_psi_solver = my_nml % som_psi_solver
   som_ci_search = my_nml % som_ci_search
-  ximpair_rec_form = my_nml % ximpair_rec_form
   ximpair_cost_model = my_nml % ximpair_cost_model
   som_profit_model = my_nml % som_profit_model !JBaguley
   ignition_method = my_nml % ignition_method
