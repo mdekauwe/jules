@@ -17,6 +17,12 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='SF_STOM_MOD'
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: f_vcmax_state(:,:)
     ! Soil-water capacity factor of l_som_vcmax_psi after the recovery lag
     ! (land_pts, npft); < 0 until first set.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: cpl_state(:,:,:)
+    ! Coupled transpiration (l_som_coupled_e), two-leaf: the last sunlit and
+    ! shaded stomatal conductances and leaf boundary layer conductances
+    ! (m/s) and canopy air resistance (s/m) (land_pts, npft, 5: gl_sun,
+    ! gl_shd, gbw_sun, gbw_shd, ra_ca), the first guess of a timestep's first
+    ! pass; < 0 until first set.
 
 !PRIVATE
 PUBLIC sf_stom
@@ -44,7 +50,7 @@ SUBROUTINE sf_stom  (land_pts,land_index                                       &
 ,                    fsmc_in,veg_state,ht,ipar,lai                             &
 ,                    canht,pstar                                               &
 ,                    q1,ra,tstar,o3,t_home_gb,t_growth_gb,psi_root_zone        &
-,                    e_supply                                                  &
+,                    e_supply,gsoil_can                                        &
 ,                    can_rad_mod,ilayers,leaf_flux_mod,som_base_parm,faparv    &
 ,                    lwp_c                                                     &
 ,                    el,gpp,npp,resp_p,resp_l,resp_r,resp_w                    &
@@ -83,8 +89,9 @@ USE jules_vegetation_mod, ONLY:                                                &
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
 ! imported parameters
     photo_collatz, photo_farquhar, photo_sox_collatz, photo_johnson,           &
-    stomata_medlyn, stomata_sox, stomata_desica, stomata_profit_max,           &
-    stomata_sox_profit,                                                        &
+    stomata_medlyn, stomata_sox_analytical, stomata_desica,                    &
+    stomata_profit_max,                                                        &
+    stomata_sox_opt,                                                        &
     photo_adapt, photo_acclim, photo_adapt_acclim,                             &
     photo_act_model, photo_act_pft, photo_act_gb, n_photo_coef,                &
 ! imported scalars that are not changed
@@ -93,7 +100,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_gl_max, l_som_supply_limit,                                            &
     l_som_cuticular_floor, l_som_gravity, l_red, l_som_vcmax_psi,              &
-    l_som_rhizo_series,                                                        &
+    l_som_rhizo_series, l_som_coupled_e,                                       &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model
 
 USE CN_utils_mod, ONLY:                                                        &
@@ -238,11 +245,15 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 ,psi_root_zone(land_pts)                                                       &
                             ! IN Root zone water potential (Pa). Used by the
                             !    stomatal optimisation and by SOX
-                            !    (stomata_model = stomata_sox).
-,e_supply(land_pts)
+                            !    (stomata_model = stomata_sox_analytical).
+,e_supply(land_pts)                                                            &
                             ! IN Transpiration the soil can supply this
                             !    timestep (kg m-2 s-1); negative = no limit
                             !    (l_som_supply_limit, see physiol)
+,gsoil_can(land_pts)
+                            ! IN Soil evaporation conductance beneath the
+                            !    canopy (m s-1, ground area, as soil_evap
+                            !    adds it to gc; see physiol)
 
 TYPE(veg_state_type), INTENT(IN OUT) :: veg_state
 
@@ -814,6 +825,25 @@ INTEGER, PARAMETER :: n_cut = 20
 REAL(KIND=real_jlslsm) :: e_cut(n_cut, land_pts), psi_cut(n_cut, land_pts),    &
                           k_cut(n_cut, land_pts), el_cut(land_pts)
 LOGICAL :: l_cut(land_pts)
+REAL(KIND=real_jlslsm) :: dq_opt(land_pts), r_bl_c(land_pts), r_ca_c(land_pts), &
+                          g_oth_c(land_pts), zero_c(land_pts)
+                            ! Coupled transpiration (l_som_coupled_e): the
+                            ! humidity deficit, leaf boundary layer and canopy
+                            ! air resistances (s/m) and the other leaf class's
+                            ! effective conductance (m/s) passed to
+                            ! stom_opt_mod (dq_opt the deficit used by the
+                            ! optimisation also without it); zeros.
+REAL(KIND=real_jlslsm) :: gbw_sun_lt(land_pts), gbw_shd_lt(land_pts),          &
+                          ra_ca_lt(land_pts), ra_ca_prev(land_pts)
+                            ! Two-leaf, coupled: the leaf boundary layer
+                            ! conductance for water of each class (m/s, class
+                            ! basis) and the canopy air resistance (s/m), from
+                            ! the last leaf energy balance; the last
+                            ! timestep's canopy air resistance (-1 if none).
+REAL(KIND=real_jlslsm) :: g_soil_c(land_pts)
+                            ! Soil evaporation conductance beneath the
+                            ! canopy (m/s), which shares the canopy air and
+                            ! ra with the leaves.
 INTEGER :: i_cut
                             ! gl_max for a stom_opt_mod call with the soil
                             ! supply cap applied (apply_supply_limit), and the
@@ -927,6 +957,12 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='SF_STOM'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+zero_c(:) = 0.0
+! (Initialised here so that every path, not only two-leaf, has them set.)
+gbw_sun_lt(:) = 0.0
+gbw_shd_lt(:) = 0.0
+ra_ca_lt(:)   = 0.0
+
 !-----------------------------------------------------------------------------
 ! Gravity (l_som_gravity). Lifting water to the top of the canopy costs
 ! rho_water g ht (0.01 MPa per m) on top of the frictional drop, so the
@@ -1000,7 +1036,7 @@ DO l = 1, land_pts
 
   fsmc_scale(l) = 1.0  !  Value used if l_scale_resp_pm =.FALSE..
   ! leaf water potential variables for lwp_c diagnostic if SOX is used
-  IF ( stomata_model == stomata_sox ) THEN
+  IF ( stomata_model == stomata_sox_analytical ) THEN
     ! initialise to zero to allow accumulation
     lwp_c(l) = 0.0
   END IF
@@ -1101,12 +1137,16 @@ END IF
 !-----------------------------------------------------------------------------
 CALL qsat(qs,tstar,pstar,land_pts)
 
+! Soil evaporation beneath the canopy, at qs(tstar), as the tile flux.
+g_soil_c(:) = MAX(gsoil_can(:), 0.0)
+
 ! Set the minimum-allowed humidity deficit.
 ! (The stomatal optimisation keeps the dq_min it had when selected with
 ! leaf_flux_mod = 2 and stomata_model = 2.)
-IF ( ( stomata_model == stomata_medlyn ) .OR. ( stomata_model == stomata_sox ) &
+IF ( ( stomata_model == stomata_medlyn )                                       &
+     .OR. ( stomata_model == stomata_sox_analytical )                          &
      .OR. ( stomata_model == stomata_profit_max )                              &
-     .OR. ( stomata_model == stomata_sox_profit ) ) THEN
+     .OR. ( stomata_model == stomata_sox_opt ) ) THEN
   ! Avoid dq=0 as this would cause the model to blow up.
   dq_min = 0.0001
 ELSE
@@ -1859,7 +1899,7 @@ CASE ( 5, 6 )
                     ca, psi_src, acr, apar, oa, vcmax, kc, ko, ccp, pstar,     &
                     km, dqc, qs, je, tstar, je_sun_ratio, fapar_sun(:,n),      &
                     kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,           &
-                    l_multilayer,                                              &
+                    l_multilayer, zero_c, zero_c, zero_c,                      &
                     kmax_leaf_lyr, b_pft_pts, c_pft_pts,                       &
                     psi_leaf_extreme, psi_root_extreme, .FALSE.,               &
                     ! IN OUT
@@ -1877,7 +1917,7 @@ CASE ( 5, 6 )
                     ca, psi_src, acr, apar, oa, vcmax, kc, ko, ccp, pstar,     &
                     km, dqc, qs, je, tstar,  je_shd_ratio, fapar_shd(:,n),     &
                     kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,           &
-                    l_multilayer,                                              &
+                    l_multilayer, zero_c, zero_c, zero_c,                      &
                     kmax_leaf_lyr, b_pft_pts, c_pft_pts,                       &
                     psi_leaf_extreme, psi_root_extreme, .FALSE.,               &
                     ! IN OUT
@@ -2342,7 +2382,7 @@ CASE ( 1 )
 
     SELECT CASE ( leaf_flux_mod)
       CASE (leaf_flux_fsmc)
-        IF (stomata_model == stomata_sox) THEN
+        IF (stomata_model == stomata_sox_analytical) THEN
           !-------------------------------------------------------------------
           ! SOX (Eller et al. 2020, semi-analytical; trunk vn7.9).
           !-------------------------------------------------------------------
@@ -2456,9 +2496,18 @@ CASE ( 1 )
        ! kmax_bigleaf (and the multilayer and two-leaf totals).
        gl_max_bigleaf(:) = som_gl_max * lai(:)
        share_sup(:) = 1.0
+       ! Coupled transpiration: the deficit to the level-1 air through ra
+       ! (shared with the soil evaporation, as in the tile flux).
+       dq_opt(:) = dqc(:)
+       r_ca_c(:) = 0.0
+       IF ( l_som_coupled_e ) THEN
+         dq_opt(:) = dq(:)
+         r_ca_c(:) = ra(:)
+       END IF
        CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,        &
-                                share_sup, dqc, tstar, pstar,                  &
-                                gl_max_bigleaf, gl_max_eff )
+                                share_sup, dq_opt, tstar, pstar,               &
+                                gl_max_bigleaf, gl_max_eff,                    &
+                                zero_c, r_ca_c, g_soil_c )
        CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
        ! Xylem impairment (JBaguley): k_max/conductance_b/conductance_c hold
@@ -2474,9 +2523,9 @@ CASE ( 1 )
                 land_pts, som_base_parm, ft, open_pts, open_index,           &
                 pft_photo_model, veg_pts, veg_index,                         &
                 ca, psi_src, acrc, apar, oa, vcmaxc, kc, ko, ccp, pstar,      &
-                km, dqc, qs, je, tstar, je_dummy, fapar_dummy,               &
+                km, dq_opt, qs, je, tstar, je_dummy, fapar_dummy,            &
                 kmax_bigleaf, kcrit_bigleaf, gl_max_eff, ipar,               &
-                l_multilayer,                                                &
+                l_multilayer, zero_c, r_ca_c, g_soil_c,                      &
                 kmax_ref_bigleaf, conductance_b, conductance_c,              &
                 psi_leaf_extreme, psi_root_extreme, .TRUE.,                  &
               ! IN OUT
@@ -2825,7 +2874,8 @@ CASE ( 7 )
       t_c_lt(l) = tair(l)
     END DO
     ! Canopy air humidity from last timestep's conductance and leaf
-    ! temperatures (q1 for leaf_aero_model = 0).
+    ! temperatures (q1 for leaf_aero_model = 0). (gc on entry is last
+    ! timestep's tile conductance, which already includes the soil's.)
     CALL qsat(qs_g_lt, t_g_lt, pstar, land_pts)
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -2834,9 +2884,11 @@ CASE ( 7 )
     END DO
     IF ( leaf_aero_model == 1 ) THEN
       ! The neutral rt1 above is for the first guess only: leaf_temp_update
-      ! takes ra where there is no canopy.
+      ! takes ra where there is no canopy. Keep it as the first guess of
+      ! the canopy air resistance of the coupled transpiration.
       DO m = 1,veg_pts
         l = veg_index(m)
+        ra_ca_lt(l) = ra_lt(l)
         ra_lt(l) = ra(l)
       END DO
     END IF
@@ -2851,6 +2903,31 @@ CASE ( 7 )
     km_shd_lt(:)  = km(:)
   ELSE
     n_pass_2l = iter
+  END IF
+
+  !---------------------------------------------------------------------------
+  ! Coupled transpiration: first guesses of the class conductances and leaf
+  ! boundary layers (the last timestep's) and the canopy air resistance.
+  !---------------------------------------------------------------------------
+  IF ( l_som_coupled_e ) THEN
+    CALL cpl_state_load( ft, land_pts, veg_pts, veg_index, lai, lai_sun_2l,    &
+                         lai_shd_2l, gc, gl_sun, gl_shd, gbw_sun_lt,           &
+                         gbw_shd_lt, ra_ca_prev )
+    IF ( l_leaf_temp .AND. leaf_aero_model == 1 ) THEN
+      ! CABLE's rt1: the last timestep's where there is a canopy, else the
+      ! neutral first guess set above (JULES's ra where there is no canopy).
+      ! (ra_lt is JULES's ra by now, which is the canopy air resistance of
+      ! the passes only where there is no canopy.)
+      DO m = 1,veg_pts
+        l = veg_index(m)
+        IF ( zref_a(l) > 0.0 .AND. ra_ca_prev(l) >= 0.0 )                      &
+          ra_ca_lt(l) = ra_ca_prev(l)
+      END DO
+    ELSE IF ( l_leaf_temp ) THEN
+      ra_ca_lt(:) = ra_lt(:)
+    ELSE
+      ra_ca_lt(:) = ra(:)
+    END IF
   END IF
 
   !---------------------------------------------------------------------------
@@ -2916,10 +2993,16 @@ CASE ( 7 )
                      MAX(kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l), TINY(1.0))
     END DO
 
+    CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,   &
+                         dqc, dq, qs_sun_lt, q1, dq_sun_lt, gbw_sun_lt,        &
+                         gbw_shd_lt, ra_ca_lt, gl_shd, g_soil_c, qs,           &
+                         dq_opt, r_bl_c, r_ca_c, g_oth_c )
+
     IF ( l_leaf_temp ) THEN
       CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,         &
-                               share_sup, dq_sun_lt, t_sun_lt, pstar,          &
-                               gl_max_sun_2l, gl_max_eff )
+                               share_sup, dq_opt, t_sun_lt, pstar,             &
+                               gl_max_sun_2l, gl_max_eff,                      &
+                               r_bl_c, r_ca_c, g_oth_c )
       CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
       CALL stom_opt_mod (                                                      &
@@ -2928,10 +3011,10 @@ CASE ( 7 )
                 pft_photo_model, veg_pts, veg_index,                           &
                 ca, psi_src, acr_sun_2l, apar_sun_2l, oa, vcmax_sun_2l,        &
                 kc_sun_lt, ko_sun_lt, ccp_sun_lt, pstar,                       &
-                km_sun_lt, dq_sun_lt, qs_sun_lt, je_sun, t_sun_lt, je_dummy,   &
+                km_sun_lt, dq_opt, qs_sun_lt, je_sun, t_sun_lt, je_dummy,      &
                 fapar_dummy,                                                   &
                 kmax_sun_2l, kcrit_sun_2l, gl_max_eff, ipar,                   &
-                l_multilayer,                                                  &
+                l_multilayer, r_bl_c, r_ca_c, g_oth_c,                         &
                 kmax_ref_sun_2l, conductance_b, conductance_c,              &
                 psi_leaf_extreme, psi_root_extreme, .TRUE.,                    &
               ! IN OUT
@@ -2943,8 +3026,8 @@ CASE ( 7 )
         )
     ELSE
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
-                             share_sup, dqc, tstar, pstar, gl_max_sun_2l,      &
-                             gl_max_eff )
+                             share_sup, dq_opt, tstar, pstar, gl_max_sun_2l,   &
+                             gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
     CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
     CALL stom_opt_mod (                                                        &
@@ -2953,9 +3036,9 @@ CASE ( 7 )
               pft_photo_model, veg_pts, veg_index,                             &
               ca, psi_src, acr_sun_2l, apar_sun_2l, oa, vcmax_sun_2l,          &
               kc, ko, ccp, pstar,                                              &
-              km, dqc, qs, je_sun, tstar, je_dummy, fapar_dummy,               &
+              km, dq_opt, qs, je_sun, tstar, je_dummy, fapar_dummy,            &
               kmax_sun_2l, kcrit_sun_2l, gl_max_eff, ipar,                     &
-              l_multilayer,                                                    &
+              l_multilayer, r_bl_c, r_ca_c, g_oth_c,                           &
               kmax_ref_sun_2l, conductance_b, conductance_c,                   &
               psi_leaf_extreme, psi_root_extreme, .TRUE.,                      &
             ! IN OUT
@@ -3005,10 +3088,17 @@ CASE ( 7 )
                      MAX(kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l), TINY(1.0))
     END DO
 
+    ! (The other class is the sunlit leaf of this pass.)
+    CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,   &
+                         dqc, dq, qs_shd_lt, q1, dq_shd_lt, gbw_shd_lt,        &
+                         gbw_sun_lt, ra_ca_lt, gl_sun, g_soil_c, qs,           &
+                         dq_opt, r_bl_c, r_ca_c, g_oth_c )
+
     IF ( l_leaf_temp ) THEN
       CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,         &
-                               share_sup, dq_shd_lt, t_shd_lt, pstar,          &
-                               gl_max_shd_2l, gl_max_eff )
+                               share_sup, dq_opt, t_shd_lt, pstar,             &
+                               gl_max_shd_2l, gl_max_eff,                      &
+                               r_bl_c, r_ca_c, g_oth_c )
       CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
       CALL stom_opt_mod (                                                      &
@@ -3017,10 +3107,10 @@ CASE ( 7 )
                 pft_photo_model, veg_pts, veg_index,                           &
                 ca, psi_src, acr_shd_2l, apar_shd_2l, oa, vcmax_shd_2l,        &
                 kc_shd_lt, ko_shd_lt, ccp_shd_lt, pstar,                       &
-                km_shd_lt, dq_shd_lt, qs_shd_lt, je_shd, t_shd_lt, je_dummy,   &
+                km_shd_lt, dq_opt, qs_shd_lt, je_shd, t_shd_lt, je_dummy,      &
                 fapar_dummy,                                                   &
                 kmax_shd_2l, kcrit_shd_2l, gl_max_eff, ipar,                   &
-                l_multilayer,                                                  &
+                l_multilayer, r_bl_c, r_ca_c, g_oth_c,                         &
                 kmax_ref_shd_2l, conductance_b, conductance_c,              &
                 psi_leaf_extreme, psi_root_extreme, .TRUE.,                    &
               ! IN OUT
@@ -3032,8 +3122,8 @@ CASE ( 7 )
         )
     ELSE
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
-                             share_sup, dqc, tstar, pstar, gl_max_shd_2l,      &
-                             gl_max_eff )
+                             share_sup, dq_opt, tstar, pstar, gl_max_shd_2l,   &
+                             gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
     CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
     CALL stom_opt_mod (                                                        &
@@ -3042,9 +3132,9 @@ CASE ( 7 )
               pft_photo_model, veg_pts, veg_index,                             &
               ca, psi_src, acr_shd_2l, apar_shd_2l, oa, vcmax_shd_2l,          &
               kc, ko, ccp, pstar,                                              &
-              km, dqc, qs, je_shd, tstar, je_dummy, fapar_dummy,               &
+              km, dq_opt, qs, je_shd, tstar, je_dummy, fapar_dummy,            &
               kmax_shd_2l, kcrit_shd_2l, gl_max_eff, ipar,                     &
-              l_multilayer,                                                    &
+              l_multilayer, r_bl_c, r_ca_c, g_oth_c,                           &
               kmax_ref_shd_2l, conductance_b, conductance_c,                   &
               psi_leaf_extreme, psi_root_extreme, .TRUE.,                      &
             ! IN OUT
@@ -3079,11 +3169,16 @@ CASE ( 7 )
                              wlws_sun_lt, wlws_shd_lt, frad_sun_lt,            &
                              frad_shd_lt, ff_sun_lt, ff_shd_lt, z0m_a, zref_a, &
                              rt1ab_a, zrd_a, usc_a, usuh_a, gl_sun,            &
-                             gl_shd, zeta_lt, t_sun_lt, t_shd_lt, t_c_lt,      &
-                             q_c_lt )
+                             gl_shd, g_soil_c, qs, zeta_lt, t_sun_lt,          &
+                             t_shd_lt, t_c_lt, q_c_lt, gbw_sun_lt, gbw_shd_lt, &
+                             ra_ca_lt )
     END IF
 
   END DO   ! End of iteration loop
+
+  IF ( l_som_coupled_e ) CALL cpl_state_save( ft, land_pts, veg_pts, veg_index,&
+                                              gl_sun, gl_shd, gbw_sun_lt,      &
+                                              gbw_shd_lt, ra_ca_lt )
 
   !---------------------------------------------------------------------------
   ! Canopy totals and leaf-area-weighted means.
@@ -3146,12 +3241,17 @@ CASE ( 7 )
       ! ra. Return the gc that gives the transpiration the optimisation
       ! chose (el, at the leaf temperatures) there:
       !   rho (qs(tstar) - q1) / (ra + 1/gc) = el * m_h2o,
-      ! capped at the canopy som_gl_max.
+      ! capped at the canopy som_gl_max. The soil conductance g_s shares ra
+      ! in the tile flux (soil_evap adds it to gc) and the transpiration is
+      ! the stomatal share,
+      !   rho (qs(tstar) - q1) gc / (1 + ra (gc + g_s)) = el * m_h2o,
+      ! so 1/gc is the r_eq above divided by 1 + ra g_s.
       IF ( l_leaf_temp_gc_eq ) THEN
         gc_cap = gl_max_sun_2l(l) + gl_max_shd_2l(l)
         IF ( el(l) * m_h2o_lt > TINY(1.0) ) THEN
           r_eq = pstar(l) / ( r * tstar(l) ) * dq(l) / ( el(l) * m_h2o_lt )    &
                  - ra(l)
+          r_eq = r_eq / ( 1.0 + ra(l) * g_soil_c(l) )
           IF ( r_eq > 0.0 ) THEN
             gc(l) = 1.0 / r_eq
             IF ( gc_cap > 0.0 ) gc(l) = MIN(gc(l), gc_cap)
@@ -3902,7 +4002,8 @@ SUBROUTINE leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
                              sw_sun, sw_shd, wlw_sun, wlw_shd, wlws_sun,       &
                              wlws_shd, frad_sun, frad_shd, ff_sun, ff_shd,     &
                              z0m_a, zref_a, rt1ab_a, zrd_a, usc_a, usuh_a,     &
-                             gl_sun, gl_shd, zeta_a, t_sun, t_shd, t_c, q_c )
+                             gl_sun, gl_shd, g_soil, qs_soil, zeta_a, t_sun,   &
+                             t_shd, t_c, q_c, gbw_sun, gbw_shd, ra_out )
 
 ! Two-leaf leaf energy balance (l_leaf_temp): sunlit and shaded leaf
 ! temperatures, and canopy air temperature and humidity, for the stomatal
@@ -3921,8 +4022,11 @@ SUBROUTINE leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
 !
 ! The canopy air is coupled to level 1 through ra (from leaf_aero_model:
 ! 0, so t_c = tair and q_c = q1; 1, CABLE's rt1; 2, JULES's ra):
-!   q_c = q1 + ra (LE_sun + LE_shd) / (rho lc),
-!   t_c = tair + ra (H_sun + H_shd) / (rho cp).
+!   q_c = q1 + ra (LE_sun + LE_shd + LE_soil) / (rho lc),
+!   t_c = tair + ra (H_sun + H_shd) / (rho cp),
+! LE_soil = rho lc g_soil (qs_soil - q_c) being the soil evaporation into
+! the canopy air, as in CABLE (soil sensible heat is not included: there is
+! no soil surface temperature separate from tstar on vegetated tiles).
 ! The balance is solved for these conductances: LE is linear in q_c, so q_c
 ! is explicit for a given t_c, and t_c is found by regula falsi within
 ! dt_can of tair (at once when ra = 0). Leaf temperatures are kept
@@ -3948,8 +4052,11 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   frad_shd(land_pts), ff_sun(land_pts), ff_shd(land_pts), gl_sun(land_pts),    &
   gl_shd(land_pts),                                                            &
   z0m_a(land_pts), zref_a(land_pts), rt1ab_a(land_pts), zrd_a(land_pts),       &
-  usc_a(land_pts), usuh_a(land_pts)
+  usc_a(land_pts), usuh_a(land_pts),                                           &
       ! CABLE canopy geometry (leaf_aero_model = 1; see leaf_aero_geom).
+  g_soil(land_pts), qs_soil(land_pts)
+      ! Soil evaporation conductance into the canopy air (m s-1, ground
+      ! area) and the saturated humidity it evaporates at (kg kg-1).
 
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
   zeta_a(land_pts),                                                            &
@@ -3957,6 +4064,13 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
       ! iteration, and the last iterate on output, so successive passes in
       ! a timestep continue the iteration (0 for the first).
   t_sun(land_pts), t_shd(land_pts), t_c(land_pts), q_c(land_pts)
+
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+  gbw_sun(land_pts), gbw_shd(land_pts), ra_out(land_pts)
+      ! Leaf boundary layer conductance for water of each class (m/s, class
+      ! basis; 0 without leaf area) and the canopy air resistance (s/m) of
+      ! the balance found, for l_som_coupled_e. Points not solved keep
+      ! their values.
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
   vonk = 0.40, grav = 9.81, zetneg = -15.0, zetpos = 1.0, rt_min = 5.0,        &
@@ -3993,7 +4107,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   t_try1(veg_pts), p_v(veg_pts), qs0_v(veg_pts), qs1_v(veg_pts),               &
   ts_v(veg_pts), tsh_v(veg_pts), qc_v(veg_pts), h_v(veg_pts), le_v(veg_pts),   &
   hb_v(veg_pts), leb_v(veg_pts), res, ra_m(land_pts),                          &
-  u_m(land_pts), us, rt1usc, zr
+  u_m(land_pts), us, rt1usc, zr, gbw_last(2)
 LOGICAL :: l_done(veg_pts)
 INTEGER :: l, m, it, side(veg_pts), it_mo, n_mo
 
@@ -4110,7 +4224,8 @@ END DO
 
 ! Stability for the next iteration (CABLE): zref/L from the canopy sensible
 ! heat and the buoyancy of the latent heat, -k g zref (H + 0.07 LE) /
-! (rho cp T u*^3). Only the leaves' fluxes: the soil's are not known here.
+! (rho cp T u*^3). Only the leaves' fluxes: the soil's sensible heat is not
+! known here (nor is its latent heat added).
 ! Also after the last iteration, for the next pass to start from.
 IF ( leaf_aero_model == 1 ) THEN
   DO m = 1,veg_pts
@@ -4125,6 +4240,11 @@ END IF
 
 END DO   ! it_mo
 
+DO m = 1,veg_pts
+  l = veg_index(m)
+  ra_out(l) = ra_m(l)
+END DO
+
 CONTAINS
 
 SUBROUTINE set_out( l, m, tc, ts, tsh, qc )
@@ -4134,6 +4254,9 @@ t_c(l)   = tc
 t_sun(l) = ts
 t_shd(l) = tsh
 q_c(l)   = qc
+! (gbw_last is from the canopy_balance call just made for this point.)
+gbw_sun(l) = gbw_last(1)
+gbw_shd(l) = gbw_last(2)
 h_v(m)   = hb_v(m)
 le_v(m)  = leb_v(m)
 END SUBROUTINE set_out
@@ -4224,6 +4347,7 @@ DO ic = 1,2
   b(ic)   = 0.0
   gh(ic)  = 0.0
   gbh(ic) = 0.0
+  gbw_last(ic) = 0.0
   IF ( lai_x(ic) > EPSILON(0.0) ) THEN
     ! Free convection from the last leaf - canopy air difference.
     IF ( ABS(t_old(ic) - tc) > 1.0e-6 ) THEN
@@ -4236,6 +4360,7 @@ DO ic = 1,2
     gh(ic)  = 2.0 * gbh(ic) + grn1 * frad(ic)
     gsw     = MAX(gl_x(ic), 0.0) * cmolar
     gbw     = gbh_2_gbw * gbh(ic)
+    gbw_last(ic) = gbw / cmolar
     IF ( gsw > 0.0 .AND. gbw > 0.0 ) THEN
       gw    = gbw * gsw / ( gbw + gsw )
       den   = slope + gamma_p * gh(ic) / gw
@@ -4245,10 +4370,12 @@ DO ic = 1,2
   END IF
 END DO
 
-! Canopy humidity: q_c = q1 + c_q sum(LE), c_q = ra / (rho lc).
+! Canopy humidity: q_c = q1 + c_q sum(LE), c_q = ra / (rho lc); the soil's
+! LE is rho lc g_soil (qs_soil - q_c), so c_q rho lc = ra multiplies g_soil.
 c_q    = ra_x / ( rho * lc )
-qc_new = ( q1(l) + c_q * ( a(1) + a(2) + ( b(1) + b(2) ) * qs0 ) )             &
-         / ( 1.0 + c_q * ( b(1) + b(2) ) )
+qc_new = ( q1(l) + c_q * ( a(1) + a(2) + ( b(1) + b(2) ) * qs0 )               &
+           + ra_x * g_soil(l) * qs_soil(l) )                                   &
+         / ( 1.0 + c_q * ( b(1) + b(2) ) + ra_x * g_soil(l) )
 
 h_tot  = 0.0
 le_out = 0.0
@@ -4833,11 +4960,13 @@ END SUBROUTINE calc_electron_flux
 ! so a zero supply is passed as TINY (no sample feasible: stomata close).
 !-----------------------------------------------------------------------------
 SUBROUTINE apply_supply_limit( land_pts, veg_pts, veg_index, e_supply, share,  &
-                               dq, tstar, pstar, gl_max_in, gl_max_out )
+                               dq, tstar, pstar, gl_max_in, gl_max_out,        &
+                               r_bl, r_ca, g_o )
 
 USE c_rmol, ONLY: rmol
 USE planet_constants_mod, ONLY: repsilon
-USE jules_vegetation_mod, ONLY: l_som_supply_limit
+USE jules_vegetation_mod, ONLY: l_som_supply_limit, l_som_coupled_e
+USE stom_opt_jls_mod, ONLY: g_of_geff
 
 IMPLICIT NONE
 
@@ -4860,6 +4989,11 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 REAL(KIND=real_jlslsm), INTENT(OUT) :: gl_max_out(land_pts)
 
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
+  r_bl(land_pts), r_ca(land_pts), g_o(land_pts)
+      ! l_som_coupled_e: the resistances and other-class conductance of
+      ! stom_opt_mod, so that the cap is the g whose coupled E is the supply.
+
 REAL(KIND=real_jlslsm), PARAMETER :: m_h2o = 0.018015
       ! Molar mass of water (kg mol-1).
 
@@ -4874,11 +5008,155 @@ DO m = 1,veg_pts
   IF ( e_supply(l) >= 0.0 .AND. dq(l) > 0.0 ) THEN
     gl_sup = e_supply(l) * share(l) / m_h2o                                    &
              * repsilon * rmol * tstar(l) / ( dq(l) * pstar(l) )
+    IF ( l_som_coupled_e .AND. PRESENT(r_ca) )                                 &
+      gl_sup = g_of_geff(gl_sup, r_bl(l), r_ca(l), g_o(l))
     IF ( gl_max_in(l) > 0.0 ) gl_sup = MIN(gl_sup, gl_max_in(l))
     gl_max_out(l) = MAX(gl_sup, TINY(1.0_real_jlslsm))
   END IF
 END DO
 
 END SUBROUTINE apply_supply_limit
+
+!#############################################################################
+! Coupled transpiration (l_som_coupled_e), two-leaf: the inputs of one leaf
+! class's stom_opt_mod call. Without it, dq_opt is the deficit used before
+! (dq_lt with l_leaf_temp, else dqc) and the resistances are 0. With it, the
+! deficit is from the leaf to the level-1 air (qs(T_leaf) - q1 with
+! l_leaf_temp, else dq), r_bl the class's leaf boundary layer (l_leaf_temp
+! only), r_ca the canopy air resistance and g_oth the other class's
+! stomatal conductance in series with its boundary layer.
+!
+! The soil evaporation beneath the canopy (conductance g_s, at
+! qs_soil = qs(tstar)) is a further path into the canopy air. Solving the
+! canopy air humidity with the leaf, the other class (taken at this leaf's
+! qs, as before) and the soil gives
+!   E = g' (D + r_ca g_s (qs_lt - qs_soil)) / (1 + r_ca (g' + g'_other + g_s)),
+! so g_s is added to g_oth and r_ca g_s (qs_lt - qs_soil) to the deficit,
+! which does not depend on g' (0 without l_leaf_temp, where the leaf is at
+! tstar).
+!#############################################################################
+SUBROUTINE coupled_inputs( land_pts, veg_pts, veg_index, l_lt, dq_min, dqc,   &
+                           dq, qs_lt, q1, dq_lt, gbw_this, gbw_other, r_ca_in, &
+                           gl_other, g_soil, qs_soil, dq_opt, r_bl, r_ca,      &
+                           g_oth )
+
+USE jules_vegetation_mod, ONLY: l_som_coupled_e
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts)
+LOGICAL, INTENT(IN) :: l_lt
+REAL(KIND=real_jlslsm), INTENT(IN) :: dq_min
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  dqc(land_pts), dq(land_pts), qs_lt(land_pts), q1(land_pts), dq_lt(land_pts), &
+  gbw_this(land_pts), gbw_other(land_pts), r_ca_in(land_pts),                  &
+  gl_other(land_pts), g_soil(land_pts), qs_soil(land_pts)
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  dq_opt(land_pts), r_bl(land_pts), r_ca(land_pts), g_oth(land_pts)
+
+INTEGER :: l, m
+REAL(KIND=real_jlslsm) :: r_bl_o, g_o
+
+IF ( l_lt ) THEN
+  dq_opt(:) = dq_lt(:)
+ELSE
+  dq_opt(:) = dqc(:)
+END IF
+r_bl(:)  = 0.0
+r_ca(:)  = 0.0
+g_oth(:) = 0.0
+IF ( .NOT. l_som_coupled_e ) RETURN
+
+DO m = 1,veg_pts
+  l = veg_index(m)
+  r_bl_o = 0.0
+  IF ( l_lt ) THEN
+    dq_opt(l) = MAX(dq_min, qs_lt(l) - q1(l))
+    IF ( gbw_this(l) > 0.0 )  r_bl(l) = 1.0 / gbw_this(l)
+    IF ( gbw_other(l) > 0.0 ) r_bl_o  = 1.0 / gbw_other(l)
+  ELSE
+    dq_opt(l) = dq(l)
+  END IF
+  r_ca(l)  = r_ca_in(l)
+  g_o      = MAX(gl_other(l), 0.0)
+  g_oth(l) = g_o / ( 1.0 + g_o * r_bl_o )
+  g_oth(l) = g_oth(l) + g_soil(l)
+  IF ( l_lt ) dq_opt(l) = MAX(dq_min, dq_opt(l)                                &
+                              + r_ca(l) * g_soil(l) * (qs_lt(l) - qs_soil(l)))
+END DO
+
+END SUBROUTINE coupled_inputs
+
+!#############################################################################
+! First guesses for coupled transpiration in a timestep's first two-leaf
+! pass: the last timestep's class conductances, boundary layers and canopy
+! air resistance, or, before the first, the canopy conductance shared by
+! leaf area, no boundary layer and a canopy air resistance of -1 (unknown).
+!#############################################################################
+SUBROUTINE cpl_state_load( ft, land_pts, veg_pts, veg_index, lai, lai_sun,    &
+                           lai_shd, gc, gl_sun, gl_shd, gbw_sun, gbw_shd,      &
+                           ra_ca )
+
+USE jules_surface_types_mod, ONLY: npft
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: lai(land_pts), lai_sun(land_pts),       &
+                                      lai_shd(land_pts), gc(land_pts)
+REAL(KIND=real_jlslsm), INTENT(OUT) :: gl_sun(land_pts), gl_shd(land_pts),    &
+                                       gbw_sun(land_pts), gbw_shd(land_pts),   &
+                                       ra_ca(land_pts)
+INTEGER :: l, m
+REAL(KIND=real_jlslsm) :: f_sun
+
+IF ( .NOT. ALLOCATED(cpl_state) ) THEN
+  ALLOCATE( cpl_state(land_pts, npft, 5) )
+  cpl_state(:,:,:) = -1.0
+END IF
+gl_sun(:)  = 0.0
+gl_shd(:)  = 0.0
+gbw_sun(:) = 0.0
+gbw_shd(:) = 0.0
+ra_ca(:)   = -1.0
+DO m = 1,veg_pts
+  l = veg_index(m)
+  IF ( cpl_state(l,ft,1) >= 0.0 ) THEN
+    gl_sun(l)  = cpl_state(l,ft,1)
+    gl_shd(l)  = cpl_state(l,ft,2)
+    gbw_sun(l) = cpl_state(l,ft,3)
+    gbw_shd(l) = cpl_state(l,ft,4)
+    ra_ca(l)   = cpl_state(l,ft,5)
+  ELSE
+    f_sun = 0.5
+    IF ( lai(l) > EPSILON(0.0) ) f_sun = lai_sun(l) / lai(l)
+    gl_sun(l) = MAX(gc(l), 0.0) * f_sun
+    gl_shd(l) = MAX(gc(l), 0.0) * (1.0 - f_sun)
+  END IF
+END DO
+
+END SUBROUTINE cpl_state_load
+
+SUBROUTINE cpl_state_save( ft, land_pts, veg_pts, veg_index, gl_sun, gl_shd,   &
+                           gbw_sun, gbw_shd, ra_ca )
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: gl_sun(land_pts), gl_shd(land_pts),     &
+                                      gbw_sun(land_pts), gbw_shd(land_pts),    &
+                                      ra_ca(land_pts)
+INTEGER :: l, m
+
+DO m = 1,veg_pts
+  l = veg_index(m)
+  cpl_state(l,ft,1) = MAX(gl_sun(l), 0.0)
+  cpl_state(l,ft,2) = MAX(gl_shd(l), 0.0)
+  cpl_state(l,ft,3) = MAX(gbw_sun(l), 0.0)
+  cpl_state(l,ft,4) = MAX(gbw_shd(l), 0.0)
+  cpl_state(l,ft,5) = MAX(ra_ca(l), 0.0)
+END DO
+
+END SUBROUTINE cpl_state_save
 
 END MODULE sf_stom_mod

@@ -14,10 +14,40 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='STOM_OPT_JLS_MOD'
 
-PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_bounded_search
-PUBLIC stom_opt_mod
+PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_bounded_search, &
+        g_eff_e
+PUBLIC stom_opt_mod, g_of_geff
 
 CONTAINS
+
+!-----------------------------------------------------------------------------
+! Coupled transpiration (l_som_coupled_e): the conductance for water of a
+! stomatal conductance g (m/s, >= 0) in series with the leaf boundary layer
+! r_bl (s/m) and, shared with the other leaf class (effective conductance
+! g_o, m/s), the canopy air resistance r_ca (s/m),
+!   g' = g / (1 + g r_bl),   g_eff = g' / (1 + r_ca (g' + g_o)),
+! so that E = D g_eff for the deficit D from the leaf to the level-1 air.
+!-----------------------------------------------------------------------------
+ELEMENTAL FUNCTION g_eff_e( g, r_bl, r_ca, g_o ) RESULT( g_eff )
+REAL(KIND=real_jlslsm), INTENT(IN) :: g, r_bl, r_ca, g_o
+REAL(KIND=real_jlslsm) :: g_eff, gp
+gp    = g / ( 1.0 + g * r_bl )
+g_eff = gp / ( 1.0 + r_ca * ( gp + g_o ) )
+END FUNCTION g_eff_e
+
+! The inverse: the stomatal conductance with effective conductance x (HUGE
+! where no finite g reaches it).
+ELEMENTAL FUNCTION g_of_geff( x, r_bl, r_ca, g_o ) RESULT( g )
+REAL(KIND=real_jlslsm), INTENT(IN) :: x, r_bl, r_ca, g_o
+REAL(KIND=real_jlslsm) :: g, gp, den
+g   = HUGE(1.0_real_jlslsm)
+den = 1.0 - r_ca * x
+IF ( den <= 0.0 ) RETURN
+gp  = x * ( 1.0 + r_ca * g_o ) / den
+den = 1.0 - gp * r_bl
+IF ( den <= 0.0 ) RETURN
+g   = gp / den
+END FUNCTION g_of_geff
 
 ! *********************************************************************
 ! Contains routines to calculate the optimal stomatal conductance and
@@ -35,6 +65,7 @@ SUBROUTINE stom_opt_mod (                                                      &
         ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,           &
         km, dq, qs, je, t_leaf, je_ratio, fapar_lf, kmax, kcrit,               &
         gl_max, ipar, l_multilayer,                                            &
+        r_bl, r_ca, g_oth,                                                     &
         kmax_ref, conductance_b, conductance_c,                                &
         psi_leaf_extreme, psi_root_extreme, l_xylem_impairment_in,             &
 ! IN OUT
@@ -52,7 +83,7 @@ USE yomhook, ONLY: lhook, dr_hook
 
 USE jules_vegetation_mod, ONLY:                                                &
         som_base_parm_ci, som_base_parm_psi, som_n_sample,                     &
-        profit_max_profit_model, SOX_profit_model, som_profit_model,          &
+        profit_max_profit_model, sox_opt_profit_model, som_profit_model,          &
         som_ci_search, som_ci_bounded, som_n_ci_golden_iter,                  &
         l_som_skip_search_wellwatered, som_hc_negligible_tol, l_som_nsl
 
@@ -113,6 +144,18 @@ INTEGER, INTENT(IN) ::                                                         &
                             ! Number of vegetated points.
 ,veg_index(land_pts)
                             ! Index of vegetated points on the land grid.
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  r_bl(land_pts),                                                              &
+                            ! Leaf boundary layer resistance (s/m, on the
+                            ! basis of gl), for l_som_coupled_e.
+  r_ca(land_pts),                                                              &
+                            ! Canopy air to level-1 resistance (s/m), for
+                            ! l_som_coupled_e.
+  g_oth(land_pts)
+                            ! Effective conductance of the other leaf class
+                            ! (and the soil evaporation) sharing the canopy
+                            ! air (m/s), for l_som_coupled_e.
 
 !-----------------------------------------------------------------------------
 ! IN real variables
@@ -227,7 +270,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 INTEGER ::                                                                     &
  optimal_index                                                                 &
                             ! Holds index of the optimal stomatal conductance
-                            !  for each land point. Used by SOX_profit_model.
+                            !  for each land point. Used by sox_opt_profit_model.
 ,i,j,l,iseg,m                                                                  &
                             ! Iterators
 ,errcode
@@ -242,7 +285,7 @@ INTEGER ::                                                                     &
 LOGICAL ::                                                                     &
  l_good_sample(som_n_sample, open_pts)                                        &
                             ! Feasibility mask for the single-pass
-                            ! SOX_profit_model search.
+                            ! sox_opt_profit_model search.
 ,l_good_sample_flat(som_n_sample, open_pts)
                             ! Feasibility mask for the flat search.
 
@@ -261,7 +304,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Upper bound of the Ci sampling range for the
                             ! pass about to be run.
 
-! -- Flat-search sample arrays (SOX_profit_model, and profit_max_profit_model
+! -- Flat-search sample arrays (sox_opt_profit_model, and profit_max_profit_model
 ! -- with som_ci_search = 1) --
 REAL(KIND=real_jlslsm) ::                                                      &
  ci_sample(0:som_n_sample, open_pts)                                           &
@@ -276,14 +319,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Xylem conductance at leaf used for the
                             ! hydraulic cost (m/s) - see stom_opt_mod_ci.
 ,kl_SOX(0:som_n_sample, open_pts)                                              &
-                            ! Xylem conductance for SOX profit model.
+                            ! Xylem conductance for SOX_opt model.
                             !  Calculated from the average of the leaf and
                             !  root zone water potentials. (m/s)
 ,psi_sample(0:som_n_sample, open_pts)                                          &
                             ! Water potential at leaf (Pa)
 ,SOX_mean_psi(0:som_n_sample, open_pts)                                        &
                             ! Mean water potential between leaf and root zone
-                            ! (Pa). Used in SOX profit model.
+                            ! (Pa). Used in SOX_opt model.
 ,el_sample(0:som_n_sample, open_pts)                                           &
                             ! Transpiration rate (mol H2O/m2/s)
 ,profit(0:som_n_sample, open_pts)                                              &
@@ -524,7 +567,7 @@ SELECT CASE ( som_base_parm )
             1, ci_lo, ci_hi,                                                   &
             rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,   &
             km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,     &
-            l_multilayer,                                                     &
+            l_multilayer, r_bl, r_ca, g_oth,                                  &
             kmax_ref, conductance_b, conductance_c,                           &
             psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,           &
         ! OUT
@@ -589,7 +632,8 @@ SELECT CASE ( som_base_parm )
               pft_photo_model, veg_index,                                     &
               rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,&
               km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,      &
-              gl_max, l_multilayer, som_n_sample, som_n_ci_golden_iter,       &
+              gl_max, l_multilayer, r_bl, r_ca, g_oth,                        &
+              som_n_sample, som_n_ci_golden_iter,                             &
               kmax_ref, conductance_b, conductance_c, psi_leaf_extreme,       &
               psi_root_extreme, l_xylem_impairment, kl_hc_max,                &
           ! OUT
@@ -633,7 +677,7 @@ SELECT CASE ( som_base_parm )
             som_n_sample, ci_lo, ci_hi,                                       &
             rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,  &
             km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,    &
-            l_multilayer,                                                     &
+            l_multilayer, r_bl, r_ca, g_oth,                                  &
             kmax_ref, conductance_b, conductance_c,                           &
             psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,           &
         ! OUT
@@ -676,11 +720,41 @@ SELECT CASE ( som_base_parm )
         END DO
       END IF
 
-    CASE (SOX_profit_model)
+    CASE (sox_opt_profit_model)
       !-------------------------------------------------------------------
-      ! SOX_profit_model: unaffected by som_ci_search, always a
-      ! single-pass search at som_n_sample resolution over [ccp, ca].
+      ! sox_opt_profit_model: with som_ci_search = 2 and no xylem
+      ! impairment the bounded search (as the profit max; A_n (k - kcrit)
+      ! is unimodal in Ci), otherwise a single-pass search at som_n_sample
+      ! resolution over [ccp, ca]. (The bounded SOX_opt profit is not coded
+      ! for the impaired curve: with impairment the flat grid is kept.)
       !-------------------------------------------------------------------
+      IF (som_ci_search == som_ci_bounded .AND. .NOT. l_xylem_impairment) THEN
+        CALL stom_opt_bounded_search(                                         &
+        ! IN
+            land_pts, pft, open_pts, open_index,                              &
+            pft_photo_model, veg_index,                                       &
+            rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,  &
+            km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,        &
+            gl_max, l_multilayer, r_bl, r_ca, g_oth,                          &
+            som_n_sample, som_n_ci_golden_iter,                               &
+            kmax_ref, conductance_b, conductance_c, psi_leaf_extreme,         &
+            psi_root_extreme, l_xylem_impairment, kl_hc_max,                  &
+        ! OUT
+            ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                          &
+            el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                       &
+                )
+        DO j = 1, open_pts
+          l = veg_index(open_index(j))
+          ci(l) = ci_bnd(j)
+          al(l) = al_bnd(j)
+          gl(l) = gl_bnd(j)
+          psi_leaf(l) = psi_bnd(j)
+          el(l) = el_bnd(j)
+          leaf_k(l) = kl_bnd(j)
+          carbon_gain_out(l) = carbon_gain_bnd(j)
+          hydraulic_cost_out(l) = hydraulic_cost_bnd(j)
+        END DO
+      ELSE
       carbon_gain(:,:) = 0.0
       hydraulic_cost(:,:) = 0.0
       profit(:,:) = 0.0
@@ -695,7 +769,7 @@ SELECT CASE ( som_base_parm )
           som_n_sample, ci_lo, ci_hi,                                          &
           rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,     &
           km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,       &
-          l_multilayer,                                                       &
+          l_multilayer, r_bl, r_ca, g_oth,                                    &
           kmax_ref, conductance_b, conductance_c,                             &
           psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,             &
       ! OUT
@@ -733,25 +807,21 @@ SELECT CASE ( som_base_parm )
         END DO
       ELSE
         ! Sox uses the xylem conductance for the average of the
-        !  leaf and root zone water potentials.
+        !  leaf and root zone water potentials (Eller et al. 2018), here of
+        !  the whole path (k_path_zero_flow: every element - root, stem and
+        !  leaf segments, and the soil-to-root link in series - at psi_bar),
+        !  the same path as psi_leaf and the k > kcrit test. Without segments
+        !  and the soil link this is the PFT curve at psi_bar, as before
+        !  (except that xylem_conductance_jls floored k at kcrit). Entry 0 of
+        !  kl_SOX is left at the 0.0 it was initialised to above.
         DO j = 1, open_pts
           l = veg_index(open_index(j))
 
           SOX_mean_psi(:,j) = 0.5 * (psi_sample(:,j) + psi_root_zone(l))
-          kmax_open(j) = kmax(l)
-          kcrit_open(j) = kcrit(l)
-          b_open(j) = conductance_b(l)
-          c_open(j) = conductance_c(l)
+          DO i = 1, som_n_sample
+            kl_SOX(i,j) = k_path_zero_flow(pft, l, kmax(l), SOX_mean_psi(i,j))
+          END DO
         END DO
-
-        ! See the note above the leaf_psi_jls call in stom_opt_mod_ci: pass
-        ! the (1:som_n_sample,:) sections so the actual/dummy shapes match
-        ! exactly and avoid the same sequence-association misalignment. Entry
-        ! 0 of kl_SOX is left at the 0.0 it was initialised to above.
-        CALL xylem_conductance_jls(pft, som_n_sample, open_pts,                &
-                                   SOX_mean_psi(1:som_n_sample,:),             &
-                                   kmax_open, kcrit_open, b_open, c_open,      &
-                                   kl_SOX(1:som_n_sample,:))
 
         ! Get the maximum xylem conductance for each land point.
         max_kl = MAXVAL(kl_SOX(1:,:), MASK = l_good_sample, DIM = 1)
@@ -797,6 +867,7 @@ SELECT CASE ( som_base_parm )
         carbon_gain_out(l) = carbon_gain(optimal_index,j)
         hydraulic_cost_out(l) = hydraulic_cost(optimal_index,j)
       END DO
+      END IF  ! som_ci_search (SOX)
 
     CASE DEFAULT
       errcode = 101  !  a hard error
@@ -837,7 +908,7 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
         n_sample, ci_lo, ci_hi,                                                &
         rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp,              &
         pstar, km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax,         &
-        kcrit, l_multilayer,                                                  &
+        kcrit, l_multilayer, r_bl, r_ca, g_oth,                               &
         kmax_ref, conductance_b, conductance_c,                               &
         psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,               &
 ! OUT
@@ -855,7 +926,7 @@ USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_segments_jls, ksr_path,      &
 USE jules_vegetation_mod, ONLY:                                                &
         photo_collatz, photo_farquhar, photo_johnson, photo_model,             &
         CW_conductance, SOX_conductance, som_psi_solver,                       &
-        l_som_plant_segments, l_som_rhizo_series
+        l_som_plant_segments, l_som_rhizo_series, l_som_coupled_e
 
 USE jb_photo_mod, ONLY: jb_eta_scale
 
@@ -901,6 +972,10 @@ INTEGER, INTENT(IN) ::                                                         &
                             ! resolutions/ranges in stom_opt_mod rather
                             ! than being fixed to the module-level
                             ! som_n_sample.
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  r_bl(land_pts), r_ca(land_pts), g_oth(land_pts)
+                            ! Coupled transpiration (see stom_opt_mod).
 
 !-----------------------------------------------------------------------------
 ! IN real variables
@@ -1285,6 +1360,11 @@ DO j = 1,open_pts
   ! Convert from m/s to mol H2O/m2/s
   el_sample(:,j) = el_sample(:,j) * pstar(l) / (rmol * t_leaf(l))
 
+  ! Coupled: E = D g_eff(g), dq the deficit to the level-1 air.
+  IF ( l_som_coupled_e ) el_sample(:,j) = vpd(l)                               &
+       * g_eff_e(MAX(gl_sample(:,j), 0.0_real_jlslsm), r_bl(l), r_ca(l),     &
+                 g_oth(l)) / (rmol * t_leaf(l))
+
 END DO
 
 ! Transpiration can't be negative
@@ -1654,7 +1734,7 @@ SUBROUTINE stom_opt_bounded_search(                                            &
         land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,       &
         rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,       &
         km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,             &
-        gl_max, l_multilayer, n_top, n_iter,                                   &
+        gl_max, l_multilayer, r_bl, r_ca, g_oth, n_top, n_iter,                &
         kmax_ref, conductance_b, conductance_c, psi_leaf_extreme,              &
         psi_root_extreme, l_xylem_impairment, kl_hc_max,                       &
 ! OUT
@@ -1672,7 +1752,9 @@ USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_cost_model, ximpair_cost_intact,       &
                                 ximpair_cost_sperry,                           &
-                                l_som_rhizo_series
+                                l_som_rhizo_series, l_som_coupled_e
+USE jules_vegetation_mod, ONLY: som_profit_model, sox_opt_profit_model
+USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow
 USE jb_photo_mod, ONLY: jb_eta_scale
 USE pftparm, ONLY: c3, alpha, pft_conductance_model, conductance_b_pft,        &
                    conductance_c_pft, psi_nsl_onset, psi_nsl0, fsmc_mod
@@ -1695,6 +1777,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   ccp(land_pts), pstar(land_pts), km(land_pts), dq(land_pts), je(land_pts),   &
   t_leaf(land_pts), je_ratio(land_pts), fapar_lf(land_pts), ipar(land_pts),   &
   kmax(land_pts), kcrit(land_pts), gl_max(land_pts)
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  r_bl(land_pts), r_ca(land_pts), g_oth(land_pts)
+                            ! Coupled transpiration (see stom_opt_mod).
 
 ! Xylem impairment (as stom_opt_mod_ci): the leaf state on the impaired path
 ! (kmax, conductance_b/c and the extremes; segments: stem/leaf capped at
@@ -1748,7 +1834,12 @@ REAL(KIND=real_jlslsm) :: kcap_pts(land_pts)
 REAL(KIND=real_jlslsm) :: b_curve(land_pts), c_curve(land_pts)
                             ! The PFT's intact vulnerability curve on land_pts
                             ! (l_som_fast is not coded for xylem impairment).
-LOGICAL :: l_lut, ok_u, l_edge
+LOGICAL :: l_lut, ok_u, l_edge, l_sox
+REAL(KIND=real_jlslsm) :: k_sox_ref
+                            ! SOX_opt: the whole-path k at zero flow
+                            ! (psi_bar = psi_root_zone), which normalises the
+                            ! SOX factor (a constant for the point, so it
+                            ! does not move the optimum).
 
 REAL(KIND=real_jlslsm) ::                                                      &
   g_off, max_al, max_kl, ci_lo, ci_top, tol1,                                  &
@@ -1783,6 +1874,13 @@ IF ( l_som_rhizo_series .AND. fsmc_mod(pft) == 2 ) l_lut = .FALSE.
 ! The table is the intact PFT curve: not for the impaired path.
 IF ( l_xylem_impairment ) l_lut = .FALSE.
 idx1(:) = 1
+! SOX_opt (stomata_model = 5 with som_ci_search = 2, no impairment): Eller
+! et al. (2018) solved as Sabot et al. (2022) do,
+!   A_n (k(psi_bar) - kcrit)/(k_ref - kcrit),
+! k of the whole path at psi_bar, the mean of the root zone and leaf water
+! potentials (Eller et al. 2018, Eqs 2.7-2.8); the kcrit subtraction is
+! Sabot et al.'s.
+l_sox = som_profit_model == sox_opt_profit_model
 kcap_pts(:) = 1.0
 b_curve(:) = conductance_b_pft(pft)
 c_curve(:) = conductance_c_pft(pft)
@@ -1791,6 +1889,10 @@ DO j = 1, open_pts
   l = veg_index(open_index(j))
   idx1(1) = open_index(j)
   g_off = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
+  ! (SOX_opt works on net A.)
+  IF ( l_sox ) g_off = 0.0
+  k_sox_ref = 1.0
+  IF ( l_sox ) k_sox_ref = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
   ci_lo = MAX(ccp(l), 0.0)
   ! With the gl_max cap the edge is found to the 1e-2 Pa floor on ca - Ci
   ! used for gl; without it (gl unbounded near ca) stop at the top of the
@@ -1862,9 +1964,9 @@ DO j = 1, open_pts
   END IF
 
   ! Both ends of the feasible range are candidates.
-  best_f = profit(best_al, best_khc)
-  IF ( profit(e_al, e_khc) > best_f ) THEN
-    best_f = profit(e_al, e_khc); best_ci = e_ci; best_al = e_al
+  best_f = profit(best_al, best_khc, best_psi)
+  IF ( profit(e_al, e_khc, e_psi) > best_f ) THEN
+    best_f = profit(e_al, e_khc, e_psi); best_ci = e_ci; best_al = e_al
     best_gl = e_gl; best_el = e_el; best_psi = e_psi; best_kl = e_kl
     best_khc = e_khc
   END IF
@@ -1914,6 +2016,8 @@ DO j = 1, open_pts
   kl_g(j) = best_kl
   carbon_gain_g(j) = (best_al + g_off) / max_al
   hydraulic_cost_g(j) = (max_kl - best_khc) / (max_kl - kcrit(l))
+  ! SOX: 1 - the factor on A (as the flat-grid SOX).
+  IF ( l_sox ) hydraulic_cost_g(j) = 1.0 - sox_factor(best_psi)
 
   !---------------------------------------------------------------------------
   ! 4. Sperry mode: the regulated psi_leaf is that of the intact optimum;
@@ -2034,6 +2138,8 @@ CONTAINS
   gl_u = ratio * (al_u * rmol * t_leaf(l)) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
   vpd = dq(l) * pstar(l) / repsilon
   el_u = MAX(0.0, vpd * gl_u / pstar(l) * pstar(l) / (rmol * t_leaf(l)))
+  IF ( l_som_coupled_e ) el_u = vpd * g_eff_e(MAX(gl_u, 0.0_real_jlslsm),     &
+                                    r_bl(l), r_ca(l), g_oth(l)) / (rmol * t_leaf(l))
 
   IF ( l_lut ) THEN
     psi_u = supply_lut_psi(pft, psi_root_zone(l),                              &
@@ -2180,9 +2286,19 @@ CONTAINS
   conv_e = dq(l) * pstar(l) / repsilon / (rmol * t_leaf(l))
   g_cap = HUGE(1.0_real_jlslsm)
   IF ( gl_max(l) > 0.0 ) g_cap = gl_max(l)
-  IF ( conv_e > 0.0 ) g_cap = MIN(g_cap, kmax(l)                              &
+  IF ( conv_e > 0.0 ) THEN
+    ! (Coupled: the g whose transpiration is E_crit.)
+    IF ( l_som_coupled_e ) THEN
+      g_cap = MIN(g_cap, g_of_geff(kmax(l)                                     &
+       * supply_lut_e_crit(pft, psi_root_zone(l),                              &
+                           kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm)))     &
+       / conv_e, r_bl(l), r_ca(l), g_oth(l)))
+    ELSE
+      g_cap = MIN(g_cap, kmax(l)                                               &
        * supply_lut_e_crit(pft, psi_root_zone(l),                              &
                            kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm))) / conv_e)
+    END IF
+  END IF
   IF ( g_cap >= HUGE(1.0_real_jlslsm) ) RETURN
 
   rk = ratio * rmol * t_leaf(l)
@@ -2269,15 +2385,28 @@ CONTAINS
   END FUNCTION margin
 
   ! Profit = CG - HC, as stom_opt_profit_max_select.
-  REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in)
-  REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in
-  profit = (al_in + g_off) / max_al - (max_kl - kl_in) / (max_kl - kcrit(l))
+  REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in, psi_in)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in, psi_in
+  IF ( l_sox ) THEN
+    profit = al_in * sox_factor(psi_in)
+  ELSE
+    profit = (al_in + g_off) / max_al - (max_kl - kl_in) / (max_kl - kcrit(l))
+  END IF
   END FUNCTION profit
+
+  ! SOX factor (k(psi_bar) - kcrit)/(k_ref - kcrit), psi_bar the mean of
+  ! the root zone and leaf water potentials, k of the whole path.
+  REAL(KIND=real_jlslsm) FUNCTION sox_factor(psi)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+  sox_factor = ( k_path_zero_flow(pft, l, kmax(l), 0.5 * (psi + psi_root_zone(l))) &
+                 - kcrit(l) ) / MAX(k_sox_ref - kcrit(l), TINY(1.0_real_jlslsm))
+  sox_factor = MAX(sox_factor, 0.0_real_jlslsm)
+  END FUNCTION sox_factor
 
   ! Profit of the latest evaluation (-HUGE if infeasible), kept if best.
   REAL(KIND=real_jlslsm) FUNCTION profit_u()
   IF ( ok_u ) THEN
-    profit_u = profit(al_u, khc_u)
+    profit_u = profit(al_u, khc_u, psi_u)
   ELSE
     profit_u = -HUGE(1.0_real_jlslsm)
   END IF

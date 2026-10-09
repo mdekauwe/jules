@@ -339,7 +339,7 @@ USE jules_soil_ecosse_mod, ONLY: l_soil_N
 USE jules_surface_mod, ONLY: l_urban2t
 
 USE jules_vegetation_mod, ONLY: l_fapar_diag, l_fao_ref_evapotranspiration,    &
-    photo_acclim_model, l_sugar, stomata_model, stomata_sox
+    photo_acclim_model, l_sugar, stomata_model, stomata_sox_analytical
 
 USE jules_water_resources_mod, ONLY: l_have_groundwater, l_have_renew_gwater,  &
     l_have_surface_water, l_water_domestic, l_water_environment,               &
@@ -866,7 +866,7 @@ DO j = 1,nvars_in
   !---------------------------------------------------------------------------
   ! Variables that only allowed when SOX is used
   !---------------------------------------------------------------------------
-  IF ( stomata_model /= stomata_sox ) THEN
+  IF ( stomata_model /= stomata_sox_analytical ) THEN
     SELECT CASE ( var(j) )
     CASE ( 'lwp_c' )
       remove_var = .TRUE.

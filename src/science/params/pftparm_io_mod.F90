@@ -218,7 +218,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   psi_vcmax_fmin_io(npft_max) = rmdi,                                          &
   soil_litter_depth_io(npft_max) = rmdi,                                       &
   or_z0soil_fac_io(npft_max) = rmdi,                                           &
-  ! DESICA (stomata_model = 5). Tuzet et al. (2003) closure
+  ! DESICA (stomata_model = 8). Tuzet et al. (2003) closure
   ! fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf))), with
   ! gs = g1 fw An / ca; defaults are the CABLE-DESICA evergreen broadleaf
   ! values (De Kauwe et al. 2020). Capacitances per unit leaf area (mmol H2O
