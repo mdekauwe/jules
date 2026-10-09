@@ -449,12 +449,11 @@ LOGICAL ::                                                                     &
       ! psi_root_zone - rho_water g h (0.01 MPa per m), as DESICA's psi_h.
 
 LOGICAL ::                                                                     &
-  l_som_coupled_e = .FALSE.
-      ! Off by default for now (8 Oct 2026). It is the more consistent form
-      ! and is intended to become the default, but calibrations so far (e.g.
-      ! FR-Pue) were made with it off and it shifts their fits slightly (at
-      ! FR-Pue: annual GPP +0.8 %, TVeg -0.3 %), so it is being tested
-      ! through a recalibration first. See NOTE_coupled_e_handoff_2026-10-08.
+  l_som_coupled_e = .TRUE.
+      ! On by default since 9 Oct 2026: a recalibration with it on (FR-Pue,
+      ! profit max) gave the same parameters and fit as with it off (see
+      ! NOTE_coupled_e_handoff_2026-10-08). Where it is not supported (see
+      ! the restrictions below) check_jules_vegetation turns it off.
       ! When .TRUE., the stomatal optimisation (stomata_model = 4 to 7, 10;
       ! can_rad_mod = 1 or 7) evaluates the transpiration of each trial
       ! stomatal conductance g with the resistances it passes through,
@@ -465,10 +464,14 @@ LOGICAL ::                                                                     &
       ! r_bl the leaf boundary layer (two-leaf with l_leaf_temp, from the
       ! leaf energy balance's gb; 0 otherwise); r_ca the canopy air to
       ! level 1 (JULES's ra; with l_leaf_temp the leaf_aero_model's, 0 for
-      ! leaf_aero_model = 0); g'_other the other leaf class. The fixed-D_c
+      ! leaf_aero_model = 0); g'_other the other leaf class and the soil
+      ! evaporation beneath the canopy (soil_evap's conductance, which
+      ! shares the same path; with l_leaf_temp at qs(tstar), which adds
+      ! r_ca g_soil (qs(T_leaf) - qs(tstar)) to D). The fixed-D_c
       ! form makes E rise linearly with g, which overstates the marginal
       ! water cost of opening by about (1 + r g) (cf. Sabot et al. 2022,
       ! Eqs 1 and 10; Wolf et al. 2016, Eq. 6).
+
 LOGICAL ::                                                                     &
   l_som_plant_segments = .FALSE.
       ! When .TRUE., the plant hydraulics are three segments in series
@@ -1132,14 +1135,17 @@ IF ( ( stomata_model == stomata_cmax .OR. stomata_model == stomata_cgain     &
 END IF
 ! Coupled transpiration in the optimisation: big leaf and two-leaf only (the
 ! multilayer canopy and the supply-loss rule keep the fixed-deficit E).
+! It is on by default, so elsewhere it is turned off rather than an error.
 IF ( l_som_coupled_e .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.         &
                              stomata_model == stomata_supply_loss .OR.         &
                              ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) )   &
   THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_coupled_e requires stomata_model = 4 to 7 or 10 ' //     &
-               'and can_rad_mod = 1 or 7')
+  l_som_coupled_e = .FALSE.
+  ! Say so only for a stomatal optimisation run (it is on by default).
+  IF ( leaf_flux_mod == leaf_flux_stom_opt )                                   &
+    CALL jules_print('check_jules_vegetation',                                 &
+                     'l_som_coupled_e set to .FALSE.: it applies only to ' //  &
+                     'stomata_model = 4 to 7 or 10 with can_rad_mod = 1 or 7')
 END IF
 ! Supply-loss stomata: the profit-max hydraulics, on the Ci axis.
 IF ( stomata_model == stomata_supply_loss .AND.                                &
