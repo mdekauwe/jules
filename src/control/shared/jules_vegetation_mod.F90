@@ -103,31 +103,66 @@ INTEGER, PARAMETER ::                                                          &
     ! Use the original JULES model, including the Jacobs closure
     !   - see Eqn.9 of Best et al. (2011), doi:10.5194/gmd-4-677-2011.
   stomata_medlyn = 2,                                                          &
-    ! Use the model of Medlyn et al. (2011) - see Eqn.11,
-    !   doi: 10.1111/j.1365-2486.2010.02375.x.
+    ! Use the model of Medlyn et al. (2011, Global Change Biology) - see
+    !   Eqn.11, doi: 10.1111/j.1365-2486.2010.02375.x.
   stomata_sox_analytical = 3,                                                  &
     ! Use the semi-analytical version of the SOX model (Eller et al 2020)
     ! doi: 10.1111/nph.16419 - Eqns. 4 & 5
   stomata_profit_max = 4,                                                      &
-    ! Stomatal optimisation, profit maximisation (Sperry et al. 2017); see
-    ! stom_opt_jls_mod.
+    ! Stomatal optimisation, profit maximisation (Sperry et al. 2017; De
+    ! Kauwe et al. 2022, New Phytologist; Baguley et al. 2026,
+    ! Biogeosciences); see stom_opt_jls_mod.
   stomata_sox_opt = 5,                                                         &
-    ! SOX_opt (the name of Sabot et al. 2022): stomatal optimisation
-    ! maximising A_n (k(psi_bar) - kcrit)/(k_ref - kcrit) (Eller et al.
-    ! 2018), k of the whole path at the mean of the root zone and leaf water
-    ! potentials; see stom_opt_jls_mod. Not the semi-analytical SOX of
-    ! Eller et al. (2020) (stomata_sox_analytical = 3).
-  stomata_desica = 8
-    ! DESICA: Tuzet et al. (2003) stomatal closure on leaf water potential,
-    ! with leaf and stem water potentials (and stem storage) from the plant
-    ! hydraulics of Xu et al. (2016), doi: 10.1111/nph.14009 (Notes S1).
-    ! See desica_jls_mod.
+    ! SOX_opt: the SOX optimisation of Eller et al. (2018) solved as Sabot
+    ! et al. (2022) do (their SOXopt), maximising
+    !   A_n (k(psi_bar) - kcrit)/(k_ref - kcrit),
+    ! k of the whole path at psi_bar, the mean of the root zone and leaf
+    ! water potentials; see stom_opt_jls_mod. The halfway point is Eller et
+    ! al.'s (2018, Eqs 2.7-2.8: f(psi_c,mid), psi_c,mid = (psi_c,pd +
+    ! psi_c)/2, their approximation of the path-averaged conductance of
+    ! Sperry et al.); Sabot et al. (2022, Eq. 16) write k at psi_leaf
+    ! instead, which we do not follow. From Sabot et al. we take the kcrit
+    ! subtraction (Eller: f/k_max); Eller's cost is also xylem-only, with
+    ! the soil acting through the root psi, whereas k here includes the
+    ! soil-to-root link. Not the semi-analytical SOX of Eller et al. (2020)
+    ! (stomata_sox_analytical = 3).
+  stomata_cmax = 6,                                                            &
+    ! Carbon maximisation (CMax) of Wolf et al. (2016, PNAS 113: E7222) in
+    ! the form of Anderegg et al. (2018): maximise net carbon gain
+    !   A_n - Theta(psi_leaf),  Theta = a/2 psi_leaf^2 + b |psi_leaf|,
+    ! a carbon cost of low leaf water potential in absolute units (no
+    ! normalisation), on the profit-max hydraulics; see stom_opt_jls_mod.
+  stomata_cgain = 7,                                                           &
+    ! CGain of Lu et al. (2020) (Sabot et al. 2022, Eq. 15): maximise
+    !   A_n - varpi (k_max - k(psi_leaf)) / k_max,
+    ! the profit max's hydraulic cost in absolute carbon units (varpi,
+    ! cgain_varpi_io) instead of the gain normalised by the instantaneous
+    ! A_max; see stom_opt_jls_mod.
+  stomata_desica = 8,                                                          &
+    ! DESICA (De Kauwe et al. 2020): Tuzet et al. (2003) stomatal closure on
+    ! leaf water potential, with leaf and stem water potentials (and stem
+    ! storage) from the plant hydraulics of Xu et al. (2016),
+    ! doi: 10.1111/nph.14009 (Notes S1). See desica_jls_mod.
+  stomata_supply_loss = 9,                                                     &
+    ! Carbon-coupled demand (ci = sl_cica_well_watered ca: Medlyn with D
+    ! fixed, so VPD acts only through the hydraulics, not twice) regulated
+    ! by the supply-loss rule of Sperry et al. (2016, Eqn 5) on the
+    ! profit-max hydraulics; see stom_opt_supply_loss in stom_opt_jls_mod.
+  stomata_cap = 10
+    ! CAP of Dewar et al. (2018, New Phytol 217: 571; Sabot et al. 2022,
+    ! Eqs 19-21): no stomatal cost; photosynthesis is limited
+    ! nonstomatally by the leaf water potential, gross A x
+    !   f = 1 - psi_leaf / psi_nsl0   (psi_nsl_onset = 0; clipped to [0, 1])
+    ! (Dewar et al. scale Vcmax and J, i.e. gross A), and the stomata
+    ! maximise this A_n on the profit-max hydraulics (k > kcrit still
+    ! bounds it). Uses the l_som_nsl machinery, which it switches on;
+    ! psi_nsl0_io is the parameter (psi_phi,lim of Sabot et al.). See
+    ! stom_opt_bounded_search.
 !
-! Numbered as on branch global_change_ecology (renumbered there 7 Oct 2026:
-! SOX_opt 6 -> 5, DESICA 5 -> 8). 6 (CMax), 7 (CGain), 9 (supply-loss) and
-! 10 (CAP) are global_change_ecology models that are not on this branch.
-! Namelists from before that use 5 for DESICA or 6 for SOX_opt must be
-! changed.
+! Renumbered 7 Oct 2026 (branch cmax): SOX_opt 6 -> 5, DESICA 5 -> 8, CMax 6,
+! CGain 7, supply-loss 9. Namelists from before that use 5 for DESICA or 6
+! for SOX_opt must be changed.
+! CAP (10) added 8 Oct 2026 (branch stomata_fixes).
 !
 ! stomata_model is the one switch for the stomatal scheme. leaf_flux_mod
 ! (fsmc leaf path or stomatal optimisation) and som_profit_model (which
@@ -226,8 +261,8 @@ INTEGER, PARAMETER ::                                                          &
     ! which gives the CG/HC normalisation of the flat grid in the limit of a
     ! fine grid, then golden-section on [ccp, ci_b] (som_n_ci_golden_iter).
     ! See stom_opt_bounded_search. Fastest with som_psi_solver = 3, which
-    ! gives the edge directly. sox_opt_profit_model uses it too (A_n (k -
-    ! kcrit) is unimodal in Ci), except with xylem impairment (flat grid).
+    ! gives the edge directly. sox_opt_profit_model uses it too (A_n (k - kcrit)
+    ! is unimodal in Ci), except with xylem impairment (flat grid).
 
 ! Parameters identifying different profit models for determaning the optimal
 ! stomatal conductance.
@@ -242,14 +277,32 @@ INTEGER, PARAMETER ::                                                          &
     !
     !      HydraulicCost(psi) =   (max(k(psi)) - k(psi))
     !                           / (max(k(psi)) - kcrit))
-  sox_opt_profit_model = 2
+  sox_opt_profit_model = 2,                                                    &
     ! SOX_opt (set from stomata_model = 5) to determine the optimal stomatal
     ! conductance.
+  supply_loss_model = 3,                                                       &
+    ! Not a profit: the supply-loss regulation of Sperry et al. (2016) (set
+    ! from stomata_model = 9, see stomata_supply_loss).
     !      Profit(psi) = CarbonGain(psi) * (1 - HydraulicCost(psi))
     !
     !      CarbonGain(psi) = Anet(psi)
     !
     !      HydraulicCost(psi) = 1 - (k(psi) / kmax)
+  cmax_profit_model = 4,                                                       &
+    ! CMax (Wolf et al. 2016; set from stomata_model = 6), in absolute
+    ! carbon units (mol CO2 m-2 s-1):
+    !      Profit(psi) = Anet(psi) - Theta(psi_leaf)
+    !      Theta(psi)  = cmax_a/2 psi^2 + cmax_b |psi|   (psi in MPa)
+  cgain_profit_model = 5,                                                      &
+    ! CGain (Lu et al. 2020; set from stomata_model = 7), mol CO2 m-2 s-1:
+    !      Profit(psi) = Anet(psi) - varpi (k_max - k(psi_leaf)) / k_max
+    ! with k the whole-path conductance -dE/dpsi_leaf (soil link included)
+    ! and k_max the plant's unstressed conductance (psi = 0, without the
+    ! soil link, so that drying soil adds to the cost rather than shrinking
+    ! the reference; Lu et al. 2020: the plant's k_max).
+  cap_profit_model = 6
+    ! CAP (Dewar et al. 2018; set from stomata_model = 10):
+    !      Profit(psi) = Anet(psi) with gross A x f(psi_leaf)
 
 !-----------------------------------------------------------------------------
 ! Items set in namelist
@@ -426,7 +479,7 @@ LOGICAL ::                                                                     &
 
 LOGICAL ::                                                                     &
   l_som_gravity = .FALSE.
-      ! When .TRUE., the stomatal optimisation (stomata_model = 4 or 5) takes
+      ! When .TRUE., the stomatal optimisation (stomata_model = 4 to 7) takes
       ! the gravitational drop rho_water g h to the canopy height h off the
       ! root zone water potential, so the plant path starts from
       ! psi_root_zone - rho_water g h (0.01 MPa per m), as DESICA's psi_h.
@@ -437,7 +490,7 @@ LOGICAL ::                                                                     &
       ! profit max) gave the same parameters and fit as with it off (see
       ! NOTE_coupled_e_handoff_2026-10-08). Where it is not supported (see
       ! the restrictions below) check_jules_vegetation turns it off.
-      ! When .TRUE., the stomatal optimisation (stomata_model = 4 or 5;
+      ! When .TRUE., the stomatal optimisation (stomata_model = 4 to 7, 10;
       ! can_rad_mod = 1 or 7) evaluates the transpiration of each trial
       ! stomatal conductance g with the resistances it passes through,
       !   E = D g' / (1 + r_ca (g' + g'_other)),   g' = g / (1 + g r_bl),
@@ -509,6 +562,29 @@ LOGICAL ::                                                                     &
       ! weights are k_i (psi_i - psi_root) at the actual root potential
       ! (physiol). Applied for PFTs with fsmc_mod = 2 only (smc_ext computes
       ! soil_to_root_k only there). It replaces l_som_root_supply.
+LOGICAL ::                                                                     &
+  l_som_rhizo_mfp = .FALSE.
+      ! With l_som_rhizo_series: the soil-to-root link is nonlinear, from the
+      ! matric flux potential (Kirchhoff transform) of each layer,
+      !   Phi_i(h) = integral of K_i dh' from h to the driest state,
+      !   E_i = B_i (Phi_i(h_soil,i) - Phi_i(h_root)),
+      ! with B_i = soil_to_root_k / soil_k the Bonan et al. (2014) cylinder
+      ! factor and one root node shared by the layers (rhizo_mfp_mod). The
+      ! soil conductivity then falls towards the root surface as it dries,
+      ! instead of being taken at the bulk soil psi (Carminati & Javaux 2020;
+      ! Abdalla et al. 2021), and the soil supplies at most sum B_i Phi_i.
+      ! Off: the linear link psi_root = psi_src - E / ksr, as before.
+LOGICAL ::                                                                     &
+  l_som_rhizo_hr = .TRUE.
+      ! With l_som_rhizo_mfp: layers drier than the root still exchange
+      ! water with it in the root balance (hydraulic redistribution), so with
+      ! no flow the root sits between the layers, at
+      ! sum_i B_i (Phi_i(psi_i) - Phi_i(psi_root)) = 0, the nonlinear form of
+      ! the conductance-weighted soil psi of the linear link (which assumes
+      ! the same). Off: drier layers give nothing, so with no flow the root
+      ! sits at the wettest rooted layer. On by default (10 Oct 2026): closest
+      ! to the linear link and the better psi_leaf fit at FR-Pue. Only used
+      ! with l_som_rhizo_mfp. The extraction weights never go negative.
 LOGICAL ::                                                                     &
   l_root_mass_fixed = .FALSE.
       ! Root mass in the soil-to-root conductance (soil_to_root_k, Bonan et
@@ -589,6 +665,13 @@ LOGICAL ::                                                                     &
       ! optimisation (at the leaf temperatures) at the surface temperature,
       ! rather than the sum of the leaf stomatal conductances. Keeps the
       ! water used consistent with the hydraulics and the supply limits.
+REAL(KIND=real_jlslsm) ::                                                      &
+  sl_kfail_frac = 0.0
+      ! Supply-loss stomata (stomata_model = 9) only: the whole-path
+      ! conductance at which the supply function fails (E_crit, P_crit), as
+      ! a fraction of kmax. 0 (default): kcrit, as the profit max
+      ! (kcrit_fractional_loss, 5 % of kmax at 0.95). Sperry et al. (2016)
+      ! use 0.0005 (0.05 %, "physiological zero").
 LOGICAL ::                                                                     &
   l_som_nsl = .FALSE.
       ! When .TRUE., a water-potential driven nonstomatal limitation (NSL)
@@ -824,11 +907,13 @@ NAMELIST  / jules_vegetation/                                                  &
     l_ximpair_rec_growth, l_ximpair_leaf_loss, l_ximpair_seg_memory,          &
     ximpair_cost_model,                                                       &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
+    sl_kfail_frac,                                                             &
     l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
     l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
     leaf_shelter, leaf_aero_model, l_leaf_coexp_lai,                           &
     l_som_gain_gross,                                                          &
     l_som_cuticular_floor, l_som_gravity, l_som_coupled_e,                    &
+    l_som_rhizo_mfp, l_som_rhizo_hr,                                          &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,    &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
@@ -905,10 +990,21 @@ IMPLICIT NONE
 ! (leaf_flux_mod = 2 with som_profit_model) with a warning.
 !-----------------------------------------------------------------------------
 SELECT CASE ( stomata_model )
-CASE ( stomata_profit_max, stomata_sox_opt )
+CASE ( stomata_profit_max, stomata_sox_opt, stomata_cmax, stomata_cgain,       &
+       stomata_supply_loss, stomata_cap )
   leaf_flux_mod = leaf_flux_stom_opt
-  IF ( stomata_model == stomata_profit_max ) THEN
+  IF ( stomata_model == stomata_cap ) THEN
+    ! CAP is the nonstomatal limitation without a stomatal cost.
+    som_profit_model = cap_profit_model
+    l_som_nsl = .TRUE.
+  ELSE IF ( stomata_model == stomata_profit_max ) THEN
     som_profit_model = profit_max_profit_model
+  ELSE IF ( stomata_model == stomata_cmax ) THEN
+    som_profit_model = cmax_profit_model
+  ELSE IF ( stomata_model == stomata_cgain ) THEN
+    som_profit_model = cgain_profit_model
+  ELSE IF ( stomata_model == stomata_supply_loss ) THEN
+    som_profit_model = supply_loss_model
   ELSE
     som_profit_model = sox_opt_profit_model
   END IF
@@ -921,30 +1017,28 @@ CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical,                 &
       CALL ereport("check_jules_vegetation", errcode,                          &
                    "leaf_flux_mod = 2 cannot be combined with " //             &
                    "stomata_model = 3 or 8; use stomata_model = 4 " //         &
-                   "(profit max) or 5 (SOX_opt)")
+                   "(profit max), 5 (SOX_opt), 6 (CMax) or 7 (CGain)")
     END IF
     IF ( som_profit_model == sox_opt_profit_model ) THEN
       stomata_model = stomata_sox_opt
+    ELSE IF ( som_profit_model == cmax_profit_model ) THEN
+      stomata_model = stomata_cmax
+    ELSE IF ( som_profit_model == cgain_profit_model ) THEN
+      stomata_model = stomata_cgain
+    ELSE IF ( som_profit_model == cap_profit_model ) THEN
+      stomata_model = stomata_cap
+      l_som_nsl = .TRUE.
     ELSE
       stomata_model = stomata_profit_max
     END IF
     errcode = -101   ! warning
     CALL ereport("check_jules_vegetation", errcode,                            &
                  "leaf_flux_mod is deprecated: use stomata_model = 4 " //      &
-                 "(profit max) or 5 (SOX_opt). Taking stomata_model " //       &
+                 "(profit max) to 7 (CGain). Taking stomata_model " //         &
                  "from som_profit_model.")
   ELSE
     leaf_flux_mod = leaf_flux_fsmc
   END IF
-CASE ( 6, 7, 9, 10 )
-  ! Stomatal models of branch global_change_ecology that are not on this
-  ! branch (numbered as there).
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               "stomata_model = 6 (CMax), 7 (CGain), 9 (supply-loss) and " //  &
-               "10 (CAP) are only in branch global_change_ecology; this " //   &
-               "branch has 1-5 and 8 (DESICA, formerly 5; SOX_opt is now 5," //&
-               " formerly 6)")
 CASE DEFAULT
   ! Reported below.
 END SELECT
@@ -1013,7 +1107,7 @@ CASE ( 7 )
   IF ( leaf_flux_mod /= leaf_flux_stom_opt ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 'can_rad_mod=7 requires stomata_model=4 or 5')
+                 'can_rad_mod=7 requires stomata_model=4 to 7 or 9')
   END IF
 CASE DEFAULT
   errcode = 101
@@ -1110,18 +1204,40 @@ END SELECT
 
 ! Check that the som_profit_model is suitable. JBaguley
 SELECT CASE( som_profit_model)
-CASE ( 1, 2)
+CASE ( profit_max_profit_model, sox_opt_profit_model, cmax_profit_model,       &
+       cgain_profit_model, cap_profit_model )
   ! Valid values
+CASE ( supply_loss_model )
+  ! Valid only as set from stomata_model = 9 (above).
+  IF ( stomata_model /= stomata_supply_loss ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'som_profit_model = 3 is set by stomata_model = 9')
+  END IF
 CASE DEFAULT
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'som_profit_model should be profit max (1) or SOX (2)')
+               'som_profit_model should be profit max (1), SOX (2), ' //       &
+               'CMax (4), CGain (5) or CAP (6)')
 END SELECT
 
+! CMax and CGain: absolute-carbon profit on the bounded Ci search (no
+! flat-grid or fast-path variant: the cost does not vanish where the
+! profit max's does).
+IF ( ( stomata_model == stomata_cmax .OR. stomata_model == stomata_cgain     &
+       .OR. stomata_model == stomata_cap )                                     &
+     .AND. ( som_base_parm /= som_base_parm_ci .OR.                            &
+             som_ci_search /= som_ci_bounded ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'stomata_model = 6 (CMax), 7 (CGain) or 10 (CAP) ' //           &
+               'requires som_base_parm = 1 and som_ci_search = 2')
+END IF
 ! Coupled transpiration in the optimisation: big leaf and two-leaf only (the
-! multilayer canopy keeps the fixed-deficit E). It is on by default, so
-! elsewhere it is turned off rather than an error.
+! multilayer canopy and the supply-loss rule keep the fixed-deficit E).
+! It is on by default, so elsewhere it is turned off rather than an error.
 IF ( l_som_coupled_e .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.         &
+                             stomata_model == stomata_supply_loss .OR.         &
                              ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) )   &
   THEN
   l_som_coupled_e = .FALSE.
@@ -1129,7 +1245,30 @@ IF ( l_som_coupled_e .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.         &
   IF ( leaf_flux_mod == leaf_flux_stom_opt )                                   &
     CALL jules_print('check_jules_vegetation',                                 &
                      'l_som_coupled_e set to .FALSE.: it applies only to ' //  &
-                     'stomata_model = 4 or 5 with can_rad_mod = 1 or 7')
+                     'stomata_model = 4 to 7 or 10 with can_rad_mod = 1 or 7')
+END IF
+! Supply-loss stomata: the profit-max hydraulics, on the Ci axis.
+IF ( stomata_model == stomata_supply_loss .AND.                                &
+     som_base_parm /= som_base_parm_ci ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'stomata_model = 9 (supply-loss) requires som_base_parm = 1')
+END IF
+! The loss rule needs the supply function and its slope k = -dE/dpsi_leaf
+! consistently; the Taylor solver floors k at kcrit and approximates the
+! curve, so sl_kfail_frac below kcrit could never act.
+IF ( stomata_model == stomata_supply_loss .AND.                                &
+     som_psi_solver /= psi_solver_newton .AND.                                 &
+     som_psi_solver /= psi_solver_lut ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'stomata_model = 9 (supply-loss) requires som_psi_solver = ' // &
+               '2 or 3 (3, the lookup table, recommended)')
+END IF
+IF ( sl_kfail_frac < 0.0 .OR. sl_kfail_frac >= 1.0 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'sl_kfail_frac must be in [0, 1)')
 END IF
 
 ! Check that the photosynthesis option is reasonable.
@@ -1365,7 +1504,8 @@ END IF  !  photo_model == photo_farquhar or photo_johnson
 ! Check that the stomatal conductance model is reasonable.
 SELECT CASE ( stomata_model )
 CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical, stomata_desica, &
-       stomata_profit_max, stomata_sox_opt )
+       stomata_profit_max, stomata_sox_opt, stomata_cmax, stomata_cgain,       &
+       stomata_supply_loss, stomata_cap )
   ! These are valid, so nothing to do.
 CASE DEFAULT
   errcode = 101
@@ -1474,7 +1614,7 @@ IF ( l_som_plant_segments .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.     &
                                   ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_plant_segments requires stomata_model=4 or 5, ' //            &
+               'l_som_plant_segments requires stomata_model=4 to 7 or 9, ' //       &
                'som_psi_solver=2 or 3 and can_rad_mod=1 or 7')
 END IF
 
@@ -1484,14 +1624,14 @@ IF ( l_som_cuticular_floor .AND.                                               &
        ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_cuticular_floor requires stomata_model=4, 5 or 8, ' //   &
+               'l_som_cuticular_floor requires stomata_model=4 to 9, ' //           &
                'and can_rad_mod=1 or 7')
 END IF
 
 IF ( l_som_gravity .AND. leaf_flux_mod /= leaf_flux_stom_opt ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_gravity requires stomata_model=4 or 5 (DESICA ' //       &
+               'l_som_gravity requires stomata_model=4 to 7 or 9 (DESICA ' //       &
                'always includes gravity)')
 END IF
 
@@ -1499,7 +1639,7 @@ IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
                                 .NOT. l_use_pft_psi ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_supply_limit requires stomata_model=4 or 5 and ' //           &
+               'l_som_supply_limit requires stomata_model=4 to 7 or 9 and ' //      &
                'l_use_pft_psi=T')
 END IF
 
@@ -1515,6 +1655,12 @@ END IF
 ! the plant hydraulics of the profit max and DESICA.
 l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt .OR.               &
                        stomata_model == stomata_desica )
+IF ( l_som_rhizo_mfp .AND. .NOT. l_som_rhizo_series ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_rhizo_mfp needs the soil-to-root link in series: ' //    &
+               'stomata_model = 4 to 7, 9, 10 or DESICA')
+END IF
 
 IF ( .NOT. l_root_mass_fixed .AND. root_mass_min <= 0.0 ) THEN
   errcode = 101
@@ -1527,7 +1673,7 @@ IF ( l_leaf_temp .AND. ( can_rad_mod /= 7 .OR.                               &
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_leaf_temp is only coded for can_rad_mod=7 with ' //          &
-               'stomata_model=4 or 5')
+               'stomata_model=4 to 7 or 9')
 END IF
 
 IF ( l_leaf_temp .AND. leaf_temp_iter < 1 ) THEN
@@ -1573,19 +1719,26 @@ IF ( ximpair_cost_model /= ximpair_cost_intact .AND.                          &
 END IF
 
 IF ( l_som_vcmax_psi .AND. ( ( stomata_model /= stomata_profit_max .AND.     &
-                               stomata_model /= stomata_sox_opt ) .OR.         &
+                               stomata_model /= stomata_sox_opt .AND.          &
+                               stomata_model /= stomata_cmax .AND.             &
+                               stomata_model /= stomata_cgain .AND.            &
+                               stomata_model /= stomata_supply_loss .AND.      &
+                               stomata_model /= stomata_cap ) .OR.             &
                              photo_model /= photo_farquhar ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_vcmax_psi requires stomata_model=4 or 5 and ' //         &
+               'l_som_vcmax_psi requires stomata_model=4 to 7, 9 or 10 ' //    &
+               'and ' //                                                       &
                'photo_model=2')
 END IF
 
-IF ( l_som_nsl .AND. ( stomata_model /= stomata_profit_max .OR.               &
+IF ( l_som_nsl .AND. ( ( stomata_model /= stomata_profit_max .AND.            &
+                         stomata_model /= stomata_cap ) .OR.                   &
                        som_ci_search /= som_ci_bounded ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_nsl requires stomata_model=4 and som_ci_search=2')
+               'l_som_nsl requires stomata_model=4 (or 10) and ' //            &
+               'som_ci_search=2')
 END IF
 
 IF ( l_aggregate .AND. ANY(l_vegdrag_pft) ) THEN
@@ -1744,6 +1897,9 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_nsl = ', l_som_nsl
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' sl_kfail_frac = ', sl_kfail_frac
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 WRITE(lineBuffer,*) ' l_som_vcmax_psi = ', l_som_vcmax_psi
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -1789,6 +1945,12 @@ WRITE(lineBuffer,*) ' l_som_gravity = ', l_som_gravity
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_coupled_e = ', l_som_coupled_e
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_som_rhizo_mfp = ', l_som_rhizo_mfp
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_som_rhizo_hr = ', l_som_rhizo_hr
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' som_hc_negligible_tol = ', som_hc_negligible_tol
@@ -1922,10 +2084,10 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 22 ! +1 ximpair_cost_model, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
-INTEGER, PARAMETER :: n_real = 18 + (n_photo_coef * 5) ! +1 root_mass_min, +2 leaf_width/shelter, +4 for
+INTEGER, PARAMETER :: n_real = 19 + (n_photo_coef * 5) ! +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 47 + npft_max ! +1 l_ximpair_seg_memory, +1 l_som_coupled_e, +1 l_root_mass_fixed, +2 l_ximpair_rec_growth/l_ximpair_leaf_loss,
+INTEGER, PARAMETER :: n_log = 49 + npft_max ! +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -1982,6 +2144,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: som_hc_negligible_tol
   REAL(KIND=real_jlslsm) :: som_leaf_resist_frac
   REAL(KIND=real_jlslsm) :: som_gl_max
+  REAL(KIND=real_jlslsm) :: sl_kfail_frac
   REAL(KIND=real_jlslsm) :: light_curvature_fvcb
   REAL(KIND=real_jlslsm) :: leaf_width
   REAL(KIND=real_jlslsm) :: leaf_shelter
@@ -2004,6 +2167,8 @@ TYPE :: my_namelist
   LOGICAL :: l_ximpair_seg_memory
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_coupled_e
+  LOGICAL :: l_som_rhizo_mfp
+  LOGICAL :: l_som_rhizo_hr
   LOGICAL :: l_nrun_mid_trif
   LOGICAL :: l_trif_init_accum
   LOGICAL :: l_phenol
@@ -2090,6 +2255,7 @@ IF (mype == 0) THEN
   my_nml % som_hc_negligible_tol = som_hc_negligible_tol
   my_nml % som_leaf_resist_frac = som_leaf_resist_frac
   my_nml % som_gl_max = som_gl_max
+  my_nml % sl_kfail_frac = sl_kfail_frac
   my_nml % light_curvature_fvcb = light_curvature_fvcb
   my_nml % l_som_skip_search_wellwatered = l_som_skip_search_wellwatered
   my_nml % l_som_fast = l_som_fast
@@ -2114,6 +2280,8 @@ IF (mype == 0) THEN
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_coupled_e = l_som_coupled_e
+  my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
+  my_nml % l_som_rhizo_hr = l_som_rhizo_hr
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
   my_nml % l_trif_init_accum   = l_trif_init_accum
   my_nml % l_phenol        = l_phenol
@@ -2189,6 +2357,7 @@ IF (mype /= 0) THEN
   som_hc_negligible_tol = my_nml % som_hc_negligible_tol
   som_leaf_resist_frac = my_nml % som_leaf_resist_frac
   som_gl_max = my_nml % som_gl_max
+  sl_kfail_frac = my_nml % sl_kfail_frac
   light_curvature_fvcb = my_nml % light_curvature_fvcb
   l_som_skip_search_wellwatered = my_nml % l_som_skip_search_wellwatered
   l_som_fast = my_nml % l_som_fast
@@ -2213,6 +2382,8 @@ IF (mype /= 0) THEN
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
   l_som_gravity = my_nml % l_som_gravity
   l_som_coupled_e = my_nml % l_som_coupled_e
+  l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp
+  l_som_rhizo_hr = my_nml % l_som_rhizo_hr
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif
   l_trif_init_accum = my_nml % l_trif_init_accum
   l_phenol        = my_nml % l_phenol
