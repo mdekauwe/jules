@@ -145,6 +145,7 @@ USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls, leaf_psi_lut_jls,     &
                                        supply_lut_f, ksr_path,                 &
                                        som_psi_in_min
 USE xylem_hydraulics_SOX_jls_mod, ONLY: leaf_psi_SOX_jls
+USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
 
 USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
@@ -190,9 +191,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Root inlet potential for one sample (Pa).
 , e1(1, open_pnts), psi1(1, open_pnts), k1(1, open_pnts)                       &
                             ! One sample per open point.
-, k_s, k_in
+, k_s, k_in                                                                   &
                             ! Soil-to-root conductance of the path and the
                             ! plant conductance at the inlet (kmax units).
+, k_s_e(open_pnts), dpsi_s
+                            ! l_som_rhizo_mfp: marginal soil conductance of
+                            ! the sample (< 0: infeasible) and soil drop (Pa).
+LOGICAL :: l_ok
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -225,6 +230,16 @@ ELSE
       k_s = ksr_path(l)
       IF ( ksr_path(l) < 0.0 ) THEN
         ! No soil link for this PFT (fsmc_mod /= 2).
+      ELSE IF ( rhizo_active(l) ) THEN
+        ! l_som_rhizo_mfp: nonlinear soil link; k_s_e is the marginal soil
+        ! conductance at this sample's root potential.
+        CALL rhizo_path_drop( l, e_leaf(i,j), dpsi_s, k_s_e(j), l_ok )
+        IF ( l_ok ) THEN
+          psi_in(l) = MAX(root_zone_psi(l) - dpsi_s, som_psi_in_min)
+        ELSE
+          psi_in(l) = som_psi_in_min
+          k_s_e(j)  = 0.0
+        END IF
       ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
         psi_in(l) = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
       ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
@@ -236,6 +251,7 @@ ELSE
     DO j = 1, open_pnts
       l = veg_index(open_index(j))
       k_s  = ksr_path(l)
+      IF ( ksr_path(l) >= 0.0 .AND. rhizo_active(l) ) k_s = k_s_e(j)
       k_in = kmax(l) * supply_lut_f(pft, psi_in(l))
       leaf_psi(i,j) = psi1(1,j)
       IF ( ksr_path(l) < 0.0 ) THEN
