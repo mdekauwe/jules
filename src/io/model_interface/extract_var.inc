@@ -3665,7 +3665,12 @@ CASE ('hydraulic_cost_pft')
   ! uptake / sap flow (kg m-2 s-1); zero when DESICA is not in use.
 CASE ( 'psi_stem_pft' )
   workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(psi_stem_desica) ) workspace_pft(:,:) = psi_stem_desica * 1.0e-6
+  IF ( ALLOCATED(psi_stem_desica) ) THEN
+    workspace_pft(:,:) = psi_stem_desica * 1.0e-6
+  ELSE IF ( ALLOCATED(ximpair_psi_stem) ) THEN
+    ! Per-segment xylem memory: the stem outlet psi at the last damage update.
+    workspace_pft(:,:) = ximpair_psi_stem * 1.0e-6
+  END IF
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
