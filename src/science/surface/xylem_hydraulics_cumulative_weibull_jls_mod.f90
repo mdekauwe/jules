@@ -88,7 +88,8 @@ CONTAINS
 ! *****************************************************************************
 SUBROUTINE set_ksr_path( land_pts, veg_pts, veg_index, share )
 
-USE jules_vegetation_mod, ONLY: l_som_rhizo_series
+USE jules_vegetation_mod, ONLY: l_som_rhizo_series, l_som_rhizo_mfp
+USE rhizo_mfp_mod, ONLY: rz_share
 
 IMPLICIT NONE
 
@@ -104,6 +105,15 @@ DO m = 1,veg_pts
   l = veg_index(m)
   IF ( ksr(l) >= 0.0 ) ksr_path(l) = ksr(l) * share(l)
 END DO
+! l_som_rhizo_mfp: the path's share of the root system (rhizo_mfp_mod).
+IF ( l_som_rhizo_mfp ) THEN
+  IF ( .NOT. ALLOCATED(rz_share) ) ALLOCATE(rz_share(land_pts))
+  rz_share(:) = 0.0
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    rz_share(l) = share(l)
+  END DO
+END IF
 
 END SUBROUTINE set_ksr_path
 
@@ -147,13 +157,14 @@ FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, l_plant_only ) RESULT( k0 )
 
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_rhizo_series
+USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_k_zero
 
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: pft, l
 REAL(KIND=real_jlslsm), INTENT(IN) :: kmax, psi_root
 LOGICAL, INTENT(IN), OPTIONAL :: l_plant_only
-REAL(KIND=real_jlslsm) :: k0, r, k_el
+REAL(KIND=real_jlslsm) :: k0, r, k_el, k_s
 INTEGER :: iseg
 LOGICAL :: l_soil
 
@@ -180,8 +191,13 @@ END IF
 
 IF ( l_soil ) THEN
   IF ( ksr_path(l) >= 0.0 ) THEN
-    IF ( ksr_path(l) <= TINY(1.0_real_jlslsm) ) RETURN
-    r = r + 1.0 / ksr_path(l)
+    ! l_som_rhizo_mfp: the marginal soil conductance at zero flow, i.e. at
+    ! the zero-flow root potential (with no redistribution only the
+    ! wettest layer conducts there).
+    k_s = ksr_path(l)
+    IF ( rhizo_active(l) ) k_s = rhizo_k_zero(l)
+    IF ( k_s <= TINY(1.0_real_jlslsm) ) RETURN
+    r = r + 1.0 / k_s
   END IF
 END IF
 
@@ -885,6 +901,7 @@ SUBROUTINE leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
 
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
+USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
 
 IMPLICIT NONE
 
@@ -912,11 +929,12 @@ INTEGER, PARAMETER :: n_seg = 3, max_nr_iter = 4
 REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
       ! Floor on a segment's conductance, as a fraction of its kmax.
 
-INTEGER :: j, l, iseg, it
-LOGICAL :: l_closed(n_e_leaf)
+INTEGER :: j, l, iseg, it, i
+LOGICAL :: l_closed(n_e_leaf), l_ok
       ! l_som_rhizo_series: no soil conductance and E > 0 (infeasible).
-REAL(KIND=real_jlslsm) :: k_s
-      ! l_som_rhizo_series: this path's soil-to-root conductance.
+REAL(KIND=real_jlslsm) :: k_s, dpsi_s
+      ! l_som_rhizo_series: this path's soil-to-root conductance;
+      ! l_som_rhizo_mfp: the soil drop (Pa).
 
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_in(n_e_leaf), psi_out(n_e_leaf),                                         &
@@ -942,12 +960,29 @@ DO j = 1, open_pnts
   ! starts from dpsi_root/dE = -1/K_s, so leaf_k is the conductance of the
   ! whole soil-to-leaf path.
   IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
+    IF ( rhizo_active(l) ) THEN
+      ! l_som_rhizo_mfp: nonlinear soil link, dpsi_root/dE = -1/k_s with
+      ! k_s the marginal soil conductance at the root.
+      DO i = 1, n_e_leaf
+        CALL rhizo_path_drop( l, e_leaf(i,j), dpsi_s, k_s, l_ok )
+        IF ( l_ok .AND. k_s > TINY(1.0_real_jlslsm) ) THEN
+          psi_in(i)  = MAX(root_zone_psi(l) - dpsi_s, som_psi_in_min)
+          dpsi_de(i) = -1.0 / k_s
+        ELSE IF ( l_ok .AND. e_leaf(i,j) <= 0.0 ) THEN
+          ! No flow and no conducting layer: the plant alone, as at k_s = 0.
+          CONTINUE
+        ELSE
+          l_closed(i) = .TRUE.
+        END IF
+      END DO
+    ELSE
     k_s = ksr_path(l)
     IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
       psi_in(:)  = MAX(root_zone_psi(l) - e_leaf(:,j) / k_s, som_psi_in_min)
       dpsi_de(:) = -1.0 / k_s
     ELSE
       l_closed(:) = e_leaf(:,j) > 0.0
+    END IF
     END IF
   END IF
 
@@ -1028,6 +1063,7 @@ SUBROUTINE leaf_psi_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
 
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
+USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
 
 IMPLICIT NONE
 
@@ -1049,8 +1085,9 @@ REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
       ! leaf_psi_segments_jls).
 
 INTEGER :: i, j, l, iseg
+LOGICAL :: l_ok
 REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de, &
-                          k_s
+                          k_s, dpsi_s
 
 CALL build_supply_lut_seg(pft)
 
@@ -1062,6 +1099,18 @@ DO j = 1, open_pnts
     ! l_som_rhizo_series: soil link ahead of the root segment (as
     ! leaf_psi_segments_jls).
     IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
+      IF ( rhizo_active(l) ) THEN
+        ! l_som_rhizo_mfp: nonlinear soil link (as leaf_psi_segments_jls).
+        CALL rhizo_path_drop( l, e_leaf(i,j), dpsi_s, k_s, l_ok )
+        IF ( l_ok .AND. k_s > TINY(1.0_real_jlslsm) ) THEN
+          psi_in  = MAX(root_zone_psi(l) - dpsi_s, som_psi_in_min)
+          dpsi_de = -1.0 / k_s
+        ELSE IF ( .NOT. ( l_ok .AND. e_leaf(i,j) <= 0.0 ) ) THEN
+          leaf_psi(i,j) = som_psi_in_min
+          leaf_k(i,j)   = 0.0
+          CYCLE
+        END IF
+      ELSE
       k_s = ksr_path(l)
       IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
         psi_in  = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
@@ -1070,6 +1119,7 @@ DO j = 1, open_pnts
         leaf_psi(i,j) = som_psi_in_min
         leaf_k(i,j)   = 0.0
         CYCLE
+      END IF
       END IF
     END IF
     DO iseg = 1, n_seg
