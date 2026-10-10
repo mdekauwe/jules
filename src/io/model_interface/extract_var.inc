@@ -25,6 +25,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_npp_prev,         &
                                        ximpair_wood_prev, ximpair_renew_mean,  &
                                        ximpair_renew_wt
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf, ximpair_psi_stem
+USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
@@ -3647,6 +3648,13 @@ CASE ( 't_can_pft' )
 
 CASE ('cica_ratio_pft')
   cube_land = cube_from_array(psparms%cica_ratio_pft)
+  cube = map_from_land(cube_land)
+
+  ! Leaf 13C discrimination (permil, discrimination_model); zero when off.
+CASE ( 'd13c_disc_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(d13c_disc_pft) ) workspace_pft(:,:) = d13c_disc_pft
+  cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
   ! Carbon gain for each plant functional type JBaguley

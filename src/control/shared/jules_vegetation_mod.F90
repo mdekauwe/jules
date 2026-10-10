@@ -251,6 +251,19 @@ INTEGER, PARAMETER ::                                                          &
     ! of the vulnerability curve) to get leaf water potential directly
     ! from transpiration rate (cumulative Weibull or SOX conductance).
 
+! Diagnostic leaf 13C discrimination (discrimination_model), computed from
+! the ci of whichever stomatal model is in use. Diagnostic only: it does not
+! feed back on any flux.
+INTEGER, PARAMETER ::                                                          &
+  discrimination_off = 0,                                                      &
+    ! No 13C discrimination diagnostic.
+  discrimination_simple = 1,                                                   &
+    ! Farquhar et al. (1982) simple form, a + (b - a) ci/ca, b = 27 permil.
+  discrimination_photoresp = 2
+    ! As 1 with b = 28 permil and the photorespiratory term -f Gamma*/ca
+    ! (Ubierna & Farquhar 2014), as in Lavergne et al. (2022) and
+    ! Palmer et al. (2022) without the mesophyll term.
+
 ! Ci searches of the stomatal optimisation (som_ci_search).
 INTEGER, PARAMETER ::                                                          &
   som_ci_flat = 1,                                                             &
@@ -451,6 +464,9 @@ INTEGER ::                                                                     &
       ! 2 Newton-Raphson, 3 lookup table of the supply function.
   som_ci_search = som_ci_flat,                                                 &
       ! Ci search of the stomatal optimisation: 1 flat grid, 2 bounded.
+  discrimination_model = discrimination_off,                                   &
+      ! Leaf 13C discrimination diagnostic: 0 off, 1 simple,
+      ! 2 with photorespiration.
   som_psi_aprox_method = imdi,                                                 &
       ! Deprecated namelist input: use som_psi_solver (same values).
   som_profit_model = 1
@@ -919,6 +935,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_rhizo_mfp, l_som_rhizo_hr,                                          &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,    &
+    discrimination_model,                                                      &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
     l_nitrogen, l_vegcan_soilfx, l_trif_crop, l_trif_fire,                     &
     l_inferno, ignition_method, l_vegdrag_pft, l_rsl_scalar,                   &
@@ -1203,6 +1220,17 @@ CASE DEFAULT
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
      'som_ci_search should be flat (1) or bounded (2)')
+END SELECT
+
+! Check that the discrimination_model is suitable.
+SELECT CASE( discrimination_model )
+CASE ( discrimination_off, discrimination_simple, discrimination_photoresp )
+  ! Valid values
+CASE DEFAULT
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+     'discrimination_model should be off (0), simple (1) or ' //               &
+     'photorespiration (2)')
 END SELECT
 
 ! Check that the som_profit_model is suitable. JBaguley
@@ -1888,6 +1916,9 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' som_ci_search = ', som_ci_search
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' discrimination_model = ', discrimination_model
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 WRITE(lineBuffer,*) ' l_som_supply_limit = ', l_som_supply_limit
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -2088,7 +2119,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 22 ! +1 ximpair_cost_model, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
+INTEGER, PARAMETER :: n_int = 23 ! +1 discrimination_model, +1 ximpair_cost_model, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
 INTEGER, PARAMETER :: n_real = 19 + (n_photo_coef * 5) ! +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
@@ -2123,6 +2154,7 @@ TYPE :: my_namelist
   INTEGER :: som_psi_aprox_method !JBaguley
   INTEGER :: som_psi_solver
   INTEGER :: som_ci_search
+  INTEGER :: discrimination_model
   INTEGER :: ximpair_cost_model
   INTEGER :: som_profit_model !JBaguley
   INTEGER :: ignition_method
@@ -2234,6 +2266,7 @@ IF (mype == 0) THEN
   my_nml % som_psi_aprox_method = som_psi_aprox_method !JBaguley
   my_nml % som_psi_solver = som_psi_solver
   my_nml % som_ci_search = som_ci_search
+  my_nml % discrimination_model = discrimination_model
   my_nml % ximpair_cost_model = ximpair_cost_model
   my_nml % som_profit_model = som_profit_model !JBaguley
   my_nml % ignition_method = ignition_method
@@ -2336,6 +2369,7 @@ IF (mype /= 0) THEN
   som_psi_aprox_method = my_nml % som_psi_aprox_method !JBaguley
   som_psi_solver = my_nml % som_psi_solver
   som_ci_search = my_nml % som_ci_search
+  discrimination_model = my_nml % discrimination_model
   ximpair_cost_model = my_nml % ximpair_cost_model
   som_profit_model = my_nml % som_profit_model !JBaguley
   ignition_method = my_nml % ignition_method

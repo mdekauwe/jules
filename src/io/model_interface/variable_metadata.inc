@@ -9862,4 +9862,17 @@ DATA metadata(761) / var_metadata(                                             &
 ! Units
     "-"                                                                        &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for d13c_disc_pft
+!-----------------------------------------------------------------------------
+DATA metadata(762) / var_metadata(                                             &
+! String identifier
+    'd13c_disc_pft',                                                           &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Leaf 13C discrimination, assimilation-weighted over leaf classes",       &
+! Units
+    "permil"                                                                   &
+  ) /
 #endif

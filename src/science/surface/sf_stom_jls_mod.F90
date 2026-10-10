@@ -148,6 +148,8 @@ USE stom_opt_jls_mod, ONLY: stom_opt_mod
 USE xylem_impairment_mod, ONLY: update_xylem_impairment
 USE xylem_impairment_memory_mod, ONLY: ximpair_store_npp
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_growth
+USE jules_vegetation_mod, ONLY: discrimination_model, discrimination_off
+USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft, d13c_disc_alloc, d13c_disc_leaf
 
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 
@@ -952,7 +954,15 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,act_v_tmp(n_photo_coef)
    ! Coefficients governing the acclimation of activation energy for Vcmax.
 
-
+REAL(KIND=real_jlslsm) ::                                                      &
+  d13c_canopy(land_pts),                                                       &
+    ! Canopy leaf 13C discrimination (permil), assimilation-weighted over
+    ! leaf classes (discrimination_model).
+  wa_sun, wa_shd
+    ! Gross assimilation of the sun and shade classes, as weights.
+LOGICAL :: l_d13c_classes
+    ! The discrimination was weighted over leaf classes (can_rad_mod = 7);
+    ! otherwise it is taken from the canopy ci.
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -961,6 +971,9 @@ REAL(KIND=jprb)               :: zhook_handle
 CHARACTER(LEN=*), PARAMETER :: RoutineName='SF_STOM'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+! Set by the two-leaf canopy (can_rad_mod = 7) at points with assimilation.
+d13c_canopy(:) = 0.0
 
 gl_leaf_cap = som_gl_max
 zero_c(:) = 0.0
@@ -3223,6 +3236,23 @@ CASE ( 7 )
       ci(l) = f_sun_2l * ci_sun_2l(l) + (1.0 - f_sun_2l) * ci_shd_2l(l)
     END IF
 
+    ! Leaf 13C discrimination weighted by the gross assimilation of each
+    ! class (ci above is conductance-weighted, which is right for the water
+    ! flux but not for the isotopic signal of the fixed carbon).
+    IF ( discrimination_model /= discrimination_off ) THEN
+      wa_sun = MAX( anetl_sun(l) + rd_sun(l), 0.0 )
+      wa_shd = MAX( anetl_shd(l) + rd_shd(l), 0.0 )
+      IF ( wa_sun + wa_shd > TINY(wa_sun) ) THEN
+        d13c_canopy(l) = ( wa_sun * d13c_disc_leaf( c3(ft) == 1,             &
+                             ci_sun_2l(l), ca(l), ccp_sun_lt(l) )             &
+                         + wa_shd * d13c_disc_leaf( c3(ft) == 1,             &
+                             ci_shd_2l(l), ca(l), ccp_shd_lt(l) ) )          &
+                         / ( wa_sun + wa_shd )
+      ELSE
+        d13c_canopy(l) = 0.0
+      END IF
+    END IF
+
     IF ( lai(l) > EPSILON(0.0) ) THEN
       rdmean(l) = rdc(l) / lai(l)
     ELSE
@@ -3465,6 +3495,26 @@ DO m = 1,veg_pts
   l = veg_index(m)
   cica_ratio(l) = ci(l) / (ca(l) + TINY(ca(l)))
 END DO
+
+!-----------------------------------------------------------------------------
+! Leaf 13C discrimination diagnostic (discrimination_model). With the
+! two-leaf canopy it was weighted over the sun and shade classes above;
+! otherwise it is taken from the canopy ci. Zero with no assimilation.
+!-----------------------------------------------------------------------------
+IF ( discrimination_model /= discrimination_off ) THEN
+  CALL d13c_disc_alloc( land_pts )
+  d13c_disc_pft(:,ft) = 0.0
+  l_d13c_classes = ( can_rad_mod == 7 )
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( l_d13c_classes ) THEN
+      d13c_disc_pft(l,ft) = d13c_canopy(l)
+    ELSE IF ( anetc(l) + rdc(l) > 0.0 ) THEN
+      d13c_disc_pft(l,ft) = d13c_disc_leaf( c3(ft) == 1, ci(l), ca(l),      &
+                                            ccp(l) )
+    END IF
+  END DO
+END IF
 
 !-----------------------------------------------------------------------------
 ! Calculate plant-level respiration, NPP and GPP.
