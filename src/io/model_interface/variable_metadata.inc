@@ -9849,4 +9849,17 @@ DATA metadata(760) / var_metadata(                                             &
 ! Units
     "mmol m-2 s-1 MPa-1"                                                       &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_kcap_leaf (xylem impairment prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(761) / var_metadata(                                             &
+! String identifier
+    'ximpair_kcap_leaf',                                                       &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Leaf-segment conductance cap / intact (l_ximpair_seg_memory)",            &
+! Units
+    "-"                                                                        &
+  ) /
 #endif

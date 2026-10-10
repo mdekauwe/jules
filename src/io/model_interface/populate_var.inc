@@ -20,6 +20,8 @@ USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
     ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
+    ximpair_kcap_leaf
 
 USE ancil_info, ONLY:                                                          &
   dim_cslayer, land_pts, nsurft, nsoilt
@@ -2055,6 +2057,15 @@ CASE ( 'ximpair_renew_wt' )
     CALL cube_get_data(cube_land, ximpair_renew_wt(:,:))
   ELSE
     ximpair_renew_wt(:,:) = const_val
+  END IF
+
+CASE ( 'ximpair_kcap_leaf' )
+  CALL ximpair_seg_state_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_kcap_leaf(:,:))
+  ELSE
+    ximpair_kcap_leaf(:,:) = const_val
   END IF
 
   !-----------------------------------------------------------------------------

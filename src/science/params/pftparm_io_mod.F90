@@ -256,7 +256,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ximpair_wood_alloc_io(npft_max) = rmdi,                                      &
   ximpair_leaf_sens_io(npft_max) = rmdi,                                       &
   ximpair_psi_growth_io(npft_max) = rmdi,                                      &
-  ximpair_rec_years_io(npft_max) = rmdi
+  ximpair_rec_years_io(npft_max) = rmdi,                                       &
+  ximpair_tau_stem_io(npft_max) = rmdi,                                        &
+  ximpair_tau_leaf_io(npft_max) = rmdi
 !---------------------------------------------------------------------
 ! Set up a namelist for reading and writing these arrays
 !---------------------------------------------------------------------
@@ -325,7 +327,8 @@ NAMELIST  / jules_pftparm/                                                     &
   ximpair_reset_mmdd_io,             ximpair_tau_rec_io,                       &
   ximpair_psi_refill_io,             ximpair_wood_alloc_io,                    &
   ximpair_growth_basis_io,           ximpair_leaf_sens_io,                     &
-  ximpair_psi_growth_io,             ximpair_rec_years_io
+  ximpair_psi_growth_io,             ximpair_rec_years_io,                     &
+  ximpair_tau_stem_io,               ximpair_tau_leaf_io
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM_IO'
 
@@ -363,8 +366,8 @@ INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 9 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
                                            ! impairment)
-INTEGER, PARAMETER :: n_real = 146 * npft_max ! = the REAL arrays in
-                                             ! my_namelist (137 + 9 xylem
+INTEGER, PARAMETER :: n_real = 148 * npft_max ! = the REAL arrays in
+                                             ! my_namelist (137 + 11 xylem
                                              ! impairment)
 
 TYPE :: my_namelist
@@ -524,6 +527,8 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: ximpair_leaf_sens_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_psi_growth_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_rec_years_io(npft_max)
+  REAL(KIND=real_jlslsm) :: ximpair_tau_stem_io(npft_max)
+  REAL(KIND=real_jlslsm) :: ximpair_tau_leaf_io(npft_max)
 END TYPE my_namelist
 
 TYPE (my_namelist) :: my_nml
@@ -697,6 +702,8 @@ IF (mype == 0) THEN
   my_nml % ximpair_leaf_sens_io = ximpair_leaf_sens_io
   my_nml % ximpair_psi_growth_io = ximpair_psi_growth_io
   my_nml % ximpair_rec_years_io = ximpair_rec_years_io
+  my_nml % ximpair_tau_stem_io = ximpair_tau_stem_io
+  my_nml % ximpair_tau_leaf_io = ximpair_tau_leaf_io
 END IF
 
 CALL mpl_bcast(my_nml,1,mpl_nml_type,0,my_comm,icode)
@@ -858,6 +865,8 @@ IF (mype /= 0) THEN
   ximpair_leaf_sens_io = my_nml % ximpair_leaf_sens_io
   ximpair_psi_growth_io = my_nml % ximpair_psi_growth_io
   ximpair_rec_years_io = my_nml % ximpair_rec_years_io
+  ximpair_tau_stem_io = my_nml % ximpair_tau_stem_io
+  ximpair_tau_leaf_io = my_nml % ximpair_tau_leaf_io
 END IF
 
 CALL mpl_type_free(mpl_nml_type,icode)
@@ -938,7 +947,8 @@ USE pftparm, ONLY:                                                             &
   ximpair_tau_rec,                   ximpair_psi_refill,                       &
   ximpair_wood_alloc,                ximpair_growth_basis,                     &
   ximpair_leaf_sens,                 ximpair_psi_growth,                       &
-  ximpair_rec_years
+  ximpair_rec_years,                 ximpair_tau_stem,                         &
+  ximpair_tau_leaf
 
 
 
@@ -1212,6 +1222,10 @@ DO i = 1, npft
     ximpair_psi_growth(i) = ximpair_psi_growth_io(i)
   IF (ABS(ximpair_rec_years_io(i) - rmdi) > EPSILON(1.0))                      &
     ximpair_rec_years(i) = ximpair_rec_years_io(i)
+  IF (ABS(ximpair_tau_stem_io(i) - rmdi) > EPSILON(1.0))                       &
+    ximpair_tau_stem(i) = ximpair_tau_stem_io(i)
+  IF (ABS(ximpair_tau_leaf_io(i) - rmdi) > EPSILON(1.0))                       &
+    ximpair_tau_leaf(i) = ximpair_tau_leaf_io(i)
 END DO
 
 ! ---------------------------------------------------------------------

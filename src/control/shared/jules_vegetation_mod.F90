@@ -644,6 +644,14 @@ LOGICAL ::                                                                     &
       ! phen <= 1 - ximpair_leaf_sens * (1 - k_cap/kmax), so the canopy sheds
       ! leaves after lasting hydraulic damage and regrows as it recovers -
       ! see phenol.
+  l_ximpair_seg_memory = .FALSE.,                                              &
+      ! Memory model (pft_xylem_impairment_model = 3) with segments
+      ! (l_som_plant_segments): a separate cap for the stem and the leaf
+      ! segment, each damaged by its own outlet water potential (psi_stem,
+      ! psi_leaf) on its own vulnerability curve (conductance_b/c_seg), and
+      ! each recovering with its own timescale (ximpair_tau_stem, sapwood
+      ! turnover; ximpair_tau_leaf, leaf turnover). ximpair_psi_driver is
+      ! then not used. .FALSE.: one cap on both segments (as before).
   l_som_fast = .FALSE.
       ! Deprecated namelist input: .TRUE. sets som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table).
@@ -811,7 +819,7 @@ NAMELIST  / jules_vegetation/                                                  &
     som_base_parm, som_n_sample, som_n_ci_golden_iter,                        &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
-    l_ximpair_rec_growth, l_ximpair_leaf_loss,                                &
+    l_ximpair_rec_growth, l_ximpair_leaf_loss, l_ximpair_seg_memory,          &
     ximpair_cost_model,                                                       &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
     l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
@@ -1769,6 +1777,8 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_ximpair_leaf_loss = ', l_ximpair_leaf_loss
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_ximpair_seg_memory = ', l_ximpair_seg_memory
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' ximpair_cost_model = ', ximpair_cost_model
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -1913,7 +1923,7 @@ INTEGER, PARAMETER :: n_int = 22 ! +1 ximpair_cost_model, +2 leaf_temp_iter/leaf
 INTEGER, PARAMETER :: n_real = 18 + (n_photo_coef * 5) ! +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 46 + npft_max ! +1 l_som_coupled_e, +1 l_root_mass_fixed, +2 l_ximpair_rec_growth/l_ximpair_leaf_loss,
+INTEGER, PARAMETER :: n_log = 47 + npft_max ! +1 l_ximpair_seg_memory, +1 l_som_coupled_e, +1 l_root_mass_fixed, +2 l_ximpair_rec_growth/l_ximpair_leaf_loss,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -1989,6 +1999,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_cuticular_floor
   LOGICAL :: l_ximpair_rec_growth
   LOGICAL :: l_ximpair_leaf_loss
+  LOGICAL :: l_ximpair_seg_memory
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_coupled_e
   LOGICAL :: l_nrun_mid_trif
@@ -2098,6 +2109,7 @@ IF (mype == 0) THEN
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
   my_nml % l_ximpair_rec_growth = l_ximpair_rec_growth
   my_nml % l_ximpair_leaf_loss = l_ximpair_leaf_loss
+  my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_coupled_e = l_som_coupled_e
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
@@ -2196,6 +2208,7 @@ IF (mype /= 0) THEN
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor
   l_ximpair_rec_growth = my_nml % l_ximpair_rec_growth
   l_ximpair_leaf_loss = my_nml % l_ximpair_leaf_loss
+  l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
   l_som_gravity = my_nml % l_som_gravity
   l_som_coupled_e = my_nml % l_som_coupled_e
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif

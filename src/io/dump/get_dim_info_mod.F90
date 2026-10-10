@@ -162,7 +162,7 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                        &
        'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',                  &
        'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',                 &
        'ximpair_npp_prev', 'ximpair_wood_prev',                          &
-       'ximpair_renew_mean', 'ximpair_renew_wt' )
+       'ximpair_renew_mean', 'ximpair_renew_wt', 'ximpair_kcap_leaf' )
   ndims = 2
   dim_names(1:ndims) = [ land_dim_name, pft_dim_name ]
   dim_sizes(1:ndims) = [ global_land_pts, npft ]

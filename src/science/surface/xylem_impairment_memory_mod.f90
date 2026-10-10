@@ -515,6 +515,20 @@ END SUBROUTINE leaf_psi_impaired_memory
 ! Also (per PFT, off by default): refilling with timescale ximpair_tau_rec
 ! while psi_x > ximpair_psi_refill, and an annual reset on
 ! ximpair_reset_mmdd.
+!
+! Per-segment memory (l_ximpair_seg_memory, with l_som_plant_segments):
+! kcap is the stem segment's cap and ximpair_kcap_leaf the leaf segment's
+! (as a fraction of the intact leaf segment). Each is damaged by its own
+! outlet water potential on its own curve (conductance_b/c_seg): the stem
+! by psi_stem, the leaf by psi_leaf (ximpair_psi_driver is not used). Each
+! recovers with its own e-folding time, in typical years of growth with
+! the growth clock (ximpair_rec_years then only sets the window of the
+! running mean) or in calendar years without it,
+!   PLC_stem' = PLC_stem EXP(-g / ximpair_tau_stem)   (sapwood turnover)
+!   PLC_leaf' = PLC_leaf EXP(-g / ximpair_tau_leaf)   (leaf/twig turnover),
+! so a drought's damage to the distal, fast-renewed tissue fades within a
+! few years while the stem keeps a long, small legacy. Refilling acts on
+! each with its own water potential; the reset restores both.
 ! ---------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment_memory ( n_land_pts                         &
 ,                                           n_open_pts                         &
@@ -533,10 +547,14 @@ USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
                    eta_sl, ximpair_psi_driver, ximpair_reset_mmdd,             &
                    ximpair_tau_rec, ximpair_psi_refill, ximpair_wood_alloc,    &
                    ximpair_growth_basis, ximpair_rec_years, a_wl, a_ws, b_wl, &
-                   ximpair_psi_growth
+                   ximpair_psi_growth, ximpair_tau_stem, ximpair_tau_leaf,     &
+                   conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 ximpair_driver_root, ximpair_driver_stem,      &
-                                l_ximpair_rec_growth, l_triffid
+                                l_ximpair_rec_growth, l_triffid,               &
+                                l_ximpair_seg_memory
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
+                                          ximpair_seg_state_alloc
 USE trif, ONLY: g_wood
 USE jules_surface_types_mod, ONLY: npft
 USE model_time_mod, ONLY: current_time, timestep_len
@@ -585,7 +603,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   f_renew(n_land_pts), c_new(n_land_pts), wood(n_land_pts),                  &
   f_new(n_land_pts), growth(n_land_pts),                                      &
   plc(n_land_pts)
-REAL(KIND=real_jlslsm) :: f_rec, a_mean
+REAL(KIND=real_jlslsm) :: f_rec, a_mean, frac_crit
 LOGICAL :: l_slow
                             ! Slow recovery (ximpair_rec_years > 0).
 
@@ -688,7 +706,7 @@ IF (l_ximpair_rec_growth) THEN
                / MAX(eta_sl(pft) * canht(:) * lai(:),                          &
                      eta_sl(pft) * MAX(canht(:), 1.0) * lai_min)
   f_renew(:) = MIN(f_renew(:), 1.0)
-  IF (l_slow) THEN
+  IF (l_slow .OR. l_ximpair_seg_memory) THEN
     f_new(:) = f_new(:) + f_renew(:)
   ELSE
     kcap(:) = kcap(:) + (kmax_pts(:) - kcap(:)) * f_renew(:)
@@ -713,22 +731,52 @@ IF (l_slow .AND. l_ximpair_rec_growth) THEN
     growth(:) = 0.0
   END WHERE
   ! Exponential recovery of the loss of conductivity with growth.
-  plc(:) = 1.0 - kcap(:) / kmax_pts(:)
-  plc(:) = plc(:) * EXP(-2.0 * growth(:) / ximpair_rec_years(pft))
-  kcap(:) = kmax_pts(:) * (1.0 - plc(:))
+  IF (.NOT. l_ximpair_seg_memory) THEN
+    plc(:) = 1.0 - kcap(:) / kmax_pts(:)
+    plc(:) = plc(:) * EXP(-2.0 * growth(:) / ximpair_rec_years(pft))
+    kcap(:) = kmax_pts(:) * (1.0 - plc(:))
+  END IF
+ELSE
+  ! Per-segment memory without the growth clock: calendar years.
+  growth(:) = REAL(timestep_len) / sec_per_year
+END IF
+
+IF (l_ximpair_seg_memory) THEN
+  CALL ximpair_seg_state_alloc( n_land_pts )
+  ! Each segment's loss falls with its own e-folding time.
+  IF (ximpair_tau_stem(pft) > 0.0) THEN
+    plc(:) = 1.0 - kcap(:) / kmax_pts(:)
+    plc(:) = plc(:) * EXP(-growth(:) / ximpair_tau_stem(pft))
+    kcap(:) = kmax_pts(:) * (1.0 - plc(:))
+  END IF
+  IF (ximpair_tau_leaf(pft) > 0.0) THEN
+    ximpair_kcap_leaf(:,pft) = 1.0 - (1.0 - ximpair_kcap_leaf(:,pft))         &
+                               * EXP(-growth(:) / ximpair_tau_leaf(pft))
+  END IF
 END IF
 
 IF (ximpair_tau_rec(pft) > 0.0) THEN
   f_rec = 1.0 - EXP(-REAL(timestep_len) / (ximpair_tau_rec(pft) * 86400.0))
-  WHERE (psi_x(:) > ximpair_psi_refill(pft))
-    kcap(:) = kcap(:) + (kmax_pts(:) - kcap(:)) * f_rec
-  END WHERE
+  IF (l_ximpair_seg_memory) THEN
+    WHERE (psi_stem(:) > ximpair_psi_refill(pft))
+      kcap(:) = kcap(:) + (kmax_pts(:) - kcap(:)) * f_rec
+    END WHERE
+    WHERE (psi_leaf(:) > ximpair_psi_refill(pft))
+      ximpair_kcap_leaf(:,pft) = ximpair_kcap_leaf(:,pft)                      &
+                                 + (1.0 - ximpair_kcap_leaf(:,pft)) * f_rec
+    END WHERE
+  ELSE
+    WHERE (psi_x(:) > ximpair_psi_refill(pft))
+      kcap(:) = kcap(:) + (kmax_pts(:) - kcap(:)) * f_rec
+    END WHERE
+  END IF
 END IF
 
 IF (ximpair_reset_mmdd(pft) > 0) THEN
   IF (current_time%month * 100 + current_time%day == ximpair_reset_mmdd(pft)  &
       .AND. current_time%time < timestep_len) THEN
     kcap(:) = kmax_pts(:)
+    IF (l_ximpair_seg_memory) ximpair_kcap_leaf(:,pft) = 1.0
   END IF
 END IF
 
@@ -736,12 +784,25 @@ END IF
 ! Damage: the cap can not exceed the intact conductance at the damage
 ! driver. Only points with open stomata (i.e. under tension) are damaged.
 !-----------------------------------------------------------------------------
-CALL leaf_conductance_jls( pft, n_land_pts, psi_x, kmax_pts, kcrit_pts,        &
-                           b_pts, c_pts, k_x )
-DO j = 1, n_open_pts
-  l = open_index(j)
-  kcap(l) = MIN(kcap(l), k_x(l))
-END DO
+IF (l_ximpair_seg_memory) THEN
+  ! Per segment: the stem by psi_stem on the stem curve, the leaf by
+  ! psi_leaf on the leaf curve (the segments' intact Weibull curves).
+  DO j = 1, n_open_pts
+    l = open_index(j)
+    kcap(l) = MIN(kcap(l), kmax_pts(l) * seg_f(psi_stem(l), 2))
+    ximpair_kcap_leaf(l,pft) = MIN(ximpair_kcap_leaf(l,pft),                   &
+                                   seg_f(psi_leaf(l), 3))
+  END DO
+  frac_crit = kcrit(pft) / MAX(kmax_pft(pft), TINY(1.0_real_jlslsm))
+  ximpair_kcap_leaf(:,pft) = MAX(MIN(ximpair_kcap_leaf(:,pft), 1.0), frac_crit)
+ELSE
+  CALL leaf_conductance_jls( pft, n_land_pts, psi_x, kmax_pts, kcrit_pts,      &
+                             b_pts, c_pts, k_x )
+  DO j = 1, n_open_pts
+    l = open_index(j)
+    kcap(l) = MIN(kcap(l), k_x(l))
+  END DO
+END IF
 
 kcap(:) = MAX(MIN(kcap(:), kmax_pts(:)), kcrit_pts(:))
 
@@ -752,6 +813,17 @@ END IF
 ximpair_lock(:,pft) = 1.0 - kcap(:) / kmax_pts(:)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
+CONTAINS
+
+  ! Intact relative conductance of segment iseg at water potential psi.
+  FUNCTION seg_f( psi, iseg ) RESULT( f )
+  REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+  INTEGER, INTENT(IN) :: iseg
+  REAL(KIND=real_jlslsm) :: f
+  f = EXP(-( ABS(MIN(psi, 0.0) / conductance_b_seg(pft,iseg)) )               &
+          **conductance_c_seg(pft,iseg))
+  END FUNCTION seg_f
 
 END SUBROUTINE update_xylem_impairment_memory
 
