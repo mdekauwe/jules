@@ -59,15 +59,12 @@ SUBROUTINE leaf_conductance_impaired_jls( pft,                                 &
 
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: xylem_impairment_none,                         &
-                                xylem_impairment_kmax,                         &
                                 xylem_impairment_whole_trunk,                  &
-                                xylem_impairment_memory,                       &
-                                xylem_impairment_kmax_refit
+                                xylem_impairment_memory
 USE pftparm, ONLY: pft_xylem_impairment_model,                                 &
                    conductance_c_pft, conductance_b_pft
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
-USE xylem_impairment_kmax_mod, ONLY: leaf_conductance_impaired_kmax_jls
 USE xylem_impairment_whole_trunk_mod,                                          &
     ONLY: leaf_conductance_impaired_whole_trunk_jls
 USE xylem_impairment_memory_mod, ONLY: leaf_conductance_impaired_memory_jls
@@ -145,18 +142,6 @@ END IF
 
 SELECT CASE ( pft_xylem_impairment_model(pft) )
 
-CASE ( xylem_impairment_kmax, xylem_impairment_kmax_refit )
-  CALL leaf_conductance_impaired_kmax_jls( pft,                               &
-                                          land_pnts,                         &
-                                          water_potential,                   &
-                                          kmax,                              &
-                                          kcrit,                             &
-                                          conductance_b,                     &
-                                          conductance_c,                     &
-                                        ! INTENT OUT
-                                          leaf_conductance                   &
-                                          )
-
 CASE ( xylem_impairment_whole_trunk )
   CALL leaf_conductance_impaired_whole_trunk_jls( pft,                        &
                                                  land_pnts,                  &
@@ -186,7 +171,7 @@ CASE ( xylem_impairment_memory )
 CASE DEFAULT
   errcode = 101  !  a hard error
   CALL ereport(RoutineName, errcode,                                           &
-    'pft_xylem_impairment_model should be none (0), kmax (1), whole_trunk (2), memory (3) or kmax_refit (4)')
+    'pft_xylem_impairment_model should be none (0), whole_trunk (2) or memory (3)')
 
 END SELECT
 
@@ -220,15 +205,12 @@ SUBROUTINE xylem_conductance_impaired_stom_opt_jls( pft,                       &
 
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: xylem_impairment_none,                         &
-                                xylem_impairment_kmax,                         &
                                 xylem_impairment_whole_trunk,                  &
-                                xylem_impairment_memory,                       &
-                                xylem_impairment_kmax_refit
+                                xylem_impairment_memory
 USE pftparm, ONLY: pft_xylem_impairment_model,                                 &
                    conductance_c_pft, conductance_b_pft
 
 USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls
-USE xylem_impairment_kmax_mod, ONLY: xylem_conductance_impaired_kmax_stom_opt_jls
 USE xylem_impairment_whole_trunk_mod, ONLY: xylem_conductance_impaired_whole_trunk_stom_opt_jls
 USE xylem_impairment_memory_mod,                                               &
     ONLY: xylem_conductance_impaired_memory_stom_opt_jls
@@ -326,22 +308,6 @@ END IF
 
 SELECT CASE ( pft_xylem_impairment_model(pft) )
 
-CASE ( xylem_impairment_kmax, xylem_impairment_kmax_refit )
-  CALL xylem_conductance_impaired_kmax_stom_opt_jls( pft,                      &
-                                        n_water_potentials,                    &
-                                        open_pnts,                             &
-                                        open_index,                            &
-                                        veg_index,                             &
-                                        land_pnts,                             &
-                                        water_potential,                       &
-                                        kmax,                                  &
-                                        kcrit,                                 &
-                                        conductance_b,                         &
-                                        conductance_c,                         &
-                                      ! INTENT OUT
-                                        xylem_conductance                      &
-                                        )
-
 CASE ( xylem_impairment_whole_trunk )
   CALL xylem_conductance_impaired_whole_trunk_stom_opt_jls( pft,               &
                                                n_water_potentials,            &
@@ -379,7 +345,7 @@ CASE ( xylem_impairment_memory )
 CASE DEFAULT
   errcode = 101  !  a hard error
   CALL ereport(RoutineName, errcode,                                           &
-   'pft_xylem_impairment_model should be none (0), kmax (1), whole_trunk (2), memory (3) or kmax_refit (4)')
+   'pft_xylem_impairment_model should be none (0), whole_trunk (2) or memory (3)')
 
 END SELECT
 
@@ -416,15 +382,12 @@ SUBROUTINE leaf_psi_impaired_jls( pft,                                         &
 
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: xylem_impairment_none,                         &
-                                xylem_impairment_kmax,                         &
                                 xylem_impairment_whole_trunk,                  &
-                                xylem_impairment_memory,                       &
-                                xylem_impairment_kmax_refit
+                                xylem_impairment_memory
 USE pftparm, ONLY: pft_xylem_impairment_model,                                 &
                    conductance_c_pft, conductance_b_pft
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
-USE xylem_impairment_kmax_mod, ONLY: leaf_psi_impaired_kmax
 USE xylem_impairment_whole_trunk_mod, ONLY: leaf_psi_impaired_whole_trunk
 USE xylem_impairment_memory_mod, ONLY: leaf_psi_impaired_memory
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
@@ -533,32 +496,13 @@ END IF
 
 SELECT CASE ( pft_xylem_impairment_model(pft) )
 
-  CASE (xylem_impairment_kmax, xylem_impairment_kmax_refit)
-    CALL leaf_psi_impaired_kmax( pft,                                          &
-                                 n_e_leaf,                                     &
-                                 land_pnts,                                    &
-                                 open_pnts,                                    &
-                                 veg_index,                                    &
-                                 open_index,                                   &
-                                 e_leaf,                                       &
-                                 root_zone_psi,                                &
-                                 kmax,                                         &
-                                 kcrit,                                        &
-                                 conductance_b,                                &
-                                 conductance_c,                                &
-                               ! INTENT OUT
-                                 leaf_psi,                                     &
-                                 leaf_k                                        &
-            )
-
   CASE (xylem_impairment_whole_trunk, xylem_impairment_memory)
     IF ( .NOT. l_som_rhizo_series ) THEN
       CALL impaired_path( n_e_leaf, e_leaf, root_zone_psi, leaf_psi, leaf_k )
     ELSE
       !-----------------------------------------------------------------------
       ! Soil-to-root conductance in series ahead of the impaired plant, as
-      ! leaf_psi_jls (the kmax model goes through leaf_psi_jls, so it has it
-      ! already): the root inlet of each sample is psi_in = psi_src - E/K_s,
+      ! leaf_psi_jls: the root inlet of each sample is psi_in = psi_src - E/K_s,
       ! the impaired plant path runs from there, and the whole-path marginal
       ! conductance is k_p / (1 + k(psi_in) / K_s), k(psi_in) this model's
       ! impaired conductance at the inlet. The soil is not damaged.
@@ -599,7 +543,7 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
   CASE DEFAULT
     errcode = 101  !  a hard error
     CALL ereport(RoutineName, errcode,                                         &
-     'pft_xylem_impairment_model should be none (0), kmax (1), whole_trunk (2), memory (3) or kmax_refit (4)')
+     'pft_xylem_impairment_model should be none (0), whole_trunk (2) or memory (3)')
 END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -686,14 +630,10 @@ SUBROUTINE update_xylem_impairment ( n_land_pts                                &
 
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: xylem_impairment_none,                         &
-                                xylem_impairment_kmax,                         &
                                 xylem_impairment_whole_trunk,                  &
-                                xylem_impairment_memory,                       &
-                                xylem_impairment_kmax_refit
+                                xylem_impairment_memory
 USE pftparm, ONLY: pft_xylem_impairment_model, kmax_pft
 
-USE xylem_impairment_kmax_mod, ONLY: update_xylem_impairment_kmax,             &
-                                     update_xylem_impairment_kmax_refit
 USE xylem_impairment_whole_trunk_mod, ONLY: update_xylem_impairment_whole_trunk
 USE xylem_impairment_memory_mod, ONLY: update_xylem_impairment_memory
 
@@ -769,18 +709,6 @@ SELECT CASE (pft_xylem_impairment_model(pft))
   CASE(xylem_impairment_none)
     ! No xylem impairment
 
-  CASE(xylem_impairment_kmax)
-    CALL update_xylem_impairment_kmax( n_land_pts,                             &
-                                       n_open_pts,                             &
-                                       open_index,                             &
-                                       pft,                                    &
-                                       leaf_conductance,                       &
-                                       root_conductance,                       &
-                                       impaired_k_max,                         &
-                                       impaired_conductance_b,                 &
-                                       impaired_conductance_c                  &
-                                     )
-
   CASE(xylem_impairment_whole_trunk)
     CALL update_xylem_impairment_whole_trunk( n_land_pts,                      &
                                               n_open_pts,                      &
@@ -791,21 +719,6 @@ SELECT CASE (pft_xylem_impairment_model(pft))
                                               psi_leaf_extreme,                &
                                               psi_root_extreme                 &
                                             )
-
-  CASE(xylem_impairment_kmax_refit)
-    CALL update_xylem_impairment_kmax_refit( n_land_pts,                       &
-                                             n_open_pts,                       &
-                                             open_index,                       &
-                                             pft,                              &
-                                             psi_leaf,                         &
-                                             psi_root,                         &
-                                             lai,                              &
-                                             canht,                            &
-                                             anetc,                            &
-                                             impaired_k_max,                   &
-                                             impaired_conductance_b,           &
-                                             impaired_conductance_c            &
-                                           )
 
   CASE(xylem_impairment_memory)
     CALL update_xylem_impairment_memory( n_land_pts,                           &
@@ -824,7 +737,7 @@ SELECT CASE (pft_xylem_impairment_model(pft))
   CASE DEFAULT
     errcode = 1
     CALL ereport(RoutineName, errcode,                                         &
-     'pft_xylem_impairment_model should be none (0), kmax (1), whole_trunk (2), memory (3) or kmax_refit (4)')
+     'pft_xylem_impairment_model should be none (0), whole_trunk (2) or memory (3)')
 END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

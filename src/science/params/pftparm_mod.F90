@@ -553,18 +553,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! NOTE: This value is not directly input by the user, instead
                  !        it is calculated from the kcrit and the conductance
                  !        model in ptftparm_io_mod.F90.
-,ximpair_leaf_weight(:)                                                        &
-                 ! Weighting factor for the leaf conductance compaired to the
-                 ! root conductance when calculating the new xyelem impairment.
-,ximpair_new_kmax_weight(:)                                                    &
-                 ! Weighting factor for the new impaired kmax compaired to the
-                 ! current kmax when updating xyelem impairment.
-,ximpair_threshold(:)                                                          &
-                 ! Minimum change in kamx before the xylem impairment is
-                 ! updated.
-                 ! NOTE: This value is not directly input by the user, instead
-                 !        it is calculated from kmax and a fractional user
-                 !        input in ptftparm_io_mod.F90.
 ,ximpair_tau_rec(:)                                                            &
                  ! Recovery timescale of embolism in the memory impairment
                  !  model (days). <= 0 disables recovery.
@@ -913,9 +901,6 @@ ALLOCATE( P50(npft))
 ALLOCATE( P88(npft))
 ALLOCATE( conductance_b_pft(npft))
 ALLOCATE( conductance_c_pft(npft))
-ALLOCATE( ximpair_leaf_weight(npft))
-ALLOCATE( ximpair_new_kmax_weight(npft))
-ALLOCATE( ximpair_threshold(npft))
 ALLOCATE( ximpair_psi_driver(npft))
 ALLOCATE( seg_kfac(npft,3))
 ALLOCATE( gcuticular(npft))
@@ -961,9 +946,6 @@ P88(:) = 0.0
 !        using the P50 and P88 values and the choice of conductance model.
 conductance_b_pft(:) = 1.0
 conductance_c_pft(:) = 1.0
-ximpair_leaf_weight(:) = 1.0
-ximpair_new_kmax_weight(:) = 1.0
-ximpair_threshold(:) = 0.0
 ximpair_psi_driver(:) = 1
 seg_kfac(:,:) = 1.0
 gcuticular(:) = 3.0
@@ -1295,12 +1277,6 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' conductance_c_seg = ',conductance_c_seg
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' pft_xylem_impairment_model = ',pft_xylem_impairment_model
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' ximpair_leaf_weight = ',ximpair_leaf_weight
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' ximpair_new_kmax_weight = ',ximpair_new_kmax_weight
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' ximpair_threshold = ',ximpair_threshold
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_tau_rec = ',ximpair_tau_rec
 CALL jules_print('pftparm',lineBuffer)
@@ -2022,6 +1998,13 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
     CALL ereport(routinename, ERROR,                                           &
     'xylem impairment (pft_xylem_impairment_model /= 0) is not coded for '  // &
     'DESICA (stomata_model=8)')
+  END IF
+  IF ( ANY( pft_xylem_impairment_model(1:npft) == 1 .OR.                      &
+            pft_xylem_impairment_model(1:npft) == 4 ) ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR,                                           &
+    'pft_xylem_impairment_model 1 (kmax) and 4 (kmax refit) are retired; '  // &
+    'use 2 or 3 (their code is on branch xylem_impairment at 130a575)')
   END IF
 END IF
 

@@ -24,7 +24,9 @@ USE timestep_mod, ONLY: timestep
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_npp_prev,         &
                                        ximpair_wood_prev, ximpair_renew_mean,  &
                                        ximpair_renew_wt
-USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf, ximpair_psi_stem
+USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
+USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
                           flux_sap_desica, dw_plant_desica
 USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
@@ -161,6 +163,7 @@ REAL :: workspace_levs(land_pts, sm_levels)
 REAL :: workspace_pft(land_pts, npft)
                                 ! Used in calculation of PFT variables
 REAL :: kmax_ref_plc(land_pts), kcrit_plc(land_pts), kx_plc(land_pts)
+REAL :: g_stem, g_leaf, psi_s
                                 ! PLC_pft with xylem impairment: unimpaired
                                 ! kmax_pft and kcrit, and the impaired xylem
                                 ! conductance at psi_leaf.
@@ -3801,6 +3804,30 @@ CASE ('PLC_pft')
                                           psparms%psi_leaf_extreme_pft(:,i),   &
                                           kx_plc )
       workspace_pft(:,i) = 100.0 * (1.0 - kx_plc(:) / kmax_pft(i))
+      IF ( l_ximpair_seg_memory .AND. ALLOCATED(ximpair_kcap_leaf) ) THEN
+        ! Per-segment memory: the stem and leaf (above-ground xylem) in
+        ! series, each at its outlet water potential (psi_stem, psi_leaf) on
+        ! its own curve under its own cap, relative to the intact pair. With
+        ! one cap and psi_stem = psi_leaf this is the expression above.
+        DO l = 1, land_pts
+          psi_s = psparms%psi_leaf_pft(l,i)
+          IF ( ALLOCATED(ximpair_psi_stem) ) psi_s = ximpair_psi_stem(l,i)
+          g_stem = MIN( EXP(-( ABS(MIN(psi_s, 0.0)                             &
+                                   / conductance_b_seg(i,2)) )                 &
+                            **conductance_c_seg(i,2)),                         &
+                        psparms%kmax_impaired_pft(l,i) / kmax_pft(i) )
+          g_leaf = MIN( EXP(-( ABS(MIN(psparms%psi_leaf_pft(l,i), 0.0)          &
+                                   / conductance_b_seg(i,3)) )                 &
+                            **conductance_c_seg(i,3)),                         &
+                        ximpair_kcap_leaf(l,i) )
+          g_stem = MAX(g_stem, 1.0e-12)
+          g_leaf = MAX(g_leaf, 1.0e-12)
+          workspace_pft(l,i) = 100.0 * (1.0 - ( 1.0 / seg_kfac(i,2)            &
+                                               + 1.0 / seg_kfac(i,3) )         &
+                                             / ( 1.0 / (seg_kfac(i,2) * g_stem) &
+                                               + 1.0 / (seg_kfac(i,3) * g_leaf) ))
+        END DO
+      END IF
     END IF
   END DO
 
