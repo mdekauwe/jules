@@ -707,8 +707,11 @@ INTEGER, PARAMETER ::                                                          &
     ! on the impaired path at the chosen Ci. The damage lowers psi_leaf at
     ! about the same E (JBaguley's scheme).
   ximpair_cost_impaired = 1,                                                   &
-    ! The cost on the impaired path, relative to its own zero-flow
-    ! conductance: the stomata see the damage.
+    ! RETIRED (stops the run): the cost on the impaired path, relative to
+    ! its own zero-flow conductance, so the stomata see the damage. The
+    ! capped segments are flat above the psi of past damage, so the
+    ! marginal cost there is about zero and the stomata open more after
+    ! damage (a ratchet, the opposite sign to observed legacies).
   ximpair_cost_sperry = 2
     ! Sperry et al. (2016, Plant Cell Environ 39: 2155, Fig. 3; C++ code):
     ! the optimisation runs on the intact (uncavitated) path and sets the target
@@ -717,7 +720,7 @@ INTEGER, PARAMETER ::                                                          &
     ! E and A.
 INTEGER ::                                                                     &
   ximpair_cost_model = ximpair_cost_intact
-      ! See ximpair_cost_*. 1 and 2 need som_ci_search = 2 (bounded).
+      ! See ximpair_cost_*. 2 needs som_ci_search = 2 (bounded); 1 is retired.
 LOGICAL ::                                                                     &
   l_ximpair_rec_growth = .FALSE.,                                              &
       ! Xylem impairment model 3 (memory): recover lost conductance with new
@@ -1702,20 +1705,23 @@ IF ( l_leaf_temp .AND. leaf_width <= 0.0 ) THEN
                'l_leaf_temp needs leaf_width > 0')
 END IF
 
+IF ( ximpair_cost_model == ximpair_cost_impaired ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'ximpair_cost_model = 1 (impaired) is retired: the stomata ' // &
+               'open more after damage. Use 0 (intact) or 2 (Sperry)')
+END IF
 IF ( ximpair_cost_model /= ximpair_cost_intact .AND.                          &
-     ximpair_cost_model /= ximpair_cost_impaired .AND.                        &
      ximpair_cost_model /= ximpair_cost_sperry ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'ximpair_cost_model should be 0 (intact), 1 (impaired) or ' //  &
-               '2 (Sperry)')
+               'ximpair_cost_model should be 0 (intact) or 2 (Sperry)')
 END IF
-IF ( ximpair_cost_model /= ximpair_cost_intact .AND.                          &
+IF ( ximpair_cost_model == ximpair_cost_sperry .AND.                          &
      som_ci_search /= som_ci_bounded ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'ximpair_cost_model 1 and 2 are coded for som_ci_search = 2 ' //&
-               'only')
+               'ximpair_cost_model = 2 is coded for som_ci_search = 2 only')
 END IF
 
 IF ( l_som_vcmax_psi .AND. ( ( stomata_model /= stomata_profit_max .AND.     &
