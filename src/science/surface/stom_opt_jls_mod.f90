@@ -368,7 +368,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,psi_bnd(open_pts)                                                             &
 ,el_bnd(open_pts)                                                              &
 ,carbon_gain_bnd(open_pts)                                                     &
-,hydraulic_cost_bnd(open_pts)
+,hydraulic_cost_bnd(open_pts)                                                  &
+,psi_stem_bnd(open_pts)
+                            ! Stem segment outlet psi at the optimum (xylem
+                            ! impairment with segments; else psi_root_zone).
 
 ! -- Negligible-hydraulic-cost fast path (profit_max_profit_model only) --
 ! A single-point evaluation at the most water-demanding candidate Ci (near
@@ -639,11 +642,13 @@ SELECT CASE ( som_base_parm )
               psi_root_extreme, l_xylem_impairment, kl_hc_max,                &
           ! OUT
               ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                        &
-              el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                     &
+              el_bnd, carbon_gain_bnd, hydraulic_cost_bnd,                    &
+              psi_stem_g = psi_stem_bnd                                       &
                   )
 
           DO j = 1, open_pts_search
             l = veg_index(open_index_search(j))
+            IF (PRESENT(psi_stem)) psi_stem(l) = psi_stem_bnd(j)
             ci(l) = ci_bnd(j)
             al(l) = al_bnd(j)
             gl(l) = gl_bnd(j)
@@ -1803,7 +1808,8 @@ SUBROUTINE stom_opt_bounded_search(                                            &
         kmax_ref, conductance_b, conductance_c, psi_leaf_extreme,              &
         psi_root_extreme, l_xylem_impairment, kl_hc_max,                       &
 ! OUT
-        ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g   &
+        ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g,  &
+        psi_stem_g                                                             &
 )
 
 USE parkind1, ONLY: jprb, jpim
@@ -1865,6 +1871,12 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   ci_g(open_pts), al_g(open_pts), gl_g(open_pts), kl_g(open_pts),            &
   psi_g(open_pts), el_g(open_pts), carbon_gain_g(open_pts),                  &
   hydraulic_cost_g(open_pts)
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: psi_stem_g(open_pts)
+                            ! Stem segment outlet water potential at the
+                            ! chosen state (xylem impairment with segments,
+                            ! for the per-segment stem damage); psi_root_zone
+                            ! otherwise and for closed points.
+REAL(KIND=real_jlslsm) :: el_s1(1,1), psi_s1(1,1), kl_s1(1,1), st_s1(1,1)
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
   edge_rtol = 1.0e-3,                                                          &
@@ -1973,6 +1985,7 @@ c_curve(:) = conductance_c_pft(pft)
 
 DO j = 1, open_pts
   l = veg_index(open_index(j))
+  IF ( PRESENT(psi_stem_g) ) psi_stem_g(j) = psi_root_zone(l)
   idx1(1) = open_index(j)
   g_off = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
   ! (CMax and CGain work on net A, as Wolf et al. 2016 and Lu et al. 2020.)
@@ -2157,6 +2170,18 @@ DO j = 1, open_pts
     kl_g(j) = kl_u
     carbon_gain_g(j) = cg_star
     hydraulic_cost_g(j) = hc_star
+  END IF
+
+  ! Stem outlet psi at the chosen transpiration on the (impaired) segment
+  ! chain, for the per-segment stem damage (diagnostic only: the state is
+  ! already chosen).
+  IF ( PRESENT(psi_stem_g) .AND. l_xylem_impairment .AND.                      &
+       l_som_plant_segments .AND. gl_g(j) > 0.0 ) THEN
+    el_s1(1,1) = el_g(j)
+    CALL leaf_psi_segments_jls( pft, 1, land_pts, 1, veg_index, idx1, el_s1,   &
+                                psi_root_zone, kmax_ref, kcrit, psi_s1, kl_s1, &
+                                kcap_frac = kcap_pts, stem_psi = st_s1 )
+    psi_stem_g(j) = st_s1(1,1)
   END IF
 END DO
 
