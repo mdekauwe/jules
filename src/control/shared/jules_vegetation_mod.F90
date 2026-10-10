@@ -526,6 +526,29 @@ LOGICAL ::                                                                     &
       ! (physiol). Applied for PFTs with fsmc_mod = 2 only (smc_ext computes
       ! soil_to_root_k only there). It replaces l_som_root_supply.
 LOGICAL ::                                                                     &
+  l_som_rhizo_mfp = .FALSE.
+      ! With l_som_rhizo_series: the soil-to-root link is nonlinear, from the
+      ! matric flux potential (Kirchhoff transform) of each layer,
+      !   Phi_i(h) = integral of K_i dh' from h to the driest state,
+      !   E_i = B_i (Phi_i(h_soil,i) - Phi_i(h_root)),
+      ! with B_i = soil_to_root_k / soil_k the Bonan et al. (2014) cylinder
+      ! factor and one root node shared by the layers (rhizo_mfp_mod). The
+      ! soil conductivity then falls towards the root surface as it dries,
+      ! instead of being taken at the bulk soil psi (Carminati & Javaux 2020;
+      ! Abdalla et al. 2021), and the soil supplies at most sum B_i Phi_i.
+      ! Off: the linear link psi_root = psi_src - E / ksr, as before.
+LOGICAL ::                                                                     &
+  l_som_rhizo_hr = .TRUE.
+      ! With l_som_rhizo_mfp: layers drier than the root still exchange
+      ! water with it in the root balance (hydraulic redistribution), so with
+      ! no flow the root sits between the layers, at
+      ! sum_i B_i (Phi_i(psi_i) - Phi_i(psi_root)) = 0, the nonlinear form of
+      ! the conductance-weighted soil psi of the linear link (which assumes
+      ! the same). Off: drier layers give nothing, so with no flow the root
+      ! sits at the wettest rooted layer. On by default (10 Oct 2026): closest
+      ! to the linear link and the better psi_leaf fit at FR-Pue. Only used
+      ! with l_som_rhizo_mfp. The extraction weights never go negative.
+LOGICAL ::                                                                     &
   l_root_mass_fixed = .FALSE.
       ! Root mass in the soil-to-root conductance (soil_to_root_k, Bonan et
       ! al. 2014 eq. A23; used by the l_som_root_supply cap and the root
@@ -814,6 +837,7 @@ NAMELIST  / jules_vegetation/                                                  &
     leaf_shelter, leaf_aero_model, l_leaf_coexp_lai,                           &
     l_som_gain_gross,                                                          &
     l_som_cuticular_floor, l_som_gravity, l_som_coupled_e,                    &
+    l_som_rhizo_mfp, l_som_rhizo_hr,                                          &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,    &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
@@ -1555,6 +1579,12 @@ END IF
 ! the plant hydraulics of the profit max and DESICA.
 l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt .OR.               &
                        stomata_model == stomata_desica )
+IF ( l_som_rhizo_mfp .AND. .NOT. l_som_rhizo_series ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_rhizo_mfp needs the soil-to-root link in series: ' //    &
+               'stomata_model = 4 to 7, 9, 10 or DESICA')
+END IF
 
 IF ( .NOT. l_root_mass_fixed .AND. root_mass_min <= 0.0 ) THEN
   errcode = 101
@@ -1814,6 +1844,12 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_coupled_e = ', l_som_coupled_e
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' l_som_rhizo_mfp = ', l_som_rhizo_mfp
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_som_rhizo_hr = ', l_som_rhizo_hr
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 WRITE(lineBuffer,*) ' som_hc_negligible_tol = ', som_hc_negligible_tol
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -1948,7 +1984,7 @@ INTEGER, PARAMETER :: n_int = 21 ! +2 leaf_temp_iter/leaf_aero_model, was 16, +1
 INTEGER, PARAMETER :: n_real = 19 + (n_photo_coef * 5) ! +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 44 + npft_max ! +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
+INTEGER, PARAMETER :: n_log = 46 + npft_max ! +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -2022,6 +2058,8 @@ TYPE :: my_namelist
   LOGICAL :: l_som_cuticular_floor
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_coupled_e
+  LOGICAL :: l_som_rhizo_mfp
+  LOGICAL :: l_som_rhizo_hr
   LOGICAL :: l_nrun_mid_trif
   LOGICAL :: l_trif_init_accum
   LOGICAL :: l_phenol
@@ -2129,6 +2167,8 @@ IF (mype == 0) THEN
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_coupled_e = l_som_coupled_e
+  my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
+  my_nml % l_som_rhizo_hr = l_som_rhizo_hr
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
   my_nml % l_trif_init_accum   = l_trif_init_accum
   my_nml % l_phenol        = l_phenol
@@ -2225,6 +2265,8 @@ IF (mype /= 0) THEN
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor
   l_som_gravity = my_nml % l_som_gravity
   l_som_coupled_e = my_nml % l_som_coupled_e
+  l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp
+  l_som_rhizo_hr = my_nml % l_som_rhizo_hr
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif
   l_trif_init_accum = my_nml % l_trif_init_accum
   l_phenol        = my_nml % l_phenol

@@ -115,8 +115,10 @@ USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                       &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
-  l_som_rhizo_series, stomata_model, stomata_desica
+  l_som_rhizo_series, stomata_model, stomata_desica, l_som_rhizo_mfp
 USE xylem_hydraulics_CW_jls_mod, ONLY: ksr
+USE rhizo_mfp_mod, ONLY: rhizo_set_state, rhizo_geometry, rhizo_psi0,         &
+                         rhizo_uptake, rz_ft
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: root_psi_crit, fsmc_mod
 
@@ -711,6 +713,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! potential (Pa).
 LOGICAL, SAVE :: l_warned_ksr = .FALSE.
                             ! Warned once about fsmc_mod /= 2.
+REAL(KIND=real_jlslsm) :: b_geom_rz(land_pts,sm_levels)
+                            ! l_som_rhizo_mfp: soil-to-root geometric factor
+                            ! B = soil_to_root_k / soil_k (m-1).
 REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_rs = 0.018015
                             ! Molar mass of water (kg mol-1), for
                             ! l_som_rhizo_series.
@@ -1335,6 +1340,32 @@ DO n = 1,npft
       END DO
       END IF
     END IF
+
+    !-------------------------------------------------------------------------
+    ! l_som_rhizo_mfp: the nonlinear soil-to-root link (rhizo_mfp_mod). Set
+    ! this PFT's per-layer state (the same geometry as soil_to_root_k, the
+    ! layer psi after any bounds, the soil hydraulic parameters), and make
+    ! psi_root_zone the root potential at zero flow, which the solvers start
+    ! from (psi_src) and drop below by the soil link. Without redistribution
+    ! that is the wettest rooted layer; otherwise the zero-flow balance.
+    !-------------------------------------------------------------------------
+    rz_ft = n
+    IF ( l_som_rhizo_mfp .AND. fsmc_mod(n) == 2 ) THEN
+      b_geom_rz(:,:) = 0.0
+      DO j = 1,surft_pts(n)
+        l = surft_index(j,n)
+        b_geom_rz(l,:) = rhizo_geometry(n, sm_levels, f_root(l,:),            &
+                                        root_mass(l))
+      END DO
+      CALL rhizo_set_state( land_pts, sm_levels, npft, n, surft_pts(n),        &
+                            surft_index(:,n), b_geom_rz,                       &
+                            soil_wp_soilt(:,m,:), sathh_soilt(:,m,:),          &
+                            bexp_soilt(:,m,:), satcon_soilt(:,m,1:sm_levels) )
+      DO j = 1,surft_pts(n)
+        l = surft_index(j,n)
+        psi_root_zone_pft(l,n) = rhizo_psi0(l,n)
+      END DO
+    END IF
   END IF
 
   ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
@@ -1577,12 +1608,18 @@ DO n = 1,npft
   IF ( l_som_rhizo_series .AND. fsmc_mod(n) == 2 .AND. irrig_tile(n) /= 1 ) THEN
     DO j = 1,surft_pts(n)
       l = surft_index(j,n)
+      IF ( l_som_rhizo_mfp ) THEN
+        ! Nonlinear link: each layer's uptake at the root potential that
+        ! carries el_pft (zero where it cannot: the smc_ext weights stay).
+        CALL rhizo_uptake( l, n, el_pft(l,n), q_rs )
+      ELSE
       ksum_rs = SUM(MAX(soil_root_k_soilt(l,m,:), 0.0))
       IF ( ksum_rs <= TINY(1.0_real_jlslsm) ) CYCLE
       psi_root_rs = psi_root_zone_pft(l,n)                                     &
                     - el_pft(l,n) * m_h2o_rs * rho_water * g / ksum_rs
       q_rs(:) = MAX(soil_root_k_soilt(l,m,:)                                   &
                     * (soil_wp_soilt(l,m,:) - psi_root_rs), 0.0)
+      END IF
       IF ( SUM(q_rs(:)) > TINY(1.0_real_jlslsm) ) THEN
         wt_ext_type(l,:,n) = q_rs(:) / SUM(q_rs(:))
       END IF
