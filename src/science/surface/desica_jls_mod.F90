@@ -200,6 +200,7 @@ SUBROUTINE desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,     &
 USE pftparm, ONLY: kmax_pft, conductance_b, conductance_c, p50,               &
                    cap_leaf, cap_stem
 USE jules_vegetation_mod, ONLY: som_leaf_resist_frac
+USE rhizo_mfp_mod, ONLY: rhizo_active_ft, rhizo_drop
 USE planet_constants_mod, ONLY: g
 USE water_constants_mod, ONLY: rho_water
 
@@ -238,7 +239,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   dt, kmax_c, k_xylem, k_leaf, k_root, k_plant, c_leaf, c_stem, psi_h,         &
   psi_stem_min,                                                                &
   pl, ps, pl_new, ps_new, ap, bp, ex, j_sap, j_cap, q_root, q_sum, j_sum,     &
-  e, e_sub, e_sum
+  e, e_sub, e_sum, ksr_l, q_prev, dpsi_s, k_g
+LOGICAL :: l_ok
 
 n_sub = MAX(1, CEILING(timestep / dt_max))
 dt    = timestep / REAL(n_sub)
@@ -272,6 +274,22 @@ DO m = 1,veg_pts
 
   e      = MAX(el(l), 0.0)
   kmax_c = kmax_pft(ft) * lai(l)
+  ! l_som_rhizo_mfp: the soil link is nonlinear; DESICA holds conductances
+  ! fixed over the step, so use its chord conductance at the previous
+  ! step's root uptake (exact for that flux), or the marginal conductance
+  ! at zero flow. psi_root_zone is then the zero-flow root potential.
+  ksr_l = ksr(l)
+  IF ( ksr(l) >= 0.0 .AND. rhizo_active_ft(l, ft) ) THEN
+    q_prev = MAX(flux_root_desica(l,ft), 0.0) / mol_h2o
+    CALL rhizo_drop( l, ft, q_prev, dpsi_s, k_g, l_ok )
+    IF ( .NOT. l_ok ) THEN
+      ksr_l = 0.0
+    ELSE IF ( q_prev > 0.0 .AND. dpsi_s > 0.0 ) THEN
+      ksr_l = q_prev / dpsi_s
+    ELSE
+      ksr_l = k_g
+    END IF
+  END IF
   c_leaf = cap_leaf(ft) * lai(l)
   c_stem = cap_stem(ft) * lai(l)
   q_sum  = 0.0
@@ -288,8 +306,8 @@ DO m = 1,veg_pts
     k_root  = k_xylem / (1.0 - som_leaf_resist_frac)
     k_plant = k_xylem
     IF ( ksr(l) >= 0.0 ) THEN
-      k_root  = 1.0 / ( 1.0 / k_root + 1.0 / MAX(ksr(l), 1.0e-6 * kmax_c) )
-      k_plant = 1.0 / ( 1.0 / k_xylem + 1.0 / MAX(ksr(l), 1.0e-6 * kmax_c) )
+      k_root  = 1.0 / ( 1.0 / k_root + 1.0 / MAX(ksr_l, 1.0e-6 * kmax_c) )
+      k_plant = 1.0 / ( 1.0 / k_xylem + 1.0 / MAX(ksr_l, 1.0e-6 * kmax_c) )
     END IF
 
     ! The lower bounds on psi_leaf and psi_stem are met by capping the
