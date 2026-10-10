@@ -172,7 +172,8 @@ INTEGER, PARAMETER ::                                                          &
   xylem_impairment_none = 0,                                                   &
     ! No xylem imparement model is used.
   xylem_impairment_kmax = 1,                                                   &
-    ! Xylem are impaired by reducing the maximum xylem conductance.
+    ! RETIRED (2026-10-10): reduced kmax with refitted b, c (on/off at
+    ! UK-Ham). Number kept; the code is on xylem_impairment at 130a575.
   xylem_impairment_whole_trunk = 2,                                            &
     ! Conductance along the xylem limited by the historic minimum water
     ! potential profile.
@@ -182,9 +183,10 @@ INTEGER, PARAMETER ::                                                          &
     ! most negative damage-driving water potential experienced, relaxing
     ! back when the plant rehydrates.
   xylem_impairment_kmax_refit = 4
-    ! The kmax model made consistent with Mackay et al. (2015): Kcav from
-    ! the intact curve at the minimum damage-driving water potential, with
-    ! the Weibull parameters refitted to the capped curve.
+    ! RETIRED (2026-10-10): a Weibull refitted to the memory model's capped
+    ! curve (Mackay et al. 2015 / TREES), an approximation of model 3, which
+    ! uses the capped curve exactly. Number kept; the code is on
+    ! xylem_impairment at 130a575.
 
 ! Water potential driving embolism in the memory impairment model
 ! (ximpair_psi_driver).
@@ -635,11 +637,11 @@ INTEGER ::                                                                     &
       ! See ximpair_cost_*. 1 and 2 need som_ci_search = 2 (bounded).
 LOGICAL ::                                                                     &
   l_ximpair_rec_growth = .FALSE.,                                              &
-      ! Xylem impairment models 3 and 4: recover lost conductance with new
+      ! Xylem impairment model 3 (memory): recover lost conductance with new
       ! xylem grown from carbon gain (ximpair_wood_alloc) - see
       ! update_xylem_impairment_memory.
   l_ximpair_leaf_loss = .FALSE.,                                               &
-      ! Xylem impairment models 3 and 4 with TRIFFID phenology (l_phenol):
+      ! Xylem impairment model 3 (memory) with TRIFFID phenology (l_phenol):
       ! cap the phenological state at what the damaged xylem can supply,
       ! phen <= 1 - ximpair_leaf_sens * (1 - k_cap/kmax), so the canopy sheds
       ! leaves after lasting hydraulic damage and regrows as it recovers -

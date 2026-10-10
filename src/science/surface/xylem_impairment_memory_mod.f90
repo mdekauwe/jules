@@ -19,7 +19,6 @@ PUBLIC :: ximpair_memory_alloc,                                                &
           xylem_conductance_impaired_memory_stom_opt_jls,                      &
           leaf_psi_impaired_memory,                                            &
           update_xylem_impairment_memory,                                      &
-          xylem_refit_weibull,                                                 &
           ximpair_store_npp
 
 PRIVATE :: k_intact, antideriv, psi_at_k
@@ -107,9 +106,8 @@ END SUBROUTINE ximpair_memory_alloc
 !
 ! This is the target curve of Mackay et al. (2015, WRR, eqs 11-12; TREES):
 ! Kcav = Ksat f(psi_min) with the intact curve followed below psi_min. TREES
-! then fits a new Weibull (b, c) to it; the kmax refit impairment model
-! (pft_xylem_impairment_model = 4) does the same analytically (see
-! xylem_refit_weibull), whereas this model uses the capped curve exactly.
+! then fits a new Weibull (b, c) to it (the retired model 4 did the same
+! analytically), whereas this model uses the capped curve exactly.
 !
 ! With the cap, transpiration from psi_r to psi_l is
 !   E = k_cap * (psi_r - MAX(psi_l, psi_s))               [capped part]
@@ -554,6 +552,7 @@ USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 l_ximpair_rec_growth, l_triffid,               &
                                 l_ximpair_seg_memory
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
+                                          ximpair_psi_stem,                    &
                                           ximpair_seg_state_alloc
 USE trif, ONLY: g_wood
 USE jules_surface_types_mod, ONLY: npft
@@ -743,6 +742,7 @@ END IF
 
 IF (l_ximpair_seg_memory) THEN
   CALL ximpair_seg_state_alloc( n_land_pts )
+  ximpair_psi_stem(:,pft) = psi_stem(:)
   ! Each segment's loss falls with its own e-folding time.
   IF (ximpair_tau_stem(pft) > 0.0) THEN
     plc(:) = 1.0 - kcap(:) / kmax_pts(:)
@@ -826,43 +826,6 @@ CONTAINS
   END FUNCTION seg_f
 
 END SUBROUTINE update_xylem_impairment_memory
-
-! ---------------------------------------------------------------------
-! Refit the vulnerability curve to the capped curve, as in Mackay et al.
-! (2015) / TREES: the refitted curve kcap * f(psi; b', c') matches
-! MIN(kmax f(psi; b, c), kcap) relative to kcap at two points,
-!   CW  (k = kmax exp(-(psi/b)^c)):   relative k = 1/e (defines b') and 0.12
-!   SOX (k = kmax / (1+(psi/b)^c)):   relative k = 0.5 (defines b') and 0.12
-! The CW b' is b (1 - ln r)^(1/c), r = kcap/kmax (as in the kmax model), but
-! c' comes from the 0.12 point: the kmax model's c' = c (b/b')^c decreases
-! with damage, whereas the capped curve, flat down to psi_min and then
-! falling along the intact curve, needs a steeper (larger c) refit (Mackay
-! et al. 2015, Fig. 2: c 4.08 -> 21.1).
-! ---------------------------------------------------------------------
-SUBROUTINE xylem_refit_weibull( pft, n, kcap, kmax, b, c, b_new, c_new )
-
-USE pftparm, ONLY: pft_conductance_model
-USE jules_vegetation_mod, ONLY: CW_conductance
-
-INTEGER, INTENT(IN) :: pft, n
-REAL(KIND=real_jlslsm), INTENT(IN) :: kcap(n), kmax, b, c
-REAL(KIND=real_jlslsm), INTENT(OUT) :: b_new(n), c_new(n)
-
-REAL(KIND=real_jlslsm) :: r(n), psi2(n)
-
-r(:) = MIN(MAX(kcap(:) / kmax, 1.0e-6), 1.0)
-
-IF (pft_conductance_model(pft) == CW_conductance) THEN
-  b_new(:) = b * (1.0 - LOG(r(:)))**(1/c)
-  psi2(:)  = b * (-LOG(0.12 * r(:)))**(1/c)
-  c_new(:) = LOG(-LOG(0.12)) / LOG(psi2(:) / b_new(:))
-ELSE
-  b_new(:) = b * (2.0 / r(:) - 1.0)**(1/c)
-  psi2(:)  = b * (1.0 / (0.12 * r(:)) - 1.0)**(1/c)
-  c_new(:) = LOG(1.0 / 0.12 - 1.0) / LOG(psi2(:) / b_new(:))
-END IF
-
-END SUBROUTINE xylem_refit_weibull
 
 ! *********************************************************************
 ! Keep this timestep's NPP of a PFT for the next timestep's growth

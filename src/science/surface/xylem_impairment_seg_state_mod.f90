@@ -21,13 +21,18 @@ IMPLICIT NONE
 
 PRIVATE
 
-PUBLIC :: ximpair_kcap_leaf, ximpair_seg_state_alloc, ximpair_seg_frac
+PUBLIC :: ximpair_kcap_leaf, ximpair_psi_stem, ximpair_seg_state_alloc,       &
+          ximpair_seg_frac
 
 ! Leaf-segment cap, k_cap / kmax of the leaf segment (1 = intact), of each
 ! PFT at each land point. Not allocated until the first update (none during
 ! spin-up) or a dump read, and read as intact until then. Written to and
 ! read from dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: ximpair_kcap_leaf(:,:)
+
+! Stem water potential (Pa; outlet of the stem segment) at the last update,
+! for the PLC_pft diagnostic. Not dumped; 0 until the first update.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: ximpair_psi_stem(:,:)
 
 CONTAINS
 
@@ -43,6 +48,10 @@ INTEGER, INTENT(IN) :: n_land_pts
 IF (.NOT. ALLOCATED(ximpair_kcap_leaf)) THEN
   ALLOCATE(ximpair_kcap_leaf(n_land_pts, npft))
   ximpair_kcap_leaf(:,:) = 1.0
+END IF
+IF (.NOT. ALLOCATED(ximpair_psi_stem)) THEN
+  ALLOCATE(ximpair_psi_stem(n_land_pts, npft))
+  ximpair_psi_stem(:,:) = 0.0
 END IF
 
 END SUBROUTINE ximpair_seg_state_alloc

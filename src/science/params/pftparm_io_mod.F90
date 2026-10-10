@@ -248,9 +248,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
   sox_a_io(npft_max) = rmdi,                                                   &
   sox_p50_io(npft_max) = rmdi,                                                 &
   sox_rp_min_io(npft_max) = rmdi,                                              &
-  ximpair_leaf_weight_io(npft_max) = rmdi,                                     & ! JBaguley
-  ximpair_new_kmax_weight_io(npft_max) = rmdi,                                 & ! JBaguley
-  ximpair_threshold_fraction_io(npft_max) = rmdi,                              & ! JBaguley
   ximpair_tau_rec_io(npft_max) = rmdi,                                         &
   ximpair_psi_refill_io(npft_max) = rmdi,                                      &
   ximpair_wood_alloc_io(npft_max) = rmdi,                                      &
@@ -322,8 +319,7 @@ NAMELIST  / jules_pftparm/                                                     &
   sug_yg_io,       leaf_crit_io,     z0hm_pft_io,                              & !JBaguley
   z0hm_classic_pft_io,               z0v_io,                                   &
   sox_a_io,        sox_p50_io,       sox_rp_min_io,                            &
-  ximpair_leaf_weight_io,            ximpair_new_kmax_weight_io,               & !JBaguley
-  ximpair_threshold_fraction_io,     ximpair_psi_driver_io,                    &
+  ximpair_psi_driver_io,                                                       &
   ximpair_reset_mmdd_io,             ximpair_tau_rec_io,                       &
   ximpair_psi_refill_io,             ximpair_wood_alloc_io,                    &
   ximpair_growth_basis_io,           ximpair_leaf_sens_io,                     &
@@ -366,8 +362,8 @@ INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 9 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
                                            ! impairment)
-INTEGER, PARAMETER :: n_real = 148 * npft_max ! = the REAL arrays in
-                                             ! my_namelist (137 + 11 xylem
+INTEGER, PARAMETER :: n_real = 145 * npft_max ! = the REAL arrays in
+                                             ! my_namelist (137 + 8 xylem
                                              ! impairment)
 
 TYPE :: my_namelist
@@ -518,9 +514,6 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: sox_a_io(npft_max)
   REAL(KIND=real_jlslsm) :: sox_p50_io(npft_max)
   REAL(KIND=real_jlslsm) :: sox_rp_min_io(npft_max)
-  REAL(KIND=real_jlslsm) :: ximpair_leaf_weight_io(npft_max) ! JBaguley
-  REAL(KIND=real_jlslsm) :: ximpair_new_kmax_weight_io(npft_max) ! JBaguley
-  REAL(KIND=real_jlslsm) :: ximpair_threshold_fraction_io(npft_max) ! JBaguley
   REAL(KIND=real_jlslsm) :: ximpair_tau_rec_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_psi_refill_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_wood_alloc_io(npft_max)
@@ -693,9 +686,6 @@ IF (mype == 0) THEN
   my_nml % sox_a_io       = sox_a_io
   my_nml % sox_p50_io     = sox_p50_io
   my_nml % sox_rp_min_io  = sox_rp_min_io
-  my_nml % ximpair_leaf_weight_io = ximpair_leaf_weight_io ! JBaguley
-  my_nml % ximpair_new_kmax_weight_io = ximpair_new_kmax_weight_io ! JBaguley
-  my_nml % ximpair_threshold_fraction_io = ximpair_threshold_fraction_io ! JBaguley
   my_nml % ximpair_tau_rec_io = ximpair_tau_rec_io
   my_nml % ximpair_psi_refill_io = ximpair_psi_refill_io
   my_nml % ximpair_wood_alloc_io = ximpair_wood_alloc_io
@@ -856,9 +846,6 @@ IF (mype /= 0) THEN
   sox_a_io        = my_nml % sox_a_io
   sox_p50_io      = my_nml % sox_p50_io
   sox_rp_min_io   = my_nml % sox_rp_min_io
-  ximpair_leaf_weight_io = my_nml % ximpair_leaf_weight_io ! JBaguley
-  ximpair_new_kmax_weight_io = my_nml % ximpair_new_kmax_weight_io ! JBaguley
-  ximpair_threshold_fraction_io = my_nml % ximpair_threshold_fraction_io ! JBaguley
   ximpair_tau_rec_io = my_nml % ximpair_tau_rec_io
   ximpair_psi_refill_io = my_nml % ximpair_psi_refill_io
   ximpair_wood_alloc_io = my_nml % ximpair_wood_alloc_io
@@ -941,8 +928,6 @@ USE pftparm, ONLY:                                                             &
   vint,            vsl,              sug_yg,                                   &
   leaf_crit,       z0v,                                                        & !JBaguley
   sox_a,           sox_p50,          sox_rp_min,                               &
-  ximpair_leaf_weight,                                                         & !JBaguley
-  ximpair_new_kmax_weight,           ximpair_threshold,                        & !JBaguley
   ximpair_psi_driver,                ximpair_reset_mmdd,                       &
   ximpair_tau_rec,                   ximpair_psi_refill,                       &
   ximpair_wood_alloc,                ximpair_growth_basis,                     &
@@ -1197,10 +1182,6 @@ P88(:)          = p88_io(1:npft)
 sox_a(:)        = sox_a_io(1:npft)
 sox_p50(:)      = sox_p50_io(1:npft)
 sox_rp_min(:)   = sox_rp_min_io(1:npft)
-ximpair_leaf_weight(:) = ximpair_leaf_weight_io(1:npft)
-ximpair_new_kmax_weight(:) = ximpair_new_kmax_weight_io(1:npft)
-ximpair_threshold(:) = ximpair_threshold_fraction_io(1:npft)                    &
-                                 * kmax_pft(1:npft)   ! model units (not the mmol input)
 ! Embolism memory impairment model: keep the pftparm_alloc defaults for any
 ! item not given in the namelist.
 DO i = 1, npft
