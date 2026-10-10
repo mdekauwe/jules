@@ -20,6 +20,8 @@ USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
     ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
+    ximpair_kcap_leaf
 
 
 USE model_grid_mod, ONLY:                                                      &
@@ -215,7 +217,7 @@ DO i = 1,nvars
            'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',              &
            'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',             &
            'ximpair_npp_prev', 'ximpair_wood_prev',                      &
-           'ximpair_renew_mean', 'ximpair_renew_wt' )
+           'ximpair_renew_mean', 'ximpair_renew_wt', 'ximpair_kcap_leaf' )
       CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 
     CASE ( 'plantNumDensity' )
@@ -616,6 +618,12 @@ DO i = 1,nvars
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), ximpair_renew_wt(:,n))
+    END DO
+
+  CASE ( 'ximpair_kcap_leaf' )
+    CALL ximpair_seg_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), ximpair_kcap_leaf(:,n))
     END DO
 
   CASE ( 'plantNumDensity' )

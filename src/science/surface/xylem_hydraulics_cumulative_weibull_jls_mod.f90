@@ -171,7 +171,8 @@ END FUNCTION xylem_f_bc
 ! give at E = 0, for points the optimiser does not visit (closed stomata).
 ! Xylem impairment: b, c give the point's impaired curve (single curve), and
 ! kcap_frac caps the stem and leaf segments (memory model with segments,
-! kmax then the intact value), as leaf_psi_segments_jls; kx, the plant
+! kmax then the intact value; with l_ximpair_seg_memory the leaf segment
+! has its own cap), as leaf_psi_segments_jls; kx, the plant
 ! (xylem) conductance at psi_root if already known (e.g. any impairment
 ! model's), replaces the curve. ksr_path must be set (set_ksr_path).
 ! *****************************************************************************
@@ -180,6 +181,7 @@ FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, b, c, kcap_frac, kx )      &
 
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_rhizo_series
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
 
 IMPLICIT NONE
 
@@ -202,7 +204,8 @@ ELSE IF ( l_som_plant_segments ) THEN
            * EXP(-( ABS(MIN(psi_root, 0.0) / conductance_b_seg(pft,iseg)) )    &
                  **conductance_c_seg(pft,iseg))
     IF ( PRESENT(kcap_frac) .AND. iseg >= 2 )                                  &
-      k_el = MIN(k_el, MIN(MAX(kcap_frac, 0.0), 1.0) * kmax * seg_kfac(pft,iseg))
+      k_el = MIN(k_el, MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac),      &
+                               0.0), 1.0) * kmax * seg_kfac(pft,iseg))
     IF ( k_el <= TINY(1.0_real_jlslsm) ) RETURN
     r = r + 1.0 / k_el
   END DO
@@ -1008,7 +1011,9 @@ SUBROUTINE leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
 ! segments: with kcap_frac present, the stem and leaf segments (which use
 ! the PFT curve the impairment model damages) are capped,
 !   k_s(psi) = MIN( kmax_s f_s(psi), kcap_frac * kmax_s ),
-! while the root segment stays intact (no root damage). Each segment's flow
+! while the root segment stays intact (no root damage). With
+! l_ximpair_seg_memory kcap_frac caps the stem only, and the leaf segment
+! takes its own cap (ximpair_kcap_leaf). Each segment's flow
 ! is then E = A_s(psi_out) - A_s(psi_in), A_s the integral of the capped
 ! curve from psi to 0: kcap_s * (-psi) above psi_cap (where the intact curve
 ! meets the cap) and the intact integral below it. leaf_k_intact, if
@@ -1017,6 +1022,7 @@ SUBROUTINE leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
 
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
 
 IMPLICIT NONE
 
@@ -1108,7 +1114,8 @@ DO j = 1, open_pnts
 
     ! Cap on the stem and leaf segments (not the root).
     fr = 1.0
-    IF ( l_impair .AND. iseg >= 2 ) fr = MIN(MAX(kcap_frac(l), k_floor), 1.0)
+    IF ( l_impair .AND. iseg >= 2 )                                            &
+      fr = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor), 1.0)
     l_cap = fr < 1.0 - 1.0e-6
     IF ( l_cap ) THEN
       psi_cap = bs * (-LOG(fr))**(1.0 / cs)

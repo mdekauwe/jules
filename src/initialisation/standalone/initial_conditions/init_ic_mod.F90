@@ -1012,6 +1012,9 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'ximpair_wood_prev' )
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
+  CASE ( 'ximpair_kcap_leaf' )
+    ! Leaf-segment cap fraction: 1 = intact.
+    CALL dict_set(defaults_dict, identifiers(i), 1.0)
 
   CASE DEFAULT
     CALL log_info("get_default_ic_values",                                     &

@@ -24,6 +24,7 @@ USE timestep_mod, ONLY: timestep
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_npp_prev,         &
                                        ximpair_wood_prev, ximpair_renew_mean,  &
                                        ximpair_renew_wt
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
                           flux_sap_desica, dw_plant_desica
 USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
@@ -3734,6 +3735,12 @@ CASE ( 'ximpair_renew_mean' )
 CASE ( 'ximpair_renew_wt' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(ximpair_renew_wt) ) workspace_pft(:,:) = ximpair_renew_wt
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_kcap_leaf' )
+  workspace_pft(:,:) = 1.0
+  IF ( ALLOCATED(ximpair_kcap_leaf) ) workspace_pft(:,:) = ximpair_kcap_leaf
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

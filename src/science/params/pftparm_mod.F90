@@ -587,13 +587,25 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  near predawn -1.1 MPa (Lempereur et al. 2015, New Phytol
                  !  207: 579), so recovery falls in the growth windows (spring
                  !  and autumn), not in summer drought. Default -1e30: no gate.
-,ximpair_rec_years(:)
+,ximpair_rec_years(:)                                                         &
                  ! Years of typical growth for the growth recovery term
                  !  (l_ximpair_rec_growth)
                  !  to recover the loss of conductivity: the loss falls
                  !  exponentially with growth, e-folding over
                  !  ximpair_rec_years / 2 years of typical growth. <= 0 applies
                  !  the renewed fraction directly (fast recovery).
+,ximpair_tau_stem(:)                                                          &
+                 ! Per-segment memory (l_ximpair_seg_memory): e-folding time
+                 !  (years; of typical growth with the growth clock, else of
+                 !  calendar time) of the stem segment's loss of
+                 !  conductivity, i.e. the residence time of conducting
+                 !  sapwood (sapwood -> heartwood turnover; e.g. LPJ-GUESS
+                 !  turnover_sap 0.05-0.1 yr-1, 0.075 for Q. ilex).
+                 !  <= 0: no stem recovery.
+,ximpair_tau_leaf(:)
+                 ! As ximpair_tau_stem for the leaf (leaf and twig) segment,
+                 !  renewed with the leaves: about the leaf lifespan.
+                 !  <= 0: no leaf recovery.
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -930,6 +942,8 @@ ALLOCATE( ximpair_wood_alloc(npft))
 ALLOCATE( ximpair_leaf_sens(npft))
 ALLOCATE( ximpair_psi_growth(npft))
 ALLOCATE( ximpair_rec_years(npft))
+ALLOCATE( ximpair_tau_stem(npft))
+ALLOCATE( ximpair_tau_leaf(npft))
 
 leaf_crit(:) = 0.0
 pft_conductance_model(:) = 0
@@ -976,6 +990,8 @@ ximpair_wood_alloc(:) = 0.25
 ximpair_leaf_sens(:) = 0.0
 ximpair_psi_growth(:) = -1.0e30
 ximpair_rec_years(:) = 0.0
+ximpair_tau_stem(:) = 0.0
+ximpair_tau_leaf(:) = 0.0
 
 ! SOX parameters
 ALLOCATE( sox_a(npft))
@@ -1298,6 +1314,10 @@ WRITE(lineBuffer,*)' ximpair_psi_growth = ',ximpair_psi_growth
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_rec_years = ',ximpair_rec_years
 CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' ximpair_tau_stem = ',ximpair_tau_stem
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' ximpair_tau_leaf = ',ximpair_tau_leaf
+CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_psi_driver = ',ximpair_psi_driver
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_reset_mmdd = ',ximpair_reset_mmdd
@@ -1325,7 +1345,9 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  stomata_sox_analytical,                      &
                                  stomata_model, l_spec_veg_z0, l_sugar,        &
                                  l_scale_resp_pm, stomata_desica,              &
-                                 som_psi_solver, psi_solver_lut
+                                 som_psi_solver, psi_solver_lut,               &
+                                 l_ximpair_seg_memory, l_som_plant_segments,   &
+                                 l_ximpair_rec_growth, xylem_impairment_memory
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs, l_snow_albedo
 
@@ -2000,6 +2022,31 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
     CALL ereport(routinename, ERROR,                                           &
     'xylem impairment (pft_xylem_impairment_model /= 0) is not coded for '  // &
     'DESICA (stomata_model=8)')
+  END IF
+END IF
+
+!-----------------------------------------------------------------------------
+! Per-segment memory: the memory model's caps on the stem and leaf segments.
+! With the growth clock it needs the slow (running-mean) recovery,
+! ximpair_rec_years > 0, which then only sets the averaging window.
+!-----------------------------------------------------------------------------
+IF ( l_ximpair_seg_memory ) THEN
+  IF ( .NOT. l_som_plant_segments .OR.                                        &
+       ANY( pft_xylem_impairment_model(1:npft) /= 0 .AND.                     &
+            pft_xylem_impairment_model(1:npft) /= xylem_impairment_memory ) )  &
+       THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR,                                           &
+    'l_ximpair_seg_memory needs l_som_plant_segments and '                  // &
+    'pft_xylem_impairment_model = 0 or 3 (memory)')
+  END IF
+  IF ( l_ximpair_rec_growth .AND.                                             &
+       ANY( pft_xylem_impairment_model(1:npft) == xylem_impairment_memory   &
+            .AND. ximpair_rec_years(1:npft) <= 0.0 ) ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR,                                           &
+    'l_ximpair_seg_memory with l_ximpair_rec_growth needs '                 // &
+    'ximpair_rec_years > 0 (the growth-clock averaging window)')
   END IF
 END IF
 
