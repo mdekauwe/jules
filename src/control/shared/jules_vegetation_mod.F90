@@ -894,6 +894,25 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Given a step (down) function as input, the smoothed output has fallen
       ! to 1/e (37%) of the initial value after this number of days.
 
+! Optimal photosynthetic capacity (vcmax_opt_mod). Farquhar PFTs only.
+INTEGER, PARAMETER ::                                                          &
+  vcmax_opt_off = 0,                                                           &
+    ! Vcmax25 and J25:V25 from the PFT parameters (and acclimation).
+  vcmax_opt_sabot = 1
+    ! J25:V25 on a fixed N budget (Sabot et al. 2022), chosen to maximise
+    ! the canopy gross photosynthesis of the antecedent half-hours.
+
+INTEGER ::                                                                     &
+  vcmax_opt_model = vcmax_opt_off
+    ! Chosen model for optimal photosynthetic capacity (values above).
+
+REAL(KIND=real_jlslsm) ::                                                      &
+  n_day_vcmax_opt = 7.0,                                                       &
+    ! Time constant of the moving averages of the antecedent photosynthesis
+    ! used by vcmax_opt_model (days).
+  n_day_vcmax_update = 7.0
+    ! Interval between updates of the optimal capacity (days).
+
 !-----------------------------------------------------------------------------
 ! Single namelist definition for UM and standalone
 !-----------------------------------------------------------------------------
@@ -925,6 +944,7 @@ NAMELIST  / jules_vegetation/                                                  &
     cd_leaf, c1_usuh, c2_usuh, c3_usuh, dsj_coef, dsv_coef, jv25_coef,         &
     act_j_coef, act_v_coef,                                                    &
     n_alloc_jmax, n_alloc_vcmax, n_day_photo_acclim,                           &
+    vcmax_opt_model, n_day_vcmax_opt, n_day_vcmax_update,                      &
     stanton_leaf, photo_acclim_model, photo_act_model, photo_jv_model,         &
     photo_model, stomata_model, l_spec_veg_z0, l_limit_canhc,                  &
 ! Not used in the UM yet
@@ -1724,6 +1744,38 @@ IF ( ximpair_cost_model == ximpair_cost_sperry .AND.                          &
                'ximpair_cost_model = 2 is coded for som_ci_search = 2 only')
 END IF
 
+SELECT CASE ( vcmax_opt_model )
+CASE ( vcmax_opt_off )
+  ! Nothing to check.
+CASE ( vcmax_opt_sabot )
+  IF ( photo_model /= photo_farquhar ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'vcmax_opt_model > 0 requires photo_model=2')
+  END IF
+  IF ( can_rad_mod /= 7 ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'vcmax_opt_model > 0 is coded for can_rad_mod=7 only')
+  END IF
+  IF ( n_day_vcmax_opt < 1.0 .OR. n_day_vcmax_update < 1.0 ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'n_day_vcmax_opt and n_day_vcmax_update must not be ' //      &
+                 'less than 1.0 days')
+  END IF
+  IF ( ABS( n_alloc_jmax - rmdi ) < EPSILON(rmdi) .OR.                        &
+       ABS( n_alloc_vcmax - rmdi ) < EPSILON(rmdi) ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'vcmax_opt_model = 1 needs n_alloc_jmax and n_alloc_vcmax')
+  END IF
+CASE DEFAULT
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'Invalid value given for vcmax_opt_model')
+END SELECT
+
 IF ( l_som_vcmax_psi .AND. ( ( stomata_model /= stomata_profit_max .AND.     &
                                stomata_model /= stomata_sox_opt .AND.          &
                                stomata_model /= stomata_cmax .AND.             &
@@ -2039,6 +2091,15 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' n_day_photo_acclim = ',n_day_photo_acclim
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' vcmax_opt_model = ',vcmax_opt_model
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' n_day_vcmax_opt = ',n_day_vcmax_opt
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' n_day_vcmax_update = ',n_day_vcmax_update
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 WRITE(lineBuffer,*) ' stomata_model = ',stomata_model
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -2088,9 +2149,9 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 22 ! +1 ximpair_cost_model, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
+INTEGER, PARAMETER :: n_int = 23 ! +1 vcmax_opt_model, +1 ximpair_cost_model, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
-INTEGER, PARAMETER :: n_real = 19 + (n_photo_coef * 5) ! +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
+INTEGER, PARAMETER :: n_real = 21 + (n_photo_coef * 5) ! +2 n_day_vcmax_opt/update, +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
 INTEGER, PARAMETER :: n_log = 49 + npft_max ! +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
@@ -2129,6 +2190,7 @@ TYPE :: my_namelist
   INTEGER :: photo_acclim_model
   INTEGER :: photo_act_model
   INTEGER :: photo_jv_model
+  INTEGER :: vcmax_opt_model
   INTEGER :: photo_model
   INTEGER :: stomata_model
   REAL(KIND=real_jlslsm) :: frac_min
@@ -2146,6 +2208,8 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: n_alloc_jmax
   REAL(KIND=real_jlslsm) :: n_alloc_vcmax
   REAL(KIND=real_jlslsm) :: n_day_photo_acclim
+  REAL(KIND=real_jlslsm) :: n_day_vcmax_opt
+  REAL(KIND=real_jlslsm) :: n_day_vcmax_update
   REAL(KIND=real_jlslsm) :: stanton_leaf
   REAL(KIND=real_jlslsm) :: som_hc_negligible_tol
   REAL(KIND=real_jlslsm) :: som_leaf_resist_frac
@@ -2240,6 +2304,7 @@ IF (mype == 0) THEN
   my_nml % photo_acclim_model = photo_acclim_model
   my_nml % photo_act_model = photo_act_model
   my_nml % photo_jv_model     = photo_jv_model
+  my_nml % vcmax_opt_model    = vcmax_opt_model
   my_nml % photo_model     = photo_model
   my_nml % stomata_model   = stomata_model
   my_nml % frac_min        = frac_min
@@ -2257,6 +2322,8 @@ IF (mype == 0) THEN
   my_nml % n_alloc_jmax    = n_alloc_jmax
   my_nml % n_alloc_vcmax   = n_alloc_vcmax
   my_nml % n_day_photo_acclim = n_day_photo_acclim
+  my_nml % n_day_vcmax_opt    = n_day_vcmax_opt
+  my_nml % n_day_vcmax_update = n_day_vcmax_update
   my_nml % stanton_leaf    = stanton_leaf
   my_nml % som_hc_negligible_tol = som_hc_negligible_tol
   my_nml % som_leaf_resist_frac = som_leaf_resist_frac
@@ -2342,6 +2409,7 @@ IF (mype /= 0) THEN
   photo_acclim_model = my_nml % photo_acclim_model
   photo_act_model = my_nml % photo_act_model
   photo_jv_model     = my_nml % photo_jv_model
+  vcmax_opt_model    = my_nml % vcmax_opt_model
   photo_model     = my_nml % photo_model
   stomata_model   = my_nml % stomata_model
   frac_min        = my_nml % frac_min
@@ -2359,6 +2427,8 @@ IF (mype /= 0) THEN
   n_alloc_jmax    = my_nml % n_alloc_jmax
   n_alloc_vcmax   = my_nml % n_alloc_vcmax
   n_day_photo_acclim = my_nml % n_day_photo_acclim
+  n_day_vcmax_opt    = my_nml % n_day_vcmax_opt
+  n_day_vcmax_update = my_nml % n_day_vcmax_update
   stanton_leaf    = my_nml % stanton_leaf
   som_hc_negligible_tol = my_nml % som_hc_negligible_tol
   som_leaf_resist_frac = my_nml % som_leaf_resist_frac

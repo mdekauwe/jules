@@ -9862,4 +9862,82 @@ DATA metadata(761) / var_metadata(                                             &
 ! Units
     "-"                                                                        &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for vcmax25_opt (optimal photosynthetic capacity, vcmax_opt_model)
+!-----------------------------------------------------------------------------
+DATA metadata(762) / var_metadata(                                             &
+! String identifier
+    'vcmax25_opt',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Top-leaf Vcmax at 25 degC in use (Farquhar PFTs)",                        &
+! Units
+    "mol m-2 s-1"                                                              &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for jv_opt (optimal photosynthetic capacity, vcmax_opt_model)
+!-----------------------------------------------------------------------------
+DATA metadata(763) / var_metadata(                                             &
+! String identifier
+    'jv_opt',                                                                  &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Top-leaf Jmax:Vcmax at 25 degC in use (Farquhar PFTs)",                   &
+! Units
+    "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for vcmax_opt (top-leaf Vcmax at the sunlit leaf temperature)
+!-----------------------------------------------------------------------------
+DATA metadata(764) / var_metadata(                                             &
+! String identifier
+    'vcmax_opt',                                                               &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Top-leaf Vcmax at the sunlit leaf temperature, can_rad_mod 7",            &
+! Units
+    "mol m-2 s-1"                                                              &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for vopt_jv (optimal capacity prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(765) / var_metadata(                                             &
+! String identifier
+    'vopt_jv',                                                                 &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Optimised Jmax:Vcmax at 25 degC (0 before the first update)",             &
+! Units
+    "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for vopt_tsince (optimal capacity prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(766) / var_metadata(                                             &
+! String identifier
+    'vopt_tsince',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Time since the last update of the optimal capacity",                      &
+! Units
+    "s"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for vopt_asum (optimal capacity prognostic)
+!-----------------------------------------------------------------------------
+DATA metadata(767) / var_metadata(                                             &
+! String identifier
+    'vopt_asum',                                                               &
+! Variable type
+    var_type_pft_vopt,                                                         &
+! Long name
+    "Moving average of canopy gross photosynthesis at each candidate J:V",     &
+! Units
+    "mol m-2 s-1"                                                              &
+  ) /
 #endif

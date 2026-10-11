@@ -26,6 +26,8 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_npp_prev,         &
                                        ximpair_renew_wt
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf, ximpair_psi_stem
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
+USE vcmax_opt_mod, ONLY: vopt_v25d, vopt_jvd, vopt_vleaf, vopt_jv,            &
+                         vopt_tsince, vopt_asum, n_vopt_jv
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
                           flux_sap_desica, dw_plant_desica
@@ -3714,6 +3716,44 @@ CASE ( 'psi_root_extreme' )
   workspace_pft(:,:) = 0.0
   workspace_pft(:,:) = psparms%psi_root_extreme_pft
   cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'vcmax25_opt' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(vopt_v25d) ) workspace_pft(:,:) = vopt_v25d
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'jv_opt' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(vopt_jvd) ) workspace_pft(:,:) = vopt_jvd
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'vcmax_opt' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(vopt_vleaf) ) workspace_pft(:,:) = vopt_vleaf
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'vopt_jv' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(vopt_jv) ) workspace_pft(:,:) = vopt_jv
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'vopt_tsince' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(vopt_tsince) ) workspace_pft(:,:) = vopt_tsince
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'vopt_asum' )
+  IF ( ALLOCATED(vopt_asum) ) THEN
+    cube_land = cube_from_array(vopt_asum)
+  ELSE
+    cube_land = cube_from_array(SPREAD(workspace_pft * 0.0, 3, n_vopt_jv))
+  END IF
   cube = map_from_land(cube_land)
 
 CASE ( 'ximpair_lock' )

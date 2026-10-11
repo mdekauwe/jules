@@ -159,6 +159,8 @@ USE water_constants_mod, ONLY: rho_water
 USE desica_jls_mod, ONLY: desica_fw, desica_hydraulics, tuzet_fw,             &
                           desica_store_inputs
 USE timestep_mod, ONLY: timestep
+USE jules_vegetation_mod, ONLY: vcmax_opt_model, vcmax_opt_off
+USE vcmax_opt_mod, ONLY: vopt_alloc, vopt_fac, vopt_vleaf
 
 
 
@@ -1312,6 +1314,14 @@ END DO
 !$OMP END PARALLEL
 
 !-----------------------------------------------------------------------------
+! Optimal photosynthetic capacity (vcmax_opt_mod): no factor on Vcmax unless
+! set below for a Farquhar PFT. Allocated whatever vcmax_opt_model, for the
+! diagnostics.
+!-----------------------------------------------------------------------------
+CALL vopt_alloc( land_pts )
+vopt_fac(:) = 1.0
+
+!-----------------------------------------------------------------------------
 ! Pre-calculate some expensive terms that do not change between iterations
 ! and layers.
 ! tstar is for the current pft, so can't be moved up another level.
@@ -1391,6 +1401,10 @@ CASE ( photo_farquhar )
 !$OMP END PARALLEL DO
 
   END SELECT  !  photo_acclim_model
+
+  ! Optimal photosynthetic capacity: Vcmax factor and J25:V25, and the
+  ! top-leaf Vcmax25 and J25:V25 in use (diagnostics).
+  CALL vcmax_opt_apply( ft, land_pts, veg_pts, veg_index, nleaf_top, jv25 )
 
   CALL leaf_temp_responses( ft, land_pts, veg_pts, veg_index,                  &
                             pft_photo_model, tstar, oa, acr, actj, actv,       &
@@ -2968,14 +2982,16 @@ CASE ( 7 )
                                pstar, q_c_lt, dq_min,                          &
                                ccp_sun_lt, kc_sun_lt, ko_sun_lt, km_sun_lt,    &
                                vcmax_sun_2l, je_sun, rd_sun, qs_sun_lt,        &
-                               dq_sun_lt, f_vc = f_vc )
+                               dq_sun_lt, f_vc = f_vc,                         &
+                               jmax_out = jmax_sun_2l )
       CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
                                pft_photo_model, t_shd_lt, oa, actj, actv,      &
                                dsj, dsv, jv25, nleaf_top, nw_shd_2l, i2_shd,   &
                                pstar, q_c_lt, dq_min,                          &
                                ccp_shd_lt, kc_shd_lt, ko_shd_lt, km_shd_lt,    &
                                vcmax_shd_2l, je_shd, rd_shd, qs_shd_lt,        &
-                               dq_shd_lt, f_vc = f_vc )
+                               dq_shd_lt, f_vc = f_vc,                         &
+                               jmax_out = jmax_shd_2l )
     END IF
 
     !-------------------------------------------------------------------------
@@ -3467,6 +3483,37 @@ DO m = 1,veg_pts
 END DO
 
 !-----------------------------------------------------------------------------
+! Optimal photosynthetic capacity (can_rad_mod = 7): the top-leaf Vcmax at
+! the sunlit leaf temperature (diagnostic) and, with vcmax_opt_model > 0,
+! add this timestep's canopy gross photosynthesis at the candidate J25:V25
+! to the antecedent means and, where due, update J25:V25.
+!-----------------------------------------------------------------------------
+IF ( can_rad_mod == 7 .AND. pft_photo_model == photo_farquhar ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( nw_sun_2l(l) > EPSILON(0.0) ) THEN
+      vopt_vleaf(l,ft) = vcmax_sun_2l(l) / nw_sun_2l(l)
+    ELSE
+      vopt_vleaf(l,ft) = 0.0
+    END IF
+  END DO
+  ! Without l_leaf_temp both leaves are at tstar (ccp, km).
+  IF ( vcmax_opt_model /= vcmax_opt_off ) THEN
+    IF ( l_leaf_temp ) THEN
+      CALL vcmax_opt_step( ft, land_pts, veg_pts, veg_index, jv25,             &
+                           vcmax_sun_2l, vcmax_shd_2l, jmax_sun_2l,            &
+                           jmax_shd_2l, i2_sun, i2_shd, ci_sun_2l, ci_shd_2l,  &
+                           ccp_sun_lt, ccp_shd_lt, km_sun_lt, km_shd_lt )
+    ELSE
+      CALL vcmax_opt_step( ft, land_pts, veg_pts, veg_index, jv25,             &
+                           vcmax_sun_2l, vcmax_shd_2l, jmax_sun_2l,            &
+                           jmax_shd_2l, i2_sun, i2_shd, ci_sun_2l, ci_shd_2l,  &
+                           ccp, ccp, km, km )
+    END IF
+  END IF
+END IF
+
+!-----------------------------------------------------------------------------
 ! Calculate plant-level respiration, NPP and GPP.
 !-----------------------------------------------------------------------------
 
@@ -3925,7 +3972,7 @@ SUBROUTINE leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
                                pft_photo_model, t_leaf, oa, actj, actv, dsj,   &
                                dsv, jv25, nleaf_top, nw, i2c, pstar, q_c,      &
                                dq_min, ccp, kc, ko, km, vcmax_c, je_c, rd_c,   &
-                               qs_c, dq_c, f_vc )
+                               qs_c, dq_c, f_vc, jmax_out )
 
 ! Two-leaf leaf energy balance (l_leaf_temp): the photosynthesis parameters
 ! of one leaf class at its temperature t_leaf - the temperature responses,
@@ -3954,6 +4001,9 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: f_vc(land_pts)
     ! Soil-water capacity factor (l_som_vcmax_psi).
+
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: jmax_out(land_pts)
+    ! Class total of Jmax at t_leaf (mol CO2 m-2 s-1).
 
 REAL(KIND=real_jlslsm) ::                                                      &
   acr0(land_pts), denom_t(land_pts), qtenf_t(land_pts), vtemp(land_pts),       &
@@ -3992,6 +4042,7 @@ DO m = 1,veg_pts
   jmax_c(l)  = jmax_t(l)  * nw(l)
   rd_c(l)    = rd_t(l)    * nw(l)
 END DO
+IF ( PRESENT(jmax_out) ) jmax_out(:) = jmax_c(:)
 
 IF ( pft_photo_model == photo_farquhar ) THEN
   CALL calc_electron_flux( land_pts, veg_pts, veg_index, i2c, jmax_c, je_c )
@@ -4552,6 +4603,92 @@ END SUBROUTINE leaf_temp_responses
 !#############################################################################
 !#############################################################################
 
+SUBROUTINE vcmax_opt_apply( ft, land_pts, veg_pts, veg_index, nleaf_top, jv25 )
+
+! Optimal photosynthetic capacity (vcmax_opt_mod): where an update has been
+! made, set J25:V25 to vopt_jv and, with photo_jv_model = jv_scale, the
+! factor on Vcmax at the reference temperature, vopt_fac, that keeps the N
+! budget (with jv_ntotal, calc_photo_parameters keeps it itself). Then,
+! whatever vcmax_opt_model, the top-leaf Vcmax25 and J25:V25 in use
+! (diagnostics).
+
+USE jules_vegetation_mod, ONLY: jv_ntotal, n_alloc_jmax, n_alloc_vcmax,        &
+                                photo_jv_model, vcmax_opt_model, vcmax_opt_off
+USE pftparm, ONLY: jv25_ratio
+USE vcmax_opt_mod, ONLY: vopt_budget_fac, vopt_fac, vopt_jv, vopt_jvd,         &
+                         vopt_v25d, vopt_vref
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: nleaf_top(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: jv25(land_pts)
+
+INTEGER :: l, m
+
+DO m = 1,veg_pts
+  l = veg_index(m)
+  IF ( vcmax_opt_model /= vcmax_opt_off .AND. vopt_jv(l,ft) > 0.0 ) THEN
+    IF ( photo_jv_model /= jv_ntotal )                                         &
+      vopt_fac(l) = vopt_budget_fac( jv25_ratio(ft), vopt_jv(l,ft) )
+    jv25(l) = vopt_jv(l,ft)
+  END IF
+  vopt_jvd(l,ft) = jv25(l)
+  IF ( photo_jv_model == jv_ntotal ) THEN
+    vopt_v25d(l,ft) = vopt_vref( ft, nleaf_top(l) )                            &
+                      * ( 1.0 / n_alloc_vcmax + jv25_ratio(ft) / n_alloc_jmax )&
+                      / ( 1.0 / n_alloc_vcmax + jv25(l) / n_alloc_jmax )
+  ELSE
+    vopt_v25d(l,ft) = vopt_vref( ft, nleaf_top(l) ) * vopt_fac(l)
+  END IF
+END DO
+
+END SUBROUTINE vcmax_opt_apply
+
+!#############################################################################
+!#############################################################################
+
+SUBROUTINE vcmax_opt_step( ft, land_pts, veg_pts, veg_index, jv25, vc_sun,     &
+                           vc_shd, jm_sun, jm_shd, i2_sun, i2_shd, ci_sun,     &
+                           ci_shd, ccp_sun, ccp_shd, km_sun, km_shd )
+
+! Optimal photosynthetic capacity (vcmax_opt_mod), can_rad_mod = 7: add
+! this timestep's canopy gross photosynthesis at each candidate J25:V25 to
+! the antecedent means, from the sunlit and shaded leaves' class totals of
+! Vcmax and Jmax at their temperatures (with any soil-water factor), their
+! radiation to PSII and their realised ci, ccp and km; and, where due,
+! update J25:V25.
+
+USE jules_vegetation_mod, ONLY: light_curvature_fvcb
+USE timestep_mod, ONLY: timestep
+USE vcmax_opt_mod, ONLY: vopt_accumulate, vopt_update
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  jv25(land_pts), vc_sun(land_pts), vc_shd(land_pts), jm_sun(land_pts),        &
+  jm_shd(land_pts), i2_sun(land_pts), i2_shd(land_pts), ci_sun(land_pts),      &
+  ci_shd(land_pts), ccp_sun(land_pts), ccp_shd(land_pts), km_sun(land_pts),    &
+  km_shd(land_pts)
+
+INTEGER :: l, m
+
+DO m = 1,veg_pts
+  l = veg_index(m)
+  CALL vopt_accumulate( l, ft, timestep, 2,                                    &
+                        [ vc_sun(l), vc_shd(l) ], [ jm_sun(l), jm_shd(l) ],    &
+                        [ i2_sun(l), i2_shd(l) ], [ ci_sun(l), ci_shd(l) ],    &
+                        [ ccp_sun(l), ccp_shd(l) ], [ km_sun(l), km_shd(l) ],  &
+                        jv25(l), light_curvature_fvcb )
+  CALL vopt_update( l, ft, timestep )
+END DO
+
+END SUBROUTINE vcmax_opt_step
+
+!#############################################################################
+!#############################################################################
+
 SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
 
 ! Soil-water down-regulation factor of photosynthetic capacity
@@ -4642,6 +4779,7 @@ USE jules_vegetation_mod, ONLY:                                                &
 USE pftparm, ONLY: alpha_elec, fd, jv25_ratio, neff, vint, vsl
 
 USE jb_photo_mod, ONLY: jb_vqmax25
+USE vcmax_opt_mod, ONLY: vopt_fac
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -4723,6 +4861,9 @@ REAL(KIND=jprb)               :: zhook_handle
 
 CHARACTER(LEN=*), PARAMETER :: RoutineName='CALC_PHOTO_PARAMETERS'
 
+LOGICAL :: l_vopt
+  ! True to apply the optimal-capacity factor vopt_fac (vcmax_opt_mod).
+
 !-----------------------------------------------------------------------------
 !end of header
 
@@ -4736,6 +4877,9 @@ IF ( photo_jv_model == jv_ntotal ) THEN
   recip_v  = 1.0 / n_alloc_vcmax
 END IF
 
+! vopt_fac is allocated only with vcmax_opt_model > 0.
+l_vopt = ALLOCATED(vopt_fac)
+
 !-----------------------------------------------------------------------------
 ! Calculate Vcmax at the reference temperature, without any acclimation.
 !-----------------------------------------------------------------------------
@@ -4745,7 +4889,7 @@ END IF
 !$OMP        photo_model, alpha_elec,                                          &
 !$OMP        denom, fd, jmax, jmax_temp, jv25, jv25_ratio, neff, nleaf,        &
 !$OMP        qtenf_term, rd_dark, recip_j, recip_v, vcmax, vcmax_ref,          &
-!$OMP        vcmax_temp, vint, vsl, l_trait_phys )
+!$OMP        vcmax_temp, vint, vsl, l_trait_phys, l_vopt, vopt_fac )
 
 !$OMP DO SCHEDULE(STATIC)
 DO m = 1,veg_pts
@@ -4757,6 +4901,9 @@ DO m = 1,veg_pts
   ELSE
     vcmax_ref(l) = neff(ft) * nleaf(l)
   END IF
+
+  ! Optimal photosynthetic capacity (vcmax_opt_mod).
+  IF ( l_vopt ) vcmax_ref(l) = vcmax_ref(l) * vopt_fac(l)
 
 END DO
 !$OMP END DO NOWAIT

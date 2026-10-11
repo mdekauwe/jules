@@ -8,6 +8,8 @@
 SUBROUTINE get_var_levs_dims(var_id, is_climatology, ndims, dim_names_in,      &
                              dim_names_out, dim_sizes)
 
+USE vcmax_opt_mod, ONLY: n_vopt_jv
+
 IMPLICIT NONE
 
 !-----------------------------------------------------------------------------
@@ -78,6 +80,16 @@ CASE ( var_type_nmasst )
     dim_names_out(1:2) = [ pft_dim_name_out, nmasst_dim_name_out ]
   IF ( PRESENT(dim_sizes) )                                                    &
     dim_sizes(1:2) = [ pft_dim_size, nmasst_dim_size ]
+
+CASE ( var_type_pft_vopt )
+  ! Optimal capacity state: pft and the candidate J25:V25 (vcmax_opt_mod).
+  IF ( PRESENT(ndims) ) ndims = 2
+  IF ( PRESENT(dim_names_in) )                                                 &
+    dim_names_in(1:2) = [ pft_dim_name, vopt_dim_name ]
+  IF ( PRESENT(dim_names_out) )                                                &
+    dim_names_out(1:2) = [ pft_dim_name_out, vopt_dim_name_out ]
+  IF ( PRESENT(dim_sizes) )                                                    &
+    dim_sizes(1:2) = [ pft_dim_size, n_vopt_jv ]
 
 CASE ( var_type_bl_level )
   IF ( PRESENT(ndims) ) ndims = 1

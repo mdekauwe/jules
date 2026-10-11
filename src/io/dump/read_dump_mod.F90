@@ -22,6 +22,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      
     ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf
+USE vcmax_opt_mod, ONLY: n_vopt_jv, vopt_alloc, vopt_jv, vopt_tsince, vopt_asum
 
 
 USE model_grid_mod, ONLY:                                                      &
@@ -165,7 +166,7 @@ IF ( is_master_task() ) THEN
                                                nsoilt, dim_ch4layer)))
   ALLOCATE(global_data_3d(global_land_pts,                                     &
                           MAX(nsurft, dim_cslayer, nsoilt, npft),              &
-                          MAX(nsmax, dim_cs1, sm_levels, nmasst)))
+                          MAX(nsmax, dim_cs1, sm_levels, nmasst, n_vopt_jv)))
   ALLOCATE(global_data_4d(global_land_pts, nsoilt,                             &
                           MAX(nsurft, dim_cslayer),                            &
                           MAX(nsmax, dim_cs1)))
@@ -217,11 +218,16 @@ DO i = 1,nvars
            'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',              &
            'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',             &
            'ximpair_npp_prev', 'ximpair_wood_prev',                      &
-           'ximpair_renew_mean', 'ximpair_renew_wt', 'ximpair_kcap_leaf' )
+           'ximpair_renew_mean', 'ximpair_renew_wt', 'ximpair_kcap_leaf',      &
+           'vopt_jv', 'vopt_tsince' )
       CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 
     CASE ( 'plantNumDensity' )
       CALL file_read_var(FILE, var_ids(i), global_data_3d(:,1:npft,1:nmasst))
+
+    CASE ( 'vopt_asum' )
+      CALL file_read_var(FILE, var_ids(i),                                     &
+                         global_data_3d(:,1:npft,1:n_vopt_jv))
 
     CASE ( 'cropdvi', 'croprootc', 'cropharvc', 'cropreservec',                &
            'croplai', 'cropcanht' )
@@ -631,6 +637,26 @@ DO i = 1,nvars
       DO m = 1,nmasst
         CALL scatter_land_field(global_data_3d(:,n,m),                         &
                                 progs%plantNumDensity(:,n,m))
+      END DO
+    END DO
+
+  CASE ( 'vopt_jv' )
+    CALL vopt_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), vopt_jv(:,n))
+    END DO
+
+  CASE ( 'vopt_tsince' )
+    CALL vopt_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), vopt_tsince(:,n))
+    END DO
+
+  CASE ( 'vopt_asum' )
+    CALL vopt_alloc( land_pts )
+    DO n = 1,npft
+      DO m = 1,n_vopt_jv
+        CALL scatter_land_field(global_data_3d(:,n,m), vopt_asum(:,n,m))
       END DO
     END DO
 

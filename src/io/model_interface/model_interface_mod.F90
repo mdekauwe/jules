@@ -54,6 +54,7 @@ CHARACTER(LEN=max_sdf_name_len), PARAMETER ::                                  &
   ch4layer_dim_name_out     = 'ch4layer',                                      &
   bedrock_dim_name_out      = 'bedrock',                                       &
   nmasst_dim_name_out       = 'nmasst',                                        &
+  vopt_dim_name_out         = 'vopt_cand',                                     &
   land_dim_name_out         = 'land',                                          &
   nfarray_dim_name_out      = 'nfarray',                                       &
   nolevs_dim_name_out       = 'olevs',                                         &
@@ -85,7 +86,8 @@ CHARACTER(LEN=max_sdf_name_len) ::                                             &
   dep_species_dim_name  = 'dep_species',                                       &
   ch4layer_dim_name = 'ch4layer',                                              &
   bedrock_dim_name  = 'bedrock',                                               &
-  nmasst_dim_name   = 'nmasst'
+  nmasst_dim_name   = 'nmasst',                                                &
+  vopt_dim_name     = 'vopt_cand'
 
 ! The size of each possible levels dimension.
 ! Initialising these to something "unphysical" means that in future we can
@@ -156,7 +158,9 @@ INTEGER, PARAMETER ::                                                          &
   var_type_cable1L_snow   = var_type_cable_snow + 1,                           &
   var_type_imogen_drive   = var_type_cable1L_snow + 1,                         &
   var_type_nmasst         = var_type_imogen_drive + 1,                         &
-  var_type_imogen_clim    = var_type_nmasst + 1
+  var_type_imogen_clim    = var_type_nmasst + 1,                               &
+  var_type_pft_vopt       = var_type_imogen_clim + 1
+    ! (pft, candidate J25:V25 of vcmax_opt_mod)
 
 ! Derived type to contain metadata about model variables
 TYPE :: var_metadata
@@ -177,7 +181,7 @@ END TYPE var_metadata
 ! or output. The CABLE land surface model adds 10 prognostics for tiled
 ! soil/snow prognostics.
 ! soil/snow prognostics.
-INTEGER, PARAMETER :: n_vars = 761 ! +1 ximpair_kcap_leaf, upstream 723 + 10 stomatal optimisation
+INTEGER, PARAMETER :: n_vars = 767 ! +6 vcmax_opt (vcmax25_opt, jv_opt, vcmax_opt; state vopt_jv, vopt_tsince, vopt_asum), +1 ximpair_kcap_leaf, upstream 723 + 10 stomatal optimisation
                                     ! + 6 DESICA + gc_stom_pft + 6 xylem
                                     ! impairment + 11 xylem impairment state
                                     ! + 3 leaf temperatures + kplant_pft
@@ -199,6 +203,7 @@ PUBLIC                                                                         &
     tile_dim_name_out, soilt_dim_name_out, snow_dim_name_out,                  &
     soil_dim_name_out, scpool_dim_name_out, soil_n_pool_dim_name_out,          &
     bedrock_dim_name_out, nmasst_dim_name_out, sclayer_dim_name_out,           &
+    vopt_dim_name_out, vopt_dim_name,                                          &
     dep_species_dim_name_out, ch4layer_dim_name_out,                           &
     imogen_drive_dim_name_out, imogen_clim_dim_name_out,                       &
     land_dim_name_out, nfarray_dim_name_out, nolevs_dim_name_out,              &

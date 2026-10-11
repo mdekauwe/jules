@@ -1016,6 +1016,10 @@ DO i = 1, nvars_required
     ! Leaf-segment cap fraction: 1 = intact.
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
 
+    !Optimal photosynthetic capacity: no update yet (PFT parameters).
+  CASE ( 'vopt_jv', 'vopt_tsince', 'vopt_asum' )
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
+
   CASE DEFAULT
     CALL log_info("get_default_ic_values",                                     &
                    "No default value defined. Value must be defined in namelist - " &

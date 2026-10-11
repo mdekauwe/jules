@@ -69,7 +69,10 @@ USE model_interface_mod, ONLY: bedrock_dim_name => bedrock_dim_name_out,       &
                                ch4layer_dim_name => ch4layer_dim_name_out,     &
                                soil_n_pool_dim_name =>                         &
                                   soil_n_pool_dim_name_out,                    &
-                               nmasst_dim_name => nmasst_dim_name_out
+                               nmasst_dim_name => nmasst_dim_name_out,         &
+                               vopt_dim_name => vopt_dim_name_out
+
+USE vcmax_opt_mod, ONLY: n_vopt_jv
 
 USE dump_mod, ONLY: ancil_dump_read
 
@@ -162,10 +165,16 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                        &
        'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',                  &
        'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',                 &
        'ximpair_npp_prev', 'ximpair_wood_prev',                          &
-       'ximpair_renew_mean', 'ximpair_renew_wt', 'ximpair_kcap_leaf' )
+       'ximpair_renew_mean', 'ximpair_renew_wt', 'ximpair_kcap_leaf',          &
+       'vopt_jv', 'vopt_tsince' )
   ndims = 2
   dim_names(1:ndims) = [ land_dim_name, pft_dim_name ]
   dim_sizes(1:ndims) = [ global_land_pts, npft ]
+
+CASE ( 'vopt_asum' )
+  ndims = 3
+  dim_names(1:ndims) = [ land_dim_name, pft_dim_name, vopt_dim_name ]
+  dim_sizes(1:ndims) = [ global_land_pts, npft, n_vopt_jv ]
 
 CASE ( 'plantNumDensity' )
   ndims = 3

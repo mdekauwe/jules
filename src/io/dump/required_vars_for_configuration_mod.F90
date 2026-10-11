@@ -40,7 +40,8 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 photo_acclim, photo_adapt_acclim,              &
                                 l_croprotate, l_trif_biocrop, l_sugar, l_red,  &
                                 stomata_model, stomata_desica,                 &
-                                l_ximpair_seg_memory
+                                l_ximpair_seg_memory, vcmax_opt_model,         &
+                                vcmax_opt_off
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -294,6 +295,14 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   ! Per-segment memory: the leaf segment's own cap.
   IF ( l_ximpair_seg_memory )                                                  &
     CALL add_to_list( 'ximpair_kcap_leaf', nvars, identifiers )
+END IF
+
+IF ( vcmax_opt_model /= vcmax_opt_off ) THEN
+  ! Optimal photosynthetic capacity: J25:V25, the update clock and the
+  ! moving averages at the candidate J25:V25 are prognostic for all PFTs
+  CALL add_to_list( 'vopt_jv', nvars, identifiers )
+  CALL add_to_list( 'vopt_tsince', nvars, identifiers )
+  CALL add_to_list( 'vopt_asum', nvars, identifiers )
 END IF
 
 IF ( stomata_model == stomata_desica ) THEN

@@ -22,6 +22,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      
     ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf
+USE vcmax_opt_mod, ONLY: vopt_alloc, vopt_jv, vopt_tsince, vopt_asum
 
 USE ancil_info, ONLY:                                                          &
   dim_cslayer, land_pts, nsurft, nsoilt
@@ -2012,6 +2013,33 @@ CASE ( 'psi_root_extreme' )
     CALL cube_get_data(cube_land, psparms%psi_root_extreme_pft(:,:))
   ELSE
     psparms%psi_root_extreme_pft(:,:) = const_val
+  END IF
+
+CASE ( 'vopt_jv' )
+  CALL vopt_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, vopt_jv(:,:))
+  ELSE
+    vopt_jv(:,:) = const_val
+  END IF
+
+CASE ( 'vopt_tsince' )
+  CALL vopt_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, vopt_tsince(:,:))
+  ELSE
+    vopt_tsince(:,:) = const_val
+  END IF
+
+CASE ( 'vopt_asum' )
+  CALL vopt_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, vopt_asum(:,:,:))
+  ELSE
+    vopt_asum(:,:,:) = const_val
   END IF
 
 CASE ( 'ximpair_lock' )
