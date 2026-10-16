@@ -496,12 +496,15 @@ DO n = 1,nsurft
     ! splits it (soil_evap). The share resfs_stom / resfs computed above
     ! (as upstream) is larger whenever there is a soil conductance, and can
     ! exceed esoil itself after the limits below.
-    IF ( ( sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft ) .AND.              &
-         n <= npft .AND. resfs(l,n) > EPSILON(1.0) .AND.                       &
-         sf_diag%resfs_stom(l,n) < 1.0 ) THEN
-      sf_diag%et_stom_surft(l,n) = esoil_surft(l,n) *                          &
-        MIN(1.0, sf_diag%resfs_stom(l,n) * (1.0 - resfs(l,n))                  &
-                 / (resfs(l,n) * (1.0 - sf_diag%resfs_stom(l,n))))
+    ! Nested, as Fortran need not short-circuit .AND.: resfs_stom is only
+    ! (1,1) when et_stom, DESICA and the Or limit are all off.
+    IF ( sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft ) THEN
+      IF ( n <= npft .AND. resfs(l,n) > EPSILON(1.0) ) THEN
+        IF ( sf_diag%resfs_stom(l,n) < 1.0 )                                   &
+          sf_diag%et_stom_surft(l,n) = esoil_surft(l,n) *                      &
+            MIN(1.0, sf_diag%resfs_stom(l,n) * (1.0 - resfs(l,n))              &
+                     / (resfs(l,n) * (1.0 - sf_diag%resfs_stom(l,n))))
+      END IF
     END IF
     ! Or soil evaporation: limit the soil evaporation alone (not the
     ! transpiration) to the water in layer 1 above half the wilting point
