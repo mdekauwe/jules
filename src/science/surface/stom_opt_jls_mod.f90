@@ -1824,8 +1824,8 @@ USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 SOX_conductance,                               &
                                 som_psi_solver, psi_solver_lut,           &
                                 l_som_plant_segments, l_som_nsl,               &
-                                ximpair_cost_model, ximpair_cost_intact,       &
-                                ximpair_cost_sperry,                           &
+                                ximpair_stomatal_response, ximpair_hold_gs,    &
+                                ximpair_hold_psi,                              &
                                 l_som_rhizo_series, l_som_coupled_e
 USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow
 USE jb_photo_mod, ONLY: jb_eta_scale
@@ -1897,16 +1897,16 @@ INTEGER, PARAMETER :: n_nsl_iter = 12
 REAL(KIND=real_jlslsm), PARAMETER :: nsl_tol = 1.0e-3
                             ! Tolerance on f - f(psi_leaf(f)) (l_som_nsl).
 INTEGER, PARAMETER :: n_sperry_iter = 40
-                            ! Sperry mode: maximum bisection steps.
+                            ! Hold leaf psi: maximum bisection steps.
 REAL(KIND=real_jlslsm), PARAMETER :: sperry_psi_tol = 100.0
-                            ! Sperry mode: tolerance on psi_leaf (Pa).
+                            ! Hold leaf psi: tolerance on psi_leaf (Pa).
 
 INTEGER :: i, j, l, side, idx1(land_pts)
 LOGICAL :: l_intact_search
-                            ! Sperry mode (ximpair_cost_model = 2): .TRUE.
+                            ! Hold leaf psi (ximpair_hold_psi): .TRUE.
                             ! while the search runs on the intact path.
 REAL(KIND=real_jlslsm) :: psi_star, hc_star, cg_star, s_lo, s_hi, s_mid
-                            ! Sperry mode: target psi_leaf and the intact-path
+                            ! Hold leaf psi: target psi_leaf and the intact-path
                             ! gain/cost, and the Ci bisection bracket.
 REAL(KIND=real_jlslsm) :: kcap_pts(land_pts)
                             ! Impairment with segments: stem/leaf cap,
@@ -2015,16 +2015,16 @@ DO j = 1, open_pts
   !---------------------------------------------------------------------------
   IF ( l_xylem_impairment .AND. l_som_plant_segments )                         &
     kcap_pts(l) = kmax(l) / MAX(kmax_ref(l), TINY(1.0_real_jlslsm))
-  ! Sperry mode: search on the intact path (as no impairment, at kmax_ref);
+  ! Hold leaf psi: search on the intact path (as no impairment, at kmax_ref);
   ! the impaired path is used after the search (section 4).
-  l_intact_search = l_xylem_impairment .AND. ximpair_cost_model == ximpair_cost_sperry
+  l_intact_search = l_xylem_impairment .AND.                                  &
+                    ximpair_stomatal_response == ximpair_hold_psi
   CALL eval_ci(ci_lo)
   max_kl = kl_u
-  ! Impairment, ximpair_cost_model = 0: the cost is relative to the intact
-  ! path at zero flow (stomata blind to the damage, as the flat search).
-  ! = 1: the impaired path's own (kl_u at ci_lo, as without impairment).
-  ! = 2: the intact path's (kl_u, the search being on it).
-  IF ( l_xylem_impairment .AND. ximpair_cost_model == ximpair_cost_intact )    &
+  ! Impairment, hold gs: the cost is relative to the intact path at zero
+  ! flow (as the flat search). Hold leaf psi: the intact path's (kl_u, the
+  ! search being on it).
+  IF ( l_xylem_impairment .AND. ximpair_stomatal_response == ximpair_hold_gs ) &
     max_kl = kl_hc_max(l)
   IF ( .NOT. ok_u ) THEN
     CALL set_closed()
@@ -2132,7 +2132,7 @@ DO j = 1, open_pts
   IF ( l_cap ) hydraulic_cost_g(j) = (photo_al(best_ci) - best_al) / max_al
 
   !---------------------------------------------------------------------------
-  ! 4. Sperry mode: the regulated psi_leaf is that of the intact optimum;
+  ! 4. Hold leaf psi: the regulated psi_leaf is that of the intact optimum;
   !    the impaired path delivers less at it. Find Ci in [ci_lo, best_ci]
   !    whose transpiration on the impaired path gives psi_leaf = psi_star
   !    (psi falls as Ci, gl and E rise), by bisection. If even ci_lo is
@@ -2275,7 +2275,7 @@ CONTAINS
     psi_u = psi1(1,1)
     kl_u = kl1(1,1)
   ELSE IF ( l_intact_search ) THEN
-    ! Sperry mode search: the intact path (kmax_ref, PFT curve).
+    ! Hold-psi search: the intact path (kmax_ref, PFT curve).
     el1(1,1) = el_u
     CALL leaf_psi_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,              &
                        psi_root_zone, kmax_ref, kcrit, b_curve, c_curve,       &
@@ -2292,7 +2292,7 @@ CONTAINS
   END IF
   khc_u = kl_u
   IF ( l_xylem_impairment .AND. .NOT. l_intact_search .AND.                          &
-       ximpair_cost_model == ximpair_cost_intact ) khc_u = khc1(1,1)
+       ximpair_stomatal_response == ximpair_hold_gs ) khc_u = khc1(1,1)
   END SUBROUTINE hydraulic_state
 
   !---------------------------------------------------------------------------

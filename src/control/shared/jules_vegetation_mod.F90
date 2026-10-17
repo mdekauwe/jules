@@ -699,28 +699,27 @@ LOGICAL ::                                                                     &
       ! 5-day recovery after rewetting (see vcmax_psi_factor in sf_stom).
       ! Unlike l_som_nsl it does not act in wet soil and does not depend on
       ! the midday leaf psi. Profit max (stomata_model = 4) only.
-! How the stomatal optimisation sees xylem impairment (ximpair_cost_model).
+! How the stomata respond to xylem impairment (ximpair_stomatal_response).
+! In both, the stomata decide on the intact (undamaged) path; they differ in
+! what is held when the damaged path cannot do what the intact one would.
 INTEGER, PARAMETER ::                                                          &
-  ximpair_cost_intact = 0,                                                     &
-    ! The hydraulic cost is the intact path's conductance at the (impaired)
-    ! leaf psi, relative to the intact zero-flow conductance; E, psi and A
-    ! on the impaired path at the chosen Ci. The damage lowers psi_leaf at
-    ! about the same E (JBaguley's scheme).
-  ximpair_cost_impaired = 1,                                                   &
-    ! RETIRED (stops the run): the cost on the impaired path, relative to
-    ! its own zero-flow conductance, so the stomata see the damage. The
-    ! capped segments are flat above the psi of past damage, so the
-    ! marginal cost there is about zero and the stomata open more after
-    ! damage (a ratchet, the opposite sign to observed legacies).
-  ximpair_cost_sperry = 2
-    ! Sperry et al. (2016, Plant Cell Environ 39: 2155, Fig. 3; C++ code):
-    ! the optimisation runs on the intact (uncavitated) path and sets the target
-    ! psi_leaf; E, gs and A are then those of the impaired path at that
-    ! psi_leaf. Past cavitation leaves the regulated psi unchanged and lowers
-    ! E and A.
+  ximpair_hold_gs = 0,                                                         &
+    ! Hold gs: the hydraulic cost is the intact path's conductance at the
+    ! (impaired) leaf psi, relative to the intact zero-flow conductance;
+    ! E, psi and A on the impaired path at the chosen Ci. The damage lowers
+    ! psi_leaf at about the same gs and E (J. Baguley's scheme).
+  ximpair_hold_psi = 1
+    ! Hold leaf psi (Sperry et al. 2016, Plant Cell Environ 39: 2155, Fig. 3
+    ! and their C++ code): the optimisation runs on the intact path and sets
+    ! the target psi_leaf; E is what the impaired path supplies at that
+    ! psi_leaf, and gs and A follow. The damage lowers E, gs and A at the
+    ! same psi_leaf. The target does not change with past damage.
+    ! (A third option, stomata optimising on the impaired path, opened the
+    ! stomata after damage and was removed; see the xylem_impairment branch
+    ! at 5536eb8.)
 INTEGER ::                                                                     &
-  ximpair_cost_model = ximpair_cost_intact
-      ! See ximpair_cost_*. 2 needs som_ci_search = 2 (bounded); 1 is retired.
+  ximpair_stomatal_response = ximpair_hold_gs
+      ! See ximpair_hold_*. ximpair_hold_psi needs som_ci_search = 2.
 LOGICAL ::                                                                     &
   l_ximpair_rec_growth = .FALSE.,                                              &
       ! Xylem impairment model 3 (memory): recover lost conductance with new
@@ -908,7 +907,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
     l_ximpair_rec_growth, l_ximpair_leaf_loss, l_ximpair_seg_memory,          &
-    ximpair_cost_model,                                                       &
+    ximpair_stomatal_response,                                                &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
     sl_kfail_frac,                                                             &
     l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
@@ -1705,23 +1704,19 @@ IF ( l_leaf_temp .AND. leaf_width <= 0.0 ) THEN
                'l_leaf_temp needs leaf_width > 0')
 END IF
 
-IF ( ximpair_cost_model == ximpair_cost_impaired ) THEN
+IF ( ximpair_stomatal_response /= ximpair_hold_gs .AND.                       &
+     ximpair_stomatal_response /= ximpair_hold_psi ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'ximpair_cost_model = 1 (impaired) is retired: the stomata ' // &
-               'open more after damage. Use 0 (intact) or 2 (Sperry)')
+               'ximpair_stomatal_response should be 0 (hold gs) or ' //        &
+               '1 (hold leaf psi)')
 END IF
-IF ( ximpair_cost_model /= ximpair_cost_intact .AND.                          &
-     ximpair_cost_model /= ximpair_cost_sperry ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'ximpair_cost_model should be 0 (intact) or 2 (Sperry)')
-END IF
-IF ( ximpair_cost_model == ximpair_cost_sperry .AND.                          &
+IF ( ximpair_stomatal_response == ximpair_hold_psi .AND.                      &
      som_ci_search /= som_ci_bounded ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'ximpair_cost_model = 2 is coded for som_ci_search = 2 only')
+               'ximpair_stomatal_response = 1 is coded for som_ci_search ' //  &
+               '= 2 only')
 END IF
 
 IF ( l_som_vcmax_psi .AND. ( ( stomata_model /= stomata_profit_max .AND.     &
@@ -1944,7 +1939,7 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_seg_memory = ', l_ximpair_seg_memory
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' ximpair_cost_model = ', ximpair_cost_model
+WRITE(lineBuffer,*) ' ximpair_stomatal_response = ', ximpair_stomatal_response
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_gravity = ', l_som_gravity
@@ -2088,7 +2083,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 22 ! +1 ximpair_cost_model, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
+INTEGER, PARAMETER :: n_int = 22 ! +1 ximpair_stomatal_response, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
 INTEGER, PARAMETER :: n_real = 19 + (n_photo_coef * 5) ! +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
@@ -2123,7 +2118,7 @@ TYPE :: my_namelist
   INTEGER :: som_psi_aprox_method !JBaguley
   INTEGER :: som_psi_solver
   INTEGER :: som_ci_search
-  INTEGER :: ximpair_cost_model
+  INTEGER :: ximpair_stomatal_response
   INTEGER :: som_profit_model !JBaguley
   INTEGER :: ignition_method
   INTEGER :: photo_acclim_model
@@ -2234,7 +2229,7 @@ IF (mype == 0) THEN
   my_nml % som_psi_aprox_method = som_psi_aprox_method !JBaguley
   my_nml % som_psi_solver = som_psi_solver
   my_nml % som_ci_search = som_ci_search
-  my_nml % ximpair_cost_model = ximpair_cost_model
+  my_nml % ximpair_stomatal_response = ximpair_stomatal_response
   my_nml % som_profit_model = som_profit_model !JBaguley
   my_nml % ignition_method = ignition_method
   my_nml % photo_acclim_model = photo_acclim_model
@@ -2336,7 +2331,7 @@ IF (mype /= 0) THEN
   som_psi_aprox_method = my_nml % som_psi_aprox_method !JBaguley
   som_psi_solver = my_nml % som_psi_solver
   som_ci_search = my_nml % som_ci_search
-  ximpair_cost_model = my_nml % ximpair_cost_model
+  ximpair_stomatal_response = my_nml % ximpair_stomatal_response
   som_profit_model = my_nml % som_profit_model !JBaguley
   ignition_method = my_nml % ignition_method
   photo_acclim_model = my_nml % photo_acclim_model
