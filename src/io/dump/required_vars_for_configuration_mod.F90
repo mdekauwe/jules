@@ -215,6 +215,12 @@ END IF
 IF ( ( .NOT. have_prescribed_sthuf ) .OR.                                      &
      ( num_prescribed_sthuf_levels < sm_levels) ) THEN
   CALL add_to_list( 'sthuf', nvars, identifiers, l_append_soilt )
+  ! Dumps also carry the soil moisture content itself, so that a restart is
+  ! exact: rebuilding smcl from sthuf can change the last bit in single
+  ! precision. Without soil tiling only; read when present (read_dump).
+  ! MDK, 17/10/26
+  IF ( read_or_write_dump_local .AND. .NOT. l_tile_soil )                      &
+    CALL add_to_list( 'smcl', nvars, identifiers )
 END IF
 
 IF ( l_phenol ) THEN

@@ -190,6 +190,8 @@ LOGICAL :: reset_done  ! Indicates if a reset of frac to frac_min was
                        ! performed
 
 LOGICAL :: firstcall = .TRUE.
+! MDK, 17/10/26
+LOGICAL :: l_smcl_from_dump  ! smcl is read from the dump (exact restart)
 
 REAL(KIND=real_jlslsm) :: urban_fraction
                         ! Used in partitioning of urban fraction into
@@ -242,6 +244,12 @@ CALL required_vars_for_configuration( nvars_required, required_vars,           &
 
 !Get a dictionary of default values in case they are needed
 default_values = get_default_ic_values(total_snow)
+
+! smcl is required only when reading a dump; it is then filled from the dump
+! (or -1, rebuilt from sthuf below).
+! MDK, 17/10/26
+l_smcl_from_dump = ANY( required_vars(1:nvars_required) == 'smcl' )
+IF ( l_smcl_from_dump ) progs%smcl_soilt(:,:,:) = -1.0
 
 CALL init_ic_shared ( nvars_required, required_vars,                           &
                       nvars_from_ancil, vars_from_ancil,                       &
@@ -370,11 +378,21 @@ DO i = 1,soil_pts
     ( -1.0 / psparms%bexp_soilt(l,:,:) )
 END DO
 
-! Calculate soil moisture content from wetness
-DO i = 1,sm_levels
-  progs%smcl_soilt(:,:,i) = rho_water * dzsoil(i) *                            &
-    jules_vars%sthuf_soilt(:,:,i) * psparms%smvcst_soilt(:,:,i)
-END DO
+! Calculate soil moisture content from wetness, unless it was read exactly
+! from a dump (smcl >= 0; -1 = not in the dump).
+! MDK, 17/10/26
+IF ( l_smcl_from_dump ) THEN
+  DO i = 1,sm_levels
+    WHERE ( progs%smcl_soilt(:,:,i) < 0.0 )                                    &
+      progs%smcl_soilt(:,:,i) = rho_water * dzsoil(i) *                        &
+        jules_vars%sthuf_soilt(:,:,i) * psparms%smvcst_soilt(:,:,i)
+  END DO
+ELSE
+  DO i = 1,sm_levels
+    progs%smcl_soilt(:,:,i) = rho_water * dzsoil(i) *                          &
+      jules_vars%sthuf_soilt(:,:,i) * psparms%smvcst_soilt(:,:,i)
+  END DO
+END IF
 
 !-----------------------------------------------------------------------------
 ! Set the normalisation factor for vertical profile of litter input.
@@ -914,6 +932,10 @@ DO i = 1, nvars_required
     !      CASE ( 'snow_tile' )
     !      CASE ( 'sthuf' )
     !      CASE ( 't_soil' )
+    ! MDK, 17/10/26
+  CASE ( 'smcl' )
+    ! Not in the dump: rebuilt from sthuf (init_ic).
+    CALL dict_set(defaults_dict, identifiers(i), -1.0)
     !      CASE ( 'tstar_tile' )
     !      CASE ( 'lai' )
     !      CASE ( 'canht' )

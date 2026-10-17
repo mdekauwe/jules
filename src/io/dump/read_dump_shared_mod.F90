@@ -175,6 +175,12 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              "rivers_outflow_rp is not in the dump so will be initialised " // &
              "to zero.")
+        CASE ( 'smcl' )
+          ! Older dumps: smcl is then rebuilt from sthuf as before.
+          ! MDK, 17/10/26
+          CALL log_warn("read_dump_shared",                                    &
+             "smcl is not in the dump so will be calculated from sthuf " //    &
+             "(restart exact only to rounding).")
         CASE DEFAULT
           CALL log_fatal("read_dump_shared",                                   &
                          "Failed to find requested variable '" //              &

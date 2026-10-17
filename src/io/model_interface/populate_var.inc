@@ -1583,6 +1583,16 @@ CASE ( 'snow_tile' )
     progs%snow_surft(:,:) = const_val
   END IF
 
+! MDK, 17/10/26
+CASE ( 'smcl' )
+  ! From a dump (exact restart); -1 = rebuild from sthuf (init_ic).
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, progs%smcl_soilt(:,1,:))
+  ELSE
+    progs%smcl_soilt(:,1,:) = const_val
+  END IF
+
 CASE ( 'sthuf' )
   IF ( PRESENT(cube) ) THEN
     IF ( l_tile_soil .AND. l_broadcast_soilt) THEN
