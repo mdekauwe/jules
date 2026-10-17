@@ -52,7 +52,9 @@ MODULE triffid_nsc_mod
 ! not re-impose is repaired, PLC_r = PLC - (1 - f_min), with f_min the
 ! lowest intact stem conductance fraction seen (ximpair_fmin_acc), whose
 ! memory decays back to intact with e-folding time nsc_repair_window days
-! (0 = since the last store step). The repair, min(u W dt, PLC_r X), restores
+! (0 = since the last store step). Loss up to nsc_plc_background is
+! background embolism the store does not pay for: the stem is rebuilt to
+! that loss, not to 0. The repair, min(u W dt, PLC_r X), restores
 ! conductance in proportion,
 ! dPLC = -repair / X, at the next xylem impairment update. TRIFFID's
 ! allometry fixes the wood carbon, so the repair carbon leaves as litter
@@ -178,7 +180,8 @@ USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,  &
 USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
                    nsc_flush, nsc_kc, nsc_reserve_frac, nsc_tau_load,        &
                    nsc_wmax_fac, nsc_sapwood_frac, nsc_hold_plc,             &
-                   nsc_g_starv, ximpair_psi_growth, nsc_repair_window
+                   nsc_g_starv, ximpair_psi_growth, nsc_repair_window,       &
+                   nsc_plc_background
 USE trif, ONLY: g_root, g_wood
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_repair_pend,    &
                                        ximpair_grow_acc, ximpair_fmin_acc,   &
@@ -329,6 +332,8 @@ DO n = n1,n2
       ! intact with e-folding time nsc_repair_window (days; 0 = reset).
       plc_rep = MAX(plc - (1.0 - MIN(MAX(ximpair_fmin_acc(l,n), 0.0), 1.0)),   &
                     0.0)
+      ! Loss up to nsc_plc_background is background embolism, not repaid.
+      plc_rep = MAX(MIN(plc_rep, plc - nsc_plc_background(n)), 0.0)
       IF (nsc_repair_window(n) > 0.0) THEN
         ximpair_fmin_acc(l,n) = 1.0 - (1.0 - ximpair_fmin_acc(l,n))            &
                                 * EXP(-dt * 360.0 / nsc_repair_window(n))
