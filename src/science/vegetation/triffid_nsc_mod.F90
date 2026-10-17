@@ -508,8 +508,8 @@ DO j = 1,veg_pts
                             woodc(l,ft), c_veg)
   ht_p(l,ft)   = ht(l)
   laib_p(l,ft) = lai_b
-  ! The day's NPP as a rate per 360 days (TRIFFID units).
-  npp_d(l,ft) = nsc_npp_day(l,ft) / sec_per_day * days_per_trif_year
+  ! The day's NPP (kg C m-2) as a rate per 360 days (TRIFFID units).
+  npp_d(l,ft) = nsc_npp_day(l,ft) * days_per_trif_year
   nsc_npp_day(l,ft) = 0.0
 END DO
 
