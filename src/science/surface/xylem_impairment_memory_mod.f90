@@ -644,7 +644,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   f_renew(n_land_pts), c_new(n_land_pts), wood(n_land_pts),                  &
   f_new(n_land_pts), growth(n_land_pts),                                      &
   plc(n_land_pts)
-REAL(KIND=real_jlslsm) :: f_rec, a_mean, frac_crit
+REAL(KIND=real_jlslsm) :: f_rec, a_mean, frac_crit, store_days
 LOGICAL :: l_slow
                             ! Slow recovery (ximpair_rec_years > 0).
 
@@ -702,11 +702,14 @@ IF (l_ximpair_rec_nsc) THEN
                 kmax_pts(:))
   ximpair_repair_pend(:,pft) = 0.0
   ! Count the time the root zone (~predawn) is wetter than
-  ! ximpair_psi_growth, for the growth gate on the next repair.
+  ! ximpair_psi_growth, for the growth gate on the next repair, as a
+  ! fraction of the store period (the TRIFFID period, or a day without
+  ! TRIFFID).
+  store_days = 1.0
+  IF (l_triffid) store_days = REAL(triffid_period)
   WHERE (psi_root(:) >= ximpair_psi_growth(pft))                               &
     ximpair_grow_acc(:,pft) = ximpair_grow_acc(:,pft)                          &
-                              + REAL(timestep_len)                             &
-                              / (REAL(triffid_period) * 86400.0)
+                              + REAL(timestep_len) / (86400.0 * store_days)
 END IF
 
 IF (l_ximpair_rec_growth) THEN

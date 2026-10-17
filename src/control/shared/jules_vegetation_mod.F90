@@ -385,8 +385,10 @@ LOGICAL ::                                                                     &
        ! carbon the store releases, W = W_max C_a / (k_c C_max + C_a)
        ! (Michaelis-Menten loading), not from the NPP of the step. The
        ! store buffers carbon deficits (it pays for negative NPP) and, with
-       ! l_ximpair_rec_nsc, pays for xylem repair. Needs l_triffid; not with
-       ! l_sugar or l_trif_eq. See triffid_nsc_mod and NOTES_nsc_storage.md.
+       ! l_ximpair_rec_nsc, pays for xylem repair. Not with l_sugar or
+       ! l_trif_eq. Without l_triffid it runs daily with the prescribed LAI
+       ! and height (store and repair only). See triffid_nsc_mod and
+       ! NOTES_nsc_storage.md.
        ! MDK, 17/10/26
 
 ! Switches for bug fixes.
@@ -1797,12 +1799,7 @@ END IF
 
 ! TRIFFID storage pool and the xylem repair it pays for.
 ! MDK, 17/10/26
-IF ( l_triffid_nsc .AND. .NOT. l_triffid ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_triffid_nsc needs l_triffid=T')
-END IF
-IF ( l_triffid_nsc .AND. l_trif_eq ) THEN
+IF ( l_triffid_nsc .AND. l_triffid .AND. l_trif_eq ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_triffid_nsc is not coded for equilibrium TRIFFID ' //        &

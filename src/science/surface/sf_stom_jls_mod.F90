@@ -148,6 +148,9 @@ USE stom_opt_jls_mod, ONLY: stom_opt_mod
 USE xylem_impairment_mod, ONLY: update_xylem_impairment
 USE xylem_impairment_memory_mod, ONLY: ximpair_store_npp
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_growth
+! MDK, 17/10/26
+USE jules_vegetation_mod, ONLY: l_triffid, l_triffid_nsc
+USE triffid_nsc_mod, ONLY: triffid_nsc_daily
 
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 
@@ -3672,6 +3675,12 @@ END IF
 
 ! Keep NPP for the growth recovery of the memory xylem impairment models.
 IF (l_ximpair_rec_growth) CALL ximpair_store_npp(land_pts, ft, npp)
+
+! TRIFFID store without TRIFFID (prescribed LAI): daily store step.
+! MDK, 17/10/26
+IF (l_triffid_nsc .AND. .NOT. l_triffid)                                       &
+  CALL triffid_nsc_daily( land_pts, veg_pts, veg_index, ft, timestep, ht,     &
+                          npp )
 
 !-----------------------------------------------------------------------------
 ! If this functional type is a crop that has not emerged in a particular grid

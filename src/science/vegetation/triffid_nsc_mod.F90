@@ -50,8 +50,9 @@ MODULE triffid_nsc_mod
 ! (the repair carbon is litter, not wood, so wood turnover is not paid by
 ! the repair; their m_X = 0). Only the loss the current water status does
 ! not re-impose is repaired, PLC_r = PLC - (1 - f_min), with f_min the
-! lowest intact stem conductance fraction since the last TRIFFID step
-! (ximpair_fmin_acc). The repair, min(u W dt, PLC_r X), restores
+! lowest intact stem conductance fraction seen (ximpair_fmin_acc), whose
+! memory decays back to intact with e-folding time nsc_repair_window days
+! (0 = since the last store step). The repair, min(u W dt, PLC_r X), restores
 ! conductance in proportion,
 ! dPLC = -repair / X, at the next xylem impairment update. TRIFFID's
 ! allometry fixes the wood carbon, so the repair carbon leaves as litter
@@ -70,6 +71,15 @@ MODULE triffid_nsc_mod
 ! loses area its store goes with it, to litter (triffid_nsc_area); when it
 ! gains area the store is spread over the new area.
 !
+! Without TRIFFID (l_triffid off; prescribed LAI and height) the store runs
+! once a day from sf_stom (triffid_nsc_daily): the day's NPP is summed
+! (nsc_npp_day), and at the last time step of the day the same store step
+! runs for that PFT with a one-day step. Leaf, root and wood carbon come
+! from the prescribed height through the TRIFFID allometry
+! (calc_c_comps_triffid at the balanced LAI). The release W leaves the store
+! (there is no growth to feed), the repair rebuilds the stem cap as with
+! TRIFFID, and nsc_starv is a diagnostic only (the PFT fractions are fixed).
+!
 ! MDK, 17/10/26
 !
 !-----------------------------------------------------------------------------
@@ -81,8 +91,8 @@ IMPLICIT NONE
 PRIVATE
 
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft, nsc_repair_pft,   &
-          nsc_dc_pft, nsc_starv_pft, triffid_nsc_alloc, triffid_nsc_store,    &
-          triffid_nsc_area
+          nsc_dc_pft, nsc_starv_pft, nsc_npp_day, triffid_nsc_alloc,          &
+          triffid_nsc_store, triffid_nsc_area, triffid_nsc_daily
 
 ! Store (kg C m-2 of the PFT); < 0 = not yet set (filled to C_max at the
 ! first TRIFFID step). In dumps.
@@ -100,6 +110,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_dc_pft(:,:)
 ! Carbon-starvation mortality of the last TRIFFID step (per 360 days), used
 ! by lotka.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_starv_pft(:,:)
+! Without TRIFFID: NPP summed over the day so far (kg C m-2 of the PFT). In
+! dumps when l_triffid is off.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_day(:,:)
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='TRIFFID_NSC_MOD'
 
@@ -142,6 +155,10 @@ IF (.NOT. ALLOCATED(nsc_starv_pft)) THEN
   ALLOCATE(nsc_starv_pft(n_land_pts, npft))
   nsc_starv_pft(:,:) = 0.0
 END IF
+IF (.NOT. ALLOCATED(nsc_npp_day)) THEN
+  ALLOCATE(nsc_npp_day(n_land_pts, npft))
+  nsc_npp_day(:,:) = 0.0
+END IF
 
 END SUBROUTINE triffid_nsc_alloc
 
@@ -153,14 +170,15 @@ END SUBROUTINE triffid_nsc_alloc
 ! ximpair_repair_pend for the next xylem impairment update.
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,       &
-                              woodc, leafc, rootc, npp, repair )
+                              woodc, leafc, rootc, npp, repair, pft_only )
 
 USE jules_surface_types_mod, ONLY: npft
-USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory
+USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,  &
+                                l_triffid
 USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
                    nsc_flush, nsc_kc, nsc_reserve_frac, nsc_tau_load,        &
                    nsc_wmax_fac, nsc_sapwood_frac, nsc_hold_plc,             &
-                   nsc_g_starv, ximpair_psi_growth
+                   nsc_g_starv, ximpair_psi_growth, nsc_repair_window
 USE trif, ONLY: g_root, g_wood
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_repair_pend,    &
                                        ximpair_grow_acc, ximpair_fmin_acc,   &
@@ -196,8 +214,11 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   repair(land_pts,npft)
     ! Carbon rebuilding xylem (kg C m-2 per 360 days), part of W.
 
+INTEGER, INTENT(IN), OPTIONAL :: pft_only
+    ! Only this PFT (the daily step without TRIFFID); all PFTs if absent.
+
 ! Local variables
-INTEGER :: n, t, l
+INTEGER :: n, t, l, n1, n2
 REAL(KIND=real_jlslsm) ::                                                      &
   dt,                                                                          &
     ! TRIFFID timestep (360-day years).
@@ -230,8 +251,14 @@ CALL triffid_nsc_alloc( land_pts )
 
 dt = 1.0 / r_gamma
 repair(:,:) = 0.0
+n1 = 1
+n2 = npft
+IF (PRESENT(pft_only)) THEN
+  n1 = pft_only
+  n2 = pft_only
+END IF
 
-DO n = 1,npft
+DO n = n1,n2
 
   l_mem = pft_xylem_impairment_model(n) == xylem_impairment_memory
   l_rep = l_ximpair_rec_nsc .AND. l_mem
@@ -297,11 +324,17 @@ DO n = 1,npft
       IF (ximpair_psi_growth(n) > -1.0e29)                                     &
         f_grow = MIN(MAX(ximpair_grow_acc(l,n), 0.0), 1.0)
       ximpair_grow_acc(l,n) = 0.0
-      ! Only the loss the water status since the last step does not
-      ! re-impose.
+      ! Only the loss the water status of the recent past does not
+      ! re-impose. The memory of the worst stem conductance decays back to
+      ! intact with e-folding time nsc_repair_window (days; 0 = reset).
       plc_rep = MAX(plc - (1.0 - MIN(MAX(ximpair_fmin_acc(l,n), 0.0), 1.0)),   &
                     0.0)
-      ximpair_fmin_acc(l,n) = 1.0
+      IF (nsc_repair_window(n) > 0.0) THEN
+        ximpair_fmin_acc(l,n) = 1.0 - (1.0 - ximpair_fmin_acc(l,n))            &
+                                * EXP(-dt * 360.0 / nsc_repair_window(n))
+      ELSE
+        ximpair_fmin_acc(l,n) = 1.0
+      END IF
     END IF
     IF (l_rep .AND. w > 0.0) THEN
       x_s = nsc_sapwood_frac(n) * woodc(l,n)
@@ -310,8 +343,15 @@ DO n = 1,npft
         ! plant; the turnover is what TRIFFID charges against the growth
         ! W - repair (leaves kept, all roots, wood).
         l_tot  = leafc(l,n) + rootc(l,n)
-        turn_l = (1.0 - plc) * g_leaf_0(n) * leafc(l,n)                        &
-                 + g_root(n) * rootc(l,n) + g_wood(n) * woodc(l,n)
+        IF (l_triffid) THEN
+          turn_l = (1.0 - plc) * g_leaf_0(n) * leafc(l,n)                      &
+                   + g_root(n) * rootc(l,n) + g_wood(n) * woodc(l,n)
+        ELSE
+          ! Without TRIFFID (no TRIFFID turnover to keep up; the trif
+          ! parameters are not read): their leaf and fine-root turnover of
+          ! what is kept, at g_leaf_0, and m_X = 0.
+          turn_l = (1.0 - plc) * g_leaf_0(n) * l_tot
+        END IF
         u = x_s / (x_s + l_tot) * MAX(1.0 - turn_l / w, 0.0)
         repair(l,n) = MIN(f_grow * u * w, plc_rep * x_s / dt)
         ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                    &
@@ -382,5 +422,76 @@ DO n = 1,nnpft
 END DO
 
 END SUBROUTINE triffid_nsc_area
+
+! ---------------------------------------------------------------------
+! The store without TRIFFID (l_triffid off), called from sf_stom every time
+! step for PFT ft after NPP: sums the day's NPP, and at the last time step of
+! the day runs the store step for ft with a one-day step, with leaf, root
+! and wood carbon from the prescribed height (TRIFFID allometry).
+! ---------------------------------------------------------------------
+SUBROUTINE triffid_nsc_daily( land_pts, veg_pts, veg_index, ft, timestep,    &
+                              ht, npp )
+
+USE jules_surface_types_mod, ONLY: npft
+USE model_time_mod, ONLY: current_time
+USE calc_c_comps_triffid_mod, ONLY: calc_c_comps_triffid
+
+INTEGER, INTENT(IN) ::                                                         &
+  land_pts,                                                                    &
+    ! Total number of land points.
+  veg_pts,                                                                     &
+    ! Number of points of this PFT.
+  veg_index(land_pts),                                                         &
+    ! Land points of this PFT.
+  ft
+    ! Plant functional type.
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  timestep,                                                                    &
+    ! Model time step (s).
+  ht(land_pts),                                                                &
+    ! Canopy height (m).
+  npp(land_pts)
+    ! NPP of this time step (kg C m-2 s-1).
+
+INTEGER :: j, l
+REAL(KIND=real_jlslsm) :: c_veg, lai_b
+REAL(KIND=real_jlslsm), ALLOCATABLE :: woodc(:,:), leafc(:,:), rootc(:,:),   &
+                                       npp_d(:,:), repair(:,:)
+
+REAL(KIND=real_jlslsm), PARAMETER :: sec_per_day = 86400.0
+REAL(KIND=real_jlslsm), PARAMETER :: days_per_trif_year = 360.0
+
+CALL triffid_nsc_alloc( land_pts )
+
+DO j = 1,veg_pts
+  l = veg_index(j)
+  nsc_npp_day(l,ft) = nsc_npp_day(l,ft) + npp(l) * timestep
+END DO
+
+! Store step at the last time step of the day.
+IF (REAL(current_time%time) + timestep < sec_per_day - 0.5) RETURN
+
+ALLOCATE(woodc(land_pts,npft), leafc(land_pts,npft), rootc(land_pts,npft), &
+         npp_d(land_pts,npft), repair(land_pts,npft))
+woodc(:,:) = 0.0
+leafc(:,:) = 0.0
+rootc(:,:) = 0.0
+npp_d(:,:) = 0.0
+DO j = 1,veg_pts
+  l = veg_index(j)
+  CALL calc_c_comps_triffid(ft, ht(l), lai_b, leafc(l,ft), rootc(l,ft),    &
+                            woodc(l,ft), c_veg)
+  ! The day's NPP as a rate per 360 days (TRIFFID units).
+  npp_d(l,ft) = nsc_npp_day(l,ft) / sec_per_day * days_per_trif_year
+  nsc_npp_day(l,ft) = 0.0
+END DO
+
+CALL triffid_nsc_store( land_pts, veg_pts, veg_index, days_per_trif_year,   &
+                        woodc, leafc, rootc, npp_d, repair, pft_only = ft )
+
+DEALLOCATE(woodc, leafc, rootc, npp_d, repair)
+
+END SUBROUTINE triffid_nsc_daily
 
 END MODULE triffid_nsc_mod

@@ -310,6 +310,9 @@ IF ( l_triffid_nsc ) THEN
   CALL add_to_list( 'nsc_store', nvars, identifiers )
   CALL add_to_list( 'nsc_npp_mean', nvars, identifiers )
   CALL add_to_list( 'nsc_npp_wt', nvars, identifiers )
+  ! The day's NPP for the daily store step without TRIFFID.
+  ! MDK, 17/10/26
+  IF ( .NOT. l_triffid ) CALL add_to_list( 'nsc_npp_day', nvars, identifiers )
 END IF
 
 IF ( stomata_model == stomata_desica ) THEN

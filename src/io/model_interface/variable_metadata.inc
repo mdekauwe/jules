@@ -9980,4 +9980,17 @@ DATA metadata(770) / var_metadata(                                             &
 ! Units
     "-"                                                                        &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_npp_day
+!-----------------------------------------------------------------------------
+DATA metadata(771) / var_metadata(                                             &
+! String identifier
+    'nsc_npp_day',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "NPP summed over the day for the store without TRIFFID",                   &
+! Units
+    "kg m-2"                                                                   &
+  ) /
 #endif

@@ -653,13 +653,19 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  plant keeps the sink of the intact one (Trugman et al.
                  !  hold W_max, set by tree size, through recovery).
                  !  1 = never held.
-,nsc_g_starv(:)
+,nsc_g_starv(:)                                                               &
                  ! Carbon-starvation mortality (per 360 days, an area
                  !  disturbance added to g_area in lotka), at the full rate
                  !  when the accessible store is used up, falling linearly
                  !  to 0 at C_a = nsc_kc C_max (where loading is half its
                  !  maximum). Trugman et al.: death when the store is below
                  !  10 % of its initial value. 0 = off. Needs l_veg_compete.
+,nsc_repair_window(:)
+                 ! E-folding time (days) of the memory of the worst stem
+                 !  conductance since a store step (ximpair_fmin_acc): loss
+                 !  re-imposed within this window is not repaired, so mild
+                 !  midday losses that recur through a dry season are not
+                 !  repaid again and again. 0 = reset at each store step.
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -1008,6 +1014,7 @@ ALLOCATE( nsc_wmax_fac(npft))
 ALLOCATE( nsc_sapwood_frac(npft))
 ALLOCATE( nsc_hold_plc(npft))
 ALLOCATE( nsc_g_starv(npft))
+ALLOCATE( nsc_repair_window(npft))
 
 leaf_crit(:) = 0.0
 pft_conductance_model(:) = 0
@@ -1066,6 +1073,7 @@ nsc_wmax_fac(:) = 1.0
 nsc_sapwood_frac(:) = 0.6
 nsc_hold_plc(:) = 1.0
 nsc_g_starv(:) = 0.0
+nsc_repair_window(:) = 60.0
 
 ! SOX parameters
 ALLOCATE( sox_a(npft))
@@ -1409,6 +1417,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_hold_plc = ',nsc_hold_plc
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_g_starv = ',nsc_g_starv
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_repair_window = ',nsc_repair_window
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_psi_driver = ',ximpair_psi_driver
 CALL jules_print('pftparm',lineBuffer)

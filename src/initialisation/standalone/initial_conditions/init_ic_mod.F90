@@ -1017,7 +1017,7 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   ! MDK, 17/10/26
   CASE ( 'ximpair_repair_pend', 'ximpair_grow_acc', 'nsc_npp_mean',          &
-         'nsc_npp_wt' )
+         'nsc_npp_wt', 'nsc_npp_day' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'nsc_store' )
     ! TRIFFID store: -1 = filled to its capacity at the first TRIFFID step.
