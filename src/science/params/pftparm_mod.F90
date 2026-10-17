@@ -666,12 +666,21 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  re-imposed within this window is not repaired, so mild
                  !  midday losses that recur through a dry season are not
                  !  repaid again and again. 0 = reset at each store step.
-,nsc_plc_background(:)
+,nsc_plc_background(:)                                                        &
                  ! Stem loss of conductance (fraction) up to which the store
                  !  does not pay for repair: small seasonal embolism is
                  !  background that healthy trees carry, not damage. After
                  !  a drought the stem is rebuilt to this loss, not to 0.
                  !  0 = off.
+,nsc_la_sa(:)                                                                 &
+                 ! Leaf area per sapwood area (m2 m-2; the inverse Huber
+                 !  value). > 0: the conducting xylem the store rebuilds is
+                 !  from the pipe model on the balanced leaf area, as in
+                 !  FATES: X = LAI_bal / nsc_la_sa h nsc_wood_density cmass
+                 !  (sapwood area x height, area-preserving branching, no
+                 !  taper). 0: X = nsc_sapwood_frac woodc.
+,nsc_wood_density(:)
+                 ! Wood density (kg dry matter m-3) for the pipe-model xylem.
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -1022,6 +1031,8 @@ ALLOCATE( nsc_hold_plc(npft))
 ALLOCATE( nsc_g_starv(npft))
 ALLOCATE( nsc_repair_window(npft))
 ALLOCATE( nsc_plc_background(npft))
+ALLOCATE( nsc_la_sa(npft))
+ALLOCATE( nsc_wood_density(npft))
 
 leaf_crit(:) = 0.0
 pft_conductance_model(:) = 0
@@ -1082,6 +1093,8 @@ nsc_hold_plc(:) = 1.0
 nsc_g_starv(:) = 0.0
 nsc_repair_window(:) = 60.0
 nsc_plc_background(:) = 0.01
+nsc_la_sa(:) = 0.0
+nsc_wood_density(:) = 600.0
 
 ! SOX parameters
 ALLOCATE( sox_a(npft))
@@ -1429,6 +1442,10 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_repair_window = ',nsc_repair_window
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_plc_background = ',nsc_plc_background
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_la_sa = ',nsc_la_sa
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_wood_density = ',nsc_wood_density
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_psi_driver = ',ximpair_psi_driver
 CALL jules_print('pftparm',lineBuffer)

@@ -37,7 +37,10 @@ MODULE triffid_nsc_mod
 ! xylem is f_x = 1 - PLC of X = nsc_sapwood_frac woodc, the conducting
 ! sapwood (Trugman et al. Table S2: sapwood fraction SA = 0.6 of the stem
 ! biomass; 1 / a_ws would be the JULES live stemwood, eta_sl h LAI_bal,
-! which at FR-Pue is about a sixth of that), and the leaves and fine roots
+! which at FR-Pue is about a sixth of that), or, with nsc_la_sa > 0, the
+! pipe model on the balanced leaf area as in FATES, X = LAI_bal /
+! nsc_la_sa h nsc_wood_density cmass (from measured leaf:sapwood area and
+! wood density, independent of the TRIFFID wood), and the leaves and fine roots
 ! the plant keeps are L = f_x (leaf + root) (Trugman et al. Eqn 2, leaf area
 ! in proportion to functional xylem; l_ximpair_leaf_loss sheds the canopy to
 ! match). Their optimal share of W rebuilding xylem, with no xylem turnover
@@ -172,7 +175,8 @@ END SUBROUTINE triffid_nsc_alloc
 ! ximpair_repair_pend for the next xylem impairment update.
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,       &
-                              woodc, leafc, rootc, npp, repair, pft_only )
+                              woodc, leafc, rootc, ht, lai_bal, npp, repair,  &
+                              pft_only )
 
 USE jules_surface_types_mod, ONLY: npft
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,  &
@@ -181,7 +185,8 @@ USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
                    nsc_flush, nsc_kc, nsc_reserve_frac, nsc_tau_load,        &
                    nsc_wmax_fac, nsc_sapwood_frac, nsc_hold_plc,             &
                    nsc_g_starv, ximpair_psi_growth, nsc_repair_window,       &
-                   nsc_plc_background
+                   nsc_plc_background, nsc_la_sa, nsc_wood_density
+USE jules_surface_mod, ONLY: cmass
 USE trif, ONLY: g_root, g_wood
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_repair_pend,    &
                                        ximpair_grow_acc, ximpair_fmin_acc,   &
@@ -205,8 +210,12 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
     ! Wood carbon (kg C m-2).
   leafc(land_pts,npft),                                                        &
     ! Leaf carbon at the balanced LAI (kg C m-2).
-  rootc(land_pts,npft)
+  rootc(land_pts,npft),                                                        &
     ! Root carbon (kg C m-2).
+  ht(land_pts,npft),                                                           &
+    ! Canopy height (m).
+  lai_bal(land_pts,npft)
+    ! Balanced LAI (for the pipe-model xylem, nsc_la_sa > 0).
 
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
   npp(land_pts,npft)
@@ -342,7 +351,13 @@ DO n = n1,n2
       END IF
     END IF
     IF (l_rep .AND. w > 0.0) THEN
-      x_s = nsc_sapwood_frac(n) * woodc(l,n)
+      IF (nsc_la_sa(n) > 0.0) THEN
+        ! Pipe model on the balanced leaf area (sapwood area x height).
+        x_s = lai_bal(l,n) / nsc_la_sa(n) * ht(l,n) * nsc_wood_density(n)     &
+              * cmass
+      ELSE
+        x_s = nsc_sapwood_frac(n) * woodc(l,n)
+      END IF
       IF (plc_rep > 0.0 .AND. x_s > x_min) THEN
         ! X and L both scale with f_x, so X / (X + L) is that of the intact
         ! plant; the turnover is what TRIFFID charges against the growth
@@ -462,7 +477,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 INTEGER :: j, l
 REAL(KIND=real_jlslsm) :: c_veg, lai_b
 REAL(KIND=real_jlslsm), ALLOCATABLE :: woodc(:,:), leafc(:,:), rootc(:,:),   &
-                                       npp_d(:,:), repair(:,:)
+                                       npp_d(:,:), repair(:,:), ht_p(:,:),    &
+                                       laib_p(:,:)
 
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_day = 86400.0
 REAL(KIND=real_jlslsm), PARAMETER :: days_per_trif_year = 360.0
@@ -478,8 +494,11 @@ END DO
 IF (REAL(current_time%time) + timestep < sec_per_day - 0.5) RETURN
 
 ALLOCATE(woodc(land_pts,npft), leafc(land_pts,npft), rootc(land_pts,npft), &
-         npp_d(land_pts,npft), repair(land_pts,npft))
+         npp_d(land_pts,npft), repair(land_pts,npft), ht_p(land_pts,npft),   &
+         laib_p(land_pts,npft))
 woodc(:,:) = 0.0
+ht_p(:,:) = 0.0
+laib_p(:,:) = 0.0
 leafc(:,:) = 0.0
 rootc(:,:) = 0.0
 npp_d(:,:) = 0.0
@@ -487,15 +506,18 @@ DO j = 1,veg_pts
   l = veg_index(j)
   CALL calc_c_comps_triffid(ft, ht(l), lai_b, leafc(l,ft), rootc(l,ft),    &
                             woodc(l,ft), c_veg)
+  ht_p(l,ft)   = ht(l)
+  laib_p(l,ft) = lai_b
   ! The day's NPP as a rate per 360 days (TRIFFID units).
   npp_d(l,ft) = nsc_npp_day(l,ft) / sec_per_day * days_per_trif_year
   nsc_npp_day(l,ft) = 0.0
 END DO
 
 CALL triffid_nsc_store( land_pts, veg_pts, veg_index, days_per_trif_year,   &
-                        woodc, leafc, rootc, npp_d, repair, pft_only = ft )
+                        woodc, leafc, rootc, ht_p, laib_p, npp_d, repair,    &
+                        pft_only = ft )
 
-DEALLOCATE(woodc, leafc, rootc, npp_d, repair)
+DEALLOCATE(woodc, leafc, rootc, npp_d, repair, ht_p, laib_p)
 
 END SUBROUTINE triffid_nsc_daily
 

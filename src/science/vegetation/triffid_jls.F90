@@ -702,7 +702,8 @@ END DO  !  PFTs
 nsc_repair(:,:) = 0.0
 IF ( l_triffid_nsc ) THEN
   CALL triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,             &
-                          woodc_pft, leafc_pft, rootc_pft, npp, nsc_repair )
+                          woodc_pft, leafc_pft, rootc_pft, ht, lai_bal_pft,    &
+                          npp, nsc_repair )
 END IF
 
 !-----------------------------------------------------------------------------
