@@ -567,6 +567,12 @@ DO i = 1,nvars
       CALL gather_land_field(progs%t_soil_soilt(:,1,n), global_data_2d(:,n))
     END DO
 
+  ! MDK, 17/10/26
+  CASE ( 'smcl' )
+    DO n = 1,sm_levels
+      CALL gather_land_field(progs%smcl_soilt(:,1,n), global_data_2d(:,n))
+    END DO
+
   CASE ( 't_soil_soilt' )
     DO m = 1,nsoilt
       DO n = 1,sm_levels
@@ -1124,7 +1130,7 @@ DO i = 1,nvars
            'croplai', 'cropcanht' )
       CALL file_write_var(FILE, var_ids(i), global_data_2d(:,1:ncpft))
 
-    CASE ( 'sthuf', 't_soil', 'sthu_irr' )
+    CASE ( 'sthuf', 't_soil', 'sthu_irr', 'smcl' )
       CALL file_write_var(FILE, var_ids(i),                                    &
                           global_data_2d(:,1:sm_levels))
 

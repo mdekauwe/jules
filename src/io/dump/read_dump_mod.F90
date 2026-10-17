@@ -236,6 +236,16 @@ DO i = 1,nvars
       CALL file_read_var(FILE, var_ids(i),                                     &
                          global_data_2d(:,1:sm_levels))
 
+    ! MDK, 17/10/26
+    CASE ( 'smcl' )
+      ! Not in older dumps: -1 = rebuild from sthuf (init_ic).
+      IF ( var_ids(i) > 0 ) THEN
+        CALL file_read_var(FILE, var_ids(i),                                   &
+                           global_data_2d(:,1:sm_levels))
+      ELSE
+        global_data_2d(:,1:sm_levels) = -1.0
+      END IF
+
     CASE ( 'sthuf_soilt', 't_soil_soilt', 'sthu_irr_soilt')
       CALL file_read_var(FILE, var_ids(i),                                     &
                          global_data_3d(:,1:nsoilt,1:sm_levels))
@@ -808,6 +818,12 @@ DO i = 1,nvars
         CALL scatter_land_field(global_data_3d(:,m,n),                         &
                                 jules_vars%sthuf_soilt(:,m,n))
       END DO
+    END DO
+
+  ! MDK, 17/10/26
+  CASE ( 'smcl' )
+    DO n = 1,sm_levels
+      CALL scatter_land_field(global_data_2d(:,n), progs%smcl_soilt(:,1,n))
     END DO
 
   CASE ( 't_soil' )
