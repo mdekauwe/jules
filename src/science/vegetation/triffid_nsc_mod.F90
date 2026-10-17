@@ -1,0 +1,386 @@
+! *****************************COPYRIGHT*******************************
+! (C) Crown copyright Met Office. All rights reserved.
+! For further details please refer to the file COPYRIGHT.txt
+! which you should have received as part of this distribution.
+! *****************************COPYRIGHT*******************************
+
+MODULE triffid_nsc_mod
+!-----------------------------------------------------------------------------
+! TRIFFID storage pool (l_triffid_nsc), after Trugman et al. (2018, Ecol.
+! Lett. 21: 1552-1560, Eqns 1a-c and 5, Table S2).
+!
+! NPP goes into a non-structural carbon store, C (kg C m-2 of the PFT), and
+! TRIFFID grows from the carbon the store releases (phloem loading), not
+! from the NPP of the step:
+!   dC/dt = NPP - W,
+!   W     = W_max C_a / (k_c C_max + C_a)          (Michaelis-Menten),
+! with
+!   C_max = nsc_flush (leaf + root carbon at the balanced LAI)
+!           (Trugman et al.: enough for two flushes of leaves and fine roots),
+!   C_a   = C - nsc_reserve_frac C_max, the accessible store (they take a
+!           store below 10 % of its initial value as death by carbon
+!           starvation),
+!   k_c   = nsc_kc C_max (their k_c = 0.02 of the initial store),
+!   W_max = nsc_wmax_fac * <NPP>, the running mean of NPP (e-folding time
+!           nsc_tau_load years): the sink the plant is adapted to. Trugman
+!           et al. set W_max by tree size and hold it through recovery; the
+!           running mean is the JULES stand-in, as TRIFFID has no tree size.
+! The store is held between the reserve and C_max: carbon above C_max goes to
+! growth (overflow), so a well-supplied plant grows from its NPP as without
+! the store. When the accessible store is used up the carbon deficit passes
+! to TRIFFID as negative growth (the vegetation shrinks), which is the JULES
+! form of their starvation.
+!
+! Xylem repair (l_ximpair_rec_nsc, with the memory impairment model): the
+! stem's lost conductance recovers only by regrowing xylem paid for from the
+! store. With the loss of conductance PLC = ximpair_lock, the functional
+! xylem is f_x = 1 - PLC of X = nsc_sapwood_frac woodc, the conducting
+! sapwood (Trugman et al. Table S2: sapwood fraction SA = 0.6 of the stem
+! biomass; 1 / a_ws would be the JULES live stemwood, eta_sl h LAI_bal,
+! which at FR-Pue is about a sixth of that), and the leaves and fine roots
+! the plant keeps are L = f_x (leaf + root) (Trugman et al. Eqn 2, leaf area
+! in proportion to functional xylem; l_ximpair_leaf_loss sheds the canopy to
+! match). Their optimal share of W rebuilding xylem, with no xylem turnover
+! (their m_X = 0), is
+!   u = X / (X + L) (1 - m_L L / W)                (Eqn 5)
+! with m_L L the leaf and fine-root turnover (g_leaf_0, g_root) of what is
+! kept. Here m_L L is the turnover TRIFFID charges against the growth W
+! - repair: the leaves kept, (1 - PLC) g_leaf_0 leafc, all the roots,
+! g_root rootc (TRIFFID does not shed them), and the wood, g_wood woodc
+! (the repair carbon is litter, not wood, so wood turnover is not paid by
+! the repair; their m_X = 0). Only the loss the current water status does
+! not re-impose is repaired, PLC_r = PLC - (1 - f_min), with f_min the
+! lowest intact stem conductance fraction since the last TRIFFID step
+! (ximpair_fmin_acc). The repair, min(u W dt, PLC_r X), restores
+! conductance in proportion,
+! dPLC = -repair / X, at the next xylem impairment update. TRIFFID's
+! allometry fixes the wood carbon, so the repair carbon leaves as litter
+! (the embolised conduits it replaces are retired). With
+! ximpair_psi_growth set, the repair is scaled by the fraction of time since
+! the last TRIFFID step that the root zone was wetter than it (no stem growth
+! in drought; ximpair_grow_acc).
+!
+! W_max is held while the stem is damaged (ximpair_lock > nsc_hold_plc), as
+! Trugman et al. hold it through recovery: the damaged plant keeps loading
+! for the intact sink, which is what runs the store down.
+!
+! Starvation (nsc_g_starv > 0, with l_veg_compete): an area disturbance,
+! nsc_starv_pft, added to g_area in lotka, at the full rate when the
+! accessible store is used up and 0 for C_a >= nsc_kc C_max. When the PFT
+! loses area its store goes with it, to litter (triffid_nsc_area); when it
+! gains area the store is spread over the new area.
+!
+! MDK, 17/10/26
+!
+!-----------------------------------------------------------------------------
+
+USE um_types, ONLY: real_jlslsm
+
+IMPLICIT NONE
+
+PRIVATE
+
+PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft, nsc_repair_pft,   &
+          nsc_dc_pft, nsc_starv_pft, triffid_nsc_alloc, triffid_nsc_store,    &
+          triffid_nsc_area
+
+! Store (kg C m-2 of the PFT); < 0 = not yet set (filled to C_max at the
+! first TRIFFID step). In dumps.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_pft(:,:)
+! Running mean of NPP (kg C m-2 per 360 days) and its weight, for W_max
+! (bias-corrected mean = nsc_npp_mean / nsc_npp_wt). In dumps.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_mean(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_wt(:,:)
+! Diagnostics of the last TRIFFID step (kg C m-2 per 360 days): the carbon
+! released from the store (W, which TRIFFID grows from), the part of it
+! that rebuilt xylem, and the net flux into the store (NPP - W).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_load_pft(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_repair_pft(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_dc_pft(:,:)
+! Carbon-starvation mortality of the last TRIFFID step (per 360 days), used
+! by lotka.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_starv_pft(:,:)
+
+CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='TRIFFID_NSC_MOD'
+
+CONTAINS
+
+! ---------------------------------------------------------------------
+! Allocate the store and its diagnostics (n_land_pts, npft), if not done.
+! ---------------------------------------------------------------------
+SUBROUTINE triffid_nsc_alloc( n_land_pts )
+
+USE jules_surface_types_mod, ONLY: npft
+
+INTEGER, INTENT(IN) :: n_land_pts
+
+IF (.NOT. ALLOCATED(nsc_pft)) THEN
+  ALLOCATE(nsc_pft(n_land_pts, npft))
+  nsc_pft(:,:) = -1.0
+END IF
+IF (.NOT. ALLOCATED(nsc_npp_mean)) THEN
+  ALLOCATE(nsc_npp_mean(n_land_pts, npft))
+  nsc_npp_mean(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(nsc_npp_wt)) THEN
+  ALLOCATE(nsc_npp_wt(n_land_pts, npft))
+  nsc_npp_wt(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(nsc_load_pft)) THEN
+  ALLOCATE(nsc_load_pft(n_land_pts, npft))
+  nsc_load_pft(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(nsc_repair_pft)) THEN
+  ALLOCATE(nsc_repair_pft(n_land_pts, npft))
+  nsc_repair_pft(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(nsc_dc_pft)) THEN
+  ALLOCATE(nsc_dc_pft(n_land_pts, npft))
+  nsc_dc_pft(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(nsc_starv_pft)) THEN
+  ALLOCATE(nsc_starv_pft(n_land_pts, npft))
+  nsc_starv_pft(:,:) = 0.0
+END IF
+
+END SUBROUTINE triffid_nsc_alloc
+
+! ---------------------------------------------------------------------
+! One TRIFFID step of the store. On return npp holds W, the carbon released
+! from the store (kg C m-2 per 360 days), and repair the part of W that
+! rebuilds xylem (TRIFFID grows from W - repair; the repair goes to
+! litter). The repaired fraction of conductance is queued in
+! ximpair_repair_pend for the next xylem impairment update.
+! ---------------------------------------------------------------------
+SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,       &
+                              woodc, leafc, rootc, npp, repair )
+
+USE jules_surface_types_mod, ONLY: npft
+USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory
+USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
+                   nsc_flush, nsc_kc, nsc_reserve_frac, nsc_tau_load,        &
+                   nsc_wmax_fac, nsc_sapwood_frac, nsc_hold_plc,             &
+                   nsc_g_starv, ximpair_psi_growth
+USE trif, ONLY: g_root, g_wood
+USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_repair_pend,    &
+                                       ximpair_grow_acc, ximpair_fmin_acc,   &
+                                       ximpair_memory_alloc
+
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
+INTEGER, INTENT(IN) ::                                                         &
+  land_pts,                                                                    &
+    ! Total number of land points.
+  trif_pts,                                                                    &
+    ! Number of points on which TRIFFID may operate.
+  trif_index(land_pts)
+    ! Indices of land points on which TRIFFID may operate.
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  r_gamma,                                                                     &
+    ! Inverse TRIFFID timestep (/360 days).
+  woodc(land_pts,npft),                                                        &
+    ! Wood carbon (kg C m-2).
+  leafc(land_pts,npft),                                                        &
+    ! Leaf carbon at the balanced LAI (kg C m-2).
+  rootc(land_pts,npft)
+    ! Root carbon (kg C m-2).
+
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+  npp(land_pts,npft)
+    ! IN NPP, OUT the carbon released from the store, W
+    ! (kg C m-2 per 360 days).
+
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  repair(land_pts,npft)
+    ! Carbon rebuilding xylem (kg C m-2 per 360 days), part of W.
+
+! Local variables
+INTEGER :: n, t, l
+REAL(KIND=real_jlslsm) ::                                                      &
+  dt,                                                                          &
+    ! TRIFFID timestep (360-day years).
+  a_mean,                                                                      &
+    ! Weight of this step in the running mean of NPP.
+  c_max, c_res, c_acc,                                                         &
+    ! Store capacity, reserve and accessible store (kg C m-2).
+  w_max, w, draw,                                                              &
+    ! Maximum and actual loading, net draw on the store (per 360 days).
+  c_old,                                                                       &
+    ! Store at the start of the step (kg C m-2).
+  plc, x_s, l_tot, turn_l, u,                                                 &
+  f_grow, plc_rep
+    ! Repair: loss of conductance, conducting xylem (kg C m-2), leaf and fine
+    ! root of the intact plant (kg C m-2), turnover TRIFFID charges against
+    ! growth (per 360 days), share of W, growth gate, repairable loss.
+LOGICAL :: l_rep, l_mem
+
+REAL(KIND=real_jlslsm), PARAMETER :: x_min = 1.0e-6
+    ! Minimum conducting xylem for repair (kg C m-2).
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='TRIFFID_NSC_STORE'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+CALL triffid_nsc_alloc( land_pts )
+
+dt = 1.0 / r_gamma
+repair(:,:) = 0.0
+
+DO n = 1,npft
+
+  l_mem = pft_xylem_impairment_model(n) == xylem_impairment_memory
+  l_rep = l_ximpair_rec_nsc .AND. l_mem
+  IF (l_rep) CALL ximpair_memory_alloc( land_pts )
+
+  a_mean = MIN(dt / MAX(nsc_tau_load(n), TINY(1.0_real_jlslsm)), 1.0)
+
+  DO t = 1,trif_pts
+    l = trif_index(t)
+
+    c_max = nsc_flush(n) * (leafc(l,n) + rootc(l,n))
+    c_res = nsc_reserve_frac(n) * c_max
+    IF (nsc_pft(l,n) < 0.0) nsc_pft(l,n) = c_max
+    c_old = nsc_pft(l,n)
+
+    ! Stem loss of conductance (0 before the first impairment update).
+    plc = 0.0
+    IF (l_mem .AND. ALLOCATED(ximpair_lock))                                   &
+      plc = MIN(MAX(ximpair_lock(l,n), 0.0), 1.0)
+
+    ! Maximum loading from the running mean of NPP (bias-corrected), held
+    ! while the stem is damaged.
+    IF (plc <= nsc_hold_plc(n)) THEN
+      nsc_npp_mean(l,n) = nsc_npp_mean(l,n) + a_mean * (npp(l,n)            &
+                          - nsc_npp_mean(l,n))
+      nsc_npp_wt(l,n)   = nsc_npp_wt(l,n) + a_mean * (1.0 - nsc_npp_wt(l,n))
+    END IF
+    w_max = 0.0
+    IF (nsc_npp_wt(l,n) > 0.0)                                                 &
+      w_max = nsc_wmax_fac(n) * MAX(nsc_npp_mean(l,n) / nsc_npp_wt(l,n), 0.0)
+
+    ! Michaelis-Menten loading on the accessible store.
+    c_acc = MAX(nsc_pft(l,n) - c_res, 0.0)
+    w = 0.0
+    IF (c_acc > 0.0) w = w_max * c_acc / (nsc_kc(n) * c_max + c_acc)
+
+    ! The store can not be drawn below the reserve: a deficit beyond the
+    ! accessible store passes to TRIFFID (w = npp < 0 when it is empty).
+    draw = w - npp(l,n)
+    IF (draw > 0.0) draw = MIN(draw, c_acc / dt)
+    w = npp(l,n) + draw
+    nsc_pft(l,n) = nsc_pft(l,n) - draw * dt
+
+    ! Overflow above the capacity goes to growth.
+    IF (nsc_pft(l,n) > c_max) THEN
+      w = w + (nsc_pft(l,n) - c_max) / dt
+      nsc_pft(l,n) = c_max
+    END IF
+
+    ! Carbon starvation, ramping up as the accessible store runs out.
+    nsc_starv_pft(l,n) = 0.0
+    IF (nsc_g_starv(n) > 0.0 .AND. c_max > 0.0) THEN
+      c_acc = MAX(nsc_pft(l,n) - c_res, 0.0)
+      nsc_starv_pft(l,n) = nsc_g_starv(n)                                      &
+                           * MAX(1.0 - c_acc / (nsc_kc(n) * c_max), 0.0)
+    END IF
+
+    ! Xylem repair from the released carbon, only while the root zone is
+    ! wetter than ximpair_psi_growth (if set).
+    f_grow  = 1.0
+    plc_rep = 0.0
+    IF (l_rep) THEN
+      IF (ximpair_psi_growth(n) > -1.0e29)                                     &
+        f_grow = MIN(MAX(ximpair_grow_acc(l,n), 0.0), 1.0)
+      ximpair_grow_acc(l,n) = 0.0
+      ! Only the loss the water status since the last step does not
+      ! re-impose.
+      plc_rep = MAX(plc - (1.0 - MIN(MAX(ximpair_fmin_acc(l,n), 0.0), 1.0)),   &
+                    0.0)
+      ximpair_fmin_acc(l,n) = 1.0
+    END IF
+    IF (l_rep .AND. w > 0.0) THEN
+      x_s = nsc_sapwood_frac(n) * woodc(l,n)
+      IF (plc_rep > 0.0 .AND. x_s > x_min) THEN
+        ! X and L both scale with f_x, so X / (X + L) is that of the intact
+        ! plant; the turnover is what TRIFFID charges against the growth
+        ! W - repair (leaves kept, all roots, wood).
+        l_tot  = leafc(l,n) + rootc(l,n)
+        turn_l = (1.0 - plc) * g_leaf_0(n) * leafc(l,n)                        &
+                 + g_root(n) * rootc(l,n) + g_wood(n) * woodc(l,n)
+        u = x_s / (x_s + l_tot) * MAX(1.0 - turn_l / w, 0.0)
+        repair(l,n) = MIN(f_grow * u * w, plc_rep * x_s / dt)
+        ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                    &
+                                   + repair(l,n) * dt / x_s
+      END IF
+    END IF
+
+    npp(l,n)            = w
+    nsc_load_pft(l,n)   = w
+    nsc_repair_pft(l,n) = repair(l,n)
+    nsc_dc_pft(l,n)     = (nsc_pft(l,n) - c_old) * r_gamma
+
+  END DO
+END DO
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
+END SUBROUTINE triffid_nsc_store
+
+! ---------------------------------------------------------------------
+! The store after TRIFFID's change of PFT area (lotka). Area lost takes its
+! store with it, to litter (lit_store); area gained shares the store, which
+! is spread over the new area.
+! ---------------------------------------------------------------------
+SUBROUTINE triffid_nsc_area( land_pts, trif_pts, trif_index, r_gamma,        &
+                             frac, dfrac, lit_store )
+
+USE jules_surface_types_mod, ONLY: npft, nnpft, ntype
+
+INTEGER, INTENT(IN) ::                                                         &
+  land_pts,                                                                    &
+    ! Total number of land points.
+  trif_pts,                                                                    &
+    ! Number of points on which TRIFFID may operate.
+  trif_index(land_pts)
+    ! Indices of land points on which TRIFFID may operate.
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  r_gamma,                                                                     &
+    ! Inverse TRIFFID timestep (/360 days).
+  frac(land_pts,ntype),                                                        &
+    ! Areal fractions after the TRIFFID step.
+  dfrac(land_pts,npft)
+    ! Change in the areal fractions over the step.
+
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  lit_store(land_pts,npft)
+    ! Store carbon of the area lost, to litter (kg C m-2 of land per 360
+    ! days).
+
+INTEGER :: n, t, l
+REAL(KIND=real_jlslsm) :: frac_old
+
+lit_store(:,:) = 0.0
+IF (.NOT. ALLOCATED(nsc_pft)) RETURN
+
+DO n = 1,nnpft
+  DO t = 1,trif_pts
+    l = trif_index(t)
+    IF (nsc_pft(l,n) <= 0.0) CYCLE
+    frac_old = frac(l,n) - dfrac(l,n)
+    IF (dfrac(l,n) < 0.0) THEN
+      lit_store(l,n) = - dfrac(l,n) * nsc_pft(l,n) * r_gamma
+    ELSE IF (dfrac(l,n) > 0.0 .AND. frac(l,n) > 0.0) THEN
+      nsc_pft(l,n) = nsc_pft(l,n) * frac_old / frac(l,n)
+    END IF
+  END DO
+END DO
+
+END SUBROUTINE triffid_nsc_area
+
+END MODULE triffid_nsc_mod

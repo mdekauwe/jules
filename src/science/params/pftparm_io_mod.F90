@@ -264,7 +264,16 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ximpair_psi_growth_io(npft_max) = rmdi,                                      &
   ximpair_rec_years_io(npft_max) = rmdi,                                       &
   ximpair_tau_stem_io(npft_max) = rmdi,                                        &
-  ximpair_tau_leaf_io(npft_max) = rmdi
+  ximpair_tau_leaf_io(npft_max) = rmdi,                                        &
+  ! MDK, 17/10/26
+  nsc_flush_io(npft_max) = rmdi,                                               &
+  nsc_kc_io(npft_max) = rmdi,                                                  &
+  nsc_reserve_frac_io(npft_max) = rmdi,                                        &
+  nsc_tau_load_io(npft_max) = rmdi,                                            &
+  nsc_wmax_fac_io(npft_max) = rmdi,                                            &
+  nsc_sapwood_frac_io(npft_max) = rmdi,                                        &
+  nsc_hold_plc_io(npft_max) = rmdi,                                            &
+  nsc_g_starv_io(npft_max) = rmdi
 !---------------------------------------------------------------------
 ! Set up a namelist for reading and writing these arrays
 !---------------------------------------------------------------------
@@ -335,7 +344,10 @@ NAMELIST  / jules_pftparm/                                                     &
   ximpair_psi_refill_io,             ximpair_wood_alloc_io,                    &
   ximpair_growth_basis_io,           ximpair_leaf_sens_io,                     &
   ximpair_psi_growth_io,             ximpair_rec_years_io,                     &
-  ximpair_tau_stem_io,               ximpair_tau_leaf_io
+  ximpair_tau_stem_io,               ximpair_tau_leaf_io,                      &
+  nsc_flush_io,    nsc_kc_io,        nsc_reserve_frac_io,                      &
+  nsc_tau_load_io, nsc_wmax_fac_io,  nsc_sapwood_frac_io,                      &
+  nsc_hold_plc_io, nsc_g_starv_io
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM_IO'
 
@@ -373,7 +385,7 @@ INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 9 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
                                            ! impairment)
-INTEGER, PARAMETER :: n_real = 149 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 157 * npft_max ! = the REAL arrays in
                                              ! my_namelist (141 + 8 xylem
                                              ! impairment)
 
@@ -537,6 +549,14 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: ximpair_rec_years_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_tau_stem_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_tau_leaf_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_flush_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_kc_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_reserve_frac_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_tau_load_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_wmax_fac_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_sapwood_frac_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_hold_plc_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_g_starv_io(npft_max)
 END TYPE my_namelist
 
 TYPE (my_namelist) :: my_nml
@@ -713,6 +733,14 @@ IF (mype == 0) THEN
   my_nml % ximpair_rec_years_io = ximpair_rec_years_io
   my_nml % ximpair_tau_stem_io = ximpair_tau_stem_io
   my_nml % ximpair_tau_leaf_io = ximpair_tau_leaf_io
+  my_nml % nsc_flush_io = nsc_flush_io
+  my_nml % nsc_kc_io = nsc_kc_io
+  my_nml % nsc_reserve_frac_io = nsc_reserve_frac_io
+  my_nml % nsc_tau_load_io = nsc_tau_load_io
+  my_nml % nsc_wmax_fac_io = nsc_wmax_fac_io
+  my_nml % nsc_sapwood_frac_io = nsc_sapwood_frac_io
+  my_nml % nsc_hold_plc_io = nsc_hold_plc_io
+  my_nml % nsc_g_starv_io = nsc_g_starv_io
 END IF
 
 CALL mpl_bcast(my_nml,1,mpl_nml_type,0,my_comm,icode)
@@ -877,6 +905,14 @@ IF (mype /= 0) THEN
   ximpair_rec_years_io = my_nml % ximpair_rec_years_io
   ximpair_tau_stem_io = my_nml % ximpair_tau_stem_io
   ximpair_tau_leaf_io = my_nml % ximpair_tau_leaf_io
+  nsc_flush_io = my_nml % nsc_flush_io
+  nsc_kc_io = my_nml % nsc_kc_io
+  nsc_reserve_frac_io = my_nml % nsc_reserve_frac_io
+  nsc_tau_load_io = my_nml % nsc_tau_load_io
+  nsc_wmax_fac_io = my_nml % nsc_wmax_fac_io
+  nsc_sapwood_frac_io = my_nml % nsc_sapwood_frac_io
+  nsc_hold_plc_io = my_nml % nsc_hold_plc_io
+  nsc_g_starv_io = my_nml % nsc_g_starv_io
 END IF
 
 CALL mpl_type_free(mpl_nml_type,icode)
@@ -958,7 +994,10 @@ USE pftparm, ONLY:                                                             &
   ximpair_wood_alloc,                ximpair_growth_basis,                     &
   ximpair_leaf_sens,                 ximpair_psi_growth,                       &
   ximpair_rec_years,                 ximpair_tau_stem,                         &
-  ximpair_tau_leaf
+  ximpair_tau_leaf,                                                            &
+  nsc_flush,       nsc_kc,           nsc_reserve_frac,                         &
+  nsc_tau_load,    nsc_wmax_fac,     nsc_sapwood_frac,                         &
+  nsc_hold_plc,    nsc_g_starv
 
 
 
@@ -972,7 +1011,8 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 stomata_cgain, stomata_supply_loss,            &
                                 stomata_cap,                                   &
                                 xylem_impairment_memory,                       &
-                                ximpair_driver_stem
+                                ximpair_driver_stem, l_triffid_nsc,            &
+                                l_ximpair_rec_nsc, l_veg_compete
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1261,7 +1301,63 @@ DO i = 1, npft
     ximpair_tau_stem(i) = ximpair_tau_stem_io(i)
   IF (ABS(ximpair_tau_leaf_io(i) - rmdi) > EPSILON(1.0))                       &
     ximpair_tau_leaf(i) = ximpair_tau_leaf_io(i)
+  ! MDK, 17/10/26
+  IF (ABS(nsc_flush_io(i) - rmdi) > EPSILON(1.0))                              &
+    nsc_flush(i) = nsc_flush_io(i)
+  IF (ABS(nsc_kc_io(i) - rmdi) > EPSILON(1.0))                                 &
+    nsc_kc(i) = nsc_kc_io(i)
+  IF (ABS(nsc_reserve_frac_io(i) - rmdi) > EPSILON(1.0))                       &
+    nsc_reserve_frac(i) = nsc_reserve_frac_io(i)
+  IF (ABS(nsc_tau_load_io(i) - rmdi) > EPSILON(1.0))                           &
+    nsc_tau_load(i) = nsc_tau_load_io(i)
+  IF (ABS(nsc_wmax_fac_io(i) - rmdi) > EPSILON(1.0))                           &
+    nsc_wmax_fac(i) = nsc_wmax_fac_io(i)
+  IF (ABS(nsc_sapwood_frac_io(i) - rmdi) > EPSILON(1.0))                       &
+    nsc_sapwood_frac(i) = nsc_sapwood_frac_io(i)
+  IF (ABS(nsc_hold_plc_io(i) - rmdi) > EPSILON(1.0))                           &
+    nsc_hold_plc(i) = nsc_hold_plc_io(i)
+  IF (ABS(nsc_g_starv_io(i) - rmdi) > EPSILON(1.0))                            &
+    nsc_g_starv(i) = nsc_g_starv_io(i)
 END DO
+
+! TRIFFID store (l_triffid_nsc): parameter ranges and switch consistency.
+! MDK, 17/10/26
+IF ( l_triffid_nsc ) THEN
+  IF ( ANY(nsc_flush(:) <= 0.0) .OR. ANY(nsc_kc(:) <= 0.0) .OR.               &
+       ANY(nsc_reserve_frac(:) < 0.0) .OR. ANY(nsc_reserve_frac(:) >= 1.0) .OR. &
+       ANY(nsc_tau_load(:) <= 0.0) .OR. ANY(nsc_wmax_fac(:) < 0.0) .OR.       &
+       ANY(nsc_sapwood_frac(:) <= 0.0) .OR. ANY(nsc_sapwood_frac(:) > 1.0) .OR. &
+       ANY(nsc_hold_plc(:) < 0.0) .OR. ANY(nsc_g_starv(:) < 0.0) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'l_triffid_nsc needs nsc_flush_io, nsc_kc_io, '            // &
+                 'nsc_tau_load_io > 0, 0 <= nsc_reserve_frac_io < 1, '      // &
+                 '0 < nsc_sapwood_frac_io <= 1 and nsc_wmax_fac_io, '       // &
+                 'nsc_hold_plc_io, nsc_g_starv_io >= 0.')
+  END IF
+  IF ( ANY(nsc_g_starv(:) > 0.0) .AND. .NOT. l_veg_compete ) THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_g_starv_io > 0 has no effect without l_veg_compete ' // &
+                 '(the PFT fractions are fixed).')
+  END IF
+END IF
+IF ( l_ximpair_rec_nsc ) THEN
+  IF ( .NOT. ANY(pft_xylem_impairment_model(:) == xylem_impairment_memory) ) &
+  THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'l_ximpair_rec_nsc needs pft_xylem_impairment_model = 3 ' // &
+                 '(memory) for at least one PFT.')
+  END IF
+  IF ( ANY(ximpair_tau_rec(:) > 0.0) .OR. ANY(ximpair_reset_mmdd(:) > 0) ) THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'ximpair_tau_rec_io > 0 or ximpair_reset_mmdd_io > 0 '     // &
+                 'recover conductance without carbon, alongside the '      // &
+                 'store repair (l_ximpair_rec_nsc).')
+  END IF
+END IF
 
 ! ---------------------------------------------------------------------
 ! The conductance model parameters and critical conductance while not

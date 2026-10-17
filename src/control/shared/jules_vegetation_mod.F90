@@ -379,6 +379,15 @@ LOGICAL ::                                                                     &
        !      available NPP.
    l_sugar = .FALSE.,                                                          &
        ! Switch fo the non-structural carbohydrate model
+   l_triffid_nsc = .FALSE.,                                                    &
+       ! TRIFFID storage pool (Trugman et al. 2018, Ecol. Lett. 21: 1552):
+       ! NPP enters a non-structural carbon store and TRIFFID grows from the
+       ! carbon the store releases, W = W_max C_a / (k_c C_max + C_a)
+       ! (Michaelis-Menten loading), not from the NPP of the step. The
+       ! store buffers carbon deficits (it pays for negative NPP) and, with
+       ! l_ximpair_rec_nsc, pays for xylem repair. Needs l_triffid; not with
+       ! l_sugar or l_trif_eq. See triffid_nsc_mod and NOTES_nsc_storage.md.
+       ! MDK, 17/10/26
 
 ! Switches for bug fixes.
     l_leaf_n_resp_fix = .FALSE.,                                               &
@@ -740,6 +749,21 @@ LOGICAL ::                                                                     &
       ! each recovering with its own timescale (ximpair_tau_stem, sapwood
       ! turnover; ximpair_tau_leaf, leaf turnover). ximpair_psi_driver is
       ! then not used. .FALSE.: one cap on both segments (as before).
+  l_ximpair_rec_nsc = .FALSE.,                                                 &
+      ! Memory model (pft_xylem_impairment_model = 3) with the TRIFFID
+      ! storage pool (l_triffid_nsc): the stem's lost conductance recovers
+      ! only by regrowing xylem, paid for from the store (Trugman et al.
+      ! 2018, Ecol. Lett. 21: 1552). At each TRIFFID step a fraction u of
+      ! the carbon released from the store rebuilds the lost conducting
+      ! sapwood, u = X/(X + L) (1 - m_L L / W) (their Eqn 5, no xylem
+      ! turnover), with X the live stemwood and L the leaf and fine-root
+      ! carbon the damaged xylem supports; see triffid_nsc_mod. Replaces
+      ! the stem's other recovery terms (l_ximpair_rec_growth, which it
+      ! excludes, and ximpair_tau_stem); the leaf segment keeps
+      ! ximpair_tau_leaf. Use with l_ximpair_leaf_loss
+      ! (ximpair_leaf_sens = 1) for their leaf area in proportion to the
+      ! functional xylem.
+      ! MDK, 17/10/26
   l_som_fast = .FALSE.
       ! Deprecated namelist input: .TRUE. sets som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table).
@@ -908,6 +932,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
     l_ximpair_rec_growth, l_ximpair_leaf_loss, l_ximpair_seg_memory,          &
+    l_ximpair_rec_nsc, l_triffid_nsc,                                          &
     ximpair_cost_model,                                                       &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
     sl_kfail_frac,                                                             &
@@ -1770,6 +1795,36 @@ IF ( l_red .AND. .NOT. l_triffid ) THEN
                'RED needs to be run with l_triffid=T')
 END IF
 
+! TRIFFID storage pool and the xylem repair it pays for.
+! MDK, 17/10/26
+IF ( l_triffid_nsc .AND. .NOT. l_triffid ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_triffid_nsc needs l_triffid=T')
+END IF
+IF ( l_triffid_nsc .AND. l_trif_eq ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_triffid_nsc is not coded for equilibrium TRIFFID ' //        &
+               '(l_trif_eq=T)')
+END IF
+IF ( l_triffid_nsc .AND. l_sugar ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_triffid_nsc and l_sugar are two different NSC stores; ' //   &
+               'use one')
+END IF
+IF ( l_ximpair_rec_nsc .AND. .NOT. l_triffid_nsc ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_ximpair_rec_nsc needs the TRIFFID store (l_triffid_nsc=T)')
+END IF
+IF ( l_ximpair_rec_nsc .AND. l_ximpair_rec_growth ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_ximpair_rec_nsc replaces l_ximpair_rec_growth; use one')
+END IF
+
 END SUBROUTINE check_jules_vegetation
 #endif
 
@@ -1943,6 +1998,10 @@ WRITE(lineBuffer,*) ' l_ximpair_leaf_loss = ', l_ximpair_leaf_loss
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_seg_memory = ', l_ximpair_seg_memory
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_ximpair_rec_nsc = ', l_ximpair_rec_nsc
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_triffid_nsc = ', l_triffid_nsc
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' ximpair_cost_model = ', ximpair_cost_model
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2093,7 +2152,7 @@ INTEGER, PARAMETER :: n_int = 22 ! +1 ximpair_cost_model, +2 leaf_temp_iter/leaf
 INTEGER, PARAMETER :: n_real = 19 + (n_photo_coef * 5) ! +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 49 + npft_max ! +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
+INTEGER, PARAMETER :: n_log = 51 + npft_max ! +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -2171,6 +2230,8 @@ TYPE :: my_namelist
   LOGICAL :: l_ximpair_rec_growth
   LOGICAL :: l_ximpair_leaf_loss
   LOGICAL :: l_ximpair_seg_memory
+  LOGICAL :: l_ximpair_rec_nsc
+  LOGICAL :: l_triffid_nsc
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_coupled_e
   LOGICAL :: l_som_rhizo_mfp
@@ -2284,6 +2345,8 @@ IF (mype == 0) THEN
   my_nml % l_ximpair_rec_growth = l_ximpair_rec_growth
   my_nml % l_ximpair_leaf_loss = l_ximpair_leaf_loss
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
+  my_nml % l_ximpair_rec_nsc = l_ximpair_rec_nsc
+  my_nml % l_triffid_nsc = l_triffid_nsc
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_coupled_e = l_som_coupled_e
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
@@ -2386,6 +2449,8 @@ IF (mype /= 0) THEN
   l_ximpair_rec_growth = my_nml % l_ximpair_rec_growth
   l_ximpair_leaf_loss = my_nml % l_ximpair_leaf_loss
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
+  l_ximpair_rec_nsc = my_nml % l_ximpair_rec_nsc
+  l_triffid_nsc = my_nml % l_triffid_nsc
   l_som_gravity = my_nml % l_som_gravity
   l_som_coupled_e = my_nml % l_som_coupled_e
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp

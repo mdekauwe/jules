@@ -9862,4 +9862,122 @@ DATA metadata(761) / var_metadata(                                             &
 ! Units
     "-"                                                                        &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_repair_pend
+! MDK, 17/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(762) / var_metadata(                                             &
+! String identifier
+    'ximpair_repair_pend',                                                     &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Stem conductance rebuilt from the TRIFFID store, queued / kmax",          &
+! Units
+    "-"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_store
+!-----------------------------------------------------------------------------
+DATA metadata(763) / var_metadata(                                             &
+! String identifier
+    'nsc_store',                                                               &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "TRIFFID non-structural carbon store (l_triffid_nsc)",                     &
+! Units
+    "kg m-2"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_npp_mean
+!-----------------------------------------------------------------------------
+DATA metadata(764) / var_metadata(                                             &
+! String identifier
+    'nsc_npp_mean',                                                            &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Running mean of NPP setting the store loading (l_triffid_nsc)",           &
+! Units
+    "kg m-2 per 360days"                                                       &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_npp_wt
+!-----------------------------------------------------------------------------
+DATA metadata(765) / var_metadata(                                             &
+! String identifier
+    'nsc_npp_wt',                                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Weight of the running mean of NPP (l_triffid_nsc)",                       &
+! Units
+    "-"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_load
+!-----------------------------------------------------------------------------
+DATA metadata(766) / var_metadata(                                             &
+! String identifier
+    'nsc_load',                                                                &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Carbon released from the TRIFFID store to growth (l_triffid_nsc)",        &
+! Units
+    "kg m-2 per 360days"                                                       &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_repair
+!-----------------------------------------------------------------------------
+DATA metadata(767) / var_metadata(                                             &
+! String identifier
+    'nsc_repair',                                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Carbon from the TRIFFID store rebuilding xylem (l_ximpair_rec_nsc)",      &
+! Units
+    "kg m-2 per 360days"                                                       &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_grow_acc
+!-----------------------------------------------------------------------------
+DATA metadata(768) / var_metadata(                                             &
+! String identifier
+    'ximpair_grow_acc',                                                        &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Time above ximpair_psi_growth since the TRIFFID step / TRIFFID period",   &
+! Units
+    "-"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_starv
+!-----------------------------------------------------------------------------
+DATA metadata(769) / var_metadata(                                             &
+! String identifier
+    'nsc_starv',                                                               &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Carbon-starvation mortality from the TRIFFID store (l_triffid_nsc)",      &
+! Units
+    "per 360days"                                                              &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_fmin_acc
+!-----------------------------------------------------------------------------
+DATA metadata(770) / var_metadata(                                             &
+! String identifier
+    'ximpair_fmin_acc',                                                        &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Lowest intact stem conductance fraction since the TRIFFID step",          &
+! Units
+    "-"                                                                        &
+  ) /
 #endif

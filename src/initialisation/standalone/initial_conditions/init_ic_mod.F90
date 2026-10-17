@@ -1012,9 +1012,16 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'ximpair_wood_prev' )
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
-  CASE ( 'ximpair_kcap_leaf' )
+  CASE ( 'ximpair_kcap_leaf', 'ximpair_fmin_acc' )
     ! Leaf-segment cap fraction: 1 = intact.
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
+  ! MDK, 17/10/26
+  CASE ( 'ximpair_repair_pend', 'ximpair_grow_acc', 'nsc_npp_mean',          &
+         'nsc_npp_wt' )
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  CASE ( 'nsc_store' )
+    ! TRIFFID store: -1 = filled to its capacity at the first TRIFFID step.
+    CALL dict_set(defaults_dict, identifiers(i), -1.0)
 
   CASE DEFAULT
     CALL log_info("get_default_ic_values",                                     &

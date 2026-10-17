@@ -142,7 +142,10 @@ USE jules_vegetation_mod, ONLY: l_veg_compete, l_ht_compete,                   &
                                 l_trait_phys, l_trif_eq, l_landuse,            &
                                 can_rad_mod, l_nitrogen,                       &
                                 l_trif_crop, frac_min, triffid_period,         &
-                                l_trif_biocrop
+                                l_trif_biocrop, l_triffid_nsc
+
+! MDK, 17/10/26
+USE triffid_nsc_mod, ONLY: triffid_nsc_store, triffid_nsc_area, nsc_dc_pft
 
 USE parkind1, ONLY: jprb, jpim
 
@@ -529,6 +532,13 @@ INTEGER :: harvest_test
 LOGICAL :: harvest_switch(land_pts,npft)
     ! Switch to activate type 2 harvest
 
+! MDK, 17/10/26
+REAL(KIND=real_jlslsm) :: nsc_repair(land_pts,npft)
+REAL(KIND=real_jlslsm) :: nsc_lit(land_pts,npft)
+    ! Store carbon of PFT area lost, to litter (kg C m-2 per 360 days).
+    ! Carbon released from the TRIFFID store that rebuilds xylem
+    ! (l_triffid_nsc, l_ximpair_rec_nsc; kg C/m2/360days).
+
 ! Dr Hook variables
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -684,6 +694,18 @@ DO n = 1,npft
 END DO  !  PFTs
 
 !-----------------------------------------------------------------------------
+! TRIFFID storage pool (l_triffid_nsc): NPP goes into the store and npp
+! becomes the carbon the store releases, which TRIFFID grows from (less the
+! part rebuilding xylem, nsc_repair, which goes to litter).
+! MDK, 17/10/26
+!-----------------------------------------------------------------------------
+nsc_repair(:,:) = 0.0
+IF ( l_triffid_nsc ) THEN
+  CALL triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,             &
+                          woodc_pft, leafc_pft, rootc_pft, npp, nsc_repair )
+END IF
+
+!-----------------------------------------------------------------------------
 ! Check carbon/nitrogen conservation (1/3)
 ! Calculate C/N stores and net C/N fluxes at start of
 ! routine. The soil respiration, litter and wood product decay fluxes have not
@@ -786,8 +808,12 @@ DO n = 1,npft
   END IF
 
   !---------------------------------------------------------------------------
-  ! Update vegetation carbon contents
+  ! Update vegetation carbon contents. With the store, the xylem repair is
+  ! not available for growth; it is added back after vegcarb so that it
+  ! goes to litter.
   !---------------------------------------------------------------------------
+  ! MDK, 17/10/26
+  IF ( l_triffid_nsc ) npp(:,n) = npp(:,n) - nsc_repair(:,n)
   CALL vegcarb (land_pts, trif_pts, n, trif_index,                             &
                 forw, r_gamma, phen(:,n),                                      &
                 g_leaf(:,n), n_avail(:,n), npp(:,n), resp_w(:,n),              &
@@ -802,6 +828,8 @@ DO n = 1,npft
                 ! trif_vars_mod
                 root_litc_pft, leaf_litc_pft, wood_litc_pft,                   &
                 root_litn_pft, leaf_litn_pft, wood_litn_pft)
+  ! MDK, 17/10/26
+  IF ( l_triffid_nsc ) npp(:,n) = npp(:,n) + nsc_repair(:,n)
 
   !---------------------------------------------------------------------------
   ! Diagnose N demand and N uptake
@@ -883,6 +911,11 @@ DO n = 1,nnpft
     ! which resp_p_actual_pft is also in.
     !-------------------------------------------------------------------------
     resp_p_actual_pft(l,n)   = (gpp_pft_acc(l,n) * r_gamma) - npp(l,n)
+    ! With the store npp is the carbon released from it; the plant
+    ! respiration is GPP less the NPP that went into the store.
+    ! MDK, 17/10/26
+    IF ( l_triffid_nsc ) resp_p_actual_pft(l,n) = resp_p_actual_pft(l,n)     &
+                                                  - nsc_dc_pft(l,n)
 
   END DO  !  trif_pts
 END DO  !  PFTs
@@ -1011,6 +1044,13 @@ DO t = 1,trif_pts
                                                              dfrac_nofire(l,n)
   END DO
 END DO
+
+! TRIFFID store: area lost takes its store to litter; area gained shares it.
+! MDK, 17/10/26
+nsc_lit(:,:) = 0.0
+IF ( l_triffid_nsc )                                                           &
+  CALL triffid_nsc_area( land_pts, trif_pts, trif_index, r_gamma, frac,        &
+                         dfrac, nsc_lit )
 
 !-----------------------------------------------------------------------------
 ! N from fertiliser.
@@ -1174,6 +1214,8 @@ DO t = 1,trif_pts
     veg_c_fire_emission_gb(l) = veg_c_fire_emission_gb(l) +                    &
                                 veg_c_fire_emission_pft(l,n)
     lit_c(l,n) = lit_c(l,n) - veg_c_fire_emission_pft(l,n)
+    ! MDK, 17/10/26
+    IF ( l_triffid_nsc ) lit_c(l,n) = lit_c(l,n) + nsc_lit(l,n)
 
     !-------------------------------------------------------------------------
     ! Harvest crop carbon

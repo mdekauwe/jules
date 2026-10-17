@@ -25,6 +25,10 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_npp_prev,         &
                                        ximpair_wood_prev, ximpair_renew_mean,  &
                                        ximpair_renew_wt
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf, ximpair_psi_stem
+USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_grow_acc, &
+                                       ximpair_fmin_acc
+USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,   &
+                           nsc_repair_pft, nsc_starv_pft
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
@@ -3749,6 +3753,61 @@ CASE ( 'ximpair_renew_wt' )
 CASE ( 'ximpair_kcap_leaf' )
   workspace_pft(:,:) = 1.0
   IF ( ALLOCATED(ximpair_kcap_leaf) ) workspace_pft(:,:) = ximpair_kcap_leaf
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! MDK, 17/10/26
+CASE ( 'ximpair_repair_pend' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(ximpair_repair_pend) ) workspace_pft(:,:) = ximpair_repair_pend
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_store' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_pft) ) workspace_pft(:,:) = MAX(nsc_pft, 0.0)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_npp_mean' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_npp_mean) ) workspace_pft(:,:) = nsc_npp_mean
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_npp_wt' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_npp_wt) ) workspace_pft(:,:) = nsc_npp_wt
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_load' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_load_pft) ) workspace_pft(:,:) = nsc_load_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_repair' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_repair_pft) ) workspace_pft(:,:) = nsc_repair_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_grow_acc' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(ximpair_grow_acc) ) workspace_pft(:,:) = ximpair_grow_acc
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_fmin_acc' )
+  workspace_pft(:,:) = 1.0
+  IF ( ALLOCATED(ximpair_fmin_acc) ) workspace_pft(:,:) = ximpair_fmin_acc
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_starv' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_starv_pft) ) workspace_pft(:,:) = nsc_starv_pft
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

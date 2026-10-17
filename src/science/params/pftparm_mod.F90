@@ -610,10 +610,56 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  sapwood (sapwood -> heartwood turnover; e.g. LPJ-GUESS
                  !  turnover_sap 0.05-0.1 yr-1, 0.075 for Q. ilex).
                  !  <= 0: no stem recovery.
-,ximpair_tau_leaf(:)
+,ximpair_tau_leaf(:)                                                          &
                  ! As ximpair_tau_stem for the leaf (leaf and twig) segment,
                  !  renewed with the leaves: about the leaf lifespan.
                  !  <= 0: no leaf recovery.
+! TRIFFID storage pool (l_triffid_nsc; Trugman et al. 2018, Ecol. Lett. 21:
+! 1552, Table S2). See triffid_nsc_mod.
+! MDK, 17/10/26
+,nsc_flush(:)                                                                 &
+                 ! Store capacity C_max in flushes of leaf and fine root,
+                 !  C_max = nsc_flush (leaf + root) carbon at the balanced
+                 !  LAI. Trugman et al.: enough for two flushes (2).
+,nsc_kc(:)                                                                    &
+                 ! Michaelis constant of the loading rate as a fraction of
+                 !  C_max, W = W_max C_a / (nsc_kc C_max + C_a)
+                 !  (Trugman et al. k_c = 0.02, of their initial store).
+,nsc_reserve_frac(:)                                                          &
+                 ! Fraction of C_max that cannot be drawn: the accessible
+                 !  store is C_a = C - nsc_reserve_frac C_max. Trugman et
+                 !  al. take a store below 10 % of its initial value as death
+                 !  by carbon starvation (0.1); here the carbon deficit then
+                 !  passes to TRIFFID, which shrinks the vegetation.
+,nsc_tau_load(:)                                                              &
+                 ! e-folding time (years) of the running mean of NPP that
+                 !  sets the maximum loading rate W_max: the sink the plant
+                 !  is adapted to. Trugman et al. hold W_max fixed (set by
+                 !  tree size) through recovery; a long window keeps it
+                 !  near the pre-drought value.
+,nsc_wmax_fac(:)                                                              &
+                 ! W_max = nsc_wmax_fac * running-mean NPP (>= 0).
+,nsc_sapwood_frac(:)                                                           &
+                 ! Conducting xylem rebuilt by l_ximpair_rec_nsc, as a
+                 !  fraction of the wood carbon: X = nsc_sapwood_frac woodc
+                 !  (Trugman et al. Table S2, healthy sapwood cross-sectional
+                 !  area fraction SA = 0.6, applied to the stem biomass).
+                 !  1 / a_ws gives the JULES live (respiring) stemwood,
+                 !  eta_sl h LAI_bal.
+,nsc_hold_plc(:)                                                               &
+                 ! The running mean of NPP that sets W_max is held (not
+                 !  updated) while the stem's loss of conductance
+                 !  (ximpair_lock) is above nsc_hold_plc, so the damaged
+                 !  plant keeps the sink of the intact one (Trugman et al.
+                 !  hold W_max, set by tree size, through recovery).
+                 !  1 = never held.
+,nsc_g_starv(:)
+                 ! Carbon-starvation mortality (per 360 days, an area
+                 !  disturbance added to g_area in lotka), at the full rate
+                 !  when the accessible store is used up, falling linearly
+                 !  to 0 at C_a = nsc_kc C_max (where loading is half its
+                 !  maximum). Trugman et al.: death when the store is below
+                 !  10 % of its initial value. 0 = off. Needs l_veg_compete.
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -953,6 +999,15 @@ ALLOCATE( ximpair_psi_growth(npft))
 ALLOCATE( ximpair_rec_years(npft))
 ALLOCATE( ximpair_tau_stem(npft))
 ALLOCATE( ximpair_tau_leaf(npft))
+! MDK, 17/10/26
+ALLOCATE( nsc_flush(npft))
+ALLOCATE( nsc_kc(npft))
+ALLOCATE( nsc_reserve_frac(npft))
+ALLOCATE( nsc_tau_load(npft))
+ALLOCATE( nsc_wmax_fac(npft))
+ALLOCATE( nsc_sapwood_frac(npft))
+ALLOCATE( nsc_hold_plc(npft))
+ALLOCATE( nsc_g_starv(npft))
 
 leaf_crit(:) = 0.0
 pft_conductance_model(:) = 0
@@ -1002,6 +1057,15 @@ ximpair_psi_growth(:) = -1.0e30
 ximpair_rec_years(:) = 0.0
 ximpair_tau_stem(:) = 0.0
 ximpair_tau_leaf(:) = 0.0
+! MDK, 17/10/26
+nsc_flush(:) = 2.0
+nsc_kc(:) = 0.02
+nsc_reserve_frac(:) = 0.1
+nsc_tau_load(:) = 5.0
+nsc_wmax_fac(:) = 1.0
+nsc_sapwood_frac(:) = 0.6
+nsc_hold_plc(:) = 1.0
+nsc_g_starv(:) = 0.0
 
 ! SOX parameters
 ALLOCATE( sox_a(npft))
@@ -1328,6 +1392,23 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_tau_stem = ',ximpair_tau_stem
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_tau_leaf = ',ximpair_tau_leaf
+CALL jules_print('pftparm',lineBuffer)
+! MDK, 17/10/26
+WRITE(lineBuffer,*)' nsc_flush = ',nsc_flush
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_kc = ',nsc_kc
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_reserve_frac = ',nsc_reserve_frac
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_tau_load = ',nsc_tau_load
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_wmax_fac = ',nsc_wmax_fac
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_sapwood_frac = ',nsc_sapwood_frac
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_hold_plc = ',nsc_hold_plc
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_g_starv = ',nsc_g_starv
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_psi_driver = ',ximpair_psi_driver
 CALL jules_print('pftparm',lineBuffer)

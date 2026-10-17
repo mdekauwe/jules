@@ -19,7 +19,9 @@ USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, ainfo, trif_vars,      &
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
-    ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt
+    ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt, &
+    ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc
+USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf
 
@@ -217,7 +219,9 @@ DO i = 1,nvars
            'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',              &
            'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',             &
            'ximpair_npp_prev', 'ximpair_wood_prev',                      &
-           'ximpair_renew_mean', 'ximpair_renew_wt', 'ximpair_kcap_leaf' )
+           'ximpair_renew_mean', 'ximpair_renew_wt', 'ximpair_kcap_leaf',      &
+           'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', &
+           'ximpair_grow_acc', 'ximpair_fmin_acc' )
       CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 
     CASE ( 'plantNumDensity' )
@@ -624,6 +628,43 @@ DO i = 1,nvars
     CALL ximpair_seg_state_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), ximpair_kcap_leaf(:,n))
+    END DO
+
+  ! MDK, 17/10/26
+  CASE ( 'ximpair_repair_pend' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), ximpair_repair_pend(:,n))
+    END DO
+
+  CASE ( 'ximpair_grow_acc' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), ximpair_grow_acc(:,n))
+    END DO
+
+  CASE ( 'ximpair_fmin_acc' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), ximpair_fmin_acc(:,n))
+    END DO
+
+  CASE ( 'nsc_store' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), nsc_pft(:,n))
+    END DO
+
+  CASE ( 'nsc_npp_mean' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), nsc_npp_mean(:,n))
+    END DO
+
+  CASE ( 'nsc_npp_wt' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), nsc_npp_wt(:,n))
     END DO
 
   CASE ( 'plantNumDensity' )
