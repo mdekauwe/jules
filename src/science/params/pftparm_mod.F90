@@ -702,8 +702,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  Unset = Trugman et al. (2018) release.
 ,nsc_t_grow_zero(:)                                                           &
 ,nsc_t_grow_full(:)                                                           &
-                 ! Cold limit on the growth sink (degC, canopy surface
-                 !  temperature): none colder than nsc_t_grow_zero, full
+                 ! Cold limit on the growth sink (degC, daily running mean
+                 !  air temperature): none colder than nsc_t_grow_zero, full
                  !  warmer than nsc_t_grow_full, linear in between, times
                  !  the turgor factor at each time step. Unset (< -1e29) =
                  !  no cold limit.

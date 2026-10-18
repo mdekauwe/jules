@@ -125,8 +125,9 @@ MODULE triffid_nsc_mod
 ! that share is respired (nsc_resp_pft) instead of going to growth, so a
 ! sink-limited plant with a full store respires its surplus. The cap is
 ! applied after all inputs to the store (NPP and the optional extra input
-! c_in). nsc_resp_pft is a diagnostic only: it is not added to the JULES
-! plant respiration diagnostics.
+! c_in). nsc_resp_pft is added to the plant respiration and NPP outputs
+! (extract_var, lagged by one store step), is part of resp_p_actual through
+! nsc_dc, and leaves the carbon-conservation check of veg2.
 !
 ! Starvation (nsc_g_starv > 0, with l_veg_compete): an area disturbance,
 ! nsc_starv_pft, added to g_area in lotka, at the full rate when the
@@ -267,9 +268,11 @@ SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,       &
                               woodc, leafc, rootc, ht, lai_bal, npp, repair,  &
                               pft_only, c_in )
 
-USE jules_surface_types_mod, ONLY: npft
+USE jules_surface_types_mod, ONLY: npft, nnpft
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,  &
                                 l_triffid
+USE datetime_utils_mod, ONLY: day_of_year, days_in_year
+USE time_info_mod, ONLY: l_360, l_leap
 USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
                    nsc_flush, nsc_kc, nsc_reserve_frac, nsc_tau_load,        &
                    nsc_wmax_fac, nsc_sapwood_frac, nsc_hold_plc,             &
@@ -352,8 +355,7 @@ INTEGER :: doy_now, doy_ring
 REAL(KIND=real_jlslsm) :: x_r
     ! Ring-porous: this store step holds the earlywood rebuild; day of year
     ! now and of nsc_ring_mmdd; earlywood ring (kg C m-2).
-INTEGER, PARAMETER :: cum_days(12) = [0, 31, 59, 90, 120, 151, 181, 212,     &
-                                       243, 273, 304, 334]
+INTEGER :: n_days
 
 REAL(KIND=real_jlslsm), PARAMETER :: x_min = 1.0e-6
     ! Minimum conducting xylem for repair (kg C m-2).
@@ -370,7 +372,7 @@ CALL triffid_nsc_alloc( land_pts )
 dt = 1.0 / r_gamma
 repair(:,:) = 0.0
 n1 = 1
-n2 = npft
+n2 = nnpft
 IF (PRESENT(pft_only)) THEN
   n1 = pft_only
   n2 = pft_only
@@ -387,10 +389,14 @@ DO n = n1,n2
   ! Ring-porous: is the earlywood date within this store step?
   l_ring_now = .FALSE.
   IF (nsc_xylem_type(n) == 2) THEN
-    doy_now  = cum_days(current_time%month) + current_time%day
-    doy_ring = cum_days(nsc_ring_mmdd(n) / 100) + MOD(nsc_ring_mmdd(n), 100)
-    l_ring_now = doy_ring <= doy_now .AND.                                     &
-                 doy_ring > doy_now - NINT(dt * 360.0)
+    n_days   = days_in_year(current_time%year, l_360, l_leap)
+    doy_now  = day_of_year(current_time%year, current_time%month,            &
+                           current_time%day, l_360, l_leap)
+    doy_ring = MIN(day_of_year(current_time%year, nsc_ring_mmdd(n) / 100,    &
+                               MIN(MOD(nsc_ring_mmdd(n), 100), 30), l_360,   &
+                               l_leap), n_days)
+    ! Within this store step, wrapping over the new year.
+    l_ring_now = MODULO(doy_now - doy_ring, n_days) < MAX(NINT(dt * 360.0), 1)
   END IF
 
   DO t = 1,trif_pts

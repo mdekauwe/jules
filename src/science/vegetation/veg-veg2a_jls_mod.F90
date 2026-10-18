@@ -69,7 +69,7 @@ USE jules_vegetation_mod, ONLY: frac_min, l_crop,                              &
                                 l_trif_crop, can_model,                        &
                                 l_inferno, l_trif_fire, l_triffid_nsc
 ! MDK, 17/10/26
-USE triffid_nsc_mod, ONLY: nsc_pft, nsc_resp_pft
+USE triffid_nsc_mod, ONLY: nsc_pft, nsc_resp_pft, nsc_dc_pft
 
 USE veg_param, ONLY: litc_norm, agric
 
@@ -868,6 +868,14 @@ IF (l_triffid .AND.                                                            &
           ratio          = frac_old(l,n) / frac(l,n)
           npp_ac(l,n)    = ratio * (npp_dr(l,n) - npp_dr_out(l,n) +            &
                                   trif_vars%exudates_pft(l,n)) / gam_trif
+          ! With the TRIFFID store npp_dr came back as the carbon released
+          ! from it, W = NPP - dC - overflow respiration: add those back so
+          ! the store's net flux is not carried into the next period's NPP.
+          ! (An extra store input c_in would have to be subtracted here.)
+          ! MDK, 18/10/26
+          IF ( l_triffid_nsc .AND. ALLOCATED(nsc_dc_pft) )                     &
+            npp_ac(l,n) = npp_ac(l,n) + ratio * (nsc_dc_pft(l,n)               &
+                          + nsc_resp_pft(l,n)) / gam_trif
           resp_w_ac(l,n) = ratio * (resp_w_dr(l,n) - resp_w_dr_out(l,n))       &
                          / gam_trif
         ELSE
