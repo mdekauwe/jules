@@ -1053,6 +1053,11 @@ DO i = 1, nvars_required
   CASE ( 'nsc_ft_mean' )
     ! Not yet set: 1 at the first step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
+  CASE ( 'phen_psi_acc', 'phen_nlow', 'phen_nhigh', 'nsc_regrow_acc' )
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  CASE ( 'phen_fbleaf' )
+    ! Full canopy.
+    CALL dict_set(defaults_dict, identifiers(i), 1.0)
 
   CASE DEFAULT
     CALL log_info("get_default_ic_values",                                     &

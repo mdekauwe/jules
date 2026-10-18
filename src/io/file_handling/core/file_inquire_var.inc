@@ -6,7 +6,8 @@
 ! *****************************COPYRIGHT**************************************
 
 
-SUBROUTINE file_inquire_var(FILE, var_name, var_id, ndims, dim_ids, is_record)
+SUBROUTINE file_inquire_var(FILE, var_name, var_id, ndims, dim_ids, is_record, &
+                            missing_ok)
 
 USE io_constants, ONLY: max_dim_file, max_file_name_len
 
@@ -37,6 +38,11 @@ INTEGER, INTENT(OUT), OPTIONAL :: ndims  ! The number of dimensions that
 INTEGER, INTENT(OUT), OPTIONAL :: dim_ids(:)  ! The dimension ids
 LOGICAL, INTENT(OUT), OPTIONAL :: is_record  ! Indicates if the variable
                                              ! uses the record dimension
+LOGICAL, INTENT(IN), OPTIONAL :: missing_ok
+                              ! .TRUE.: return var_id < 1 for a variable not
+                              ! in the file instead of stopping (the caller
+                              ! decides; used by read_dump_shared)
+                              ! MDK, 18/10/26
 
 
 ! Work variables
@@ -71,8 +77,13 @@ CASE DEFAULT
 END SELECT
 
 ! Check that the variable was found.
-IF ( var_id < 1 ) CALL log_fatal( "file_inquire_var",                          &
+IF ( var_id < 1 ) THEN
+  IF ( PRESENT(missing_ok) ) THEN
+    IF ( missing_ok ) RETURN
+  END IF
+  CALL log_fatal( "file_inquire_var",                                          &
       "Variable " // TRIM(var_name) // " not in file " // TRIM(file_name) )
+END IF
 
 ! Copy the returned values into the optional arguments if present
 IF ( PRESENT(ndims) ) ndims = ndims_local

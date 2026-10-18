@@ -117,6 +117,19 @@ MODULE triffid_nsc_mod
 ! g_leaf_0. With phenology, regrowth after shedding renews the canopy too
 ! (phenol). This replaces the leaf segment's e-folding time ximpair_tau_leaf.
 !
+! Drought leaf shedding (l_phen_psi; Xu et al. 2016, New Phytol, Notes S1
+! Eqn S7; phen_psi_update): the daily mean root-zone psi (predawn proxy)
+! counts consecutive days below the turgor loss point phen_psi_tlp
+! (phen_nlow) and above half of it (phen_nhigh); once either reaches
+! phen_ndays the leaf biomass factor phen_fbleaf falls / rises by
+! phen_dfbleaf a day (bounded by phen_fbleaf_min and 1), and phenol caps
+! the canopy at it. Regrowth in phenol is paid from the store: its leaf
+! carbon (dphen x leaf carbon at the balanced LAI), limited to the
+! accessible store, is queued in nsc_regrow_acc and drawn at the next store
+! step as part of the release W (TRIFFID holds leaf carbon at the balanced
+! LAI, so the shed leaves were already litter and the drawn carbon goes to
+! growth).
+!
 ! Capacity: nsc_cmax > 0 sets C_max directly (kg C m-2 of the PFT), e.g.
 ! from measured NSC concentrations times biomass, in place of nsc_flush
 ! (leaf + root carbon).
@@ -156,7 +169,8 @@ PRIVATE
 
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft, nsc_repair_pft,   &
           nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft, &
-          nsc_t_run, nsc_ft_mean,                                             &
+          nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, phen_nhigh,        &
+          phen_fbleaf, nsc_regrow_acc, phen_psi_update,                       &
           triffid_nsc_alloc, triffid_nsc_store, triffid_nsc_area,             &
           triffid_nsc_daily, triffid_nsc_turgor
 
@@ -192,6 +206,14 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_t_run(:,:)
 ! Leaf renewal: running mean of the growth factor, e-folding 360 days (< 0 =
 ! not yet set: 1). In dumps with l_ximpair_rec_leaf_turn.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_ft_mean(:,:)
+! Drought leaf shedding (l_phen_psi), in dumps: root-zone psi summed over
+! the day so far (Pa s), consecutive dry and wet days, the leaf biomass
+! factor (0-1), and the regrowth carbon queued for the store (kg C m-2).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: phen_psi_acc(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: phen_nlow(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: phen_nhigh(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: phen_fbleaf(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_regrow_acc(:,:)
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='TRIFFID_NSC_MOD'
 
@@ -253,6 +275,16 @@ END IF
 IF (.NOT. ALLOCATED(nsc_ft_mean)) THEN
   ALLOCATE(nsc_ft_mean(n_land_pts, npft))
   nsc_ft_mean(:,:) = -1.0
+END IF
+IF (.NOT. ALLOCATED(phen_psi_acc)) THEN
+  ALLOCATE(phen_psi_acc(n_land_pts, npft), phen_nlow(n_land_pts, npft),      &
+           phen_nhigh(n_land_pts, npft), phen_fbleaf(n_land_pts, npft),      &
+           nsc_regrow_acc(n_land_pts, npft))
+  phen_psi_acc(:,:)   = 0.0
+  phen_nlow(:,:)      = 0.0
+  phen_nhigh(:,:)     = 0.0
+  phen_fbleaf(:,:)    = 1.0
+  nsc_regrow_acc(:,:) = 0.0
 END IF
 
 END SUBROUTINE triffid_nsc_alloc
@@ -447,6 +479,15 @@ DO n = n1,n2
     IF (draw > 0.0) draw = MIN(draw, c_acc / dt)
     w = npp(l,n) + draw
     nsc_pft(l,n) = nsc_pft(l,n) - draw * dt
+
+    ! Leaf regrowth queued by phenol (l_phen_psi), paid from the
+    ! accessible store as part of the release.
+    IF (nsc_regrow_acc(l,n) > 0.0) THEN
+      draw = MIN(nsc_regrow_acc(l,n), MAX(nsc_pft(l,n) - c_res, 0.0))
+      nsc_pft(l,n) = nsc_pft(l,n) - draw
+      w = w + draw / dt
+      nsc_regrow_acc(l,n) = 0.0
+    END IF
 
     ! Extra input, before the cap.
     IF (PRESENT(c_in)) nsc_pft(l,n) = nsc_pft(l,n) + MAX(c_in(l,n), 0.0) * dt
@@ -674,6 +715,73 @@ DO j = 1,veg_pts
 END DO
 
 END SUBROUTINE triffid_nsc_turgor
+
+! ---------------------------------------------------------------------
+! Drought leaf shedding (l_phen_psi): called from sf_stom every time step for
+! PFT ft. Sums the root-zone psi over the day; at the last time step of the
+! day updates the consecutive dry / wet day counts and the leaf biomass
+! factor phen_fbleaf (Xu et al. 2016, Eqn S7).
+! ---------------------------------------------------------------------
+SUBROUTINE phen_psi_update( land_pts, veg_pts, veg_index, ft, timestep,      &
+                            psi_rz )
+
+USE model_time_mod, ONLY: current_time
+USE pftparm, ONLY: phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min
+
+INTEGER, INTENT(IN) ::                                                         &
+  land_pts,                                                                    &
+    ! Total number of land points.
+  veg_pts,                                                                     &
+    ! Number of points of this PFT.
+  veg_index(land_pts),                                                         &
+    ! Land points of this PFT.
+  ft
+    ! Plant functional type.
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  timestep,                                                                    &
+    ! Model time step (s).
+  psi_rz(land_pts)
+    ! Root-zone water potential (Pa).
+
+INTEGER :: j, l
+REAL(KIND=real_jlslsm) :: psi_d
+
+IF (phen_psi_tlp(ft) < -1.0e29) RETURN
+CALL triffid_nsc_alloc( land_pts )
+
+DO j = 1,veg_pts
+  l = veg_index(j)
+  phen_psi_acc(l,ft) = phen_psi_acc(l,ft) + psi_rz(l) * timestep
+END DO
+
+! The day's update at its last time step.
+IF (REAL(current_time%time) + timestep < 86400.0 - 0.5) RETURN
+
+DO j = 1,veg_pts
+  l = veg_index(j)
+  ! Daily mean root-zone psi (MPa), the predawn proxy.
+  psi_d = 1.0e-6 * phen_psi_acc(l,ft) / 86400.0
+  phen_psi_acc(l,ft) = 0.0
+  IF (psi_d < phen_psi_tlp(ft)) THEN
+    phen_nlow(l,ft) = phen_nlow(l,ft) + 1.0
+  ELSE
+    phen_nlow(l,ft) = 0.0
+  END IF
+  IF (psi_d > 0.5 * phen_psi_tlp(ft)) THEN
+    phen_nhigh(l,ft) = phen_nhigh(l,ft) + 1.0
+  ELSE
+    phen_nhigh(l,ft) = 0.0
+  END IF
+  IF (phen_nlow(l,ft) >= phen_ndays(ft)) THEN
+    phen_fbleaf(l,ft) = phen_fbleaf(l,ft) - phen_dfbleaf(ft)
+  ELSE IF (phen_nhigh(l,ft) >= phen_ndays(ft)) THEN
+    phen_fbleaf(l,ft) = phen_fbleaf(l,ft) + phen_dfbleaf(ft)
+  END IF
+  phen_fbleaf(l,ft) = MIN(MAX(phen_fbleaf(l,ft), phen_fbleaf_min(ft)), 1.0)
+END DO
+
+END SUBROUTINE phen_psi_update
 
 ! ---------------------------------------------------------------------
 ! The store without TRIFFID (l_triffid off), called from sf_stom every time

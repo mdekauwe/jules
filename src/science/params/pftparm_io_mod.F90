@@ -287,7 +287,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_t_grow_full_io(npft_max) = rmdi,                                         &
   nsc_overflow_resp_io(npft_max) = rmdi,                                       &
   nsc_xylem_rate_max_io(npft_max) = rmdi,                                      &
-  nsc_cmax_io(npft_max) = rmdi
+  nsc_cmax_io(npft_max) = rmdi,                                                &
+  phen_psi_tlp_io(npft_max) = rmdi,                                            &
+  phen_dfbleaf_io(npft_max) = rmdi,                                            &
+  phen_ndays_io(npft_max) = rmdi,                                              &
+  phen_fbleaf_min_io(npft_max) = rmdi
 !---------------------------------------------------------------------
 ! Set up a namelist for reading and writing these arrays
 !---------------------------------------------------------------------
@@ -365,7 +369,8 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_plc_background_io, nsc_la_sa_io, nsc_wood_density_io,                   &
   nsc_psi_turg_full_io, nsc_psi_turg_zero_io, nsc_t_grow_zero_io,              &
   nsc_t_grow_full_io, nsc_overflow_resp_io, nsc_xylem_rate_max_io,            &
-  nsc_xylem_type_io, nsc_ring_mmdd_io, nsc_cmax_io
+  nsc_xylem_type_io, nsc_ring_mmdd_io, nsc_cmax_io, phen_psi_tlp_io,           &
+  phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM_IO'
 
@@ -403,7 +408,7 @@ INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 11 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
                                            ! impairment + 2 store)
-INTEGER, PARAMETER :: n_real = 168 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 172 * npft_max ! = the REAL arrays in
                                              ! my_namelist (141 + 8 xylem
                                              ! impairment)
 
@@ -588,6 +593,10 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_overflow_resp_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_xylem_rate_max_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_cmax_io(npft_max)
+  REAL(KIND=real_jlslsm) :: phen_psi_tlp_io(npft_max)
+  REAL(KIND=real_jlslsm) :: phen_dfbleaf_io(npft_max)
+  REAL(KIND=real_jlslsm) :: phen_ndays_io(npft_max)
+  REAL(KIND=real_jlslsm) :: phen_fbleaf_min_io(npft_max)
 END TYPE my_namelist
 
 TYPE (my_namelist) :: my_nml
@@ -785,6 +794,10 @@ IF (mype == 0) THEN
   my_nml % nsc_overflow_resp_io = nsc_overflow_resp_io
   my_nml % nsc_xylem_rate_max_io = nsc_xylem_rate_max_io
   my_nml % nsc_cmax_io = nsc_cmax_io
+  my_nml % phen_psi_tlp_io = phen_psi_tlp_io
+  my_nml % phen_dfbleaf_io = phen_dfbleaf_io
+  my_nml % phen_ndays_io = phen_ndays_io
+  my_nml % phen_fbleaf_min_io = phen_fbleaf_min_io
 END IF
 
 CALL mpl_bcast(my_nml,1,mpl_nml_type,0,my_comm,icode)
@@ -970,6 +983,10 @@ IF (mype /= 0) THEN
   nsc_overflow_resp_io = my_nml % nsc_overflow_resp_io
   nsc_xylem_rate_max_io = my_nml % nsc_xylem_rate_max_io
   nsc_cmax_io = my_nml % nsc_cmax_io
+  phen_psi_tlp_io = my_nml % phen_psi_tlp_io
+  phen_dfbleaf_io = my_nml % phen_dfbleaf_io
+  phen_ndays_io = my_nml % phen_ndays_io
+  phen_fbleaf_min_io = my_nml % phen_fbleaf_min_io
 END IF
 
 CALL mpl_type_free(mpl_nml_type,icode)
@@ -1058,7 +1075,7 @@ USE pftparm, ONLY:                                                             &
   nsc_plc_background, nsc_la_sa,     nsc_wood_density,                        &
   nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero, nsc_t_grow_full,      &
   nsc_overflow_resp, nsc_xylem_rate_max, nsc_xylem_type, nsc_ring_mmdd,       &
-  nsc_cmax
+  nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min
 
 
 
@@ -1401,6 +1418,13 @@ DO i = 1, npft
   IF (ABS(nsc_xylem_rate_max_io(i) - rmdi) > EPSILON(1.0))                     &
     nsc_xylem_rate_max(i) = nsc_xylem_rate_max_io(i)
   IF (ABS(nsc_cmax_io(i) - rmdi) > EPSILON(1.0)) nsc_cmax(i) = nsc_cmax_io(i)
+  IF (ABS(phen_psi_tlp_io(i) - rmdi) > EPSILON(1.0))                           &
+    phen_psi_tlp(i) = phen_psi_tlp_io(i)
+  IF (ABS(phen_dfbleaf_io(i) - rmdi) > EPSILON(1.0))                           &
+    phen_dfbleaf(i) = phen_dfbleaf_io(i)
+  IF (ABS(phen_ndays_io(i) - rmdi) > EPSILON(1.0)) phen_ndays(i) = phen_ndays_io(i)
+  IF (ABS(phen_fbleaf_min_io(i) - rmdi) > EPSILON(1.0))                        &
+    phen_fbleaf_min(i) = phen_fbleaf_min_io(i)
   IF (nsc_xylem_type_io(i) /= imdi) nsc_xylem_type(i) = nsc_xylem_type_io(i)
   IF (nsc_ring_mmdd_io(i) /= imdi) nsc_ring_mmdd(i) = nsc_ring_mmdd_io(i)
 END DO

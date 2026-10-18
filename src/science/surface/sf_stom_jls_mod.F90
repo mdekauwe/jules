@@ -149,8 +149,9 @@ USE xylem_impairment_mod, ONLY: update_xylem_impairment
 USE xylem_impairment_memory_mod, ONLY: ximpair_store_npp
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_growth
 ! MDK, 17/10/26
-USE jules_vegetation_mod, ONLY: l_triffid, l_triffid_nsc
-USE triffid_nsc_mod, ONLY: triffid_nsc_daily, triffid_nsc_turgor
+USE jules_vegetation_mod, ONLY: l_triffid, l_triffid_nsc, l_phen_psi
+USE triffid_nsc_mod, ONLY: triffid_nsc_daily, triffid_nsc_turgor,             &
+                           phen_psi_update
 
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 
@@ -3683,6 +3684,12 @@ IF (l_ximpair_rec_growth) CALL ximpair_store_npp(land_pts, ft, npp)
 IF (l_triffid_nsc)                                                             &
   CALL triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,       &
                            psi_root_zone, tair )
+
+! Drought leaf shedding (l_phen_psi): daily water status of the PFT.
+! MDK, 18/10/26
+IF (l_phen_psi)                                                                &
+  CALL phen_psi_update( land_pts, veg_pts, veg_index, ft, timestep,          &
+                        psi_root_zone )
 
 ! TRIFFID store without TRIFFID (prescribed LAI): daily store step.
 ! MDK, 17/10/26

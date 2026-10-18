@@ -10045,4 +10045,69 @@ DATA metadata(775) / var_metadata(                                             &
 ! Units
     "1"                                                                        &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for phen_psi_acc
+!-----------------------------------------------------------------------------
+DATA metadata(776) / var_metadata(                                             &
+! String identifier
+    'phen_psi_acc',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Root-zone psi summed over the day so far (leaf shedding)",              &
+! Units
+    "Pa s"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for phen_nlow
+!-----------------------------------------------------------------------------
+DATA metadata(777) / var_metadata(                                             &
+! String identifier
+    'phen_nlow',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Consecutive days with predawn psi below the TLP",                       &
+! Units
+    "1"                                                                       &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for phen_nhigh
+!-----------------------------------------------------------------------------
+DATA metadata(778) / var_metadata(                                             &
+! String identifier
+    'phen_nhigh',                                                            &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Consecutive days with predawn psi above half the TLP",                  &
+! Units
+    "1"                                                                       &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for phen_fbleaf
+!-----------------------------------------------------------------------------
+DATA metadata(779) / var_metadata(                                             &
+! String identifier
+    'phen_fbleaf',                                                           &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Leaf biomass factor of drought leaf shedding (Xu 2016)",                &
+! Units
+    "1"                                                                       &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_regrow_acc
+!-----------------------------------------------------------------------------
+DATA metadata(780) / var_metadata(                                             &
+! String identifier
+    'nsc_regrow_acc',                                                        &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Leaf regrowth carbon queued for the TRIFFID store",                     &
+! Units
+    "kg m-2"                                                                  &
+  ) /
 #endif

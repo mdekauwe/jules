@@ -22,7 +22,8 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      
     ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt, &
     ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
-    nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean
+    nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
+    phen_nhigh, phen_fbleaf, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf
 
@@ -224,7 +225,8 @@ DO i = 1,nvars
            'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', &
            'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',           &
            'nsc_turg_acc', 'nsc_t_run',                       &
-           'nsc_ft_mean' )
+           'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
+           'phen_fbleaf', 'nsc_regrow_acc' )
       IF ( var_ids(i) > 0 ) THEN
         CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:npft))
       ELSE
@@ -236,7 +238,7 @@ DO i = 1,nvars
           global_data_2d(:,1:npft) = -1.0
         CASE ( 'nsc_turg_acc' )
           global_data_2d(:,1:npft) = -1.0e30
-        CASE ( 'ximpair_fmin_acc' )
+        CASE ( 'ximpair_fmin_acc', 'phen_fbleaf' )
           global_data_2d(:,1:npft) = 1.0
         CASE DEFAULT
           global_data_2d(:,1:npft) = 0.0
@@ -700,6 +702,36 @@ DO i = 1,nvars
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), nsc_ft_mean(:,n))
+    END DO
+
+  CASE ( 'phen_psi_acc' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), phen_psi_acc(:,n))
+    END DO
+
+  CASE ( 'phen_nlow' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), phen_nlow(:,n))
+    END DO
+
+  CASE ( 'phen_nhigh' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), phen_nhigh(:,n))
+    END DO
+
+  CASE ( 'phen_fbleaf' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), phen_fbleaf(:,n))
+    END DO
+
+  CASE ( 'nsc_regrow_acc' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), nsc_regrow_acc(:,n))
     END DO
 
   CASE ( 'nsc_store' )

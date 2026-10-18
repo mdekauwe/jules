@@ -22,7 +22,8 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      
     ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt, &
     ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
-    nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean
+    nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
+    phen_nhigh, phen_fbleaf, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf
 
@@ -2143,6 +2144,51 @@ CASE ( 'nsc_ft_mean' )
     CALL cube_get_data(cube_land, nsc_ft_mean(:,:))
   ELSE
     nsc_ft_mean(:,:) = const_val
+  END IF
+
+CASE ( 'phen_psi_acc' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, phen_psi_acc(:,:))
+  ELSE
+    phen_psi_acc(:,:) = const_val
+  END IF
+
+CASE ( 'phen_nlow' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, phen_nlow(:,:))
+  ELSE
+    phen_nlow(:,:) = const_val
+  END IF
+
+CASE ( 'phen_nhigh' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, phen_nhigh(:,:))
+  ELSE
+    phen_nhigh(:,:) = const_val
+  END IF
+
+CASE ( 'phen_fbleaf' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, phen_fbleaf(:,:))
+  ELSE
+    phen_fbleaf(:,:) = const_val
+  END IF
+
+CASE ( 'nsc_regrow_acc' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_regrow_acc(:,:))
+  ELSE
+    nsc_regrow_acc(:,:) = const_val
   END IF
 
 CASE ( 'nsc_store' )
