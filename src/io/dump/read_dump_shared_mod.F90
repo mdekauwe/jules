@@ -181,6 +181,14 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              "smcl is not in the dump so will be calculated from sthuf " //    &
              "(restart exact only to rounding).")
+        CASE ( 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', 'nsc_npp_day',      &
+               'nsc_turg_acc', 'nsc_t_run', 'nsc_ft_mean',                     &
+               'ximpair_repair_pend', 'ximpair_grow_acc', 'ximpair_fmin_acc' )
+          ! TRIFFID store state: dumps written without the store.
+          ! MDK, 18/10/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
+             "its 'not yet set' value (store filled at the first step).")
         CASE DEFAULT
           CALL log_fatal("read_dump_shared",                                   &
                          "Failed to find requested variable '" //              &

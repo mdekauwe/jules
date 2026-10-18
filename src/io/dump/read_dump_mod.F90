@@ -225,7 +225,23 @@ DO i = 1,nvars
            'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',           &
            'nsc_turg_acc', 'nsc_t_run',                       &
            'nsc_ft_mean' )
-      CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:npft))
+      IF ( var_ids(i) > 0 ) THEN
+        CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:npft))
+      ELSE
+        ! TRIFFID store state not in a dump written without the store: start
+        ! from the "not yet set" values (read_dump_shared warns).
+        ! MDK, 18/10/26
+        SELECT CASE ( identifiers(i) )
+        CASE ( 'nsc_store', 'nsc_t_run', 'nsc_ft_mean' )
+          global_data_2d(:,1:npft) = -1.0
+        CASE ( 'nsc_turg_acc' )
+          global_data_2d(:,1:npft) = -1.0e30
+        CASE ( 'ximpair_fmin_acc' )
+          global_data_2d(:,1:npft) = 1.0
+        CASE DEFAULT
+          global_data_2d(:,1:npft) = 0.0
+        END SELECT
+      END IF
 
     CASE ( 'plantNumDensity' )
       CALL file_read_var(FILE, var_ids(i), global_data_3d(:,1:npft,1:nmasst))
