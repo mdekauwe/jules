@@ -679,8 +679,17 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  FATES: X = LAI_bal / nsc_la_sa h nsc_wood_density cmass
                  !  (sapwood area x height, area-preserving branching, no
                  !  taper). 0: X = nsc_sapwood_frac woodc.
-,nsc_wood_density(:)
+,nsc_wood_density(:)                                                         &
                  ! Wood density (kg dry matter m-3) for the pipe-model xylem.
+,nsc_psi_turg_full(:)                                                         &
+,nsc_psi_turg_zero(:)
+                 ! Turgor-limited growth sink (MPa): the store releases
+                 !  carbon at the full rate with the root zone wetter than
+                 !  nsc_psi_turg_full, not at all drier than
+                 !  nsc_psi_turg_zero, linear in between (averaged over the
+                 !  store period). Set (> -1e29), the release is also
+                 !  normalised so that the full store releases W_max.
+                 !  Unset = Trugman et al. (2018) release.
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -1033,6 +1042,8 @@ ALLOCATE( nsc_repair_window(npft))
 ALLOCATE( nsc_plc_background(npft))
 ALLOCATE( nsc_la_sa(npft))
 ALLOCATE( nsc_wood_density(npft))
+ALLOCATE( nsc_psi_turg_full(npft))
+ALLOCATE( nsc_psi_turg_zero(npft))
 
 leaf_crit(:) = 0.0
 pft_conductance_model(:) = 0
@@ -1095,6 +1106,8 @@ nsc_repair_window(:) = 60.0
 nsc_plc_background(:) = 0.01
 nsc_la_sa(:) = 0.0
 nsc_wood_density(:) = 600.0
+nsc_psi_turg_full(:) = -1.0e30
+nsc_psi_turg_zero(:) = -1.0e30
 
 ! SOX parameters
 ALLOCATE( sox_a(npft))
@@ -1446,6 +1459,10 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_la_sa = ',nsc_la_sa
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_wood_density = ',nsc_wood_density
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_psi_turg_full = ',nsc_psi_turg_full
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_psi_turg_zero = ',nsc_psi_turg_zero
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_psi_driver = ',ximpair_psi_driver
 CALL jules_print('pftparm',lineBuffer)

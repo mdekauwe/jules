@@ -70,6 +70,21 @@ MODULE triffid_nsc_mod
 ! Trugman et al. hold it through recovery: the damaged plant keeps loading
 ! for the intact sink, which is what runs the store down.
 !
+! Turgor-limited sink (nsc_psi_turg_zero set): growth needs turgor (Lockhart),
+! so the release is limited by the plant's water status, not only by the
+! store. With f_t the mean over the store period of
+!   (psi_rz - nsc_psi_turg_zero) / (nsc_psi_turg_full - nsc_psi_turg_zero)
+! (0 to 1; psi_rz the root-zone water potential, ~predawn; nsc_turg_acc),
+!   W = W_max f_t [C_a / (k_c C_max + C_a)] / [C_a,max / (k_c C_max + C_a,max)]
+! with C_a,max = (1 - nsc_reserve_frac) C_max: the full store releases W_max
+! whatever k_c, so a softer release (larger nsc_kc) only shapes how loading
+! falls as the store is drawn down. In drought the sink, not the supply,
+! limits growth (Lempereur et al. 2015, Puechabon: stem growth stops at a
+! predawn psi near -1.1 MPa while assimilation goes on), so the store fills
+! in drought instead of paying for the intact sink. Carbon above C_max still
+! goes to growth. Growth respiration is not charged at release: the JULES
+! NPP the store receives is already net of it.
+!
 ! Starvation (nsc_g_starv > 0, with l_veg_compete): an area disturbance,
 ! nsc_starv_pft, added to g_area in lotka, at the full rate when the
 ! accessible store is used up and 0 for C_a >= nsc_kc C_max. When the PFT
@@ -96,8 +111,9 @@ IMPLICIT NONE
 PRIVATE
 
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft, nsc_repair_pft,   &
-          nsc_dc_pft, nsc_starv_pft, nsc_npp_day, triffid_nsc_alloc,          &
-          triffid_nsc_store, triffid_nsc_area, triffid_nsc_daily
+          nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc,               &
+          triffid_nsc_alloc, triffid_nsc_store, triffid_nsc_area,             &
+          triffid_nsc_daily, triffid_nsc_turgor
 
 ! Store (kg C m-2 of the PFT); < 0 = not yet set (filled to C_max at the
 ! first TRIFFID step). In dumps.
@@ -118,6 +134,10 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_starv_pft(:,:)
 ! Without TRIFFID: NPP summed over the day so far (kg C m-2 of the PFT). In
 ! dumps when l_triffid is off.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_day(:,:)
+! Turgor-limited sink: the turgor factor summed over the store period so far,
+! as a fraction of the period (< -1e29 = not yet accumulating: f_t = 1 at the
+! next store step). In dumps when the sink is on.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_turg_acc(:,:)
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='TRIFFID_NSC_MOD'
 
@@ -164,6 +184,10 @@ IF (.NOT. ALLOCATED(nsc_npp_day)) THEN
   ALLOCATE(nsc_npp_day(n_land_pts, npft))
   nsc_npp_day(:,:) = 0.0
 END IF
+IF (.NOT. ALLOCATED(nsc_turg_acc)) THEN
+  ALLOCATE(nsc_turg_acc(n_land_pts, npft))
+  nsc_turg_acc(:,:) = -1.0e30
+END IF
 
 END SUBROUTINE triffid_nsc_alloc
 
@@ -185,7 +209,8 @@ USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
                    nsc_flush, nsc_kc, nsc_reserve_frac, nsc_tau_load,        &
                    nsc_wmax_fac, nsc_sapwood_frac, nsc_hold_plc,             &
                    nsc_g_starv, ximpair_psi_growth, nsc_repair_window,       &
-                   nsc_plc_background, nsc_la_sa, nsc_wood_density
+                   nsc_plc_background, nsc_la_sa, nsc_wood_density,          &
+                   nsc_psi_turg_zero
 USE jules_surface_mod, ONLY: cmass
 USE trif, ONLY: g_root, g_wood
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_repair_pend,    &
@@ -243,11 +268,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
   c_old,                                                                       &
     ! Store at the start of the step (kg C m-2).
   plc, x_s, l_tot, turn_l, u,                                                 &
-  f_grow, plc_rep
+  f_grow, plc_rep,                                                             &
+  f_turg, c_acc_max
     ! Repair: loss of conductance, conducting xylem (kg C m-2), leaf and fine
     ! root of the intact plant (kg C m-2), turnover TRIFFID charges against
     ! growth (per 360 days), share of W, growth gate, repairable loss.
-LOGICAL :: l_rep, l_mem
+    ! Turgor-limited sink: turgor factor, accessible store when full (kg C
+    ! m-2).
+LOGICAL :: l_rep, l_mem, l_turg
 
 REAL(KIND=real_jlslsm), PARAMETER :: x_min = 1.0e-6
     ! Minimum conducting xylem for repair (kg C m-2).
@@ -277,6 +305,7 @@ DO n = n1,n2
   IF (l_rep) CALL ximpair_memory_alloc( land_pts )
 
   a_mean = MIN(dt / MAX(nsc_tau_load(n), TINY(1.0_real_jlslsm)), 1.0)
+  l_turg = nsc_psi_turg_zero(n) > -1.0e29
 
   DO t = 1,trif_pts
     l = trif_index(t)
@@ -305,7 +334,19 @@ DO n = n1,n2
     ! Michaelis-Menten loading on the accessible store.
     c_acc = MAX(nsc_pft(l,n) - c_res, 0.0)
     w = 0.0
-    IF (c_acc > 0.0) w = w_max * c_acc / (nsc_kc(n) * c_max + c_acc)
+    IF (l_turg) THEN
+      ! Turgor-limited sink, normalised so the full store releases W_max.
+      f_turg = 1.0
+      IF (nsc_turg_acc(l,n) > -1.0e29)                                         &
+        f_turg = MIN(MAX(nsc_turg_acc(l,n), 0.0), 1.0)
+      nsc_turg_acc(l,n) = 0.0
+      c_acc_max = c_max - c_res
+      IF (c_acc > 0.0 .AND. c_acc_max > 0.0)                                   &
+        w = w_max * f_turg * c_acc / (nsc_kc(n) * c_max + c_acc)               &
+            * (nsc_kc(n) * c_max + c_acc_max) / c_acc_max
+    ELSE
+      IF (c_acc > 0.0) w = w_max * c_acc / (nsc_kc(n) * c_max + c_acc)
+    END IF
 
     ! The store can not be drawn below the reserve: a deficit beyond the
     ! accessible store passes to TRIFFID (w = npp < 0 when it is empty).
@@ -442,6 +483,54 @@ DO n = 1,nnpft
 END DO
 
 END SUBROUTINE triffid_nsc_area
+
+! ---------------------------------------------------------------------
+! Turgor-limited sink: called from sf_stom every time step for PFT ft, adds
+! this time step's turgor factor, from the root-zone water potential, to
+! nsc_turg_acc as a fraction of the store period (the TRIFFID period, or a
+! day without TRIFFID).
+! ---------------------------------------------------------------------
+SUBROUTINE triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,   &
+                               psi_rz )
+
+USE jules_vegetation_mod, ONLY: l_triffid, triffid_period
+USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero
+
+INTEGER, INTENT(IN) ::                                                         &
+  land_pts,                                                                    &
+    ! Total number of land points.
+  veg_pts,                                                                     &
+    ! Number of points of this PFT.
+  veg_index(land_pts),                                                         &
+    ! Land points of this PFT.
+  ft
+    ! Plant functional type.
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  timestep,                                                                    &
+    ! Model time step (s).
+  psi_rz(land_pts)
+    ! Root-zone water potential (Pa).
+
+INTEGER :: j, l
+REAL(KIND=real_jlslsm) :: period, f
+
+IF (nsc_psi_turg_zero(ft) < -1.0e29) RETURN
+CALL triffid_nsc_alloc( land_pts )
+
+period = 86400.0
+IF (l_triffid) period = 86400.0 * REAL(triffid_period)
+
+DO j = 1,veg_pts
+  l = veg_index(j)
+  f = (1.0e-6 * psi_rz(l) - nsc_psi_turg_zero(ft))                         &
+      / (nsc_psi_turg_full(ft) - nsc_psi_turg_zero(ft))
+  f = MIN(MAX(f, 0.0), 1.0)
+  IF (nsc_turg_acc(l,ft) < -1.0e29) nsc_turg_acc(l,ft) = 0.0
+  nsc_turg_acc(l,ft) = nsc_turg_acc(l,ft) + f * timestep / period
+END DO
+
+END SUBROUTINE triffid_nsc_turgor
 
 ! ---------------------------------------------------------------------
 ! The store without TRIFFID (l_triffid off), called from sf_stom every time

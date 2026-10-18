@@ -30,7 +30,7 @@ USE jules_soil_biogeochem_mod, ONLY: soil_model_ecosse, soil_model_4pool,      &
 
 USE jules_soil_ecosse_mod, ONLY: l_soil_N
 
-USE pftparm, ONLY: pft_xylem_impairment_model
+USE pftparm, ONLY: pft_xylem_impairment_model, nsc_psi_turg_zero
 
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_triffid, l_phenol, l_veg_compete,            &
@@ -319,6 +319,10 @@ IF ( l_triffid_nsc ) THEN
   ! The day's NPP for the daily store step without TRIFFID.
   ! MDK, 17/10/26
   IF ( .NOT. l_triffid ) CALL add_to_list( 'nsc_npp_day', nvars, identifiers )
+  ! The turgor factor so far over the store period (turgor-limited sink).
+  ! MDK, 18/10/26
+  IF ( ANY(nsc_psi_turg_zero(:) > -1.0e29) )                                   &
+    CALL add_to_list( 'nsc_turg_acc', nvars, identifiers )
 END IF
 
 IF ( stomata_model == stomata_desica ) THEN

@@ -1044,6 +1044,9 @@ DO i = 1, nvars_required
   CASE ( 'nsc_store' )
     ! TRIFFID store: -1 = filled to its capacity at the first TRIFFID step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
+  CASE ( 'nsc_turg_acc' )
+    ! Not yet accumulating: no turgor limit at the first store step.
+    CALL dict_set(defaults_dict, identifiers(i), -1.0e30)
 
   CASE DEFAULT
     CALL log_info("get_default_ic_values",                                     &

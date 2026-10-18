@@ -9993,4 +9993,17 @@ DATA metadata(771) / var_metadata(                                             &
 ! Units
     "kg m-2"                                                                   &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_turg_acc
+!-----------------------------------------------------------------------------
+DATA metadata(772) / var_metadata(                                             &
+! String identifier
+    'nsc_turg_acc',                                                            &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Turgor factor of the store sink summed so far / store period",           &
+! Units
+    "1"                                                                        &
+  ) /
 #endif

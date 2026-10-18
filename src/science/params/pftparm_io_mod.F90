@@ -277,7 +277,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_repair_window_io(npft_max) = rmdi,                                       &
   nsc_plc_background_io(npft_max) = rmdi,                                      &
   nsc_la_sa_io(npft_max) = rmdi,                                               &
-  nsc_wood_density_io(npft_max) = rmdi
+  nsc_wood_density_io(npft_max) = rmdi,                                        &
+  nsc_psi_turg_full_io(npft_max) = rmdi,                                       &
+  nsc_psi_turg_zero_io(npft_max) = rmdi
 !---------------------------------------------------------------------
 ! Set up a namelist for reading and writing these arrays
 !---------------------------------------------------------------------
@@ -352,7 +354,8 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_flush_io,    nsc_kc_io,        nsc_reserve_frac_io,                      &
   nsc_tau_load_io, nsc_wmax_fac_io,  nsc_sapwood_frac_io,                      &
   nsc_hold_plc_io, nsc_g_starv_io, nsc_repair_window_io,                       &
-  nsc_plc_background_io, nsc_la_sa_io, nsc_wood_density_io
+  nsc_plc_background_io, nsc_la_sa_io, nsc_wood_density_io,                   &
+  nsc_psi_turg_full_io, nsc_psi_turg_zero_io
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM_IO'
 
@@ -390,7 +393,7 @@ INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 9 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
                                            ! impairment)
-INTEGER, PARAMETER :: n_real = 161 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 163 * npft_max ! = the REAL arrays in
                                              ! my_namelist (141 + 8 xylem
                                              ! impairment)
 
@@ -566,6 +569,8 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_plc_background_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_la_sa_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_wood_density_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_psi_turg_full_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_psi_turg_zero_io(npft_max)
 END TYPE my_namelist
 
 TYPE (my_namelist) :: my_nml
@@ -754,6 +759,8 @@ IF (mype == 0) THEN
   my_nml % nsc_plc_background_io = nsc_plc_background_io
   my_nml % nsc_la_sa_io = nsc_la_sa_io
   my_nml % nsc_wood_density_io = nsc_wood_density_io
+  my_nml % nsc_psi_turg_full_io = nsc_psi_turg_full_io
+  my_nml % nsc_psi_turg_zero_io = nsc_psi_turg_zero_io
 END IF
 
 CALL mpl_bcast(my_nml,1,mpl_nml_type,0,my_comm,icode)
@@ -930,6 +937,8 @@ IF (mype /= 0) THEN
   nsc_plc_background_io = my_nml % nsc_plc_background_io
   nsc_la_sa_io = my_nml % nsc_la_sa_io
   nsc_wood_density_io = my_nml % nsc_wood_density_io
+  nsc_psi_turg_full_io = my_nml % nsc_psi_turg_full_io
+  nsc_psi_turg_zero_io = my_nml % nsc_psi_turg_zero_io
 END IF
 
 CALL mpl_type_free(mpl_nml_type,icode)
@@ -1015,7 +1024,8 @@ USE pftparm, ONLY:                                                             &
   nsc_flush,       nsc_kc,           nsc_reserve_frac,                         &
   nsc_tau_load,    nsc_wmax_fac,     nsc_sapwood_frac,                         &
   nsc_hold_plc,    nsc_g_starv,      nsc_repair_window,                        &
-  nsc_plc_background, nsc_la_sa,     nsc_wood_density
+  nsc_plc_background, nsc_la_sa,     nsc_wood_density,                        &
+  nsc_psi_turg_full, nsc_psi_turg_zero
 
 
 
@@ -1344,6 +1354,10 @@ DO i = 1, npft
     nsc_la_sa(i) = nsc_la_sa_io(i)
   IF (ABS(nsc_wood_density_io(i) - rmdi) > EPSILON(1.0))                       &
     nsc_wood_density(i) = nsc_wood_density_io(i)
+  IF (ABS(nsc_psi_turg_full_io(i) - rmdi) > EPSILON(1.0))                      &
+    nsc_psi_turg_full(i) = nsc_psi_turg_full_io(i)
+  IF (ABS(nsc_psi_turg_zero_io(i) - rmdi) > EPSILON(1.0))                      &
+    nsc_psi_turg_zero(i) = nsc_psi_turg_zero_io(i)
 END DO
 
 ! TRIFFID store (l_triffid_nsc): parameter ranges and switch consistency.
@@ -1372,6 +1386,14 @@ IF ( l_triffid_nsc ) THEN
     CALL ereport(RoutineName, errcode,                                         &
                  'nsc_g_starv_io > 0 has no effect without l_veg_compete ' // &
                  '(the PFT fractions are fixed).')
+  END IF
+  ! MDK, 18/10/26
+  IF ( ANY(nsc_psi_turg_zero(:) > -1.0e29 .AND.                               &
+           nsc_psi_turg_full(:) <= nsc_psi_turg_zero(:)) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'The turgor-limited sink needs nsc_psi_turg_full_io > '   // &
+                 'nsc_psi_turg_zero_io.')
   END IF
 END IF
 IF ( l_ximpair_rec_nsc ) THEN
