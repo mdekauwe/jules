@@ -3677,11 +3677,12 @@ END IF
 IF (l_ximpair_rec_growth) CALL ximpair_store_npp(land_pts, ft, npp)
 
 ! Turgor-limited sink of the TRIFFID store: water status (and the cold
-! limit) over the store period (returns at once when neither is set).
+! limit on the daily mean air temperature) over the store period (returns at
+! once when neither is set).
 ! MDK, 18/10/26
 IF (l_triffid_nsc)                                                             &
   CALL triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,       &
-                           psi_root_zone, tstar )
+                           psi_root_zone, tair )
 
 ! TRIFFID store without TRIFFID (prescribed LAI): daily store step.
 ! MDK, 17/10/26

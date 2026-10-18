@@ -325,6 +325,10 @@ IF ( l_triffid_nsc ) THEN
   IF ( ANY(nsc_psi_turg_zero(:) > -1.0e29) .OR.                                &
        ANY(nsc_t_grow_zero(:) > -1.0e29) )                                     &
     CALL add_to_list( 'nsc_turg_acc', nvars, identifiers )
+  ! The daily running mean air temperature of the cold limit.
+  ! MDK, 18/10/26
+  IF ( ANY(nsc_t_grow_zero(:) > -1.0e29) )                                     &
+    CALL add_to_list( 'nsc_t_run', nvars, identifiers )
 END IF
 
 IF ( stomata_model == stomata_desica ) THEN

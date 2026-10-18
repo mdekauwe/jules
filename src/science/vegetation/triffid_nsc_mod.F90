@@ -98,11 +98,18 @@ MODULE triffid_nsc_mod
 ! already net of it.
 !
 ! Cold limit (nsc_t_grow_zero set): cambial growth stops in the cold (wood
-! formation needs daily temperatures above ~4-8 degC, Rossi et al. 2008), so
-! at each time step the turgor factor is multiplied by
-!   (T - nsc_t_grow_zero) / (nsc_t_grow_full - nsc_t_grow_zero)   (0 to 1),
-! with T the canopy surface temperature (degC). Either limit alone also turns
-! on the normalised release.
+! formation needs daily mean temperatures above ~5-8 degC, Rossi et al.
+! 2008; Lempereur et al. 2015 at Puechabon), so at each time step the turgor
+! factor is multiplied by
+!   (T_d - nsc_t_grow_zero) / (nsc_t_grow_full - nsc_t_grow_zero)   (0 to 1),
+! with T_d the running mean of the air temperature over about a day (degC;
+! e-folding 1 day, nsc_t_run, in dumps): a daily mean, so a sunny winter
+! midday does not switch growth on. Either limit alone also turns on the
+! normalised release.
+!
+! Capacity: nsc_cmax > 0 sets C_max directly (kg C m-2 of the PFT), e.g.
+! from measured NSC concentrations times biomass, in place of nsc_flush
+! (leaf + root carbon).
 !
 ! Overflow respiration (nsc_overflow_resp > 0): of the carbon above C_max,
 ! that share is respired (nsc_resp_pft) instead of going to growth, so a
@@ -138,6 +145,7 @@ PRIVATE
 
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft, nsc_repair_pft,   &
           nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft, &
+          nsc_t_run,                                                          &
           triffid_nsc_alloc, triffid_nsc_store, triffid_nsc_area,             &
           triffid_nsc_daily, triffid_nsc_turgor
 
@@ -166,6 +174,10 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_day(:,:)
 ! as a fraction of the period (< -1e29 = not yet accumulating: f_t = 1 at the
 ! next store step). In dumps when the sink is on.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_turg_acc(:,:)
+! Cold limit: running mean of the air temperature, e-folding 1 day (K;
+! < 0 = not yet set: the air temperature at the first step). In dumps when
+! the cold limit is on.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_t_run(:,:)
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='TRIFFID_NSC_MOD'
 
@@ -220,6 +232,10 @@ IF (.NOT. ALLOCATED(nsc_turg_acc)) THEN
   ALLOCATE(nsc_turg_acc(n_land_pts, npft))
   nsc_turg_acc(:,:) = -1.0e30
 END IF
+IF (.NOT. ALLOCATED(nsc_t_run)) THEN
+  ALLOCATE(nsc_t_run(n_land_pts, npft))
+  nsc_t_run(:,:) = -1.0
+END IF
 
 END SUBROUTINE triffid_nsc_alloc
 
@@ -243,7 +259,8 @@ USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
                    nsc_g_starv, ximpair_psi_growth, nsc_repair_window,       &
                    nsc_plc_background, nsc_la_sa, nsc_wood_density,          &
                    nsc_psi_turg_zero, nsc_t_grow_zero, nsc_overflow_resp,    &
-                   nsc_xylem_type, nsc_xylem_rate_max, nsc_ring_mmdd
+                   nsc_xylem_type, nsc_xylem_rate_max, nsc_ring_mmdd,        &
+                   nsc_cmax
 USE jules_surface_mod, ONLY: cmass
 USE model_time_mod, ONLY: current_time
 USE trif, ONLY: g_root, g_wood
@@ -363,6 +380,7 @@ DO n = n1,n2
     l = trif_index(t)
 
     c_max = nsc_flush(n) * (leafc(l,n) + rootc(l,n))
+    IF (nsc_cmax(n) > 0.0) c_max = nsc_cmax(n)
     c_res = nsc_reserve_frac(n) * c_max
     IF (nsc_pft(l,n) < 0.0) nsc_pft(l,n) = c_max
     c_old = nsc_pft(l,n)
@@ -562,7 +580,7 @@ END SUBROUTINE triffid_nsc_area
 ! day without TRIFFID).
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,   &
-                               psi_rz, tstar )
+                               psi_rz, tair )
 
 USE jules_vegetation_mod, ONLY: l_triffid, triffid_period
 USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero,   &
@@ -584,17 +602,18 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
     ! Model time step (s).
   psi_rz(land_pts),                                                            &
     ! Root-zone water potential (Pa).
-  tstar(land_pts)
-    ! Canopy surface temperature (K).
+  tair(land_pts)
+    ! Air temperature (K).
 
 INTEGER :: j, l
-REAL(KIND=real_jlslsm) :: period, f
+REAL(KIND=real_jlslsm) :: period, f, a_t
 
 IF (nsc_psi_turg_zero(ft) < -1.0e29 .AND. nsc_t_grow_zero(ft) < -1.0e29) RETURN
 CALL triffid_nsc_alloc( land_pts )
 
 period = 86400.0
 IF (l_triffid) period = 86400.0 * REAL(triffid_period)
+a_t = 1.0 - EXP(-timestep / 86400.0)
 
 DO j = 1,veg_pts
   l = veg_index(j)
@@ -602,9 +621,13 @@ DO j = 1,veg_pts
   IF (nsc_psi_turg_zero(ft) > -1.0e29)                                         &
     f = MIN(MAX((1.0e-6 * psi_rz(l) - nsc_psi_turg_zero(ft))                   &
                 / (nsc_psi_turg_full(ft) - nsc_psi_turg_zero(ft)), 0.0), 1.0)
-  IF (nsc_t_grow_zero(ft) > -1.0e29)                                           &
-    f = f * MIN(MAX((tstar(l) - tm - nsc_t_grow_zero(ft))                      &
+  IF (nsc_t_grow_zero(ft) > -1.0e29) THEN
+    ! Daily running mean of the air temperature.
+    IF (nsc_t_run(l,ft) < 0.0) nsc_t_run(l,ft) = tair(l)
+    nsc_t_run(l,ft) = nsc_t_run(l,ft) + a_t * (tair(l) - nsc_t_run(l,ft))
+    f = f * MIN(MAX((nsc_t_run(l,ft) - tm - nsc_t_grow_zero(ft))               &
                     / (nsc_t_grow_full(ft) - nsc_t_grow_zero(ft)), 0.0), 1.0)
+  END IF
   IF (nsc_turg_acc(l,ft) < -1.0e29) nsc_turg_acc(l,ft) = 0.0
   nsc_turg_acc(l,ft) = nsc_turg_acc(l,ft) + f * timestep / period
 END DO
