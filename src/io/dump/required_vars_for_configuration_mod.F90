@@ -42,7 +42,7 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_croprotate, l_trif_biocrop, l_sugar, l_red,  &
                                 stomata_model, stomata_desica,                 &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
-                                l_triffid_nsc
+                                l_triffid_nsc, l_ximpair_rec_leaf_turn
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -329,6 +329,10 @@ IF ( l_triffid_nsc ) THEN
   ! MDK, 18/10/26
   IF ( ANY(nsc_t_grow_zero(:) > -1.0e29) )                                     &
     CALL add_to_list( 'nsc_t_run', nvars, identifiers )
+  ! The annual mean growth factor of the leaf renewal.
+  ! MDK, 18/10/26
+  IF ( l_ximpair_rec_leaf_turn )                                               &
+    CALL add_to_list( 'nsc_ft_mean', nvars, identifiers )
 END IF
 
 IF ( stomata_model == stomata_desica ) THEN

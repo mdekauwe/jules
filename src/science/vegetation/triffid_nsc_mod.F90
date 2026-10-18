@@ -107,6 +107,16 @@ MODULE triffid_nsc_mod
 ! midday does not switch growth on. Either limit alone also turns on the
 ! normalised release.
 !
+! Leaf renewal (l_ximpair_rec_leaf_turn, with the per-segment memory): new
+! leaves arrive intact, so the leaf segment's loss falls by the fraction of
+! the canopy that is new, at each time step
+!   dR = g_leaf_0 f_t / <f_t> dt,
+! with f_t the growth factor above (1 without the limits) and <f_t> its
+! running mean (e-folding 360 days, nsc_ft_mean, in dumps): leaves are made
+! only when growth is allowed, and a year's production matches the turnover
+! g_leaf_0. With phenology, regrowth after shedding renews the canopy too
+! (phenol). This replaces the leaf segment's e-folding time ximpair_tau_leaf.
+!
 ! Capacity: nsc_cmax > 0 sets C_max directly (kg C m-2 of the PFT), e.g.
 ! from measured NSC concentrations times biomass, in place of nsc_flush
 ! (leaf + root carbon).
@@ -145,7 +155,7 @@ PRIVATE
 
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft, nsc_repair_pft,   &
           nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft, &
-          nsc_t_run,                                                          &
+          nsc_t_run, nsc_ft_mean,                                             &
           triffid_nsc_alloc, triffid_nsc_store, triffid_nsc_area,             &
           triffid_nsc_daily, triffid_nsc_turgor
 
@@ -178,6 +188,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_turg_acc(:,:)
 ! < 0 = not yet set: the air temperature at the first step). In dumps when
 ! the cold limit is on.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_t_run(:,:)
+! Leaf renewal: running mean of the growth factor, e-folding 360 days (< 0 =
+! not yet set: 1). In dumps with l_ximpair_rec_leaf_turn.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_ft_mean(:,:)
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='TRIFFID_NSC_MOD'
 
@@ -235,6 +248,10 @@ END IF
 IF (.NOT. ALLOCATED(nsc_t_run)) THEN
   ALLOCATE(nsc_t_run(n_land_pts, npft))
   nsc_t_run(:,:) = -1.0
+END IF
+IF (.NOT. ALLOCATED(nsc_ft_mean)) THEN
+  ALLOCATE(nsc_ft_mean(n_land_pts, npft))
+  nsc_ft_mean(:,:) = -1.0
 END IF
 
 END SUBROUTINE triffid_nsc_alloc
@@ -582,9 +599,12 @@ END SUBROUTINE triffid_nsc_area
 SUBROUTINE triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,   &
                                psi_rz, tair )
 
-USE jules_vegetation_mod, ONLY: l_triffid, triffid_period
+USE jules_vegetation_mod, ONLY: l_triffid, triffid_period,                    &
+                                l_ximpair_rec_leaf_turn
 USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero,   &
-                   nsc_t_grow_full
+                   nsc_t_grow_full, g_leaf_0
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                  &
+                                          ximpair_seg_state_alloc
 USE water_constants_mod, ONLY: tm
 
 INTEGER, INTENT(IN) ::                                                         &
@@ -606,14 +626,18 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
     ! Air temperature (K).
 
 INTEGER :: j, l
-REAL(KIND=real_jlslsm) :: period, f, a_t
+REAL(KIND=real_jlslsm) :: period, f, a_t, a_yr, d_renew
+LOGICAL :: l_lim
 
-IF (nsc_psi_turg_zero(ft) < -1.0e29 .AND. nsc_t_grow_zero(ft) < -1.0e29) RETURN
+l_lim = nsc_psi_turg_zero(ft) > -1.0e29 .OR. nsc_t_grow_zero(ft) > -1.0e29
+IF (.NOT. l_lim .AND. .NOT. l_ximpair_rec_leaf_turn) RETURN
 CALL triffid_nsc_alloc( land_pts )
+IF (l_ximpair_rec_leaf_turn) CALL ximpair_seg_state_alloc( land_pts )
 
 period = 86400.0
 IF (l_triffid) period = 86400.0 * REAL(triffid_period)
 a_t = 1.0 - EXP(-timestep / 86400.0)
+a_yr = 1.0 - EXP(-timestep / (360.0 * 86400.0))
 
 DO j = 1,veg_pts
   l = veg_index(j)
@@ -628,8 +652,19 @@ DO j = 1,veg_pts
     f = f * MIN(MAX((nsc_t_run(l,ft) - tm - nsc_t_grow_zero(ft))               &
                     / (nsc_t_grow_full(ft) - nsc_t_grow_zero(ft)), 0.0), 1.0)
   END IF
-  IF (nsc_turg_acc(l,ft) < -1.0e29) nsc_turg_acc(l,ft) = 0.0
-  nsc_turg_acc(l,ft) = nsc_turg_acc(l,ft) + f * timestep / period
+  IF (l_lim) THEN
+    IF (nsc_turg_acc(l,ft) < -1.0e29) nsc_turg_acc(l,ft) = 0.0
+    nsc_turg_acc(l,ft) = nsc_turg_acc(l,ft) + f * timestep / period
+  END IF
+  ! Leaf renewal: production at the turnover rate, made while growing.
+  IF (l_ximpair_rec_leaf_turn) THEN
+    IF (nsc_ft_mean(l,ft) < 0.0) nsc_ft_mean(l,ft) = 1.0
+    nsc_ft_mean(l,ft) = nsc_ft_mean(l,ft) + a_yr * (f - nsc_ft_mean(l,ft))
+    d_renew = MIN(g_leaf_0(ft) * f / MAX(nsc_ft_mean(l,ft), 0.05)             &
+                  * timestep / (360.0 * 86400.0), 1.0)
+    ximpair_kcap_leaf(l,ft) = 1.0 - (1.0 - ximpair_kcap_leaf(l,ft))          &
+                              * (1.0 - d_renew)
+  END IF
 END DO
 
 END SUBROUTINE triffid_nsc_turgor

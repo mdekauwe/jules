@@ -10032,4 +10032,17 @@ DATA metadata(774) / var_metadata(                                             &
 ! Units
     "K"                                                                        &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_ft_mean
+!-----------------------------------------------------------------------------
+DATA metadata(775) / var_metadata(                                             &
+! String identifier
+    'nsc_ft_mean',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Annual running mean of the store's growth factor (leaf renewal)",         &
+! Units
+    "1"                                                                        &
+  ) /
 #endif

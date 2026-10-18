@@ -592,6 +592,7 @@ USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 ximpair_driver_root, ximpair_driver_stem,      &
                                 l_ximpair_rec_growth, l_triffid,               &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
+                                l_ximpair_rec_leaf_turn,                       &
                                 triffid_period
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_psi_stem,                    &
@@ -811,7 +812,10 @@ IF (l_ximpair_seg_memory) THEN
     plc(:) = plc(:) * EXP(-growth(:) / ximpair_tau_stem(pft))
     kcap(:) = kmax_pts(:) * (1.0 - plc(:))
   END IF
-  IF (ximpair_tau_leaf(pft) > 0.0) THEN
+  ! With leaf renewal (l_ximpair_rec_leaf_turn) the leaf segment recovers
+  ! by new leaves instead (triffid_nsc_turgor, phenol).
+  ! MDK, 18/10/26
+  IF (ximpair_tau_leaf(pft) > 0.0 .AND. .NOT. l_ximpair_rec_leaf_turn) THEN
     ximpair_kcap_leaf(:,pft) = 1.0 - (1.0 - ximpair_kcap_leaf(:,pft))         &
                                * EXP(-growth(:) / ximpair_tau_leaf(pft))
   END IF

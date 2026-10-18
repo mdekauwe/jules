@@ -25,7 +25,9 @@ CONTAINS
 SUBROUTINE phenol (land_pts, veg_pts, n, veg_index, dtime_phen, g_leaf, ht,    &
                   lai, g_leaf_phen)
 
-USE jules_vegetation_mod, ONLY: l_nitrogen, l_ximpair_leaf_loss
+USE jules_vegetation_mod, ONLY: l_nitrogen, l_ximpair_leaf_loss,             &
+                                l_ximpair_rec_leaf_turn
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
 USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, g_leaf_0, ximpair_leaf_sens
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock
 USE trif, ONLY: g_grow
@@ -166,6 +168,15 @@ DO j = 1,veg_pts
   !---------------------------------------------------------------------------
   phen(l) = phen(l) + dphen
   lai(l)  = phen(l) * lai_bal(l)
+
+  ! Leaf renewal (l_ximpair_rec_leaf_turn): leaves regrown after shedding
+  ! arrive intact, so the leaf segment's loss falls by their share.
+  ! MDK, 18/10/26
+  IF (l_ximpair_rec_leaf_turn .AND. dphen > 0.0 .AND. phen(l) > 0.0) THEN
+    IF (ALLOCATED(ximpair_kcap_leaf))                                          &
+      ximpair_kcap_leaf(l,n) = 1.0 - (1.0 - ximpair_kcap_leaf(l,n))           &
+                               * (1.0 - MIN(dphen / phen(l), 1.0))
+  END IF
 
 END DO
 
