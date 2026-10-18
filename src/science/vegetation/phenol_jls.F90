@@ -26,9 +26,12 @@ SUBROUTINE phenol (land_pts, veg_pts, n, veg_index, dtime_phen, g_leaf, ht,    &
                   lai, g_leaf_phen)
 
 USE jules_vegetation_mod, ONLY: l_nitrogen, l_ximpair_leaf_loss,             &
-                                l_ximpair_rec_leaf_turn
+                                l_ximpair_rec_leaf_turn, l_phen_psi,           &
+                                l_triffid_nsc
+USE triffid_nsc_mod, ONLY: phen_fbleaf, nsc_pft, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
-USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, g_leaf_0, ximpair_leaf_sens
+USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, g_leaf_0, ximpair_leaf_sens,    &
+                   sigl, nsc_flush, nsc_cmax, nsc_reserve_frac, phen_psi_tlp
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock
 USE trif, ONLY: g_grow
 
@@ -86,6 +89,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
   dphen     ! Increment to phenological state.
 
 REAL(KIND=real_jlslsm) ::                                                      &
+  leafc_b, c_max_l, c_free
+    ! Leaf carbon at the balanced LAI, store capacity and accessible store
+    ! less queued regrowth (kg C m-2), for regrowth paid from the store.
+
+REAL(KIND=real_jlslsm) ::                                                      &
   lai_bal(land_pts),                                                           &
     ! Balanced growth LAI.
   phen(land_pts),                                                              &
@@ -133,6 +141,16 @@ IF (l_ximpair_leaf_loss .AND. ALLOCATED(ximpair_lock)) THEN
   END DO
 END IF
 
+! Drought leaf shedding (l_phen_psi): the canopy is also capped at the leaf
+! biomass factor of the water status (Xu et al. 2016; triffid_nsc_mod).
+! MDK, 18/10/26
+IF (l_phen_psi .AND. phen_psi_tlp(n) > -1.0e29 .AND. ALLOCATED(phen_fbleaf)) THEN
+  DO j = 1,veg_pts
+    l = veg_index(j)
+    phen_max(l) = MIN(phen_max(l), MAX(phen_fbleaf(l,n), 0.01))
+  END DO
+END IF
+
 !-----------------------------------------------------------------------------
 ! Update the phenological state and output the leaf turnover rate in
 ! terms of the balanced growth LAI
@@ -156,6 +174,23 @@ DO j = 1,veg_pts
     dphen          = dtime_phen * g_grow(n) * (phen_max(l) - phen(l))
     dphen          = MIN(dphen,(phen_max(l) - phen(l)))
     g_leaf_phen(l) = phen(l) * g_leaf(l)
+
+    ! Drought leaf shedding with the store (l_phen_psi, l_triffid_nsc):
+    ! regrowth is paid from the accessible store (queued for the next store
+    ! step) and limited by it.
+    ! MDK, 18/10/26
+    IF (l_phen_psi .AND. l_triffid_nsc .AND. dphen > 0.0 .AND.                &
+        ALLOCATED(nsc_pft)) THEN
+      leafc_b = sigl(n) * lai_bal(l)
+      c_max_l = nsc_flush(n) * 2.0 * leafc_b
+      IF (nsc_cmax(n) > 0.0) c_max_l = nsc_cmax(n)
+      c_free  = MAX(nsc_pft(l,n) - nsc_reserve_frac(n) * c_max_l               &
+                    - nsc_regrow_acc(l,n), 0.0)
+      IF (leafc_b > 0.0) THEN
+        dphen = MIN(dphen, c_free / leafc_b)
+        nsc_regrow_acc(l,n) = nsc_regrow_acc(l,n) + dphen * leafc_b
+      END IF
+    END IF
 
     ! In the Nitrogen scheme use g_leaf_phen to keep track of net change in
     ! phen.

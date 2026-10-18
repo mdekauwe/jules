@@ -42,7 +42,8 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_croprotate, l_trif_biocrop, l_sugar, l_red,  &
                                 stomata_model, stomata_desica,                 &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
-                                l_triffid_nsc, l_ximpair_rec_leaf_turn
+                                l_triffid_nsc, l_ximpair_rec_leaf_turn,        &
+                                l_phen_psi
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -333,6 +334,15 @@ IF ( l_triffid_nsc ) THEN
   ! MDK, 18/10/26
   IF ( l_ximpair_rec_leaf_turn )                                               &
     CALL add_to_list( 'nsc_ft_mean', nvars, identifiers )
+END IF
+! Drought leaf shedding: daily water-status memory and the leaf factor.
+! MDK, 18/10/26
+IF ( l_phen_psi ) THEN
+  CALL add_to_list( 'phen_psi_acc', nvars, identifiers )
+  CALL add_to_list( 'phen_nlow', nvars, identifiers )
+  CALL add_to_list( 'phen_nhigh', nvars, identifiers )
+  CALL add_to_list( 'phen_fbleaf', nvars, identifiers )
+  CALL add_to_list( 'nsc_regrow_acc', nvars, identifiers )
 END IF
 
 IF ( stomata_model == stomata_desica ) THEN

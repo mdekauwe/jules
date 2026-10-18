@@ -29,7 +29,8 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_grow_acc, &
                                        ximpair_fmin_acc
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,   &
                            nsc_repair_pft, nsc_starv_pft, nsc_turg_acc,   &
-                           nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day
+                           nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day, &
+                           phen_fbleaf, phen_nlow, phen_nhigh, nsc_regrow_acc
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
@@ -3815,6 +3816,30 @@ CASE ( 'nsc_npp_wt' )
 CASE ( 'nsc_load' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(nsc_load_pft) ) workspace_pft(:,:) = nsc_load_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'phen_fbleaf' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(phen_fbleaf) ) workspace_pft(:,:) = phen_fbleaf
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'phen_nlow' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(phen_nlow) ) workspace_pft(:,:) = phen_nlow
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'phen_nhigh' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(phen_nhigh) ) workspace_pft(:,:) = phen_nhigh
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_regrow_acc' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_regrow_acc) ) workspace_pft(:,:) = nsc_regrow_acc
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

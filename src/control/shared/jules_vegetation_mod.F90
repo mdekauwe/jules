@@ -777,6 +777,17 @@ LOGICAL ::                                                                     &
       ! turnover, plus, with phenology, the regrowth after shedding. No extra
       ! carbon: the store already pays for the leaves.
       ! MDK, 18/10/26
+  l_phen_psi = .FALSE.,                                                        &
+      ! Drought leaf shedding from water potential (Xu et al. 2016, New
+      ! Phytol, Notes S1 Eqn S7), with phenology (l_phenol): a leaf biomass
+      ! factor f_bleaf (0-1) falls by phen_dfbleaf a day once the predawn
+      ! water potential (daily mean root-zone psi) has been below the turgor
+      ! loss point phen_psi_tlp on phen_ndays consecutive days, rises by
+      ! phen_dfbleaf a day once it has been above 0.5 phen_psi_tlp on
+      ! phen_ndays days, and is held otherwise; the canopy is capped at
+      ! f_bleaf (phen_max), shed leaves go to litter, and regrowth stops
+      ! while the TRIFFID store is empty.
+      ! MDK, 18/10/26
   l_som_fast = .FALSE.
       ! Deprecated namelist input: .TRUE. sets som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table).
@@ -945,7 +956,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
     l_ximpair_rec_growth, l_ximpair_leaf_loss, l_ximpair_seg_memory,          &
-    l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn,                 &
+    l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
     ximpair_stomatal_response,                                                &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
     sl_kfail_frac,                                                             &
@@ -1826,6 +1837,11 @@ IF ( l_ximpair_rec_leaf_turn .AND.                                             &
                'l_ximpair_rec_leaf_turn needs the TRIFFID store and the '  //  &
                'per-segment memory (l_triffid_nsc, l_ximpair_seg_memory)')
 END IF
+IF ( l_phen_psi .AND. .NOT. l_phenol ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_phen_psi (drought leaf shedding) needs l_phenol=T')
+END IF
 IF ( l_ximpair_rec_nsc .AND. .NOT. l_triffid_nsc ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2016,6 +2032,8 @@ WRITE(lineBuffer,*) ' l_triffid_nsc = ', l_triffid_nsc
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_rec_leaf_turn = ', l_ximpair_rec_leaf_turn
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_phen_psi = ', l_phen_psi
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' ximpair_stomatal_response = ', ximpair_stomatal_response
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2166,7 +2184,7 @@ INTEGER, PARAMETER :: n_int = 22 ! +1 ximpair_stomatal_response, +2 leaf_temp_it
 INTEGER, PARAMETER :: n_real = 19 + (n_photo_coef * 5) ! +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 52 + npft_max ! +1 l_ximpair_rec_leaf_turn, +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
+INTEGER, PARAMETER :: n_log = 53 + npft_max ! +1 l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -2247,6 +2265,7 @@ TYPE :: my_namelist
   LOGICAL :: l_ximpair_rec_nsc
   LOGICAL :: l_triffid_nsc
   LOGICAL :: l_ximpair_rec_leaf_turn
+  LOGICAL :: l_phen_psi
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_coupled_e
   LOGICAL :: l_som_rhizo_mfp
@@ -2363,6 +2382,7 @@ IF (mype == 0) THEN
   my_nml % l_ximpair_rec_nsc = l_ximpair_rec_nsc
   my_nml % l_triffid_nsc = l_triffid_nsc
   my_nml % l_ximpair_rec_leaf_turn = l_ximpair_rec_leaf_turn
+  my_nml % l_phen_psi = l_phen_psi
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_coupled_e = l_som_coupled_e
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
@@ -2468,6 +2488,7 @@ IF (mype /= 0) THEN
   l_ximpair_rec_nsc = my_nml % l_ximpair_rec_nsc
   l_triffid_nsc = my_nml % l_triffid_nsc
   l_ximpair_rec_leaf_turn = my_nml % l_ximpair_rec_leaf_turn
+  l_phen_psi = my_nml % l_phen_psi
   l_som_gravity = my_nml % l_som_gravity
   l_som_coupled_e = my_nml % l_som_coupled_e
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp

@@ -166,7 +166,8 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                        &
        'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', &
            'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',           &
            'nsc_turg_acc', 'nsc_t_run',                       &
-           'nsc_ft_mean' )
+           'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
+           'phen_fbleaf', 'nsc_regrow_acc' )
   ndims = 2
   dim_names(1:ndims) = [ land_dim_name, pft_dim_name ]
   dim_sizes(1:ndims) = [ global_land_pts, npft ]

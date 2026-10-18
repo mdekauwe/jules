@@ -163,9 +163,11 @@ IF ( is_master_task() ) THEN
       ! Check that the variable exists and has the correct dimensions
       !-----------------------------------------------------------------------
       ! Retrieve information about the variable from the file
+      ! (missing_ok: the variables that may be missing are handled below.)
+      ! MDK, 18/10/26
       CALL file_inquire_var(                                                   &
         FILE, identifiers(i), var_ids(i), ndims_file, dim_ids_file,            &
-        is_record_var                                                          &
+        is_record_var, missing_ok = .TRUE.                                     &
       )
 
       ! Check that we found a variable
@@ -183,7 +185,9 @@ IF ( is_master_task() ) THEN
              "(restart exact only to rounding).")
         CASE ( 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', 'nsc_npp_day',      &
                'nsc_turg_acc', 'nsc_t_run', 'nsc_ft_mean',                     &
-               'ximpair_repair_pend', 'ximpair_grow_acc', 'ximpair_fmin_acc' )
+               'ximpair_repair_pend', 'ximpair_grow_acc', 'ximpair_fmin_acc',  &
+               'phen_psi_acc', 'phen_nlow', 'phen_nhigh', 'phen_fbleaf',       &
+               'nsc_regrow_acc' )
           ! TRIFFID store state: dumps written without the store.
           ! MDK, 18/10/26
           CALL log_warn("read_dump_shared",                                    &

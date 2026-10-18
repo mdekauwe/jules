@@ -712,6 +712,18 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  (overflow respiration) instead of going to growth
                  !  (0 = all to growth, the Trugman et al. 2018 form; 1 =
                  !  all respired).
+,phen_psi_tlp(:)                                                              &
+                 ! l_phen_psi: leaf turgor loss point (MPa), the shedding
+                 !  threshold for predawn psi (regrowth above half of it);
+                 !  unset (< -1e29) = no drought shedding for the PFT.
+,phen_dfbleaf(:)                                                              &
+                 ! l_phen_psi: daily change of the leaf biomass factor
+                 !  (Xu et al. 2016: 0.05).
+,phen_ndays(:)                                                                &
+                 ! l_phen_psi: consecutive days below / above the
+                 !  thresholds before f_bleaf changes (Xu et al. 2016: 10).
+,phen_fbleaf_min(:)                                                           &
+                 ! l_phen_psi: lowest leaf biomass factor (0 = Xu et al.).
 ,nsc_cmax(:)                                                                  &
                  ! Store capacity C_max (kg C m-2 of the PFT); > 0 sets it
                  !  directly (e.g. from measured NSC concentrations times
@@ -1082,6 +1094,10 @@ ALLOCATE( nsc_t_grow_full(npft))
 ALLOCATE( nsc_overflow_resp(npft))
 ALLOCATE( nsc_xylem_rate_max(npft))
 ALLOCATE( nsc_cmax(npft))
+ALLOCATE( phen_psi_tlp(npft))
+ALLOCATE( phen_dfbleaf(npft))
+ALLOCATE( phen_ndays(npft))
+ALLOCATE( phen_fbleaf_min(npft))
 ALLOCATE( nsc_xylem_type(npft))
 ALLOCATE( nsc_ring_mmdd(npft))
 
@@ -1153,6 +1169,10 @@ nsc_t_grow_full(:) = -1.0e30
 nsc_overflow_resp(:) = 0.0
 nsc_xylem_rate_max(:) = 0.0
 nsc_cmax(:) = 0.0
+phen_psi_tlp(:) = -1.0e30
+phen_dfbleaf(:) = 0.05
+phen_ndays(:) = 10.0
+phen_fbleaf_min(:) = 0.0
 nsc_xylem_type(:) = 1
 nsc_ring_mmdd(:) = 401
 
@@ -1520,6 +1540,14 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_xylem_rate_max = ',nsc_xylem_rate_max
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_cmax = ',nsc_cmax
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' phen_psi_tlp = ',phen_psi_tlp
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' phen_dfbleaf = ',phen_dfbleaf
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' phen_ndays = ',phen_ndays
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' phen_fbleaf_min = ',phen_fbleaf_min
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_xylem_type = ',nsc_xylem_type
 CALL jules_print('pftparm',lineBuffer)
