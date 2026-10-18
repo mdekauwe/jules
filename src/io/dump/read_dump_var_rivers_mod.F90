@@ -92,7 +92,13 @@ CASE ( 'river_flow_prev' )
   CALL file_read_var(FILE, var_id, rivers%river_flow_prev)
 
 CASE ( 'rivers_outflow_rp' )
-  CALL file_read_var(FILE, var_id, rivers%rivers_outflow_rp)
+  ! Not in the dump (read_dump_shared warns): initialised to zero.
+  ! MDK, 18/10/26
+  IF ( var_id > 0 ) THEN
+    CALL file_read_var(FILE, var_id, rivers%rivers_outflow_rp)
+  ELSE
+    rivers%rivers_outflow_rp = 0.0
+  END IF
 
 CASE ( 'rivers_sto_rp' )
   CALL file_read_var(FILE, var_id, rivers%rivers_sto_rp)

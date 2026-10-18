@@ -409,7 +409,7 @@ INTEGER, PARAMETER :: n_int = 11 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
                                            ! impairment + 2 store)
 INTEGER, PARAMETER :: n_real = 172 * npft_max ! = the REAL arrays in
-                                             ! my_namelist (141 + 8 xylem
+                                             ! my_namelist (all REAL pftparm arrays incl. xylem
                                              ! impairment)
 
 TYPE :: my_namelist
