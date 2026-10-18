@@ -31,7 +31,10 @@ USE jules_vegetation_mod, ONLY: l_nitrogen, l_ximpair_leaf_loss,             &
 USE triffid_nsc_mod, ONLY: phen_fbleaf, nsc_pft, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
 USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, g_leaf_0, ximpair_leaf_sens,    &
-                   sigl, nsc_flush, nsc_cmax, nsc_reserve_frac, phen_psi_tlp
+                   sigl, nsc_flush, nsc_cmax, nsc_reserve_frac, phen_psi_tlp,   &
+                   lma
+USE jules_vegetation_mod, ONLY: l_trait_phys
+USE jules_surface_mod, ONLY: cmass
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock
 USE trif, ONLY: g_grow
 
@@ -144,7 +147,8 @@ END IF
 ! Drought leaf shedding (l_phen_psi): the canopy is also capped at the leaf
 ! biomass factor of the water status (Xu et al. 2016; triffid_nsc_mod).
 ! MDK, 18/10/26
-IF (l_phen_psi .AND. phen_psi_tlp(n) > -1.0e29 .AND. ALLOCATED(phen_fbleaf)) THEN
+IF (l_phen_psi .AND. phen_psi_tlp(n) > -1.0e29 .AND.                         &
+    ALLOCATED(phen_fbleaf)) THEN
   DO j = 1,veg_pts
     l = veg_index(j)
     phen_max(l) = MIN(phen_max(l), MAX(phen_fbleaf(l,n), 0.01))
@@ -180,8 +184,10 @@ DO j = 1,veg_pts
     ! step) and limited by it.
     ! MDK, 18/10/26
     IF (l_phen_psi .AND. l_triffid_nsc .AND. dphen > 0.0 .AND.                &
-        ALLOCATED(nsc_pft)) THEN
+        phen_psi_tlp(n) > -1.0e29 .AND. ALLOCATED(nsc_pft)) THEN
+     IF (nsc_pft(l,n) >= 0.0) THEN
       leafc_b = sigl(n) * lai_bal(l)
+      IF (l_trait_phys) leafc_b = cmass * lma(n) * lai_bal(l)
       c_max_l = nsc_flush(n) * 2.0 * leafc_b
       IF (nsc_cmax(n) > 0.0) c_max_l = nsc_cmax(n)
       c_free  = MAX(nsc_pft(l,n) - nsc_reserve_frac(n) * c_max_l               &
@@ -190,6 +196,7 @@ DO j = 1,veg_pts
         dphen = MIN(dphen, c_free / leafc_b)
         nsc_regrow_acc(l,n) = nsc_regrow_acc(l,n) + dphen * leafc_b
       END IF
+     END IF
     END IF
 
     ! In the Nitrogen scheme use g_leaf_phen to keep track of net change in

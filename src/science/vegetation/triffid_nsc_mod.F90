@@ -126,9 +126,10 @@ MODULE triffid_nsc_mod
 ! the canopy at it. Regrowth in phenol is paid from the store: its leaf
 ! carbon (dphen x leaf carbon at the balanced LAI), limited to the
 ! accessible store, is queued in nsc_regrow_acc and drawn at the next store
-! step as part of the release W (TRIFFID holds leaf carbon at the balanced
-! LAI, so the shed leaves were already litter and the drawn carbon goes to
-! growth).
+! step, before the store's own release, as part of W (TRIFFID holds leaf
+! carbon at the balanced LAI, so the shed leaves were already charged as
+! litter against W; over a shed-and-regrow cycle the store, not NPP, carries
+! the cost, and the drawn carbon goes to TRIFFID growth).
 !
 ! Capacity: nsc_cmax > 0 sets C_max directly (kg C m-2 of the PFT), e.g.
 ! from measured NSC concentrations times biomass, in place of nsc_flush
@@ -376,7 +377,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
     ! Store at the start of the step (kg C m-2).
   plc, x_s, l_tot, turn_l, u,                                                 &
   f_grow, plc_rep,                                                             &
-  f_turg, c_acc_max
+  f_turg, c_acc_max, w_regrow
     ! Repair: loss of conductance, conducting xylem (kg C m-2), leaf and fine
     ! root of the intact plant (kg C m-2), turnover TRIFFID charges against
     ! growth (per 360 days), share of W, growth gate, repairable loss.
@@ -424,9 +425,15 @@ DO n = n1,n2
     n_days   = days_in_year(current_time%year, l_360, l_leap)
     doy_now  = day_of_year(current_time%year, current_time%month,            &
                            current_time%day, l_360, l_leap)
-    doy_ring = MIN(day_of_year(current_time%year, nsc_ring_mmdd(n) / 100,    &
-                               MIN(MOD(nsc_ring_mmdd(n), 100), 30), l_360,   &
-                               l_leap), n_days)
+    IF (l_360) THEN
+      doy_ring = day_of_year(current_time%year, nsc_ring_mmdd(n) / 100,      &
+                             MIN(MOD(nsc_ring_mmdd(n), 100), 30), l_360,     &
+                             l_leap)
+    ELSE
+      doy_ring = day_of_year(current_time%year, nsc_ring_mmdd(n) / 100,      &
+                             MOD(nsc_ring_mmdd(n), 100), l_360, l_leap)
+    END IF
+    doy_ring = MIN(doy_ring, n_days)
     ! Within this store step, wrapping over the new year.
     l_ring_now = MODULO(doy_now - doy_ring, n_days) < MAX(NINT(dt * 360.0), 1)
   END IF
@@ -456,6 +463,16 @@ DO n = n1,n2
     IF (nsc_npp_wt(l,n) > 0.0)                                                 &
       w_max = nsc_wmax_fac(n) * MAX(nsc_npp_mean(l,n) / nsc_npp_wt(l,n), 0.0)
 
+    ! Leaf regrowth queued by phenol (l_phen_psi), paid first from the
+    ! accessible store (phenol limited it to that), as part of the release.
+    w_regrow = 0.0
+    IF (nsc_regrow_acc(l,n) > 0.0) THEN
+      w_regrow = MIN(nsc_regrow_acc(l,n), MAX(nsc_pft(l,n) - c_res, 0.0))
+      nsc_pft(l,n) = nsc_pft(l,n) - w_regrow
+      w_regrow = w_regrow / dt
+      nsc_regrow_acc(l,n) = 0.0
+    END IF
+
     ! Michaelis-Menten loading on the accessible store.
     c_acc = MAX(nsc_pft(l,n) - c_res, 0.0)
     w = 0.0
@@ -480,14 +497,8 @@ DO n = n1,n2
     w = npp(l,n) + draw
     nsc_pft(l,n) = nsc_pft(l,n) - draw * dt
 
-    ! Leaf regrowth queued by phenol (l_phen_psi), paid from the
-    ! accessible store as part of the release.
-    IF (nsc_regrow_acc(l,n) > 0.0) THEN
-      draw = MIN(nsc_regrow_acc(l,n), MAX(nsc_pft(l,n) - c_res, 0.0))
-      nsc_pft(l,n) = nsc_pft(l,n) - draw
-      w = w + draw / dt
-      nsc_regrow_acc(l,n) = 0.0
-    END IF
+    ! The regrowth paid above is part of the release.
+    w = w + w_regrow
 
     ! Extra input, before the cap.
     IF (PRESENT(c_in)) nsc_pft(l,n) = nsc_pft(l,n) + MAX(c_in(l,n), 0.0) * dt
@@ -539,7 +550,9 @@ DO n = n1,n2
         x_s = nsc_sapwood_frac(n) * woodc(l,n)
       END IF
       IF (nsc_xylem_type(n) == 2) THEN
-        ! Ring-porous: the earlywood rebuild, once a year, from the store.
+        ! Ring-porous: the earlywood rebuild, once a year, from the store
+        ! (not gated by the turgor or growth limits, nor capped: the new
+        ! ring is the conducting system, built at the spring date).
         x_r = nsc_xylem_rate_max(n) * x_s
         IF (l_ring_now .AND. plc_rep > 0.0 .AND. x_r > x_min) THEN
           repair(l,n) = MIN(plc_rep * x_r,                                     &
@@ -760,7 +773,8 @@ IF (REAL(current_time%time) + timestep < 86400.0 - 0.5) RETURN
 
 DO j = 1,veg_pts
   l = veg_index(j)
-  ! Daily mean root-zone psi (MPa), the predawn proxy.
+  ! Daily mean root-zone psi (MPa), the predawn proxy (a part day after a
+  ! mid-day start counts as wetter: runs here start at the end of a day).
   psi_d = 1.0e-6 * phen_psi_acc(l,ft) / 86400.0
   phen_psi_acc(l,ft) = 0.0
   IF (psi_d < phen_psi_tlp(ft)) THEN
