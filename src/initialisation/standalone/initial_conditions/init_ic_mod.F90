@@ -1050,6 +1050,9 @@ DO i = 1, nvars_required
   CASE ( 'nsc_t_run' )
     ! Not yet set: the air temperature at the first step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
+  CASE ( 'nsc_ft_mean' )
+    ! Not yet set: 1 at the first step.
+    CALL dict_set(defaults_dict, identifiers(i), -1.0)
 
   CASE DEFAULT
     CALL log_info("get_default_ic_values",                                     &
