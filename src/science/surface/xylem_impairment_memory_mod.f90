@@ -42,8 +42,29 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_wood_prev(:,:)
 ! renewed fraction with its weight (for the start-up bias correction).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_renew_mean(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_renew_wt(:,:)
+
+! Stem conductance rebuilt by xylem regrown from the TRIFFID store
+! (l_ximpair_rec_nsc), as a fraction of kmax, queued by triffid_nsc_store
+! at the TRIFFID step and applied (then cleared) at the next update.
+! MDK, 17/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_repair_pend(:,:)
+
+! Time since the last TRIFFID step with the root zone wetter than
+! ximpair_psi_growth, as a fraction of the TRIFFID period (l_ximpair_rec_nsc;
+! cleared at the TRIFFID step).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_grow_acc(:,:)
+
+! Lowest intact stem conductance fraction the water status imposed since the
+! last TRIFFID step (l_ximpair_rec_nsc; 1 = none; reset at the TRIFFID step).
+! Loss the current conditions re-impose is not repaired: only
+! PLC - (1 - ximpair_fmin_acc) is, so a healthy stand with small midday
+! losses does not pay again and again for the same conduits, and repair
+! waits for a drought to ease.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_fmin_acc(:,:)
 ! ximpair_npp_prev, ximpair_lock, ximpair_wood_prev,
-! ximpair_renew_mean and ximpair_renew_wt are written to and read from dumps (ximpair_memory_alloc allocates them).
+! ximpair_renew_mean, ximpair_renew_wt, ximpair_repair_pend,
+! ximpair_grow_acc and ximpair_fmin_acc are written to and read from dumps
+! (ximpair_memory_alloc allocates them).
 
 CONTAINS
 
@@ -76,6 +97,19 @@ END IF
 IF (.NOT. ALLOCATED(ximpair_renew_wt)) THEN
   ALLOCATE(ximpair_renew_wt(n_land_pts, npft))
   ximpair_renew_wt(:,:) = 0.0
+END IF
+! MDK, 17/10/26
+IF (.NOT. ALLOCATED(ximpair_repair_pend)) THEN
+  ALLOCATE(ximpair_repair_pend(n_land_pts, npft))
+  ximpair_repair_pend(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(ximpair_grow_acc)) THEN
+  ALLOCATE(ximpair_grow_acc(n_land_pts, npft))
+  ximpair_grow_acc(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(ximpair_fmin_acc)) THEN
+  ALLOCATE(ximpair_fmin_acc(n_land_pts, npft))
+  ximpair_fmin_acc(:,:) = 1.0
 END IF
 
 END SUBROUTINE ximpair_memory_alloc
@@ -480,6 +514,13 @@ END SUBROUTINE leaf_psi_impaired_memory
 !                            3: TRIFFID gross wood production, the rise in
 !                               allometric wood carbon plus g_wood turnover
 !                               (needs l_triffid; no free parameter).
+!   l_ximpair_rec_nsc    - carbon-limited repair (Trugman et al. 2018): the
+!                          stem cap rises by the xylem rebuilt from the
+!                          TRIFFID store, queued at the TRIFFID step in
+!                          ximpair_repair_pend (triffid_nsc_mod). It replaces
+!                          the stem's other recovery (l_ximpair_rec_growth,
+!                          ximpair_tau_stem); the leaf segment keeps
+!                          ximpair_tau_leaf, in calendar years.
 !
 ! TODO (with TRIFFID): carbon-limited recovery. Recovery is now a fixed
 ! timescale (ximpair_rec_years) on a growth clock that only sets its timing.
@@ -550,7 +591,8 @@ USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
 USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 ximpair_driver_root, ximpair_driver_stem,      &
                                 l_ximpair_rec_growth, l_triffid,               &
-                                l_ximpair_seg_memory
+                                l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
+                                triffid_period
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_psi_stem,                    &
                                           ximpair_seg_state_alloc
@@ -602,7 +644,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   f_renew(n_land_pts), c_new(n_land_pts), wood(n_land_pts),                  &
   f_new(n_land_pts), growth(n_land_pts),                                      &
   plc(n_land_pts)
-REAL(KIND=real_jlslsm) :: f_rec, a_mean, frac_crit
+REAL(KIND=real_jlslsm) :: f_rec, a_mean, frac_crit, store_days
 LOGICAL :: l_slow
                             ! Slow recovery (ximpair_rec_years > 0).
 
@@ -651,6 +693,24 @@ c_pts(:)     = conductance_c_pft(pft)
 !-----------------------------------------------------------------------------
 l_slow = ximpair_rec_years(pft) > 0.0
 f_new(:) = 0.0
+
+! MDK, 17/10/26
+IF (l_ximpair_rec_nsc) THEN
+  ! Xylem rebuilt from the TRIFFID store since the last update.
+  CALL ximpair_memory_alloc( n_land_pts )
+  kcap(:) = MIN(kcap(:) + kmax_pts(:) * ximpair_repair_pend(:,pft),           &
+                kmax_pts(:))
+  ximpair_repair_pend(:,pft) = 0.0
+  ! Count the time the root zone (~predawn) is wetter than
+  ! ximpair_psi_growth, for the growth gate on the next repair, as a
+  ! fraction of the store period (the TRIFFID period, or a day without
+  ! TRIFFID).
+  store_days = 1.0
+  IF (l_triffid) store_days = REAL(triffid_period)
+  WHERE (psi_root(:) >= ximpair_psi_growth(pft))                               &
+    ximpair_grow_acc(:,pft) = ximpair_grow_acc(:,pft)                          &
+                              + REAL(timestep_len) / (86400.0 * store_days)
+END IF
 
 IF (l_ximpair_rec_growth) THEN
   ! New (fully conductive) wood carbon this timestep, c_new (kg C m-2).
@@ -743,8 +803,10 @@ END IF
 IF (l_ximpair_seg_memory) THEN
   CALL ximpair_seg_state_alloc( n_land_pts )
   ximpair_psi_stem(:,pft) = psi_stem(:)
-  ! Each segment's loss falls with its own e-folding time.
-  IF (ximpair_tau_stem(pft) > 0.0) THEN
+  ! Each segment's loss falls with its own e-folding time (the stem's
+  ! instead by the store's repair with l_ximpair_rec_nsc).
+  ! MDK, 17/10/26
+  IF (ximpair_tau_stem(pft) > 0.0 .AND. .NOT. l_ximpair_rec_nsc) THEN
     plc(:) = 1.0 - kcap(:) / kmax_pts(:)
     plc(:) = plc(:) * EXP(-growth(:) / ximpair_tau_stem(pft))
     kcap(:) = kmax_pts(:) * (1.0 - plc(:))
@@ -790,6 +852,10 @@ IF (l_ximpair_seg_memory) THEN
   DO j = 1, n_open_pts
     l = open_index(j)
     kcap(l) = MIN(kcap(l), kmax_pts(l) * seg_f(psi_stem(l), 2))
+    ! MDK, 17/10/26
+    IF (l_ximpair_rec_nsc)                                                     &
+      ximpair_fmin_acc(l,pft) = MIN(ximpair_fmin_acc(l,pft),                   &
+                                    seg_f(psi_stem(l), 2))
     ximpair_kcap_leaf(l,pft) = MIN(ximpair_kcap_leaf(l,pft),                   &
                                    seg_f(psi_leaf(l), 3))
   END DO
@@ -801,6 +867,10 @@ ELSE
   DO j = 1, n_open_pts
     l = open_index(j)
     kcap(l) = MIN(kcap(l), k_x(l))
+    ! MDK, 17/10/26
+    IF (l_ximpair_rec_nsc)                                                     &
+      ximpair_fmin_acc(l,pft) = MIN(ximpair_fmin_acc(l,pft),                   &
+                                    k_x(l) / kmax_pts(l))
   END DO
 END IF
 

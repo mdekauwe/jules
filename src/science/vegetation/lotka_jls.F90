@@ -29,7 +29,9 @@ SUBROUTINE lotka (land_pts, trif_pts, trif_index,                              &
 
 USE jules_surface_types_mod, ONLY: npft, nnpft, ntype, soil
 USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl
-USE jules_vegetation_mod, ONLY: frac_min, pow
+USE jules_vegetation_mod, ONLY: frac_min, pow, l_triffid_nsc
+! MDK, 17/10/26
+USE triffid_nsc_mod, ONLY: nsc_starv_pft
 USE trif, ONLY: crop, g_area
 USE compete_mod, ONLY: compete
 
@@ -125,8 +127,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
     ! Fractional area not available to vegetation.
   space(land_pts,nnpft),                                                       &
     ! Space available for invasion.
-  g_dist(land_pts,nnpft)
+  g_dist(land_pts,nnpft),                                                      &
     ! Area disturbance.
+  g_starv(land_pts,nnpft)
+    ! Carbon-starvation mortality (l_triffid_nsc, per 360 days).
 
 ! Dr Hook variables
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -155,7 +159,10 @@ END DO
 !-----------------------------------------------------------------------------
 DO n = 1,nnpft
   DO l = 1,land_pts
-    g_dist(l,n) = g_area(n) + g_burn_pft(l,n)
+    ! MDK, 17/10/26
+    g_starv(l,n) = 0.0
+    IF (l_triffid_nsc) g_starv(l,n) = nsc_starv_pft(l,n)
+    g_dist(l,n) = g_area(n) + g_burn_pft(l,n) + g_starv(l,n)
   END DO
 END DO
 
@@ -354,7 +361,8 @@ END DO
 DO n = 1,nnpft
   DO t = 1,trif_pts
     l = trif_index(t)
-    b(l,n) = pc_s(l,n) * space(l,n) / c_veg(l,n) - g_area(n)
+    ! MDK, 17/10/26
+    b(l,n) = pc_s(l,n) * space(l,n) / c_veg(l,n) - g_area(n) - g_starv(l,n)
 
     DO m = 1,nnpft
       db_dfrac(l,n,m) = - com(l,n,m) * pc_s(l,n) / c_veg(l,n)

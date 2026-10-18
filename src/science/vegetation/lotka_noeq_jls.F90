@@ -31,8 +31,10 @@ USE jules_surface_types_mod, ONLY:                                             &
   ! imported scalars
   npft, nnpft, ntype, soil
 
+! MDK, 17/10/26
+USE triffid_nsc_mod, ONLY: nsc_starv_pft
 USE trif, ONLY: crop, g_area
-USE jules_vegetation_mod, ONLY: frac_min, frac_seed
+USE jules_vegetation_mod, ONLY: frac_min, frac_seed, l_triffid_nsc
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -124,6 +126,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
     ! Total space in the grid cell.
   g_dist(land_pts,nnpft),                                                      &
     ! Area disturbance.
+  g_starv(land_pts,nnpft),                                                     &
+    ! Carbon-starvation mortality (l_triffid_nsc, per 360 days).
   temp_ht(npft)
     ! Store height for assigning dominance.
 
@@ -144,7 +148,10 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !-----------------------------------------------------------------------------
 DO n = 1,nnpft
   DO l = 1,land_pts
-    g_dist(l,n) = g_area(n) + g_burn_pft(l,n)
+    ! MDK, 17/10/26
+    g_starv(l,n) = 0.0
+    IF (l_triffid_nsc) g_starv(l,n) = nsc_starv_pft(l,n)
+    g_dist(l,n) = g_area(n) + g_burn_pft(l,n) + g_starv(l,n)
   END DO
 END DO
 
@@ -429,7 +436,9 @@ DO t = 1,trif_pts
     fracn = frac_nofire(l,n)
     fracn = MAX(fracn,frac_seed)
 
-    dfrac_nofire(l,n) = (pc_s(l,n) * space(l,n) / c_veg(l,n) - g_area(n))      &
+    ! MDK, 17/10/26
+    dfrac_nofire(l,n) = (pc_s(l,n) * space(l,n) / c_veg(l,n) - g_area(n)       &
+                         - g_starv(l,n))                                      &
                         * (fracn / r_gamma)
     frac_nofire(l,n)  = frac_nofire(l,n) + dfrac_nofire(l,n)
 

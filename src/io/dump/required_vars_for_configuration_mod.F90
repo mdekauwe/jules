@@ -30,7 +30,8 @@ USE jules_soil_biogeochem_mod, ONLY: soil_model_ecosse, soil_model_4pool,      &
 
 USE jules_soil_ecosse_mod, ONLY: l_soil_N
 
-USE pftparm, ONLY: pft_xylem_impairment_model
+USE pftparm, ONLY: pft_xylem_impairment_model, nsc_psi_turg_zero,            &
+                   nsc_t_grow_zero
 
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_triffid, l_phenol, l_veg_compete,            &
@@ -40,7 +41,8 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 photo_acclim, photo_adapt_acclim,              &
                                 l_croprotate, l_trif_biocrop, l_sugar, l_red,  &
                                 stomata_model, stomata_desica,                 &
-                                l_ximpair_seg_memory
+                                l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
+                                l_triffid_nsc
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -300,6 +302,29 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   ! Per-segment memory: the leaf segment's own cap.
   IF ( l_ximpair_seg_memory )                                                  &
     CALL add_to_list( 'ximpair_kcap_leaf', nvars, identifiers )
+  ! Repair from the TRIFFID store queued for the next update.
+  ! MDK, 17/10/26
+  IF ( l_ximpair_rec_nsc ) THEN
+    CALL add_to_list( 'ximpair_repair_pend', nvars, identifiers )
+    CALL add_to_list( 'ximpair_grow_acc', nvars, identifiers )
+    CALL add_to_list( 'ximpair_fmin_acc', nvars, identifiers )
+  END IF
+END IF
+
+! MDK, 17/10/26
+IF ( l_triffid_nsc ) THEN
+  ! TRIFFID storage pool and the running mean of NPP that sets its loading.
+  CALL add_to_list( 'nsc_store', nvars, identifiers )
+  CALL add_to_list( 'nsc_npp_mean', nvars, identifiers )
+  CALL add_to_list( 'nsc_npp_wt', nvars, identifiers )
+  ! The day's NPP for the daily store step without TRIFFID.
+  ! MDK, 17/10/26
+  IF ( .NOT. l_triffid ) CALL add_to_list( 'nsc_npp_day', nvars, identifiers )
+  ! The turgor factor so far over the store period (turgor-limited sink).
+  ! MDK, 18/10/26
+  IF ( ANY(nsc_psi_turg_zero(:) > -1.0e29) .OR.                                &
+       ANY(nsc_t_grow_zero(:) > -1.0e29) )                                     &
+    CALL add_to_list( 'nsc_turg_acc', nvars, identifiers )
 END IF
 
 IF ( stomata_model == stomata_desica ) THEN

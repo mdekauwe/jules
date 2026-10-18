@@ -19,7 +19,10 @@ USE imgn_drive_mod, ONLY: imgn_drive
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
-    ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt
+    ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt, &
+    ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc
+USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
+    nsc_npp_day, nsc_turg_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf
 
@@ -2076,6 +2079,79 @@ CASE ( 'ximpair_kcap_leaf' )
     CALL cube_get_data(cube_land, ximpair_kcap_leaf(:,:))
   ELSE
     ximpair_kcap_leaf(:,:) = const_val
+  END IF
+
+! MDK, 17/10/26
+CASE ( 'ximpair_repair_pend' )
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_repair_pend(:,:))
+  ELSE
+    ximpair_repair_pend(:,:) = const_val
+  END IF
+
+CASE ( 'ximpair_grow_acc' )
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_grow_acc(:,:))
+  ELSE
+    ximpair_grow_acc(:,:) = const_val
+  END IF
+
+CASE ( 'ximpair_fmin_acc' )
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_fmin_acc(:,:))
+  ELSE
+    ximpair_fmin_acc(:,:) = const_val
+  END IF
+
+CASE ( 'nsc_npp_day' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_npp_day(:,:))
+  ELSE
+    nsc_npp_day(:,:) = const_val
+  END IF
+
+CASE ( 'nsc_turg_acc' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_turg_acc(:,:))
+  ELSE
+    nsc_turg_acc(:,:) = const_val
+  END IF
+
+CASE ( 'nsc_store' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_pft(:,:))
+  ELSE
+    nsc_pft(:,:) = const_val
+  END IF
+
+CASE ( 'nsc_npp_mean' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_npp_mean(:,:))
+  ELSE
+    nsc_npp_mean(:,:) = const_val
+  END IF
+
+CASE ( 'nsc_npp_wt' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_npp_wt(:,:))
+  ELSE
+    nsc_npp_wt(:,:) = const_val
   END IF
 
   !-----------------------------------------------------------------------------

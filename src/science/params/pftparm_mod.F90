@@ -452,7 +452,17 @@ ximpair_reset_mmdd(:),                                                         &
                  ! Month and day (month*100 + day, e.g. 401 = 1 April) on
                  !  which the memory impairment model's embolism is reset
                  !  (e.g. new earlywood in ring-porous species). 0 disables.
-ximpair_growth_basis(:)
+ximpair_growth_basis(:),                                                       &
+nsc_xylem_type(:),                                                             &
+                 ! Store repair (l_ximpair_rec_nsc): 1 diffuse-porous (repair
+                 !  whenever growth is allowed, on all the conducting xylem,
+                 !  capped by nsc_xylem_rate_max), 2 ring-porous (the stem
+                 !  is rebuilt once a year, at nsc_ring_mmdd, by the new
+                 !  earlywood ring, paid from the store).
+nsc_ring_mmdd(:)
+                 ! Month and day (month*100 + day) of the earlywood rebuild
+                 !  of nsc_xylem_type 2.
+                 ! MDK, 18/10/26
                  ! Carbon supply for the growth recovery term
                  !  (l_ximpair_rec_growth) of the memory impairment models:
                  !       1: ximpair_wood_alloc * canopy net photosynthesis
@@ -610,10 +620,105 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  sapwood (sapwood -> heartwood turnover; e.g. LPJ-GUESS
                  !  turnover_sap 0.05-0.1 yr-1, 0.075 for Q. ilex).
                  !  <= 0: no stem recovery.
-,ximpair_tau_leaf(:)
+,ximpair_tau_leaf(:)                                                          &
                  ! As ximpair_tau_stem for the leaf (leaf and twig) segment,
                  !  renewed with the leaves: about the leaf lifespan.
                  !  <= 0: no leaf recovery.
+! TRIFFID storage pool (l_triffid_nsc; Trugman et al. 2018, Ecol. Lett. 21:
+! 1552, Table S2). See triffid_nsc_mod.
+! MDK, 17/10/26
+,nsc_flush(:)                                                                 &
+                 ! Store capacity C_max in flushes of leaf and fine root,
+                 !  C_max = nsc_flush (leaf + root) carbon at the balanced
+                 !  LAI. Trugman et al.: enough for two flushes (2).
+,nsc_kc(:)                                                                    &
+                 ! Michaelis constant of the loading rate as a fraction of
+                 !  C_max, W = W_max C_a / (nsc_kc C_max + C_a)
+                 !  (Trugman et al. k_c = 0.02, of their initial store).
+,nsc_reserve_frac(:)                                                          &
+                 ! Fraction of C_max that cannot be drawn: the accessible
+                 !  store is C_a = C - nsc_reserve_frac C_max. Trugman et
+                 !  al. take a store below 10 % of its initial value as death
+                 !  by carbon starvation (0.1); here the carbon deficit then
+                 !  passes to TRIFFID, which shrinks the vegetation.
+,nsc_tau_load(:)                                                              &
+                 ! e-folding time (years) of the running mean of NPP that
+                 !  sets the maximum loading rate W_max: the sink the plant
+                 !  is adapted to. Trugman et al. hold W_max fixed (set by
+                 !  tree size) through recovery; a long window keeps it
+                 !  near the pre-drought value.
+,nsc_wmax_fac(:)                                                              &
+                 ! W_max = nsc_wmax_fac * running-mean NPP (>= 0).
+,nsc_sapwood_frac(:)                                                           &
+                 ! Conducting xylem rebuilt by l_ximpair_rec_nsc, as a
+                 !  fraction of the wood carbon: X = nsc_sapwood_frac woodc
+                 !  (Trugman et al. Table S2, healthy sapwood cross-sectional
+                 !  area fraction SA = 0.6, applied to the stem biomass).
+                 !  1 / a_ws gives the JULES live (respiring) stemwood,
+                 !  eta_sl h LAI_bal.
+,nsc_hold_plc(:)                                                               &
+                 ! The running mean of NPP that sets W_max is held (not
+                 !  updated) while the stem's loss of conductance
+                 !  (ximpair_lock) is above nsc_hold_plc, so the damaged
+                 !  plant keeps the sink of the intact one (Trugman et al.
+                 !  hold W_max, set by tree size, through recovery).
+                 !  1 = never held.
+,nsc_g_starv(:)                                                               &
+                 ! Carbon-starvation mortality (per 360 days, an area
+                 !  disturbance added to g_area in lotka), at the full rate
+                 !  when the accessible store is used up, falling linearly
+                 !  to 0 at C_a = nsc_kc C_max (where loading is half its
+                 !  maximum). Trugman et al.: death when the store is below
+                 !  10 % of its initial value. 0 = off. Needs l_veg_compete.
+,nsc_repair_window(:)                                                         &
+                 ! E-folding time (days) of the memory of the worst stem
+                 !  conductance since a store step (ximpair_fmin_acc): loss
+                 !  re-imposed within this window is not repaired, so mild
+                 !  midday losses that recur through a dry season are not
+                 !  repaid again and again. 0 = reset at each store step.
+,nsc_plc_background(:)                                                        &
+                 ! Stem loss of conductance (fraction) up to which the store
+                 !  does not pay for repair: small seasonal embolism is
+                 !  background that healthy trees carry, not damage. After
+                 !  a drought the stem is rebuilt to this loss, not to 0.
+                 !  0 = off.
+,nsc_la_sa(:)                                                                 &
+                 ! Leaf area per sapwood area (m2 m-2; the inverse Huber
+                 !  value). > 0: the conducting xylem the store rebuilds is
+                 !  from the pipe model on the balanced leaf area, as in
+                 !  FATES: X = LAI_bal / nsc_la_sa h nsc_wood_density cmass
+                 !  (sapwood area x height, area-preserving branching, no
+                 !  taper). 0: X = nsc_sapwood_frac woodc.
+,nsc_wood_density(:)                                                         &
+                 ! Wood density (kg dry matter m-3) for the pipe-model xylem.
+,nsc_psi_turg_full(:)                                                         &
+,nsc_psi_turg_zero(:)                                                         &
+                 ! Turgor-limited growth sink (MPa): the store releases
+                 !  carbon at the full rate with the root zone wetter than
+                 !  nsc_psi_turg_full, not at all drier than
+                 !  nsc_psi_turg_zero, linear in between (averaged over the
+                 !  store period). Set (> -1e29), the release is also
+                 !  normalised so that the full store releases W_max.
+                 !  Unset = Trugman et al. (2018) release.
+,nsc_t_grow_zero(:)                                                           &
+,nsc_t_grow_full(:)                                                           &
+                 ! Cold limit on the growth sink (degC, canopy surface
+                 !  temperature): none colder than nsc_t_grow_zero, full
+                 !  warmer than nsc_t_grow_full, linear in between, times
+                 !  the turgor factor at each time step. Unset (< -1e29) =
+                 !  no cold limit.
+,nsc_overflow_resp(:)                                                          &
+                 ! Share of the store carbon above C_max that is respired
+                 !  (overflow respiration) instead of going to growth
+                 !  (0 = all to growth, the Trugman et al. 2018 form; 1 =
+                 !  all respired).
+,nsc_xylem_rate_max(:)
+                 ! Store repair (l_ximpair_rec_nsc): fraction of the
+                 !  conducting xylem the cambium can build per year.
+                 !  nsc_xylem_type 1: cap on the repair rate while growing
+                 !  (times the growth factor of the turgor and cold limits);
+                 !  0 = no cap. nsc_xylem_type 2: the earlywood ring as a
+                 !  fraction of the conducting xylem (> 0).
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -953,6 +1058,27 @@ ALLOCATE( ximpair_psi_growth(npft))
 ALLOCATE( ximpair_rec_years(npft))
 ALLOCATE( ximpair_tau_stem(npft))
 ALLOCATE( ximpair_tau_leaf(npft))
+! MDK, 17/10/26
+ALLOCATE( nsc_flush(npft))
+ALLOCATE( nsc_kc(npft))
+ALLOCATE( nsc_reserve_frac(npft))
+ALLOCATE( nsc_tau_load(npft))
+ALLOCATE( nsc_wmax_fac(npft))
+ALLOCATE( nsc_sapwood_frac(npft))
+ALLOCATE( nsc_hold_plc(npft))
+ALLOCATE( nsc_g_starv(npft))
+ALLOCATE( nsc_repair_window(npft))
+ALLOCATE( nsc_plc_background(npft))
+ALLOCATE( nsc_la_sa(npft))
+ALLOCATE( nsc_wood_density(npft))
+ALLOCATE( nsc_psi_turg_full(npft))
+ALLOCATE( nsc_psi_turg_zero(npft))
+ALLOCATE( nsc_t_grow_zero(npft))
+ALLOCATE( nsc_t_grow_full(npft))
+ALLOCATE( nsc_overflow_resp(npft))
+ALLOCATE( nsc_xylem_rate_max(npft))
+ALLOCATE( nsc_xylem_type(npft))
+ALLOCATE( nsc_ring_mmdd(npft))
 
 leaf_crit(:) = 0.0
 pft_conductance_model(:) = 0
@@ -1002,6 +1128,27 @@ ximpair_psi_growth(:) = -1.0e30
 ximpair_rec_years(:) = 0.0
 ximpair_tau_stem(:) = 0.0
 ximpair_tau_leaf(:) = 0.0
+! MDK, 17/10/26
+nsc_flush(:) = 2.0
+nsc_kc(:) = 0.02
+nsc_reserve_frac(:) = 0.1
+nsc_tau_load(:) = 5.0
+nsc_wmax_fac(:) = 1.0
+nsc_sapwood_frac(:) = 0.6
+nsc_hold_plc(:) = 1.0
+nsc_g_starv(:) = 0.0
+nsc_repair_window(:) = 60.0
+nsc_plc_background(:) = 0.01
+nsc_la_sa(:) = 0.0
+nsc_wood_density(:) = 600.0
+nsc_psi_turg_full(:) = -1.0e30
+nsc_psi_turg_zero(:) = -1.0e30
+nsc_t_grow_zero(:) = -1.0e30
+nsc_t_grow_full(:) = -1.0e30
+nsc_overflow_resp(:) = 0.0
+nsc_xylem_rate_max(:) = 0.0
+nsc_xylem_type(:) = 1
+nsc_ring_mmdd(:) = 401
 
 ! SOX parameters
 ALLOCATE( sox_a(npft))
@@ -1328,6 +1475,47 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_tau_stem = ',ximpair_tau_stem
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_tau_leaf = ',ximpair_tau_leaf
+CALL jules_print('pftparm',lineBuffer)
+! MDK, 17/10/26
+WRITE(lineBuffer,*)' nsc_flush = ',nsc_flush
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_kc = ',nsc_kc
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_reserve_frac = ',nsc_reserve_frac
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_tau_load = ',nsc_tau_load
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_wmax_fac = ',nsc_wmax_fac
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_sapwood_frac = ',nsc_sapwood_frac
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_hold_plc = ',nsc_hold_plc
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_g_starv = ',nsc_g_starv
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_repair_window = ',nsc_repair_window
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_plc_background = ',nsc_plc_background
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_la_sa = ',nsc_la_sa
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_wood_density = ',nsc_wood_density
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_psi_turg_full = ',nsc_psi_turg_full
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_psi_turg_zero = ',nsc_psi_turg_zero
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_t_grow_zero = ',nsc_t_grow_zero
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_t_grow_full = ',nsc_t_grow_full
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_overflow_resp = ',nsc_overflow_resp
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_xylem_rate_max = ',nsc_xylem_rate_max
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_xylem_type = ',nsc_xylem_type
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_ring_mmdd = ',nsc_ring_mmdd
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_psi_driver = ',ximpair_psi_driver
 CALL jules_print('pftparm',lineBuffer)

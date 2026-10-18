@@ -58,6 +58,9 @@ INTEGER ::                                                                     &
   ximpair_psi_driver_io(npft_max) = imdi,                                      &
   ximpair_reset_mmdd_io(npft_max) = imdi,                                      &
   ximpair_growth_basis_io(npft_max) = imdi,                                    &
+  ! MDK, 18/10/26
+  nsc_xylem_type_io(npft_max) = imdi,                                          &
+  nsc_ring_mmdd_io(npft_max) = imdi,                                           &
   seg_root_vc_io(npft_max) = 0
       ! Root segment vulnerability curve (l_som_plant_segments):
       !   0: from p50_root_io / p88_root_io as given
@@ -264,7 +267,26 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ximpair_psi_growth_io(npft_max) = rmdi,                                      &
   ximpair_rec_years_io(npft_max) = rmdi,                                       &
   ximpair_tau_stem_io(npft_max) = rmdi,                                        &
-  ximpair_tau_leaf_io(npft_max) = rmdi
+  ximpair_tau_leaf_io(npft_max) = rmdi,                                        &
+  ! MDK, 17/10/26
+  nsc_flush_io(npft_max) = rmdi,                                               &
+  nsc_kc_io(npft_max) = rmdi,                                                  &
+  nsc_reserve_frac_io(npft_max) = rmdi,                                        &
+  nsc_tau_load_io(npft_max) = rmdi,                                            &
+  nsc_wmax_fac_io(npft_max) = rmdi,                                            &
+  nsc_sapwood_frac_io(npft_max) = rmdi,                                        &
+  nsc_hold_plc_io(npft_max) = rmdi,                                            &
+  nsc_g_starv_io(npft_max) = rmdi,                                             &
+  nsc_repair_window_io(npft_max) = rmdi,                                       &
+  nsc_plc_background_io(npft_max) = rmdi,                                      &
+  nsc_la_sa_io(npft_max) = rmdi,                                               &
+  nsc_wood_density_io(npft_max) = rmdi,                                        &
+  nsc_psi_turg_full_io(npft_max) = rmdi,                                       &
+  nsc_psi_turg_zero_io(npft_max) = rmdi,                                       &
+  nsc_t_grow_zero_io(npft_max) = rmdi,                                         &
+  nsc_t_grow_full_io(npft_max) = rmdi,                                         &
+  nsc_overflow_resp_io(npft_max) = rmdi,                                       &
+  nsc_xylem_rate_max_io(npft_max) = rmdi
 !---------------------------------------------------------------------
 ! Set up a namelist for reading and writing these arrays
 !---------------------------------------------------------------------
@@ -335,7 +357,14 @@ NAMELIST  / jules_pftparm/                                                     &
   ximpair_psi_refill_io,             ximpair_wood_alloc_io,                    &
   ximpair_growth_basis_io,           ximpair_leaf_sens_io,                     &
   ximpair_psi_growth_io,             ximpair_rec_years_io,                     &
-  ximpair_tau_stem_io,               ximpair_tau_leaf_io
+  ximpair_tau_stem_io,               ximpair_tau_leaf_io,                      &
+  nsc_flush_io,    nsc_kc_io,        nsc_reserve_frac_io,                      &
+  nsc_tau_load_io, nsc_wmax_fac_io,  nsc_sapwood_frac_io,                      &
+  nsc_hold_plc_io, nsc_g_starv_io, nsc_repair_window_io,                       &
+  nsc_plc_background_io, nsc_la_sa_io, nsc_wood_density_io,                   &
+  nsc_psi_turg_full_io, nsc_psi_turg_zero_io, nsc_t_grow_zero_io,              &
+  nsc_t_grow_full_io, nsc_overflow_resp_io, nsc_xylem_rate_max_io,            &
+  nsc_xylem_type_io, nsc_ring_mmdd_io
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM_IO'
 
@@ -370,10 +399,10 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
-INTEGER, PARAMETER :: n_int = 9 * npft_max ! = the INTEGER arrays in
+INTEGER, PARAMETER :: n_int = 11 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
-                                           ! impairment)
-INTEGER, PARAMETER :: n_real = 149 * npft_max ! = the REAL arrays in
+                                           ! impairment + 2 store)
+INTEGER, PARAMETER :: n_real = 167 * npft_max ! = the REAL arrays in
                                              ! my_namelist (141 + 8 xylem
                                              ! impairment)
 
@@ -387,6 +416,8 @@ TYPE :: my_namelist
   INTEGER :: ximpair_psi_driver_io(npft_max)
   INTEGER :: ximpair_reset_mmdd_io(npft_max)
   INTEGER :: ximpair_growth_basis_io(npft_max)
+  INTEGER :: nsc_xylem_type_io(npft_max)
+  INTEGER :: nsc_ring_mmdd_io(npft_max)
   INTEGER :: seg_root_vc_io(npft_max)
   REAL(KIND=real_jlslsm) :: a_wl_io(npft_max)
   REAL(KIND=real_jlslsm) :: a_ws_io(npft_max)
@@ -537,6 +568,24 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: ximpair_rec_years_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_tau_stem_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_tau_leaf_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_flush_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_kc_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_reserve_frac_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_tau_load_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_wmax_fac_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_sapwood_frac_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_hold_plc_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_g_starv_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_repair_window_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_plc_background_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_la_sa_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_wood_density_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_psi_turg_full_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_psi_turg_zero_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_t_grow_zero_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_t_grow_full_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_overflow_resp_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_xylem_rate_max_io(npft_max)
 END TYPE my_namelist
 
 TYPE (my_namelist) :: my_nml
@@ -588,6 +637,8 @@ IF (mype == 0) THEN
   my_nml % ximpair_psi_driver_io = ximpair_psi_driver_io
   my_nml % ximpair_reset_mmdd_io = ximpair_reset_mmdd_io
   my_nml % ximpair_growth_basis_io = ximpair_growth_basis_io
+  my_nml % nsc_xylem_type_io = nsc_xylem_type_io
+  my_nml % nsc_ring_mmdd_io = nsc_ring_mmdd_io
   my_nml % seg_root_vc_io = seg_root_vc_io
   my_nml % dcatch_dlai_io = dcatch_dlai_io
   my_nml % deact_jmax_io  = deact_jmax_io
@@ -713,6 +764,24 @@ IF (mype == 0) THEN
   my_nml % ximpair_rec_years_io = ximpair_rec_years_io
   my_nml % ximpair_tau_stem_io = ximpair_tau_stem_io
   my_nml % ximpair_tau_leaf_io = ximpair_tau_leaf_io
+  my_nml % nsc_flush_io = nsc_flush_io
+  my_nml % nsc_kc_io = nsc_kc_io
+  my_nml % nsc_reserve_frac_io = nsc_reserve_frac_io
+  my_nml % nsc_tau_load_io = nsc_tau_load_io
+  my_nml % nsc_wmax_fac_io = nsc_wmax_fac_io
+  my_nml % nsc_sapwood_frac_io = nsc_sapwood_frac_io
+  my_nml % nsc_hold_plc_io = nsc_hold_plc_io
+  my_nml % nsc_g_starv_io = nsc_g_starv_io
+  my_nml % nsc_repair_window_io = nsc_repair_window_io
+  my_nml % nsc_plc_background_io = nsc_plc_background_io
+  my_nml % nsc_la_sa_io = nsc_la_sa_io
+  my_nml % nsc_wood_density_io = nsc_wood_density_io
+  my_nml % nsc_psi_turg_full_io = nsc_psi_turg_full_io
+  my_nml % nsc_psi_turg_zero_io = nsc_psi_turg_zero_io
+  my_nml % nsc_t_grow_zero_io = nsc_t_grow_zero_io
+  my_nml % nsc_t_grow_full_io = nsc_t_grow_full_io
+  my_nml % nsc_overflow_resp_io = nsc_overflow_resp_io
+  my_nml % nsc_xylem_rate_max_io = nsc_xylem_rate_max_io
 END IF
 
 CALL mpl_bcast(my_nml,1,mpl_nml_type,0,my_comm,icode)
@@ -752,6 +821,8 @@ IF (mype /= 0) THEN
   ximpair_psi_driver_io = my_nml % ximpair_psi_driver_io
   ximpair_reset_mmdd_io = my_nml % ximpair_reset_mmdd_io
   ximpair_growth_basis_io = my_nml % ximpair_growth_basis_io
+  nsc_xylem_type_io = my_nml % nsc_xylem_type_io
+  nsc_ring_mmdd_io = my_nml % nsc_ring_mmdd_io
   seg_root_vc_io = my_nml % seg_root_vc_io
   dcatch_dlai_io  = my_nml % dcatch_dlai_io
   deact_jmax_io   = my_nml % deact_jmax_io
@@ -877,6 +948,24 @@ IF (mype /= 0) THEN
   ximpair_rec_years_io = my_nml % ximpair_rec_years_io
   ximpair_tau_stem_io = my_nml % ximpair_tau_stem_io
   ximpair_tau_leaf_io = my_nml % ximpair_tau_leaf_io
+  nsc_flush_io = my_nml % nsc_flush_io
+  nsc_kc_io = my_nml % nsc_kc_io
+  nsc_reserve_frac_io = my_nml % nsc_reserve_frac_io
+  nsc_tau_load_io = my_nml % nsc_tau_load_io
+  nsc_wmax_fac_io = my_nml % nsc_wmax_fac_io
+  nsc_sapwood_frac_io = my_nml % nsc_sapwood_frac_io
+  nsc_hold_plc_io = my_nml % nsc_hold_plc_io
+  nsc_g_starv_io = my_nml % nsc_g_starv_io
+  nsc_repair_window_io = my_nml % nsc_repair_window_io
+  nsc_plc_background_io = my_nml % nsc_plc_background_io
+  nsc_la_sa_io = my_nml % nsc_la_sa_io
+  nsc_wood_density_io = my_nml % nsc_wood_density_io
+  nsc_psi_turg_full_io = my_nml % nsc_psi_turg_full_io
+  nsc_psi_turg_zero_io = my_nml % nsc_psi_turg_zero_io
+  nsc_t_grow_zero_io = my_nml % nsc_t_grow_zero_io
+  nsc_t_grow_full_io = my_nml % nsc_t_grow_full_io
+  nsc_overflow_resp_io = my_nml % nsc_overflow_resp_io
+  nsc_xylem_rate_max_io = my_nml % nsc_xylem_rate_max_io
 END IF
 
 CALL mpl_type_free(mpl_nml_type,icode)
@@ -958,7 +1047,13 @@ USE pftparm, ONLY:                                                             &
   ximpair_wood_alloc,                ximpair_growth_basis,                     &
   ximpair_leaf_sens,                 ximpair_psi_growth,                       &
   ximpair_rec_years,                 ximpair_tau_stem,                         &
-  ximpair_tau_leaf
+  ximpair_tau_leaf,                                                            &
+  nsc_flush,       nsc_kc,           nsc_reserve_frac,                         &
+  nsc_tau_load,    nsc_wmax_fac,     nsc_sapwood_frac,                         &
+  nsc_hold_plc,    nsc_g_starv,      nsc_repair_window,                        &
+  nsc_plc_background, nsc_la_sa,     nsc_wood_density,                        &
+  nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero, nsc_t_grow_full,      &
+  nsc_overflow_resp, nsc_xylem_rate_max, nsc_xylem_type, nsc_ring_mmdd
 
 
 
@@ -972,7 +1067,9 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 stomata_cgain, stomata_supply_loss,            &
                                 stomata_cap,                                   &
                                 xylem_impairment_memory,                       &
-                                ximpair_driver_stem
+                                ximpair_driver_stem, l_triffid_nsc,            &
+                                l_ximpair_rec_nsc, l_veg_compete,              &
+                                l_ximpair_rec_growth
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1261,7 +1358,133 @@ DO i = 1, npft
     ximpair_tau_stem(i) = ximpair_tau_stem_io(i)
   IF (ABS(ximpair_tau_leaf_io(i) - rmdi) > EPSILON(1.0))                       &
     ximpair_tau_leaf(i) = ximpair_tau_leaf_io(i)
+  ! MDK, 17/10/26
+  IF (ABS(nsc_flush_io(i) - rmdi) > EPSILON(1.0))                              &
+    nsc_flush(i) = nsc_flush_io(i)
+  IF (ABS(nsc_kc_io(i) - rmdi) > EPSILON(1.0))                                 &
+    nsc_kc(i) = nsc_kc_io(i)
+  IF (ABS(nsc_reserve_frac_io(i) - rmdi) > EPSILON(1.0))                       &
+    nsc_reserve_frac(i) = nsc_reserve_frac_io(i)
+  IF (ABS(nsc_tau_load_io(i) - rmdi) > EPSILON(1.0))                           &
+    nsc_tau_load(i) = nsc_tau_load_io(i)
+  IF (ABS(nsc_wmax_fac_io(i) - rmdi) > EPSILON(1.0))                           &
+    nsc_wmax_fac(i) = nsc_wmax_fac_io(i)
+  IF (ABS(nsc_sapwood_frac_io(i) - rmdi) > EPSILON(1.0))                       &
+    nsc_sapwood_frac(i) = nsc_sapwood_frac_io(i)
+  IF (ABS(nsc_hold_plc_io(i) - rmdi) > EPSILON(1.0))                           &
+    nsc_hold_plc(i) = nsc_hold_plc_io(i)
+  IF (ABS(nsc_g_starv_io(i) - rmdi) > EPSILON(1.0))                            &
+    nsc_g_starv(i) = nsc_g_starv_io(i)
+  IF (ABS(nsc_repair_window_io(i) - rmdi) > EPSILON(1.0))                      &
+    nsc_repair_window(i) = nsc_repair_window_io(i)
+  IF (ABS(nsc_plc_background_io(i) - rmdi) > EPSILON(1.0))                    &
+    nsc_plc_background(i) = nsc_plc_background_io(i)
+  IF (ABS(nsc_la_sa_io(i) - rmdi) > EPSILON(1.0))                              &
+    nsc_la_sa(i) = nsc_la_sa_io(i)
+  IF (ABS(nsc_wood_density_io(i) - rmdi) > EPSILON(1.0))                       &
+    nsc_wood_density(i) = nsc_wood_density_io(i)
+  IF (ABS(nsc_psi_turg_full_io(i) - rmdi) > EPSILON(1.0))                      &
+    nsc_psi_turg_full(i) = nsc_psi_turg_full_io(i)
+  IF (ABS(nsc_psi_turg_zero_io(i) - rmdi) > EPSILON(1.0))                      &
+    nsc_psi_turg_zero(i) = nsc_psi_turg_zero_io(i)
+  IF (ABS(nsc_t_grow_zero_io(i) - rmdi) > EPSILON(1.0))                        &
+    nsc_t_grow_zero(i) = nsc_t_grow_zero_io(i)
+  IF (ABS(nsc_t_grow_full_io(i) - rmdi) > EPSILON(1.0))                        &
+    nsc_t_grow_full(i) = nsc_t_grow_full_io(i)
+  IF (ABS(nsc_overflow_resp_io(i) - rmdi) > EPSILON(1.0))                      &
+    nsc_overflow_resp(i) = nsc_overflow_resp_io(i)
+  IF (ABS(nsc_xylem_rate_max_io(i) - rmdi) > EPSILON(1.0))                     &
+    nsc_xylem_rate_max(i) = nsc_xylem_rate_max_io(i)
+  IF (nsc_xylem_type_io(i) /= imdi) nsc_xylem_type(i) = nsc_xylem_type_io(i)
+  IF (nsc_ring_mmdd_io(i) /= imdi) nsc_ring_mmdd(i) = nsc_ring_mmdd_io(i)
 END DO
+
+! TRIFFID store (l_triffid_nsc): parameter ranges and switch consistency.
+! MDK, 17/10/26
+IF ( l_triffid_nsc ) THEN
+  IF ( ANY(nsc_flush(:) <= 0.0) .OR. ANY(nsc_kc(:) <= 0.0) .OR.               &
+       ANY(nsc_reserve_frac(:) < 0.0) .OR. ANY(nsc_reserve_frac(:) >= 1.0) .OR. &
+       ANY(nsc_tau_load(:) <= 0.0) .OR. ANY(nsc_wmax_fac(:) < 0.0) .OR.       &
+       ANY(nsc_sapwood_frac(:) <= 0.0) .OR. ANY(nsc_sapwood_frac(:) > 1.0) .OR. &
+       ANY(nsc_hold_plc(:) < 0.0) .OR. ANY(nsc_g_starv(:) < 0.0) .OR.         &
+       ANY(nsc_repair_window(:) < 0.0) .OR.                                   &
+       ANY(nsc_plc_background(:) < 0.0) .OR.                                 &
+       ANY(nsc_plc_background(:) >= 1.0) .OR.                                &
+       ANY(nsc_la_sa(:) < 0.0) .OR. ANY(nsc_wood_density(:) <= 0.0) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'l_triffid_nsc needs nsc_flush_io, nsc_kc_io, '            // &
+                 'nsc_tau_load_io > 0, 0 <= nsc_reserve_frac_io < 1, '      // &
+                 '0 < nsc_sapwood_frac_io <= 1 and nsc_wmax_fac_io, '       // &
+                 'nsc_hold_plc_io, nsc_g_starv_io, nsc_repair_window_io ' // &
+                 '>= 0, 0 <= nsc_plc_background_io < 1, '                // &
+                 'nsc_la_sa_io >= 0 and nsc_wood_density_io > 0.')
+  END IF
+  IF ( ANY(nsc_g_starv(:) > 0.0) .AND. .NOT. l_veg_compete ) THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_g_starv_io > 0 has no effect without l_veg_compete ' // &
+                 '(the PFT fractions are fixed).')
+  END IF
+  ! MDK, 18/10/26
+  IF ( ANY(nsc_psi_turg_zero(:) > -1.0e29 .AND.                               &
+           nsc_psi_turg_full(:) <= nsc_psi_turg_zero(:)) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'The turgor-limited sink needs nsc_psi_turg_full_io > '   // &
+                 'nsc_psi_turg_zero_io.')
+  END IF
+  IF ( ANY(nsc_t_grow_zero(:) > -1.0e29 .AND.                                 &
+           nsc_t_grow_full(:) <= nsc_t_grow_zero(:)) .OR.                     &
+       ANY(nsc_overflow_resp(:) < 0.0) .OR. ANY(nsc_overflow_resp(:) > 1.0) ) &
+  THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'The cold limit needs nsc_t_grow_full_io > '              // &
+                 'nsc_t_grow_zero_io, and 0 <= nsc_overflow_resp_io <= 1.')
+  END IF
+  IF ( ANY(nsc_xylem_type(:) < 1) .OR. ANY(nsc_xylem_type(:) > 2) .OR.        &
+       ANY(nsc_xylem_rate_max(:) < 0.0) .OR.                                  &
+       ANY(nsc_xylem_type(:) == 2 .AND. nsc_xylem_rate_max(:) <= 0.0) .OR.    &
+       ANY(nsc_ring_mmdd(:) < 101) .OR. ANY(nsc_ring_mmdd(:) > 1231) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_xylem_type_io must be 1 (diffuse-porous) or 2 '      // &
+                 '(ring-porous, needs nsc_xylem_rate_max_io > 0), '        // &
+                 'nsc_xylem_rate_max_io >= 0, nsc_ring_mmdd_io a mmdd.')
+  END IF
+END IF
+IF ( l_ximpair_rec_nsc ) THEN
+  IF ( .NOT. ANY(pft_xylem_impairment_model(:) == xylem_impairment_memory) ) &
+  THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'l_ximpair_rec_nsc needs pft_xylem_impairment_model = 3 ' // &
+                 '(memory) for at least one PFT.')
+  END IF
+  IF ( ANY(ximpair_tau_rec(:) > 0.0) .OR. ANY(ximpair_reset_mmdd(:) > 0) ) THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'ximpair_tau_rec_io > 0 or ximpair_reset_mmdd_io > 0 '     // &
+                 'recover conductance without carbon, alongside the '      // &
+                 'store repair (l_ximpair_rec_nsc).')
+  END IF
+END IF
+! Time-based recovery of the memory model (a recovery timescale, not carbon)
+! is retired in favour of the store repair; it still runs, with a warning.
+! MDK, 18/10/26
+IF ( ANY(pft_xylem_impairment_model(:) == xylem_impairment_memory) .AND.    &
+     ( l_ximpair_rec_growth .OR. ANY(ximpair_tau_stem(:) > 0.0) .OR.          &
+       ANY(ximpair_rec_years(:) > 0.0) .OR. ANY(ximpair_tau_rec(:) > 0.0) ) ) &
+THEN
+  errcode = -101
+  CALL ereport(RoutineName, errcode,                                           &
+               'RETIRED: time-based recovery of the memory impairment '    // &
+               'model (l_ximpair_rec_growth, ximpair_tau_stem_io, '        // &
+               'ximpair_rec_years_io, ximpair_tau_rec_io) will be '        // &
+               'removed; use the store repair instead (l_triffid_nsc, '    // &
+               'l_ximpair_rec_nsc, nsc_* parameters).')
+END IF
 
 ! ---------------------------------------------------------------------
 ! The conductance model parameters and critical conductance while not

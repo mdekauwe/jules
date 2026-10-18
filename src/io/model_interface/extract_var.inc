@@ -25,6 +25,11 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_npp_prev,         &
                                        ximpair_wood_prev, ximpair_renew_mean,  &
                                        ximpair_renew_wt
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf, ximpair_psi_stem
+USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_grow_acc, &
+                                       ximpair_fmin_acc
+USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,   &
+                           nsc_repair_pft, nsc_starv_pft, nsc_turg_acc,   &
+                           nsc_resp_pft
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
@@ -151,6 +156,8 @@ TYPE(data_cube) :: lw_up_cube, lw_down_cube
                               ! Required to avoid memory leaks
 
 REAL :: workspace_land(land_pts)  ! Used as a space for calculations
+REAL, PARAMETER :: sec_nsc_yr = 360.0 * 86400.0
+                                  ! Seconds in the store's 360-day year
                                   ! before creating a cube
 
 REAL :: workspace_surft(land_pts, nsurft)
@@ -809,7 +816,12 @@ CASE ( 'lw_up' )
   cube = map_from_land(cube_land)
 
 CASE ( 'npp_gb' )
-  cube_land = cube_from_array(trifctltype%npp_gb)
+  workspace_land(:) = trifctltype%npp_gb(:)
+  ! Less the store's overflow respiration (see resp_p_gb).
+  ! MDK, 18/10/26
+  IF ( ALLOCATED(nsc_resp_pft) ) workspace_land(:) = workspace_land(:)        &
+    - SUM(nsc_resp_pft(:,1:npft) * ainfo%frac_surft(:,1:npft), 2) / sec_nsc_yr
+  cube_land = cube_from_array(workspace_land)
   cube = map_from_land(cube_land)
 
 CASE ( 'qbase' )
@@ -845,7 +857,14 @@ CASE ( 'rad_net' )
   cube = map_from_land(cube_land)
 
 CASE ( 'resp_p_gb' )
-  cube_land = cube_from_array(trifctltype%resp_p_gb)
+  workspace_land(:) = trifctltype%resp_p_gb(:)
+  ! TRIFFID store overflow respiration (nsc_overflow_resp), from the last
+  ! store step, spread evenly over the next (kg C m-2 s-1): plant
+  ! respiration in the outputs only (the store already took it from NPP).
+  ! MDK, 18/10/26
+  IF ( ALLOCATED(nsc_resp_pft) ) workspace_land(:) = workspace_land(:)        &
+    + SUM(nsc_resp_pft(:,1:npft) * ainfo%frac_surft(:,1:npft), 2) / sec_nsc_yr
+  cube_land = cube_from_array(workspace_land)
   cube = map_from_land(cube_land)
 
 CASE ( 'resp_s_gb' )
@@ -1451,7 +1470,12 @@ CASE ( 'npp_dr_out' )
   cube = map_from_land(cube_land)
 
 CASE ( 'npp' )
-  cube_land = cube_from_array(trifctltype%npp_pft)
+  workspace_pft(:,:) = trifctltype%npp_pft(:,:)
+  ! Less the store's overflow respiration (see resp_p_gb).
+  ! MDK, 18/10/26
+  IF ( ALLOCATED(nsc_resp_pft) ) workspace_pft(:,:) = workspace_pft(:,:)      &
+                                                  - nsc_resp_pft / sec_nsc_yr
+  cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
 CASE ( 'o3_exp_fac' )
@@ -1492,7 +1516,12 @@ CASE ( 'lai_bal' )
   cube = map_from_land(cube_land)
 
 CASE ( 'resp_p' )
-  cube_land = cube_from_array(trifctltype%resp_p_pft)
+  workspace_pft(:,:) = trifctltype%resp_p_pft(:,:)
+  ! Plus the store's overflow respiration (see resp_p_gb).
+  ! MDK, 18/10/26
+  IF ( ALLOCATED(nsc_resp_pft) ) workspace_pft(:,:) = workspace_pft(:,:)      &
+                                                  + nsc_resp_pft / sec_nsc_yr
+  cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
 CASE ( 'growth_sug_gb' )
@@ -3749,6 +3778,73 @@ CASE ( 'ximpair_renew_wt' )
 CASE ( 'ximpair_kcap_leaf' )
   workspace_pft(:,:) = 1.0
   IF ( ALLOCATED(ximpair_kcap_leaf) ) workspace_pft(:,:) = ximpair_kcap_leaf
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! MDK, 17/10/26
+CASE ( 'ximpair_repair_pend' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(ximpair_repair_pend) ) workspace_pft(:,:) = ximpair_repair_pend
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_store' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_pft) ) workspace_pft(:,:) = MAX(nsc_pft, 0.0)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_turg_acc' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_turg_acc) ) workspace_pft(:,:) = nsc_turg_acc
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_npp_mean' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_npp_mean) ) workspace_pft(:,:) = nsc_npp_mean
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_npp_wt' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_npp_wt) ) workspace_pft(:,:) = nsc_npp_wt
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_load' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_load_pft) ) workspace_pft(:,:) = nsc_load_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_resp' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_resp_pft) ) workspace_pft(:,:) = nsc_resp_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_repair' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_repair_pft) ) workspace_pft(:,:) = nsc_repair_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_grow_acc' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(ximpair_grow_acc) ) workspace_pft(:,:) = ximpair_grow_acc
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_fmin_acc' )
+  workspace_pft(:,:) = 1.0
+  IF ( ALLOCATED(ximpair_fmin_acc) ) workspace_pft(:,:) = ximpair_fmin_acc
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_starv' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_starv_pft) ) workspace_pft(:,:) = nsc_starv_pft
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
