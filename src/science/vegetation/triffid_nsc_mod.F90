@@ -66,6 +66,17 @@ MODULE triffid_nsc_mod
 ! the last TRIFFID step that the root zone was wetter than it (no stem growth
 ! in drought; ximpair_grow_acc).
 !
+! Wood anatomy (nsc_xylem_type). 1, diffuse-porous (the default, as above):
+! repair whenever growth is allowed, on all the conducting xylem X, at most
+! nsc_xylem_rate_max f_t X per year (f_t the growth factor of the turgor
+! and cold limits, 1 without them; the cambium builds a ring a year, so a
+! few % of the sapwood a year; 0 = no cap). 2, ring-porous: water moves
+! mostly in the current earlywood ring, X_r = nsc_xylem_rate_max X, built
+! each spring from the store. Once a year, at the first store step on or
+! after nsc_ring_mmdd, the repairable loss is rebuilt in full, at a cost of
+! PLC_r X_r drawn from the store (as part of W, to litter), or in part if
+! the accessible store is short; there is no repair the rest of the year.
+!
 ! W_max is held while the stem is damaged (ximpair_lock > nsc_hold_plc), as
 ! Trugman et al. hold it through recovery: the damaged plant keeps loading
 ! for the intact sink, which is what runs the store down.
@@ -82,8 +93,23 @@ MODULE triffid_nsc_mod
 ! limits growth (Lempereur et al. 2015, Puechabon: stem growth stops at a
 ! predawn psi near -1.1 MPa while assimilation goes on), so the store fills
 ! in drought instead of paying for the intact sink. Carbon above C_max still
-! goes to growth. Growth respiration is not charged at release: the JULES
-! NPP the store receives is already net of it.
+! goes to growth unless respired (nsc_overflow_resp, below). Growth
+! respiration is not charged at release: the JULES NPP the store receives is
+! already net of it.
+!
+! Cold limit (nsc_t_grow_zero set): cambial growth stops in the cold (wood
+! formation needs daily temperatures above ~4-8 degC, Rossi et al. 2008), so
+! at each time step the turgor factor is multiplied by
+!   (T - nsc_t_grow_zero) / (nsc_t_grow_full - nsc_t_grow_zero)   (0 to 1),
+! with T the canopy surface temperature (degC). Either limit alone also turns
+! on the normalised release.
+!
+! Overflow respiration (nsc_overflow_resp > 0): of the carbon above C_max,
+! that share is respired (nsc_resp_pft) instead of going to growth, so a
+! sink-limited plant with a full store respires its surplus. The cap is
+! applied after all inputs to the store (NPP and the optional extra input
+! c_in). nsc_resp_pft is a diagnostic only: it is not added to the JULES
+! plant respiration diagnostics.
 !
 ! Starvation (nsc_g_starv > 0, with l_veg_compete): an area disturbance,
 ! nsc_starv_pft, added to g_area in lotka, at the full rate when the
@@ -111,7 +137,7 @@ IMPLICIT NONE
 PRIVATE
 
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft, nsc_repair_pft,   &
-          nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc,               &
+          nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft, &
           triffid_nsc_alloc, triffid_nsc_store, triffid_nsc_area,             &
           triffid_nsc_daily, triffid_nsc_turgor
 
@@ -128,6 +154,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_wt(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_load_pft(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_repair_pft(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_dc_pft(:,:)
+! Overflow respiration of the last store step (kg C m-2 per 360 days).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_resp_pft(:,:)
 ! Carbon-starvation mortality of the last TRIFFID step (per 360 days), used
 ! by lotka.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_starv_pft(:,:)
@@ -176,6 +204,10 @@ IF (.NOT. ALLOCATED(nsc_dc_pft)) THEN
   ALLOCATE(nsc_dc_pft(n_land_pts, npft))
   nsc_dc_pft(:,:) = 0.0
 END IF
+IF (.NOT. ALLOCATED(nsc_resp_pft)) THEN
+  ALLOCATE(nsc_resp_pft(n_land_pts, npft))
+  nsc_resp_pft(:,:) = 0.0
+END IF
 IF (.NOT. ALLOCATED(nsc_starv_pft)) THEN
   ALLOCATE(nsc_starv_pft(n_land_pts, npft))
   nsc_starv_pft(:,:) = 0.0
@@ -200,7 +232,7 @@ END SUBROUTINE triffid_nsc_alloc
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,       &
                               woodc, leafc, rootc, ht, lai_bal, npp, repair,  &
-                              pft_only )
+                              pft_only, c_in )
 
 USE jules_surface_types_mod, ONLY: npft
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,  &
@@ -210,8 +242,10 @@ USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
                    nsc_wmax_fac, nsc_sapwood_frac, nsc_hold_plc,             &
                    nsc_g_starv, ximpair_psi_growth, nsc_repair_window,       &
                    nsc_plc_background, nsc_la_sa, nsc_wood_density,          &
-                   nsc_psi_turg_zero
+                   nsc_psi_turg_zero, nsc_t_grow_zero, nsc_overflow_resp,    &
+                   nsc_xylem_type, nsc_xylem_rate_max, nsc_ring_mmdd
 USE jules_surface_mod, ONLY: cmass
+USE model_time_mod, ONLY: current_time
 USE trif, ONLY: g_root, g_wood
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_repair_pend,    &
                                        ximpair_grow_acc, ximpair_fmin_acc,   &
@@ -254,6 +288,10 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 INTEGER, INTENT(IN), OPTIONAL :: pft_only
     ! Only this PFT (the daily step without TRIFFID); all PFTs if absent.
 
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: c_in(land_pts,npft)
+    ! Extra carbon into the store besides NPP (kg C m-2 per 360 days), taken
+    ! before the cap, so it can overflow.
+
 ! Local variables
 INTEGER :: n, t, l, n1, n2
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -275,7 +313,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
     ! growth (per 360 days), share of W, growth gate, repairable loss.
     ! Turgor-limited sink: turgor factor, accessible store when full (kg C
     ! m-2).
-LOGICAL :: l_rep, l_mem, l_turg
+LOGICAL :: l_rep, l_mem, l_turg, l_ring_now
+INTEGER :: doy_now, doy_ring
+REAL(KIND=real_jlslsm) :: x_r
+    ! Ring-porous: this store step holds the earlywood rebuild; day of year
+    ! now and of nsc_ring_mmdd; earlywood ring (kg C m-2).
+INTEGER, PARAMETER :: cum_days(12) = [0, 31, 59, 90, 120, 151, 181, 212,     &
+                                       243, 273, 304, 334]
 
 REAL(KIND=real_jlslsm), PARAMETER :: x_min = 1.0e-6
     ! Minimum conducting xylem for repair (kg C m-2).
@@ -305,7 +349,15 @@ DO n = n1,n2
   IF (l_rep) CALL ximpair_memory_alloc( land_pts )
 
   a_mean = MIN(dt / MAX(nsc_tau_load(n), TINY(1.0_real_jlslsm)), 1.0)
-  l_turg = nsc_psi_turg_zero(n) > -1.0e29
+  l_turg = nsc_psi_turg_zero(n) > -1.0e29 .OR. nsc_t_grow_zero(n) > -1.0e29
+  ! Ring-porous: is the earlywood date within this store step?
+  l_ring_now = .FALSE.
+  IF (nsc_xylem_type(n) == 2) THEN
+    doy_now  = cum_days(current_time%month) + current_time%day
+    doy_ring = cum_days(nsc_ring_mmdd(n) / 100) + MOD(nsc_ring_mmdd(n), 100)
+    l_ring_now = doy_ring <= doy_now .AND.                                     &
+                 doy_ring > doy_now - NINT(dt * 360.0)
+  END IF
 
   DO t = 1,trif_pts
     l = trif_index(t)
@@ -334,9 +386,9 @@ DO n = n1,n2
     ! Michaelis-Menten loading on the accessible store.
     c_acc = MAX(nsc_pft(l,n) - c_res, 0.0)
     w = 0.0
+    f_turg = 1.0
     IF (l_turg) THEN
       ! Turgor-limited sink, normalised so the full store releases W_max.
-      f_turg = 1.0
       IF (nsc_turg_acc(l,n) > -1.0e29)                                         &
         f_turg = MIN(MAX(nsc_turg_acc(l,n), 0.0), 1.0)
       nsc_turg_acc(l,n) = 0.0
@@ -355,9 +407,14 @@ DO n = n1,n2
     w = npp(l,n) + draw
     nsc_pft(l,n) = nsc_pft(l,n) - draw * dt
 
-    ! Overflow above the capacity goes to growth.
+    ! Extra input, before the cap.
+    IF (PRESENT(c_in)) nsc_pft(l,n) = nsc_pft(l,n) + MAX(c_in(l,n), 0.0) * dt
+
+    ! Overflow above the capacity goes to growth, less the share respired.
+    nsc_resp_pft(l,n) = 0.0
     IF (nsc_pft(l,n) > c_max) THEN
-      w = w + (nsc_pft(l,n) - c_max) / dt
+      nsc_resp_pft(l,n) = nsc_overflow_resp(n) * (nsc_pft(l,n) - c_max) / dt
+      w = w + (1.0 - nsc_overflow_resp(n)) * (nsc_pft(l,n) - c_max) / dt
       nsc_pft(l,n) = c_max
     END IF
 
@@ -391,7 +448,7 @@ DO n = n1,n2
         ximpair_fmin_acc(l,n) = 1.0
       END IF
     END IF
-    IF (l_rep .AND. w > 0.0) THEN
+    IF (l_rep .AND. (w > 0.0 .OR. nsc_xylem_type(n) == 2)) THEN
       IF (nsc_la_sa(n) > 0.0) THEN
         ! Pipe model on the balanced leaf area (sapwood area x height).
         x_s = lai_bal(l,n) / nsc_la_sa(n) * ht(l,n) * nsc_wood_density(n)     &
@@ -399,7 +456,18 @@ DO n = n1,n2
       ELSE
         x_s = nsc_sapwood_frac(n) * woodc(l,n)
       END IF
-      IF (plc_rep > 0.0 .AND. x_s > x_min) THEN
+      IF (nsc_xylem_type(n) == 2) THEN
+        ! Ring-porous: the earlywood rebuild, once a year, from the store.
+        x_r = nsc_xylem_rate_max(n) * x_s
+        IF (l_ring_now .AND. plc_rep > 0.0 .AND. x_r > x_min) THEN
+          repair(l,n) = MIN(plc_rep * x_r,                                     &
+                            MAX(nsc_pft(l,n) - c_res, 0.0)) / dt
+          nsc_pft(l,n) = nsc_pft(l,n) - repair(l,n) * dt
+          w = w + repair(l,n)
+          ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                  &
+                                     + repair(l,n) * dt / x_r
+        END IF
+      ELSE IF (plc_rep > 0.0 .AND. x_s > x_min) THEN
         ! X and L both scale with f_x, so X / (X + L) is that of the intact
         ! plant; the turnover is what TRIFFID charges against the growth
         ! W - repair (leaves kept, all roots, wood).
@@ -415,6 +483,9 @@ DO n = n1,n2
         END IF
         u = x_s / (x_s + l_tot) * MAX(1.0 - turn_l / w, 0.0)
         repair(l,n) = MIN(f_grow * u * w, plc_rep * x_s / dt)
+        ! Cambial production limit.
+        IF (nsc_xylem_rate_max(n) > 0.0)                                       &
+          repair(l,n) = MIN(repair(l,n), nsc_xylem_rate_max(n) * f_turg * x_s)
         ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                    &
                                    + repair(l,n) * dt / x_s
       END IF
@@ -491,10 +562,12 @@ END SUBROUTINE triffid_nsc_area
 ! day without TRIFFID).
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,   &
-                               psi_rz )
+                               psi_rz, tstar )
 
 USE jules_vegetation_mod, ONLY: l_triffid, triffid_period
-USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero
+USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero,   &
+                   nsc_t_grow_full
+USE water_constants_mod, ONLY: tm
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts,                                                                    &
@@ -509,13 +582,15 @@ INTEGER, INTENT(IN) ::                                                         &
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   timestep,                                                                    &
     ! Model time step (s).
-  psi_rz(land_pts)
+  psi_rz(land_pts),                                                            &
     ! Root-zone water potential (Pa).
+  tstar(land_pts)
+    ! Canopy surface temperature (K).
 
 INTEGER :: j, l
 REAL(KIND=real_jlslsm) :: period, f
 
-IF (nsc_psi_turg_zero(ft) < -1.0e29) RETURN
+IF (nsc_psi_turg_zero(ft) < -1.0e29 .AND. nsc_t_grow_zero(ft) < -1.0e29) RETURN
 CALL triffid_nsc_alloc( land_pts )
 
 period = 86400.0
@@ -523,9 +598,13 @@ IF (l_triffid) period = 86400.0 * REAL(triffid_period)
 
 DO j = 1,veg_pts
   l = veg_index(j)
-  f = (1.0e-6 * psi_rz(l) - nsc_psi_turg_zero(ft))                         &
-      / (nsc_psi_turg_full(ft) - nsc_psi_turg_zero(ft))
-  f = MIN(MAX(f, 0.0), 1.0)
+  f = 1.0
+  IF (nsc_psi_turg_zero(ft) > -1.0e29)                                         &
+    f = MIN(MAX((1.0e-6 * psi_rz(l) - nsc_psi_turg_zero(ft))                   &
+                / (nsc_psi_turg_full(ft) - nsc_psi_turg_zero(ft)), 0.0), 1.0)
+  IF (nsc_t_grow_zero(ft) > -1.0e29)                                           &
+    f = f * MIN(MAX((tstar(l) - tm - nsc_t_grow_zero(ft))                      &
+                    / (nsc_t_grow_full(ft) - nsc_t_grow_zero(ft)), 0.0), 1.0)
   IF (nsc_turg_acc(l,ft) < -1.0e29) nsc_turg_acc(l,ft) = 0.0
   nsc_turg_acc(l,ft) = nsc_turg_acc(l,ft) + f * timestep / period
 END DO

@@ -69,7 +69,7 @@ USE jules_vegetation_mod, ONLY: frac_min, l_crop,                              &
                                 l_trif_crop, can_model,                        &
                                 l_inferno, l_trif_fire, l_triffid_nsc
 ! MDK, 17/10/26
-USE triffid_nsc_mod, ONLY: nsc_pft
+USE triffid_nsc_mod, ONLY: nsc_pft, nsc_resp_pft
 
 USE veg_param, ONLY: litc_norm, agric
 
@@ -953,6 +953,15 @@ IF ( ( l_triffid .AND. asteps_since_triffid == 0 ) .AND.                       &
                               + trif_vars%exudates_gb(l) / gam_trif            &
                               - SUM(resp_s_acc(l,:,1:4))
   END DO
+  ! The store's overflow respiration leaves the vegetation.
+  ! MDK, 18/10/26
+  IF ( l_triffid_nsc .AND. ALLOCATED(nsc_resp_pft) ) THEN
+    DO t = 1,trif_pts
+      l = trif_index(t)
+      trif_vars%cnsrv_carbon_veg2_gb(l) = trif_vars%cnsrv_carbon_veg2_gb(l)    &
+                         + SUM(frac(l,1:npft) * nsc_resp_pft(l,1:npft)) / gam_trif
+    END DO
+  END IF
 END IF  !  TRIFFID step and 4-pool soil C
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

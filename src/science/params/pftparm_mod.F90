@@ -452,7 +452,17 @@ ximpair_reset_mmdd(:),                                                         &
                  ! Month and day (month*100 + day, e.g. 401 = 1 April) on
                  !  which the memory impairment model's embolism is reset
                  !  (e.g. new earlywood in ring-porous species). 0 disables.
-ximpair_growth_basis(:)
+ximpair_growth_basis(:),                                                       &
+nsc_xylem_type(:),                                                             &
+                 ! Store repair (l_ximpair_rec_nsc): 1 diffuse-porous (repair
+                 !  whenever growth is allowed, on all the conducting xylem,
+                 !  capped by nsc_xylem_rate_max), 2 ring-porous (the stem
+                 !  is rebuilt once a year, at nsc_ring_mmdd, by the new
+                 !  earlywood ring, paid from the store).
+nsc_ring_mmdd(:)
+                 ! Month and day (month*100 + day) of the earlywood rebuild
+                 !  of nsc_xylem_type 2.
+                 ! MDK, 18/10/26
                  ! Carbon supply for the growth recovery term
                  !  (l_ximpair_rec_growth) of the memory impairment models:
                  !       1: ximpair_wood_alloc * canopy net photosynthesis
@@ -682,7 +692,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,nsc_wood_density(:)                                                         &
                  ! Wood density (kg dry matter m-3) for the pipe-model xylem.
 ,nsc_psi_turg_full(:)                                                         &
-,nsc_psi_turg_zero(:)
+,nsc_psi_turg_zero(:)                                                         &
                  ! Turgor-limited growth sink (MPa): the store releases
                  !  carbon at the full rate with the root zone wetter than
                  !  nsc_psi_turg_full, not at all drier than
@@ -690,6 +700,25 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  store period). Set (> -1e29), the release is also
                  !  normalised so that the full store releases W_max.
                  !  Unset = Trugman et al. (2018) release.
+,nsc_t_grow_zero(:)                                                           &
+,nsc_t_grow_full(:)                                                           &
+                 ! Cold limit on the growth sink (degC, canopy surface
+                 !  temperature): none colder than nsc_t_grow_zero, full
+                 !  warmer than nsc_t_grow_full, linear in between, times
+                 !  the turgor factor at each time step. Unset (< -1e29) =
+                 !  no cold limit.
+,nsc_overflow_resp(:)                                                          &
+                 ! Share of the store carbon above C_max that is respired
+                 !  (overflow respiration) instead of going to growth
+                 !  (0 = all to growth, the Trugman et al. 2018 form; 1 =
+                 !  all respired).
+,nsc_xylem_rate_max(:)
+                 ! Store repair (l_ximpair_rec_nsc): fraction of the
+                 !  conducting xylem the cambium can build per year.
+                 !  nsc_xylem_type 1: cap on the repair rate while growing
+                 !  (times the growth factor of the turgor and cold limits);
+                 !  0 = no cap. nsc_xylem_type 2: the earlywood ring as a
+                 !  fraction of the conducting xylem (> 0).
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -1044,6 +1073,12 @@ ALLOCATE( nsc_la_sa(npft))
 ALLOCATE( nsc_wood_density(npft))
 ALLOCATE( nsc_psi_turg_full(npft))
 ALLOCATE( nsc_psi_turg_zero(npft))
+ALLOCATE( nsc_t_grow_zero(npft))
+ALLOCATE( nsc_t_grow_full(npft))
+ALLOCATE( nsc_overflow_resp(npft))
+ALLOCATE( nsc_xylem_rate_max(npft))
+ALLOCATE( nsc_xylem_type(npft))
+ALLOCATE( nsc_ring_mmdd(npft))
 
 leaf_crit(:) = 0.0
 pft_conductance_model(:) = 0
@@ -1108,6 +1143,12 @@ nsc_la_sa(:) = 0.0
 nsc_wood_density(:) = 600.0
 nsc_psi_turg_full(:) = -1.0e30
 nsc_psi_turg_zero(:) = -1.0e30
+nsc_t_grow_zero(:) = -1.0e30
+nsc_t_grow_full(:) = -1.0e30
+nsc_overflow_resp(:) = 0.0
+nsc_xylem_rate_max(:) = 0.0
+nsc_xylem_type(:) = 1
+nsc_ring_mmdd(:) = 401
 
 ! SOX parameters
 ALLOCATE( sox_a(npft))
@@ -1463,6 +1504,18 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_psi_turg_full = ',nsc_psi_turg_full
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_psi_turg_zero = ',nsc_psi_turg_zero
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_t_grow_zero = ',nsc_t_grow_zero
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_t_grow_full = ',nsc_t_grow_full
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_overflow_resp = ',nsc_overflow_resp
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_xylem_rate_max = ',nsc_xylem_rate_max
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_xylem_type = ',nsc_xylem_type
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_ring_mmdd = ',nsc_ring_mmdd
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_psi_driver = ',ximpair_psi_driver
 CALL jules_print('pftparm',lineBuffer)

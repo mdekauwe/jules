@@ -10006,4 +10006,17 @@ DATA metadata(772) / var_metadata(                                             &
 ! Units
     "1"                                                                        &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_resp
+!-----------------------------------------------------------------------------
+DATA metadata(773) / var_metadata(                                             &
+! String identifier
+    'nsc_resp',                                                                &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Overflow respiration of the TRIFFID store (nsc_overflow_resp)",           &
+! Units
+    "kg m-2 per 360days"                                                       &
+  ) /
 #endif
