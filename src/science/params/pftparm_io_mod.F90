@@ -286,7 +286,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_t_grow_zero_io(npft_max) = rmdi,                                         &
   nsc_t_grow_full_io(npft_max) = rmdi,                                         &
   nsc_overflow_resp_io(npft_max) = rmdi,                                       &
-  nsc_xylem_rate_max_io(npft_max) = rmdi
+  nsc_xylem_rate_max_io(npft_max) = rmdi,                                      &
+  nsc_cmax_io(npft_max) = rmdi
 !---------------------------------------------------------------------
 ! Set up a namelist for reading and writing these arrays
 !---------------------------------------------------------------------
@@ -364,7 +365,7 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_plc_background_io, nsc_la_sa_io, nsc_wood_density_io,                   &
   nsc_psi_turg_full_io, nsc_psi_turg_zero_io, nsc_t_grow_zero_io,              &
   nsc_t_grow_full_io, nsc_overflow_resp_io, nsc_xylem_rate_max_io,            &
-  nsc_xylem_type_io, nsc_ring_mmdd_io
+  nsc_xylem_type_io, nsc_ring_mmdd_io, nsc_cmax_io
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM_IO'
 
@@ -402,7 +403,7 @@ INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 11 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
                                            ! impairment + 2 store)
-INTEGER, PARAMETER :: n_real = 167 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 168 * npft_max ! = the REAL arrays in
                                              ! my_namelist (141 + 8 xylem
                                              ! impairment)
 
@@ -586,6 +587,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_t_grow_full_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_overflow_resp_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_xylem_rate_max_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_cmax_io(npft_max)
 END TYPE my_namelist
 
 TYPE (my_namelist) :: my_nml
@@ -782,6 +784,7 @@ IF (mype == 0) THEN
   my_nml % nsc_t_grow_full_io = nsc_t_grow_full_io
   my_nml % nsc_overflow_resp_io = nsc_overflow_resp_io
   my_nml % nsc_xylem_rate_max_io = nsc_xylem_rate_max_io
+  my_nml % nsc_cmax_io = nsc_cmax_io
 END IF
 
 CALL mpl_bcast(my_nml,1,mpl_nml_type,0,my_comm,icode)
@@ -966,6 +969,7 @@ IF (mype /= 0) THEN
   nsc_t_grow_full_io = my_nml % nsc_t_grow_full_io
   nsc_overflow_resp_io = my_nml % nsc_overflow_resp_io
   nsc_xylem_rate_max_io = my_nml % nsc_xylem_rate_max_io
+  nsc_cmax_io = my_nml % nsc_cmax_io
 END IF
 
 CALL mpl_type_free(mpl_nml_type,icode)
@@ -1053,7 +1057,8 @@ USE pftparm, ONLY:                                                             &
   nsc_hold_plc,    nsc_g_starv,      nsc_repair_window,                        &
   nsc_plc_background, nsc_la_sa,     nsc_wood_density,                        &
   nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero, nsc_t_grow_full,      &
-  nsc_overflow_resp, nsc_xylem_rate_max, nsc_xylem_type, nsc_ring_mmdd
+  nsc_overflow_resp, nsc_xylem_rate_max, nsc_xylem_type, nsc_ring_mmdd,       &
+  nsc_cmax
 
 
 
@@ -1395,6 +1400,7 @@ DO i = 1, npft
     nsc_overflow_resp(i) = nsc_overflow_resp_io(i)
   IF (ABS(nsc_xylem_rate_max_io(i) - rmdi) > EPSILON(1.0))                     &
     nsc_xylem_rate_max(i) = nsc_xylem_rate_max_io(i)
+  IF (ABS(nsc_cmax_io(i) - rmdi) > EPSILON(1.0)) nsc_cmax(i) = nsc_cmax_io(i)
   IF (nsc_xylem_type_io(i) /= imdi) nsc_xylem_type(i) = nsc_xylem_type_io(i)
   IF (nsc_ring_mmdd_io(i) /= imdi) nsc_ring_mmdd(i) = nsc_ring_mmdd_io(i)
 END DO
@@ -1444,14 +1450,15 @@ IF ( l_triffid_nsc ) THEN
                  'nsc_t_grow_zero_io, and 0 <= nsc_overflow_resp_io <= 1.')
   END IF
   IF ( ANY(nsc_xylem_type(:) < 1) .OR. ANY(nsc_xylem_type(:) > 2) .OR.        &
-       ANY(nsc_xylem_rate_max(:) < 0.0) .OR.                                  &
+       ANY(nsc_xylem_rate_max(:) < 0.0) .OR. ANY(nsc_cmax(:) < 0.0) .OR.      &
        ANY(nsc_xylem_type(:) == 2 .AND. nsc_xylem_rate_max(:) <= 0.0) .OR.    &
        ANY(nsc_ring_mmdd(:) < 101) .OR. ANY(nsc_ring_mmdd(:) > 1231) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'nsc_xylem_type_io must be 1 (diffuse-porous) or 2 '      // &
                  '(ring-porous, needs nsc_xylem_rate_max_io > 0), '        // &
-                 'nsc_xylem_rate_max_io >= 0, nsc_ring_mmdd_io a mmdd.')
+                 'nsc_xylem_rate_max_io >= 0, nsc_ring_mmdd_io a mmdd, '   // &
+                 'nsc_cmax_io >= 0.')
   END IF
 END IF
 IF ( l_ximpair_rec_nsc ) THEN

@@ -10019,4 +10019,17 @@ DATA metadata(773) / var_metadata(                                             &
 ! Units
     "kg m-2 per 360days"                                                       &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_t_run
+!-----------------------------------------------------------------------------
+DATA metadata(774) / var_metadata(                                             &
+! String identifier
+    'nsc_t_run',                                                               &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Daily running mean air temperature for the store's cold limit",           &
+! Units
+    "K"                                                                        &
+  ) /
 #endif

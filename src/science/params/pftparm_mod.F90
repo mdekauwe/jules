@@ -712,6 +712,10 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  (overflow respiration) instead of going to growth
                  !  (0 = all to growth, the Trugman et al. 2018 form; 1 =
                  !  all respired).
+,nsc_cmax(:)                                                                  &
+                 ! Store capacity C_max (kg C m-2 of the PFT); > 0 sets it
+                 !  directly (e.g. from measured NSC concentrations times
+                 !  biomass), 0 = nsc_flush x (leaf + root carbon).
 ,nsc_xylem_rate_max(:)
                  ! Store repair (l_ximpair_rec_nsc): fraction of the
                  !  conducting xylem the cambium can build per year.
@@ -1077,6 +1081,7 @@ ALLOCATE( nsc_t_grow_zero(npft))
 ALLOCATE( nsc_t_grow_full(npft))
 ALLOCATE( nsc_overflow_resp(npft))
 ALLOCATE( nsc_xylem_rate_max(npft))
+ALLOCATE( nsc_cmax(npft))
 ALLOCATE( nsc_xylem_type(npft))
 ALLOCATE( nsc_ring_mmdd(npft))
 
@@ -1147,6 +1152,7 @@ nsc_t_grow_zero(:) = -1.0e30
 nsc_t_grow_full(:) = -1.0e30
 nsc_overflow_resp(:) = 0.0
 nsc_xylem_rate_max(:) = 0.0
+nsc_cmax(:) = 0.0
 nsc_xylem_type(:) = 1
 nsc_ring_mmdd(:) = 401
 
@@ -1512,6 +1518,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_overflow_resp = ',nsc_overflow_resp
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_xylem_rate_max = ',nsc_xylem_rate_max
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_cmax = ',nsc_cmax
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_xylem_type = ',nsc_xylem_type
 CALL jules_print('pftparm',lineBuffer)
