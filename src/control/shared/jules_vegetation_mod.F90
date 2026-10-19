@@ -622,6 +622,31 @@ LOGICAL ::                                                                     &
       ! and the stomatal optimisation of each at its own leaf temperature,
       ! instead of both at the surface temperature tstar. The tile energy
       ! balance is unchanged (it still solves one tstar from gc).
+      ! The multilayer canopy (can_rad_mod = 5, 6) solves the same leaf
+      ! energy balance as set by ml_leaf_temp_model; its passes are
+      ! leaf_temp_iter, as two-leaf.
+      ! MDK, 19/10/26
+INTEGER, PARAMETER ::                                                          &
+  ml_leaf_temp_aggregate = 1,                                                  &
+  ml_leaf_temp_layers    = 2
+      ! Values of ml_leaf_temp_model.
+      ! MDK, 19/10/26
+INTEGER ::                                                                     &
+  ml_leaf_temp_model = ml_leaf_temp_layers
+      ! With l_leaf_temp and the multilayer canopy (can_rad_mod = 5, 6), the
+      ! leaf energy balance:
+      ! 1 (ml_leaf_temp_aggregate): one sunlit and one shaded balance (the
+      !   two-leaf one) from the sunlit and shaded leaf area, absorbed
+      !   radiation and stomatal conductance summed over the layers; every
+      !   layer's sunlit (shaded) leaves are at that sunlit (shaded)
+      !   temperature.
+      ! 2 (ml_leaf_temp_layers, default): as MAESPA, a balance for the sunlit
+      !   and the shaded leaf of every layer, each from its own absorbed
+      !   radiation, stomatal conductance and boundary layer (the wind
+      !   falling with depth, see leaf_wind_ext), all exchanging with one
+      !   canopy air.
+      ! Not used otherwise.
+      ! MDK, 19/10/26
 REAL(KIND=real_jlslsm) ::                                                      &
   leaf_width = 0.05
       ! Characteristic leaf width (m), for the leaf boundary layer
@@ -659,6 +684,19 @@ INTEGER ::                                                                     &
       !    30-45 s m-1 and the canopy air ~8 K warmer than the air at
       !    midday in summer, against an observed radiometric surface
       !    temperature 2-3 K above the air.
+REAL(KIND=real_jlslsm) ::                                                      &
+  leaf_wind_ext = 0.0
+      ! With l_leaf_temp and leaf_aero_model = 0 or 2, the extinction
+      ! coefficient of the wind in the canopy per unit cumulative leaf area
+      ! above (dimensionless): u(L) = u_top exp(-leaf_wind_ext L), so the
+      ! forced-convection boundary-layer conductance falls as
+      ! exp(-leaf_wind_ext L / 2) (MAESPA's EXTWIND, default 1 there;
+      ! Wang & Leuning, 1998), u_top being the level-1 wind. 0 (default):
+      ! no attenuation, every leaf at the level-1 wind. Applies to the
+      ! two-leaf (can_rad_mod 7, through the wind-weighted class leaf area)
+      ! and the multilayer (5, 6, layer by layer) leaf energy balance.
+      ! leaf_aero_model = 1 uses CABLE's own coexp instead.
+      ! MDK, 19/10/26
 LOGICAL ::                                                                     &
   l_leaf_coexp_lai = .FALSE.
       ! With l_leaf_temp and leaf_aero_model = 1, apply the in-canopy wind
@@ -962,7 +1000,8 @@ NAMELIST  / jules_vegetation/                                                  &
     sl_kfail_frac,                                                             &
     l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
     l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
-    leaf_shelter, leaf_aero_model, l_leaf_coexp_lai,                           &
+    leaf_shelter, leaf_aero_model, l_leaf_coexp_lai, leaf_wind_ext,            &
+    ml_leaf_temp_model,                                                        &
     l_som_gain_gross,                                                          &
     l_som_cuticular_floor, l_som_gravity, l_som_coupled_e,                    &
     l_som_rhizo_mfp, l_som_rhizo_hr,                                          &
@@ -1720,11 +1759,13 @@ IF ( .NOT. l_root_mass_fixed .AND. root_mass_min <= 0.0 ) THEN
                'root_mass_min must be > 0 (or set l_root_mass_fixed)')
 END IF
 
-IF ( l_leaf_temp .AND. ( can_rad_mod /= 7 .OR.                               &
+! (can_rad_mod 5 and 6: the multilayer canopy, see ml_leaf_temp_model.
+! MDK, 19/10/26)
+IF ( l_leaf_temp .AND. ( can_rad_mod < 5 .OR. can_rad_mod > 7 .OR.           &
                          leaf_flux_mod /= leaf_flux_stom_opt ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_leaf_temp is only coded for can_rad_mod=7 with ' //          &
+               'l_leaf_temp is only coded for can_rad_mod=5, 6 or 7 with ' //  &
                'stomata_model=4 to 7 or 9')
 END IF
 
@@ -1746,6 +1787,23 @@ IF ( l_leaf_temp .AND. l_leaf_coexp_lai .AND. leaf_aero_model /= 1 ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_leaf_coexp_lai is only used with leaf_aero_model = 1')
+END IF
+
+! MDK, 19/10/26
+IF ( l_leaf_temp .AND. ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) .AND.       &
+     ml_leaf_temp_model /= ml_leaf_temp_aggregate .AND.                        &
+     ml_leaf_temp_model /= ml_leaf_temp_layers ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'ml_leaf_temp_model must be 1 (aggregate) or 2 (per layer)')
+END IF
+
+IF ( l_leaf_temp .AND. ( leaf_wind_ext < 0.0 .OR.                              &
+     ( leaf_aero_model == 1 .AND. leaf_wind_ext > 0.0 ) ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_leaf_temp needs leaf_wind_ext >= 0, and 0 with ' //          &
+               'leaf_aero_model = 1 (which uses CABLE''s coexp)')
 END IF
 
 IF ( l_leaf_temp .AND. leaf_width <= 0.0 ) THEN
@@ -2008,6 +2066,10 @@ IF ( l_leaf_temp ) THEN
   CALL jules_print('jules_vegetation_mod',lineBuffer)
   WRITE(lineBuffer,*) ' l_leaf_coexp_lai = ', l_leaf_coexp_lai
   CALL jules_print('jules_vegetation_mod',lineBuffer)
+  WRITE(lineBuffer,*) ' leaf_wind_ext = ', leaf_wind_ext
+  CALL jules_print('jules_vegetation_mod',lineBuffer)
+  WRITE(lineBuffer,*) ' ml_leaf_temp_model = ', ml_leaf_temp_model
+  CALL jules_print('jules_vegetation_mod',lineBuffer)
 END IF
 
 WRITE(lineBuffer,*) ' l_som_plant_segments = ', l_som_plant_segments
@@ -2179,9 +2241,9 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 22 ! +1 ximpair_stomatal_response, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
+INTEGER, PARAMETER :: n_int = 23 ! +1 ml_leaf_temp_model (MDK, 19/10/26), +1 ximpair_stomatal_response, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
-INTEGER, PARAMETER :: n_real = 19 + (n_photo_coef * 5) ! +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
+INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5) ! +1 leaf_wind_ext (MDK, 19/10/26), +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
 INTEGER, PARAMETER :: n_log = 53 + npft_max ! +1 l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
@@ -2206,6 +2268,7 @@ TYPE :: my_namelist
   INTEGER :: can_rad_mod
   INTEGER :: leaf_temp_iter
   INTEGER :: leaf_aero_model
+  INTEGER :: ml_leaf_temp_model
   INTEGER :: ilayers
   INTEGER :: leaf_flux_mod !JBaguley
   INTEGER :: som_base_parm !JBaguley
@@ -2245,6 +2308,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: light_curvature_fvcb
   REAL(KIND=real_jlslsm) :: leaf_width
   REAL(KIND=real_jlslsm) :: leaf_shelter
+  REAL(KIND=real_jlslsm) :: leaf_wind_ext
   REAL(KIND=real_jlslsm) :: root_mass_min
   LOGICAL :: l_som_skip_search_wellwatered
   LOGICAL :: l_som_fast
@@ -2370,9 +2434,11 @@ IF (mype == 0) THEN
   my_nml % l_leaf_temp_gc_eq = l_leaf_temp_gc_eq
   my_nml % l_leaf_coexp_lai = l_leaf_coexp_lai
   my_nml % leaf_aero_model = leaf_aero_model
+  my_nml % ml_leaf_temp_model = ml_leaf_temp_model
   my_nml % leaf_shelter = leaf_shelter
   my_nml % leaf_temp_iter = leaf_temp_iter
   my_nml % leaf_width = leaf_width
+  my_nml % leaf_wind_ext = leaf_wind_ext
   my_nml % l_som_plant_segments = l_som_plant_segments
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
@@ -2476,9 +2542,11 @@ IF (mype /= 0) THEN
   l_leaf_temp_gc_eq = my_nml % l_leaf_temp_gc_eq
   l_leaf_coexp_lai = my_nml % l_leaf_coexp_lai
   leaf_aero_model = my_nml % leaf_aero_model
+  ml_leaf_temp_model = my_nml % ml_leaf_temp_model
   leaf_shelter = my_nml % leaf_shelter
   leaf_temp_iter = my_nml % leaf_temp_iter
   leaf_width = my_nml % leaf_width
+  leaf_wind_ext = my_nml % leaf_wind_ext
   l_som_plant_segments = my_nml % l_som_plant_segments
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor

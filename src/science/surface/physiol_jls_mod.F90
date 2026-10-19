@@ -64,6 +64,7 @@ SUBROUTINE physiol (                                                           &
   psi_root_extreme_pft,                                                        &
   !leaf temperature (IN: drivers; OUT: sunlit/shaded/canopy)
   tl_1,lw_down,t_leaf_sun_pft,t_leaf_shd_pft,t_can_pft,                        &
+  t_leaf_clamp_pft,                                                            &
   !ancil_info (IN)
   l_soil_point,                                                                &
   !jules_surface_types (IN)
@@ -374,10 +375,14 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
  t_leaf_sun_pft(land_pts,npft)                                                 &
 ,t_leaf_shd_pft(land_pts,npft)                                                 &
-,t_can_pft(land_pts,npft)
+,t_can_pft(land_pts,npft)                                                      &
                             ! Sunlit, shaded and canopy (leaf-area weighted)
                             ! leaf temperature used by photosynthesis (K).
                             ! Last timestep's on input (first guess).
+,t_leaf_clamp_pft(land_pts,npft)
+                            ! l_leaf_temp: fraction of the leaf classes held
+                            ! at the dt_leaf limit this timestep.
+                            ! MDK, 18/10/26
 
 !crop_vars_mod (IN)
 REAL(KIND=real_jlslsm), INTENT(IN) :: rootc_cpft(land_pts,ncpft)
@@ -1597,6 +1602,7 @@ DO n = 1,npft
 ,               cica_ratio_pft(:,n),leaf_k_pft(:,n)                            &
 ,               tair_land,lw_down_land,vshr_land,z1_uv_land                    &
 ,               t_leaf_sun_pft(:,n),t_leaf_shd_pft(:,n),t_can_pft(:,n)         &
+,               t_leaf_clamp_pft(:,n)                                          &
 ,               isoprene_pft(:,n),terpene_pft(:,n)                             &
 ,               methanol_pft(:,n),acetone_pft(:,n)                             &
 ,               open_index,open_pts                                            &

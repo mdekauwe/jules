@@ -10110,4 +10110,18 @@ DATA metadata(780) / var_metadata(                                             &
 ! Units
     "kg m-2"                                                                  &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for t_leaf_clamp_pft
+! MDK, 18/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(781) / var_metadata(                                             &
+! String identifier
+    't_leaf_clamp_pft',                                                      &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Fraction of leaf classes held at the leaf-air temperature limit",       &
+! Units
+    "1"                                                                       &
+  ) /
 #endif

@@ -101,7 +101,7 @@ SUBROUTINE jules_land_sf_explicit (                                            &
  !p_s_parms (IN OUT) JBaguley
  k_max_impaired_pft,conductance_b_impaired_pft,conductance_c_impaired_pft,     &
  psi_leaf_extreme_pft,psi_root_extreme_pft,                                    &
- t_leaf_sun_pft,t_leaf_shd_pft,t_can_pft,                                      &
+ t_leaf_sun_pft,t_leaf_shd_pft,t_can_pft,t_leaf_clamp_pft,                     &
  !urban_param (IN)
  wrr_gb,                                                                       &
  !Fluxes (IN OUT)
@@ -695,10 +695,14 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
  t_leaf_sun_pft(land_pts,npft)                                                 &
 ,t_leaf_shd_pft(land_pts,npft)                                                 &
-,t_can_pft(land_pts,npft)
+,t_can_pft(land_pts,npft)                                                      &
                             ! Sunlit, shaded and canopy leaf temperature of
                             ! each PFT used by photosynthesis (K); last
                             ! timestep's on input.
+,t_leaf_clamp_pft(land_pts,npft)
+                            ! l_leaf_temp: fraction of the leaf classes held
+                            ! at the dt_leaf limit this timestep.
+                            ! MDK, 18/10/26
 
 !p_s_parms (IN OUT) JBaguley
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
@@ -1307,6 +1311,7 @@ CALL physiol (                                                                 &
   conductance_c_impaired_pft, psi_leaf_extreme_pft, psi_root_extreme_pft,      &
   !leaf temperature (IN: drivers; OUT: sunlit/shaded/canopy)
   tl_1,lw_down,t_leaf_sun_pft,t_leaf_shd_pft,t_can_pft,                        &
+  t_leaf_clamp_pft,                                                            &
   !ancil_info
   l_soil_point,                                                                &
   !jules_surface_types (IN)
