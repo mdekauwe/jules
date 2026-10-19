@@ -3664,16 +3664,23 @@ CASE ( 'gc_stom_pft' )
   cube_land = cube_from_array(psparms%gc_stom_pft)
   cube = map_from_land(cube_land)
 
+! The leaf temperatures (and t_leaf_clamp_pft) are only set where the PFT
+! has a tile fraction: missing data (mdi) elsewhere.
+! MDK, 18/10/26
 CASE ( 't_leaf_sun_pft' )
-  cube_land = cube_from_array(psparms%t_leaf_sun_pft)
+  cube_land = cube_from_array(pft_present_or_mdi(psparms%t_leaf_sun_pft))
   cube = map_from_land(cube_land)
 
 CASE ( 't_leaf_shd_pft' )
-  cube_land = cube_from_array(psparms%t_leaf_shd_pft)
+  cube_land = cube_from_array(pft_present_or_mdi(psparms%t_leaf_shd_pft))
   cube = map_from_land(cube_land)
 
 CASE ( 't_can_pft' )
-  cube_land = cube_from_array(psparms%t_can_pft)
+  cube_land = cube_from_array(pft_present_or_mdi(psparms%t_can_pft))
+  cube = map_from_land(cube_land)
+
+CASE ( 't_leaf_clamp_pft' )
+  cube_land = cube_from_array(pft_present_or_mdi(psparms%t_leaf_clamp_pft))
   cube = map_from_land(cube_land)
 
 CASE ('cica_ratio_pft')
@@ -4060,6 +4067,27 @@ CALL cube_free(cube_land)
 
 
 RETURN
+
+CONTAINS
+
+!-----------------------------------------------------------------------------
+! A land_pts x npft field with missing data (mdi) where the PFT has no tile
+! fraction (the field is not set there). Unchanged with aggregated tiles.
+! MDK, 18/10/26
+!-----------------------------------------------------------------------------
+FUNCTION pft_present_or_mdi(field) RESULT(masked)
+USE um_types, ONLY: real_jlslsm
+IMPLICIT NONE
+REAL(KIND=real_jlslsm), INTENT(IN) :: field(:,:)
+REAL :: masked(SIZE(field,1), SIZE(field,2))
+INTEGER :: ip
+masked(:,:) = field(:,:)
+IF ( .NOT. l_aggregate ) THEN
+  DO ip = 1,SIZE(field,2)
+    WHERE ( ainfo%frac_surft(:,ip) <= 0.0 ) masked(:,ip) = mdi
+  END DO
+END IF
+END FUNCTION pft_present_or_mdi
 
 END FUNCTION extract_var
 #endif

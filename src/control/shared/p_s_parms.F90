@@ -126,6 +126,11 @@ TYPE :: psparms_data_type
   REAL(KIND=real_jlslsm), ALLOCATABLE :: t_can_pft(:,:)
     ! Sunlit, shaded and canopy (leaf-area weighted) leaf temperature of
     ! each PFT used by photosynthesis (K): tstar unless l_leaf_temp.
+  REAL(KIND=real_jlslsm), ALLOCATABLE :: t_leaf_clamp_pft(:,:)
+    ! l_leaf_temp: fraction of the leaf classes of each PFT whose
+    ! temperature was held at the dt_leaf limit from the canopy air
+    ! this timestep (0 without l_leaf_temp).
+    ! MDK, 18/10/26
   REAL(KIND=real_jlslsm), ALLOCATABLE :: leaf_k_pft(:,:)
     ! Conductance at the leaf (mol m-2 s-1 Pa-1) JBaguley
   REAL(KIND=real_jlslsm), ALLOCATABLE :: kmax_impaired_pft(:,:)
@@ -206,6 +211,7 @@ TYPE :: psparms_type
   REAL(KIND=real_jlslsm), POINTER :: t_leaf_sun_pft(:,:)
   REAL(KIND=real_jlslsm), POINTER :: t_leaf_shd_pft(:,:)
   REAL(KIND=real_jlslsm), POINTER :: t_can_pft(:,:)
+  REAL(KIND=real_jlslsm), POINTER :: t_leaf_clamp_pft(:,:)
 END TYPE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='P_S_PARMS'
@@ -274,6 +280,7 @@ ALLOCATE(psparms_data%gc_stom_pft(land_pts,npft))
 ALLOCATE(psparms_data%t_leaf_sun_pft(land_pts,npft))
 ALLOCATE(psparms_data%t_leaf_shd_pft(land_pts,npft))
 ALLOCATE(psparms_data%t_can_pft(land_pts,npft))
+ALLOCATE(psparms_data%t_leaf_clamp_pft(land_pts,npft))
 
 psparms_data%bexp_soilt(:,:,:)        = 0.0
 psparms_data%sathh_soilt(:,:,:)       = 0.0
@@ -306,6 +313,7 @@ psparms_data%gc_stom_pft(:,:) = 0.0
 psparms_data%t_leaf_sun_pft(:,:) = 0.0
 psparms_data%t_leaf_shd_pft(:,:) = 0.0
 psparms_data%t_can_pft(:,:) = 0.0
+psparms_data%t_leaf_clamp_pft(:,:) = 0.0
 
 ! Plant and soil parameters
 ALLOCATE(psparms_data%albsoil_soilt(land_pts,nsoilt))
@@ -431,6 +439,7 @@ DEALLOCATE(psparms_data%gc_stom_pft)
 DEALLOCATE(psparms_data%t_leaf_sun_pft)
 DEALLOCATE(psparms_data%t_leaf_shd_pft)
 DEALLOCATE(psparms_data%t_can_pft)
+DEALLOCATE(psparms_data%t_leaf_clamp_pft)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -512,6 +521,7 @@ psparms%gc_stom_pft => psparms_data%gc_stom_pft
 psparms%t_leaf_sun_pft => psparms_data%t_leaf_sun_pft
 psparms%t_leaf_shd_pft => psparms_data%t_leaf_shd_pft
 psparms%t_can_pft => psparms_data%t_can_pft
+psparms%t_leaf_clamp_pft => psparms_data%t_leaf_clamp_pft
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -589,6 +599,7 @@ NULLIFY(psparms%gc_stom_pft)
 NULLIFY(psparms%t_leaf_sun_pft)
 NULLIFY(psparms%t_leaf_shd_pft)
 NULLIFY(psparms%t_can_pft)
+NULLIFY(psparms%t_leaf_clamp_pft)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
