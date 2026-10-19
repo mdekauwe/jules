@@ -4044,6 +4044,11 @@ IMPLICIT NONE
   END IF
   t_g_lt(:)  = tstar(:)
   zeta_lt(:) = 0.0
+  ! Defined at every land point (leaf_class_at_temp takes qsat of the
+  ! whole array, and the per-layer classes copy it).
+  ! MDK, 19/10/26
+  t_sun_lt(:) = tstar(:)
+  t_shd_lt(:) = tstar(:)
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( t_leaf_sun(l) < 150.0 .OR. t_leaf_shd(l) < 150.0 ) THEN
