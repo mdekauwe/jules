@@ -1582,7 +1582,8 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  l_scale_resp_pm, stomata_desica,              &
                                  som_psi_solver, psi_solver_lut,               &
                                  l_ximpair_seg_memory, l_som_plant_segments,   &
-                                 l_ximpair_rec_growth, xylem_impairment_memory
+                                 l_ximpair_rec_growth, xylem_impairment_memory,&
+                                 leaf_flux_mod, leaf_flux_stom_opt
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs, l_snow_albedo
 
@@ -2242,15 +2243,23 @@ END IF
 
 !-----------------------------------------------------------------------------
 ! Xylem impairment is coded for the stomatal optimisation's flat and bounded
-! Ci searches with the Taylor or Newton leaf-psi solvers: the lookup table
-! (keyed by PFT) and DESICA use the intact PFT curve.
+! Ci searches with the Taylor or Newton leaf-psi solvers. With the lookup
+! table (som_psi_solver = 3) only the memory model (3) is coded: its capped
+! curve is inverted exactly from the intact PFT table (the cap is a
+! straight line above the psi where the intact curve meets it). The whole
+! trunk model (2) changes b and c, which the table (keyed by PFT) cannot
+! follow. DESICA uses the intact PFT curve.
+! MDK, 18/10/26
 !-----------------------------------------------------------------------------
 IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
-  IF ( som_psi_solver == psi_solver_lut ) THEN
+  IF ( som_psi_solver == psi_solver_lut .AND.                                 &
+       ANY( pft_xylem_impairment_model(1:npft) /= 0 .AND.                     &
+            pft_xylem_impairment_model(1:npft) /= xylem_impairment_memory ) ) &
+       THEN
     ERROR = 1
     CALL ereport(routinename, ERROR,                                           &
-    'xylem impairment (pft_xylem_impairment_model /= 0) is not coded for '  // &
-    'som_psi_solver = 3 (or l_som_fast)')
+    'with som_psi_solver = 3 (or l_som_fast) xylem impairment is only '     // &
+    'coded for the memory model (pft_xylem_impairment_model = 3)')
   END IF
   IF ( stomata_model == stomata_desica ) THEN
     ERROR = 1
@@ -2264,6 +2273,18 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
     CALL ereport(routinename, ERROR,                                           &
     'pft_xylem_impairment_model 1 (kmax) and 4 (kmax refit) are retired; '  // &
     'use 2 or 3 (their code is on branch xylem_impairment at 130a575)')
+  END IF
+  ! The multilayer stomatal optimisation (can_rad_mod 5 or 6 with a
+  ! stomatal optimisation model) uses the intact PFT curve and never calls
+  ! update_xylem_impairment, so impairment would silently do nothing.
+  ! MDK, 18/10/26
+  IF ( leaf_flux_mod == leaf_flux_stom_opt .AND.                              &
+       ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) ) THEN
+    ERROR = 101
+    CALL ereport(routinename, ERROR,                                           &
+    'xylem impairment (pft_xylem_impairment_model /= 0) is not coded for '  // &
+    'the multilayer stomatal optimisation (can_rad_mod = 5 or 6); use '     // &
+    'can_rad_mod = 1 or 7')
   END IF
 END IF
 

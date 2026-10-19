@@ -1152,8 +1152,20 @@ IF ( can_model == 4 .AND. l_aggregate ) THEN
 END IF
 
 SELECT CASE ( can_rad_mod )
-CASE ( 1, 4, 5, 6 )
+CASE ( 1, 5, 6 )
   ! These are valid, so nothing to do.
+CASE ( 4 )
+  ! can_rad_mod = 4 only has the fsmc leaf path (sf_stom calls leaf() for
+  ! every layer): with a stomatal optimisation model it would silently run
+  ! fsmc instead.
+  ! MDK, 18/10/26
+  IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'can_rad_mod=4 has no stomatal optimisation: '             // &
+                 'stomata_model=4 to 7, 9 or 10 needs can_rad_mod=1, 5, '   // &
+                 '6 or 7')
+  END IF
 CASE ( 7 )
   ! Two-leaf (sunlit/shaded big-leaf) canopy: stomatal optimisation only.
   IF ( leaf_flux_mod /= leaf_flux_stom_opt ) THEN

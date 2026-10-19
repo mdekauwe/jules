@@ -813,6 +813,11 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 
 INTEGER :: i, j, l
 
+! For each open point and each candidate transpiration rate: divide E by the
+! point's kmax (the table is per unit kmax, so one table serves every point),
+! invert the table for psi_leaf, then take k at that psi_leaf from the curve.
+! The MAX guards a zero kmax.
+! MDK, 18/10/26
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
   DO i = 1, n_e_leaf
@@ -823,6 +828,90 @@ DO j = 1, open_pnts
 END DO
 
 END SUBROUTINE leaf_psi_lut_jls
+
+! *****************************************************************************
+! Memory xylem impairment model (pft_xylem_impairment_model = 3) without
+! segments, from the supply-function table (psi_solver_lut): the capped
+! curve k(psi) = MIN(kmax f(psi), kc) of leaf_psi_impaired_memory, inverted
+! exactly from the intact PFT table. With psi_s where the intact curve
+! meets the cap (f(psi_s) = kc/kmax), the flow from psi_r is carried at the
+! constant conductance kc down to psi_s, e_cap = kc (psi_r - psi_s) if
+! psi_r > psi_s (else 0), so
+!   E <= e_cap:  psi_l = psi_r - E / kc                     (exact)
+!   E >  e_cap:  S(psi_l) = S(psi_top) + (E - e_cap) / kmax, psi_top =
+!                MIN(psi_r, psi_s)                          (one inversion)
+! as the Newton-Raphson of leaf_psi_impaired_memory solves. leaf_k is the
+! capped conductance at psi_l floored at kcrit, as there. The curve must be
+! the PFT's (the table's): b and c are not changed by the memory model.
+! MDK, 18/10/26
+! *****************************************************************************
+SUBROUTINE leaf_psi_capped_lut_jls( pft, n_e_leaf, land_pts, open_pnts,         &
+                                    veg_index, open_index, e_leaf,              &
+                                    root_zone_psi, kmax_ref, kcap, kcrit,       &
+                                    leaf_psi, leaf_k )
+
+USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
+
+INTEGER, INTENT(IN) ::                                                         &
+  pft, n_e_leaf, land_pts, open_pnts, veg_index(land_pts), open_index(land_pts)
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  e_leaf(n_e_leaf, open_pnts)                                                  &
+                            ! Transpiration rates for each open point.
+, root_zone_psi(land_pts)                                                      &
+                            ! Water potential in the root zone (Pa).
+, kmax_ref(land_pts), kcap(land_pts), kcrit(land_pts)
+                            ! Intact kmax, the cap and kcrit (same units as
+                            ! e_leaf per Pa).
+
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  leaf_psi(n_e_leaf, open_pnts)                                                &
+                            ! Leaf water potential (Pa).
+, leaf_k(n_e_leaf, open_pnts)
+                            ! Capped conductance at leaf_psi (>= kcrit).
+
+INTEGER :: i, j, l
+REAL(KIND=real_jlslsm) :: kmx, kc, psi_r, psi_s, psi_top, e_cap, r
+
+CALL build_supply_lut(pft)
+
+DO j = 1, open_pnts
+  l = veg_index(open_index(j))
+  kmx   = kmax_ref(l)
+  kc    = MAX(MIN(kcap(l), kmx), kcrit(l))
+  psi_r = root_zone_psi(l)
+
+  ! psi_s exactly from the curve (as psi_at_k; +HUGE: no cap).
+  IF ( kc < kmx * (1.0 - 1.0e-6) ) THEN
+    r = kc / kmx
+    IF ( lut_sox(pft) ) THEN
+      psi_s = conductance_b_pft(pft) * (1.0 / r - 1.0)**(1.0 / conductance_c_pft(pft))
+    ELSE
+      psi_s = conductance_b_pft(pft) * (-LOG(r))**(1.0 / conductance_c_pft(pft))
+    END IF
+  ELSE
+    psi_s = HUGE(1.0_real_jlslsm)
+  END IF
+
+  IF ( psi_r > psi_s ) THEN
+    e_cap = kc * (psi_r - psi_s)
+  ELSE
+    e_cap = 0.0
+  END IF
+  psi_top = MIN(psi_r, psi_s)
+
+  DO i = 1, n_e_leaf
+    IF ( psi_r > psi_s .AND. e_leaf(i,j) <= e_cap ) THEN
+      leaf_psi(i,j) = psi_r - e_leaf(i,j) / kc
+    ELSE
+      leaf_psi(i,j) = supply_lut_psi(pft, psi_top,                              &
+                      (e_leaf(i,j) - e_cap) / MAX(kmx, TINY(1.0_real_jlslsm)))
+    END IF
+    leaf_k(i,j) = MAX(MIN(kmx * supply_lut_f(pft, leaf_psi(i,j)), kc), kcrit(l))
+  END DO
+END DO
+
+END SUBROUTINE leaf_psi_capped_lut_jls
 
 
 ! *****************************************************************************
@@ -844,14 +933,26 @@ dpsi = lut_dpsi(pft)
 
 ! S at the root zone water potential plus the demand, and the table cell
 ! psi_root is in (the search starts there).
+! s_target is the S the leaf must reach: E = kmax * (S(psi_l) - S(psi_r)),
+! rearranged. r_root is psi_root's fractional position in the table and
+! i_root the upper (wetter) node of its cell, clamped as in lut_s_at.
+! MDK, 18/10/26
 r_root = MIN(MAX(-psi_root / dpsi, 0.0), REAL(n_lut - 1))
 i_root = MIN(INT(r_root) + 1, n_lut - 1)
 s_target = lut_s_at(pft, psi_root) + e_over_kmax
 
+! Demand at or beyond all the table can supply: put the leaf at the bottom
+! of the table (or at psi_root, if that is lower). k there is about
+! lut_f_floor * kmax, below kcrit, so stom_opt_mod rejects the sample.
+! MDK, 18/10/26
 IF ( s_target >= lut_s(n_lut,pft) ) THEN
   psi_l = MIN(-(n_lut - 1) * dpsi, psi_root)
 ELSE
   ! lut_s(lo) <= s_target < lut_s(hi); S is strictly increasing.
+  ! Binary search for that cell, starting from psi_root's cell (the leaf is
+  ! never wetter than the root zone). S rises with depth, so the cell is
+  ! unique; the search takes about log2(n_lut) = 12 steps.
+  ! MDK, 18/10/26
   lo = i_root
   hi = n_lut
   DO WHILE ( hi - lo > 1 )
@@ -862,6 +963,11 @@ ELSE
       hi = mid
     END IF
   END DO
+  ! Linear interpolation of psi within the cell (the inverse of lut_s_at):
+  ! node lo is at psi = -(lo-1)*dpsi, and the fraction of the cell's S rise
+  ! that s_target covers sets how far below it psi_l lies. The cap at
+  ! psi_root stops rounding putting the leaf above the root zone.
+  ! MDK, 18/10/26
   psi_l = -(lo - 1) * dpsi - dpsi * (s_target - lut_s(lo,pft))                 &
           / (lut_s(hi,pft) - lut_s(lo,pft))
   psi_l = MIN(psi_l, psi_root)
@@ -890,6 +996,10 @@ CALL build_supply_lut(pft)
 ! f(psi_crit) = kcrit_frac, kept inside (0, 1) (e.g. kcrit >= kmax would
 ! otherwise give a NaN).
 r = MIN(MAX(kcrit_frac, 1.0e-6_real_jlslsm), 1.0_real_jlslsm - 1.0e-6_real_jlslsm)
+! psi_crit by inverting the curve exactly (not from the table):
+! SOX f = 1/(1 + (psi/b)^c) gives psi = b (1/f - 1)^(1/c);
+! Weibull f = exp(-(psi/b)^c) gives psi = b (-ln f)^(1/c).
+! MDK, 18/10/26
 IF ( lut_sox(pft) ) THEN
   psi_crit = conductance_b_pft(pft)                                                &
              * (1.0 / r - 1.0)**(1.0 / conductance_c_pft(pft))
@@ -897,6 +1007,11 @@ ELSE
   psi_crit = conductance_b_pft(pft)                                                &
              * (-LOG(r))**(1.0 / conductance_c_pft(pft))
 END IF
+! The flow (per unit kmax) that takes the leaf from psi_root down to
+! psi_crit. It uses the same interpolation as supply_lut_psi, so inverting
+! e_crit lands back on psi_crit. Zero if the root zone is already drier
+! than psi_crit: then no flow keeps k above kcrit.
+! MDK, 18/10/26
 e_crit = MAX(lut_s_at(pft, psi_crit) - lut_s_at(pft, psi_root), 0.0)
 
 END FUNCTION supply_lut_e_crit
@@ -910,6 +1025,11 @@ INTEGER, INTENT(IN) :: pft
 REAL(KIND=real_jlslsm), INTENT(IN) :: psi
 REAL(KIND=real_jlslsm) :: f
 
+! Evaluated exactly from the curve, not interpolated from the table; the
+! build call only makes sure lut_sox(pft) is set. Callers use it for k at
+! the psi_leaf from supply_lut_psi (k = kmax * f). b and psi are both
+! negative, so psi/b >= 0; ABS only guards a psi > 0.
+! MDK, 18/10/26
 CALL build_supply_lut(pft)
 IF ( lut_sox(pft) ) THEN
   f = 1.0 / (1.0 + (ABS(psi / conductance_b_pft(pft)))**conductance_c_pft(pft))
@@ -929,6 +1049,11 @@ REAL(KIND=real_jlslsm) :: s_psi
 INTEGER :: i0
 REAL(KIND=real_jlslsm) :: r
 
+! r is psi's fractional position in the table: 0 at psi = 0, n_lut - 1 at
+! the bottom. It is clamped, so psi > 0 gives S = 0 and psi below the table
+! gives S at the bottom (no extrapolation). i0 is the upper (wetter) node of
+! psi's cell, and S is interpolated linearly between nodes i0 and i0+1.
+! MDK, 18/10/26
 r = MIN(MAX(-psi / lut_dpsi(pft), 0.0), REAL(n_lut - 1))
 i0 = MIN(INT(r) + 1, n_lut - 1)
 s_psi = lut_s(i0,pft) + (r - (i0 - 1)) * (lut_s(i0+1,pft) - lut_s(i0,pft))
@@ -956,10 +1081,19 @@ INTEGER :: i
 REAL(KIND=real_jlslsm) :: b, c, dpsi, p0, pm, p1, f_floor
 LOGICAL :: l_sox
 
+! Fast exit when this PFT's table is already built. Every supply_lut_*
+! call passes through here, so after the first call this is the only work
+! done. The check is outside the critical section so that it costs no
+! locking.
+! MDK, 18/10/26
 IF ( ALLOCATED(lut_ready) ) THEN
   IF ( lut_ready(pft) ) RETURN
 END IF
 
+! First call for any PFT: allocate the tables for all PFTs (npft_max) at
+! once, none of them built yet. Inside the critical section, so two threads
+! cannot both allocate or both build the same PFT's table.
+! MDK, 18/10/26
 !$OMP CRITICAL (som_supply_lut)
 IF ( .NOT. ALLOCATED(lut_ready) ) THEN
   ALLOCATE( lut_s(n_lut, npft_max), lut_dpsi(npft_max), lut_ready(npft_max), &
@@ -968,10 +1102,19 @@ IF ( .NOT. ALLOCATED(lut_ready) ) THEN
 END IF
 
 IF ( .NOT. lut_ready(pft) ) THEN
+  ! Build from the PFT's own vulnerability curve (b, c) and conductance
+  ! model. kmax is not needed: the table holds S for f = k/kmax, and the
+  ! callers divide E by each point's kmax.
+  ! MDK, 18/10/26
   b = conductance_b_pft(pft)
   c = conductance_c_pft(pft)
   l_sox = pft_conductance_model(pft) == SOX_conductance
   ! Bottom of the table: where f = f_floor.
+  ! The grid runs from psi = 0 (node 1) down to that psi (node n_lut) in
+  ! n_lut - 1 equal cells of dpsi. The psi comes from inverting the curve
+  ! at f_floor (as in supply_lut_e_crit). The SOX floor scales with
+  ! kcrit/kmax (lut_f_floor_kcrit); Weibull uses the fixed lut_f_floor.
+  ! MDK, 18/10/26
   IF ( l_sox ) THEN
     f_floor = lut_f_floor_kcrit * (1.0 - kcrit_fractional_loss(pft))
     dpsi = ABS(b) * (1.0 / f_floor - 1.0)**(1.0 / c) / (n_lut - 1)
@@ -979,6 +1122,11 @@ IF ( .NOT. lut_ready(pft) ) THEN
     dpsi = ABS(b) * (-LOG(lut_f_floor))**(1.0 / c) / (n_lut - 1)
   END IF
   lut_dpsi(pft) = dpsi
+  ! Accumulate S downwards from S(0) = 0: each cell [p1, p0] adds the
+  ! integral of f over it by Simpson's rule (ends and midpoint weighted
+  ! 1:4:1, times dpsi/6). f > 0, so S rises strictly with depth, which the
+  ! binary search in supply_lut_psi relies on.
+  ! MDK, 18/10/26
   lut_s(1,pft) = 0.0
   DO i = 2, n_lut
     p0 = -(i - 2) * dpsi
@@ -987,6 +1135,9 @@ IF ( .NOT. lut_ready(pft) ) THEN
     lut_s(i,pft) = lut_s(i-1,pft) + dpsi / 6.0                                 &
                    * ( f_of(p0) + 4.0 * f_of(pm) + f_of(p1) )
   END DO
+  ! Mark the table ready only once it is complete, so the fast exit above
+  ! never returns a half-built table.
+  ! MDK, 18/10/26
   lut_sox(pft) = l_sox
   lut_ready(pft) = .TRUE.
 END IF
@@ -994,6 +1145,9 @@ END IF
 
 CONTAINS
 
+  ! f = k/kmax at psi = p on this PFT's curve (as supply_lut_f), using the
+  ! b, c and l_sox set above.
+  ! MDK, 18/10/26
   REAL(KIND=real_jlslsm) FUNCTION f_of(p)
   REAL(KIND=real_jlslsm), INTENT(IN) :: p
   IF ( l_sox ) THEN
@@ -1279,14 +1433,34 @@ END SUBROUTINE leaf_psi_segments_jls
 ! with the same floor on segment conductances. A demand beyond what a
 ! segment can supply puts its outlet at the bottom of its table, where k is
 ! ~0, so the state is rejected as infeasible (k <= kcrit).
+!
+! Xylem impairment (memory model with segments; kcap_frac present): as
+! leaf_psi_segments_jls, the stem and leaf segments are capped at a fraction
+! fr of their kmax_s (ximpair_seg_frac), the root is intact. The capped
+! integral is
+!   A_s(psi) = fr kmax_s (-psi)                                psi >= psi_cap
+!            = fr kmax_s (-psi_cap) + kmax_s (S_s(psi) - S_s(psi_cap))  below,
+! psi_cap where the intact curve meets the cap, f_s(psi_cap) = fr. So for an
+! inlet above psi_cap the flow down to psi_cap, e_cap = fr kmax_s (psi_in -
+! psi_cap), is carried at the constant conductance fr kmax_s: an E <= e_cap
+! gives psi_out = psi_in - E / (fr kmax_s) exactly, and a larger E continues
+! on the intact curve from psi_cap, S_s(psi_out) = S_s(psi_cap) + (E - e_cap)
+! / kmax_s, one inversion of the unchanged table. An inlet below psi_cap is
+! on the intact curve throughout. The caps are per-point numbers, so the
+! tables need no rebuilding. leaf_k uses the capped segment conductances in
+! the recursion; leaf_k_intact (if present) the intact ones at the same water
+! potentials (the hydraulic cost), and stem_psi the stem outlet.
+! MDK, 18/10/26
 ! *****************************************************************************
 SUBROUTINE leaf_psi_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
                                       veg_index, open_index, e_leaf,           &
-                                      root_zone_psi, kmax, leaf_psi, leaf_k )
+                                      root_zone_psi, kmax, leaf_psi, leaf_k,   &
+                                      kcap_frac, leaf_k_intact, stem_psi )
 
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
 
 IMPLICIT NONE
 
@@ -1301,6 +1475,18 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_psi(n_e_leaf, open_pnts), leaf_k(n_e_leaf, open_pnts)
       ! Leaf water potential (Pa) and whole-plant -dE/dpsi_leaf.
 
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
+  kcap_frac(land_pts)
+      ! Impaired / intact maximum conductance of the stem (and leaf) segment,
+      ! as leaf_psi_segments_jls (kmax is then the intact value).
+      ! MDK, 18/10/26
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
+  leaf_k_intact(n_e_leaf, open_pnts),                                          &
+      ! Whole-plant conductance of the intact segments at leaf_psi.
+  stem_psi(n_e_leaf, open_pnts)
+      ! Water potential at the outlet of the stem segment (Pa).
+      ! MDK, 18/10/26
+
 INTEGER, PARAMETER :: n_seg = 3
 
 REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
@@ -1308,17 +1494,23 @@ REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
       ! leaf_psi_segments_jls).
 
 INTEGER :: i, j, l, iseg
-LOGICAL :: l_ok
+LOGICAL :: l_ok, l_cap, l_impair
 REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de, &
-                          k_s, dpsi_s
+                          k_s, dpsi_s, fr, psi_cap, e_cap, e_pos, dpsi_de_int
+      ! fr, psi_cap: the segment's cap fraction and where the intact curve
+      ! meets it; e_cap the flow the capped part above psi_cap carries;
+      ! e_pos the flow (>= 0); dpsi_de_int d(psi)/dE on the intact segments.
+      ! MDK, 18/10/26
 
 CALL build_supply_lut_seg(pft)
+l_impair = PRESENT(kcap_frac)
 
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
   DO i = 1, n_e_leaf
     psi_in  = root_zone_psi(l)
     dpsi_de = 0.0
+    dpsi_de_int = 0.0
     ! l_som_rhizo_series: soil link ahead of the root segment (as
     ! leaf_psi_segments_jls).
     IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
@@ -1328,9 +1520,14 @@ DO j = 1, open_pnts
         IF ( l_ok .AND. k_s > TINY(1.0_real_jlslsm) ) THEN
           psi_in  = MAX(root_zone_psi(l) - dpsi_s, som_psi_in_min)
           dpsi_de = -1.0 / k_s
+          dpsi_de_int = -1.0 / k_s
         ELSE IF ( .NOT. ( l_ok .AND. e_leaf(i,j) <= 0.0 ) ) THEN
           leaf_psi(i,j) = som_psi_in_min
           leaf_k(i,j)   = 0.0
+          ! (Infeasible: as leaf_psi_segments_jls.)
+          ! MDK, 18/10/26
+          IF ( PRESENT(leaf_k_intact) ) leaf_k_intact(i,j) = 0.0
+          IF ( PRESENT(stem_psi) ) stem_psi(i,j) = som_psi_in_min
           CYCLE
         END IF
       ELSE
@@ -1338,29 +1535,89 @@ DO j = 1, open_pnts
       IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
         psi_in  = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
         dpsi_de = -1.0 / k_s
+        dpsi_de_int = -1.0 / k_s
       ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
         leaf_psi(i,j) = som_psi_in_min
         leaf_k(i,j)   = 0.0
+        ! MDK, 18/10/26
+        IF ( PRESENT(leaf_k_intact) ) leaf_k_intact(i,j) = 0.0
+        IF ( PRESENT(stem_psi) ) stem_psi(i,j) = som_psi_in_min
         CYCLE
       END IF
       END IF
     END IF
+    ! Root, stem then leaf in series. Each segment carries the same E, so its
+    ! outlet psi comes from its own table with E divided by its own kmax, and
+    ! becomes the next segment's inlet. dpsi_de carries dpsi/dE down the chain:
+    ! from E = integral(k), k_out dpsi_out = k_in dpsi_in - dE.
+    ! MDK, 18/10/26
     DO iseg = 1, n_seg
       kmx = kmax(l) * seg_kfac(pft,iseg)
       bs  = conductance_b_seg(pft,iseg)
       cs  = conductance_c_seg(pft,iseg)
+      ! Cap on the stem and leaf segments (not the root), as
+      ! leaf_psi_segments_jls.
+      ! MDK, 18/10/26
+      l_cap = .FALSE.
+      fr = 1.0
+      IF ( l_impair .AND. iseg >= 2 ) THEN
+        fr = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor), 1.0)
+        l_cap = fr < 1.0 - 1.0e-6
+      END IF
+      IF ( l_cap ) THEN
+        ! Exact inversion of the capped integral (see above): the straight
+        ! capped part down to psi_cap, then the intact table from psi_cap.
+        ! MDK, 18/10/26
+        psi_cap = bs * (-LOG(fr))**(1.0 / cs)
+        e_pos   = MAX(e_leaf(i,j), 0.0)
+        IF ( psi_in > psi_cap ) THEN
+          e_cap = fr * kmx * (psi_in - psi_cap)
+          IF ( e_pos <= e_cap ) THEN
+            psi_out = psi_in - e_pos / MAX(fr * kmx, TINY(1.0_real_jlslsm))
+          ELSE
+            psi_out = seg_lut_psi(pft, iseg, psi_cap,                          &
+                                  (e_pos - e_cap) / MAX(kmx, TINY(1.0_real_jlslsm)))
+          END IF
+        ELSE
+          psi_out = seg_lut_psi(pft, iseg, psi_in,                             &
+                                e_pos / MAX(kmx, TINY(1.0_real_jlslsm)))
+        END IF
+        k_in  = MAX(MIN(kmx * EXP( -(ABS(psi_in /bs))**cs ), fr * kmx),        &
+                    k_floor * kmx)
+        k_out = MAX(MIN(kmx * EXP( -(ABS(psi_out/bs))**cs ), fr * kmx),        &
+                    k_floor * kmx)
+      ELSE
       psi_out = seg_lut_psi(pft, iseg, psi_in,                                 &
                             e_leaf(i,j) / MAX(kmx, TINY(1.0_real_jlslsm)))
       k_in  = MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ), k_floor * kmx)
       k_out = MAX(kmx * EXP( -(ABS(psi_out/bs))**cs ), k_floor * kmx)
+      END IF
       dpsi_de = ( k_in * dpsi_de - 1.0 ) / k_out
+      ! The intact chain at the same water potentials (hydraulic cost).
+      ! MDK, 18/10/26
+      IF ( PRESENT(leaf_k_intact) )                                            &
+        dpsi_de_int = ( MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ), k_floor * kmx) &
+                        * dpsi_de_int - 1.0 )                                  &
+                      / MAX(kmx * EXP( -(ABS(psi_out/bs))**cs ), k_floor * kmx)
       psi_in  = psi_out
+      IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(i,j) = psi_out
     END DO
+    ! The leaf outlet is the leaf psi. The whole-plant conductance is
+    ! -dE/dpsi_leaf = -1/dpsi_de; it is zero if the chain gave no usable
+    ! slope (e.g. a segment at its conductance floor).
+    ! MDK, 18/10/26
     leaf_psi(i,j) = psi_in
     IF ( dpsi_de < 0.0 .AND. ABS(dpsi_de) < HUGE(1.0_real_jlslsm) ) THEN
       leaf_k(i,j) = -1.0 / dpsi_de
     ELSE
       leaf_k(i,j) = 0.0
+    END IF
+    IF ( PRESENT(leaf_k_intact) ) THEN
+      IF ( dpsi_de_int < 0.0 .AND. ABS(dpsi_de_int) < HUGE(1.0_real_jlslsm) ) THEN
+        leaf_k_intact(i,j) = -1.0 / dpsi_de_int
+      ELSE
+        leaf_k_intact(i,j) = 0.0
+      END IF
     END IF
   END DO
 END DO
@@ -1381,6 +1638,10 @@ REAL(KIND=real_jlslsm) :: psi_out
 INTEGER :: lo, hi, mid, i0
 REAL(KIND=real_jlslsm) :: dpsi, r, s_in, s_target
 
+! S at the inlet by linear interpolation (as lut_s_at, for this segment's
+! table), plus the normalised flow. A negative flow is treated as zero, so
+! the outlet is never wetter than the inlet.
+! MDK, 18/10/26
 dpsi = lut_seg_dpsi(pft,iseg)
 r  = MIN(MAX(-psi_in / dpsi, 0.0), REAL(n_lut - 1))
 i0 = MIN(INT(r) + 1, n_lut - 1)
@@ -1388,6 +1649,10 @@ s_in = lut_seg_s(i0,pft,iseg)                                                  &
        + (r - (i0 - 1)) * (lut_seg_s(i0+1,pft,iseg) - lut_seg_s(i0,pft,iseg))
 s_target = s_in + MAX(e_over_k, 0.0)
 
+! Then as supply_lut_psi: the bottom of the table if the flow is beyond all
+! the segment can carry, otherwise a binary search from the inlet's cell and
+! linear interpolation within the cell, capped at the inlet psi.
+! MDK, 18/10/26
 IF ( s_target >= lut_seg_s(n_lut,pft,iseg) ) THEN
   psi_out = MIN(-(n_lut - 1) * dpsi, psi_in)
 ELSE
@@ -1423,6 +1688,11 @@ INTEGER, INTENT(IN) :: pft
 INTEGER :: i, iseg
 REAL(KIND=real_jlslsm) :: b, c, dpsi, p0, pm, p1
 
+! Same structure as build_supply_lut: fast exit once built, allocate for all
+! PFTs inside the critical section on the first call, then build this PFT's
+! three tables (root, stem, leaf). Segments are Weibull only, so the floor
+! is always lut_f_floor and f is written out in the Simpson sum.
+! MDK, 18/10/26
 IF ( ALLOCATED(lut_seg_ready) ) THEN
   IF ( lut_seg_ready(pft) ) RETURN
 END IF
