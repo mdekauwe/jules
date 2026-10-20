@@ -826,6 +826,13 @@ LOGICAL ::                                                                     &
       ! f_bleaf (phen_max), shed leaves go to litter, and regrowth stops
       ! while the TRIFFID store is empty.
       ! MDK, 18/10/26
+  l_nsc_wmax_norm = .FALSE.,                                                   &
+      ! TRIFFID store with the turgor / cold limits: W_max (the running mean
+      ! NPP) is divided by the running annual mean of the growth factor
+      ! (nsc_ft_mean), so release is concentrated in the periods when growth
+      ! is allowed (spring flush drawn from the store) while the annual
+      ! release still matches NPP. .FALSE.: W_max = running mean NPP.
+      ! MDK, 18/10/26
   l_som_fast = .FALSE.
       ! Deprecated namelist input: .TRUE. sets som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table).
@@ -995,6 +1002,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_fast,                                                               &
     l_ximpair_rec_growth, l_ximpair_leaf_loss, l_ximpair_seg_memory,          &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
+    l_nsc_wmax_norm,                                                           &
     ximpair_stomatal_response,                                                &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
     sl_kfail_frac,                                                             &
@@ -1907,6 +1915,11 @@ IF ( l_ximpair_rec_leaf_turn .AND.                                             &
                'l_ximpair_rec_leaf_turn needs the TRIFFID store and the '  //  &
                'per-segment memory (l_triffid_nsc, l_ximpair_seg_memory)')
 END IF
+IF ( l_nsc_wmax_norm .AND. .NOT. l_triffid_nsc ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_wmax_norm needs the TRIFFID store (l_triffid_nsc=T)')
+END IF
 IF ( l_phen_psi .AND. .NOT. l_phenol ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2108,6 +2121,8 @@ WRITE(lineBuffer,*) ' l_ximpair_rec_leaf_turn = ', l_ximpair_rec_leaf_turn
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_phen_psi = ', l_phen_psi
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_wmax_norm = ', l_nsc_wmax_norm
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' ximpair_stomatal_response = ', ximpair_stomatal_response
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2258,7 +2273,7 @@ INTEGER, PARAMETER :: n_int = 23 ! +1 ml_leaf_temp_model (MDK, 19/10/26), +1 xim
 INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5) ! +1 leaf_wind_ext (MDK, 19/10/26), +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 53 + npft_max ! +1 l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
+INTEGER, PARAMETER :: n_log = 54 + npft_max ! +1 l_nsc_wmax_norm, +1 l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -2342,6 +2357,7 @@ TYPE :: my_namelist
   LOGICAL :: l_triffid_nsc
   LOGICAL :: l_ximpair_rec_leaf_turn
   LOGICAL :: l_phen_psi
+  LOGICAL :: l_nsc_wmax_norm
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_coupled_e
   LOGICAL :: l_som_rhizo_mfp
@@ -2461,6 +2477,7 @@ IF (mype == 0) THEN
   my_nml % l_triffid_nsc = l_triffid_nsc
   my_nml % l_ximpair_rec_leaf_turn = l_ximpair_rec_leaf_turn
   my_nml % l_phen_psi = l_phen_psi
+  my_nml % l_nsc_wmax_norm = l_nsc_wmax_norm
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_coupled_e = l_som_coupled_e
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
@@ -2569,6 +2586,7 @@ IF (mype /= 0) THEN
   l_triffid_nsc = my_nml % l_triffid_nsc
   l_ximpair_rec_leaf_turn = my_nml % l_ximpair_rec_leaf_turn
   l_phen_psi = my_nml % l_phen_psi
+  l_nsc_wmax_norm = my_nml % l_nsc_wmax_norm
   l_som_gravity = my_nml % l_som_gravity
   l_som_coupled_e = my_nml % l_som_coupled_e
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp

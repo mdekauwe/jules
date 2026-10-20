@@ -107,6 +107,15 @@ MODULE triffid_nsc_mod
 ! midday does not switch growth on. Either limit alone also turns on the
 ! normalised release.
 !
+! Growing season (nsc_grow_start_doy and / or nsc_grow_end_doy set): the
+! growth factor is 0 before the start day and from the end day to the year
+! end (days of the year). Trees can be dormant in winter even when it is
+! mild, so the store refills from winter NPP; e.g. FR-Pue Q. ilex day 129
+! to day 296 (Lempereur et al. 2015: stem growth starts in early-mid May,
+! autumn growth ends in late October). Like the other limits it turns on the
+! normalised release.
+! ! MDK, 20/10/26
+!
 ! Leaf renewal (l_ximpair_rec_leaf_turn, with the per-segment memory): new
 ! leaves arrive intact, so the leaf segment's loss falls by the fraction of
 ! the canopy that is new, at each time step
@@ -130,6 +139,12 @@ MODULE triffid_nsc_mod
 ! carbon at the balanced LAI, so the shed leaves were already charged as
 ! litter against W; over a shed-and-regrow cycle the store, not NPP, carries
 ! the cost, and the drawn carbon goes to TRIFFID growth).
+!
+! Release in the growth windows (l_nsc_wmax_norm, with the turgor or cold
+! limit): W_max is divided by <f_t>, the running annual mean of the growth
+! factor (nsc_ft_mean), so the store releases faster when growth is allowed
+! (spring flush drawn from the store) and the annual release still matches
+! the mean NPP.
 !
 ! Capacity: nsc_cmax > 0 sets C_max directly (kg C m-2 of the PFT), e.g.
 ! from measured NSC concentrations times biomass, in place of nsc_flush
@@ -303,7 +318,7 @@ SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,       &
 
 USE jules_surface_types_mod, ONLY: npft, nnpft
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,  &
-                                l_triffid
+                                l_triffid, l_nsc_wmax_norm
 USE datetime_utils_mod, ONLY: day_of_year, days_in_year
 USE time_info_mod, ONLY: l_360, l_leap
 USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
@@ -313,7 +328,7 @@ USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
                    nsc_plc_background, nsc_la_sa, nsc_wood_density,          &
                    nsc_psi_turg_zero, nsc_t_grow_zero, nsc_overflow_resp,    &
                    nsc_xylem_type, nsc_xylem_rate_max, nsc_ring_mmdd,        &
-                   nsc_cmax
+                   nsc_cmax, nsc_grow_start_doy, nsc_grow_end_doy
 USE jules_surface_mod, ONLY: cmass
 USE model_time_mod, ONLY: current_time
 USE trif, ONLY: g_root, g_wood
@@ -418,7 +433,9 @@ DO n = n1,n2
   IF (l_rep) CALL ximpair_memory_alloc( land_pts )
 
   a_mean = MIN(dt / MAX(nsc_tau_load(n), TINY(1.0_real_jlslsm)), 1.0)
-  l_turg = nsc_psi_turg_zero(n) > -1.0e29 .OR. nsc_t_grow_zero(n) > -1.0e29
+  l_turg = nsc_psi_turg_zero(n) > -1.0e29 .OR. nsc_t_grow_zero(n) > -1.0e29 &
+           .OR. nsc_grow_start_doy(n) > -1.0e29                          &
+           .OR. nsc_grow_end_doy(n) > -1.0e29
   ! Ring-porous: is the earlywood date within this store step?
   l_ring_now = .FALSE.
   IF (nsc_xylem_type(n) == 2) THEN
@@ -462,6 +479,9 @@ DO n = n1,n2
     w_max = 0.0
     IF (nsc_npp_wt(l,n) > 0.0)                                                 &
       w_max = nsc_wmax_fac(n) * MAX(nsc_npp_mean(l,n) / nsc_npp_wt(l,n), 0.0)
+    ! Release concentrated in the growth windows.
+    IF (l_nsc_wmax_norm .AND. l_turg .AND. nsc_ft_mean(l,n) > 0.0)            &
+      w_max = w_max / MAX(nsc_ft_mean(l,n), 0.05)
 
     ! Leaf regrowth queued by phenol (l_phen_psi), paid first from the
     ! accessible store (phenol limited it to that), as part of the release.
@@ -660,9 +680,13 @@ SUBROUTINE triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,   &
                                psi_rz, tair )
 
 USE jules_vegetation_mod, ONLY: l_triffid, triffid_period,                    &
-                                l_ximpair_rec_leaf_turn
+                                l_ximpair_rec_leaf_turn, l_nsc_wmax_norm
 USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero,   &
-                   nsc_t_grow_full, g_leaf_0
+                   nsc_t_grow_full, g_leaf_0, nsc_grow_start_doy,             &
+                   nsc_grow_end_doy
+USE model_time_mod, ONLY: current_time
+USE datetime_utils_mod, ONLY: day_of_year
+USE time_info_mod, ONLY: l_360, l_leap
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                  &
                                           ximpair_seg_state_alloc
 USE water_constants_mod, ONLY: tm
@@ -686,10 +710,12 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
     ! Air temperature (K).
 
 INTEGER :: j, l
-REAL(KIND=real_jlslsm) :: period, f, a_t, a_yr, d_renew
-LOGICAL :: l_lim
+REAL(KIND=real_jlslsm) :: period, f, a_t, a_yr, d_renew, f_season, doy
+LOGICAL :: l_lim, l_season
 
-l_lim = nsc_psi_turg_zero(ft) > -1.0e29 .OR. nsc_t_grow_zero(ft) > -1.0e29
+l_season = nsc_grow_start_doy(ft) > -1.0e29 .OR. nsc_grow_end_doy(ft) > -1.0e29
+l_lim = nsc_psi_turg_zero(ft) > -1.0e29 .OR. nsc_t_grow_zero(ft) > -1.0e29   &
+        .OR. l_season
 IF (.NOT. l_lim .AND. .NOT. l_ximpair_rec_leaf_turn) RETURN
 CALL triffid_nsc_alloc( land_pts )
 IF (l_ximpair_rec_leaf_turn) CALL ximpair_seg_state_alloc( land_pts )
@@ -698,6 +724,17 @@ period = 86400.0
 IF (l_triffid) period = 86400.0 * REAL(triffid_period)
 a_t = 1.0 - EXP(-timestep / 86400.0)
 a_yr = 1.0 - EXP(-timestep / (360.0 * 86400.0))
+! Growing season: 0 outside the start and end days of the year.
+! ! MDK, 20/10/26
+f_season = 1.0
+IF (l_season) THEN
+  doy = REAL(day_of_year(current_time%year, current_time%month,              &
+                         current_time%day, l_360, l_leap))
+  IF (nsc_grow_start_doy(ft) > -1.0e29 .AND. doy < nsc_grow_start_doy(ft))   &
+    f_season = 0.0
+  IF (nsc_grow_end_doy(ft) > -1.0e29 .AND. doy >= nsc_grow_end_doy(ft))      &
+    f_season = 0.0
+END IF
 
 DO j = 1,veg_pts
   l = veg_index(j)
@@ -712,14 +749,18 @@ DO j = 1,veg_pts
     f = f * MIN(MAX((nsc_t_run(l,ft) - tm - nsc_t_grow_zero(ft))               &
                     / (nsc_t_grow_full(ft) - nsc_t_grow_zero(ft)), 0.0), 1.0)
   END IF
+  f = f * f_season
   IF (l_lim) THEN
     IF (nsc_turg_acc(l,ft) < -1.0e29) nsc_turg_acc(l,ft) = 0.0
     nsc_turg_acc(l,ft) = nsc_turg_acc(l,ft) + f * timestep / period
   END IF
-  ! Leaf renewal: production at the turnover rate, made while growing.
-  IF (l_ximpair_rec_leaf_turn) THEN
+  ! Running annual mean of the growth factor (leaf renewal, l_nsc_wmax_norm).
+  IF (l_ximpair_rec_leaf_turn .OR. l_nsc_wmax_norm) THEN
     IF (nsc_ft_mean(l,ft) < 0.0) nsc_ft_mean(l,ft) = 1.0
     nsc_ft_mean(l,ft) = nsc_ft_mean(l,ft) + a_yr * (f - nsc_ft_mean(l,ft))
+  END IF
+  ! Leaf renewal: production at the turnover rate, made while growing.
+  IF (l_ximpair_rec_leaf_turn) THEN
     d_renew = MIN(g_leaf_0(ft) * f / MAX(nsc_ft_mean(l,ft), 0.05)             &
                   * timestep / (360.0 * 86400.0), 1.0)
     ximpair_kcap_leaf(l,ft) = 1.0 - (1.0 - ximpair_kcap_leaf(l,ft))          &

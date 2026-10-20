@@ -285,6 +285,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_psi_turg_zero_io(npft_max) = rmdi,                                       &
   nsc_t_grow_zero_io(npft_max) = rmdi,                                         &
   nsc_t_grow_full_io(npft_max) = rmdi,                                         &
+  nsc_grow_start_doy_io(npft_max) = rmdi,                                      &
+  nsc_grow_end_doy_io(npft_max) = rmdi,                                        &
   nsc_overflow_resp_io(npft_max) = rmdi,                                       &
   nsc_xylem_rate_max_io(npft_max) = rmdi,                                      &
   nsc_cmax_io(npft_max) = rmdi,                                                &
@@ -369,6 +371,7 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_plc_background_io, nsc_la_sa_io, nsc_wood_density_io,                   &
   nsc_psi_turg_full_io, nsc_psi_turg_zero_io, nsc_t_grow_zero_io,              &
   nsc_t_grow_full_io, nsc_overflow_resp_io, nsc_xylem_rate_max_io,            &
+  nsc_grow_start_doy_io, nsc_grow_end_doy_io,                                 &
   nsc_xylem_type_io, nsc_ring_mmdd_io, nsc_cmax_io, phen_psi_tlp_io,           &
   phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io
 
@@ -408,7 +411,7 @@ INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 11 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
                                            ! impairment + 2 store)
-INTEGER, PARAMETER :: n_real = 172 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 174 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL pftparm arrays incl. xylem
                                              ! impairment)
 
@@ -590,6 +593,8 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_psi_turg_zero_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_t_grow_zero_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_t_grow_full_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_grow_start_doy_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_grow_end_doy_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_overflow_resp_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_xylem_rate_max_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_cmax_io(npft_max)
@@ -791,6 +796,8 @@ IF (mype == 0) THEN
   my_nml % nsc_psi_turg_zero_io = nsc_psi_turg_zero_io
   my_nml % nsc_t_grow_zero_io = nsc_t_grow_zero_io
   my_nml % nsc_t_grow_full_io = nsc_t_grow_full_io
+  my_nml % nsc_grow_start_doy_io = nsc_grow_start_doy_io
+  my_nml % nsc_grow_end_doy_io = nsc_grow_end_doy_io
   my_nml % nsc_overflow_resp_io = nsc_overflow_resp_io
   my_nml % nsc_xylem_rate_max_io = nsc_xylem_rate_max_io
   my_nml % nsc_cmax_io = nsc_cmax_io
@@ -980,6 +987,8 @@ IF (mype /= 0) THEN
   nsc_psi_turg_zero_io = my_nml % nsc_psi_turg_zero_io
   nsc_t_grow_zero_io = my_nml % nsc_t_grow_zero_io
   nsc_t_grow_full_io = my_nml % nsc_t_grow_full_io
+  nsc_grow_start_doy_io = my_nml % nsc_grow_start_doy_io
+  nsc_grow_end_doy_io = my_nml % nsc_grow_end_doy_io
   nsc_overflow_resp_io = my_nml % nsc_overflow_resp_io
   nsc_xylem_rate_max_io = my_nml % nsc_xylem_rate_max_io
   nsc_cmax_io = my_nml % nsc_cmax_io
@@ -1075,6 +1084,7 @@ USE pftparm, ONLY:                                                             &
   nsc_plc_background, nsc_la_sa,     nsc_wood_density,                        &
   nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero, nsc_t_grow_full,      &
   nsc_overflow_resp, nsc_xylem_rate_max, nsc_xylem_type, nsc_ring_mmdd,       &
+  nsc_grow_start_doy, nsc_grow_end_doy,                                       &
   nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min
 
 
@@ -1413,6 +1423,10 @@ DO i = 1, npft
     nsc_t_grow_zero(i) = nsc_t_grow_zero_io(i)
   IF (ABS(nsc_t_grow_full_io(i) - rmdi) > EPSILON(1.0))                        &
     nsc_t_grow_full(i) = nsc_t_grow_full_io(i)
+  IF (ABS(nsc_grow_start_doy_io(i) - rmdi) > EPSILON(1.0))                     &
+    nsc_grow_start_doy(i) = nsc_grow_start_doy_io(i)
+  IF (ABS(nsc_grow_end_doy_io(i) - rmdi) > EPSILON(1.0))                       &
+    nsc_grow_end_doy(i) = nsc_grow_end_doy_io(i)
   IF (ABS(nsc_overflow_resp_io(i) - rmdi) > EPSILON(1.0))                      &
     nsc_overflow_resp(i) = nsc_overflow_resp_io(i)
   IF (ABS(nsc_xylem_rate_max_io(i) - rmdi) > EPSILON(1.0))                     &
@@ -1472,6 +1486,20 @@ IF ( l_triffid_nsc ) THEN
     CALL ereport(RoutineName, errcode,                                         &
                  'The cold limit needs nsc_t_grow_full_io > '              // &
                  'nsc_t_grow_zero_io, and 0 <= nsc_overflow_resp_io <= 1.')
+  END IF
+  ! Growing season: days of the year, the end after the start.
+  ! ! MDK, 20/10/26
+  IF ( ANY(nsc_grow_start_doy(:) > -1.0e29 .AND.                              &
+           (nsc_grow_start_doy(:) < 1.0 .OR. nsc_grow_start_doy(:) > 366.0))  &
+       .OR. ANY(nsc_grow_end_doy(:) > -1.0e29 .AND.                           &
+           (nsc_grow_end_doy(:) < 1.0 .OR. nsc_grow_end_doy(:) > 366.0))      &
+       .OR. ANY(nsc_grow_start_doy(:) > -1.0e29 .AND.                         &
+           nsc_grow_end_doy(:) > -1.0e29 .AND.                                &
+           nsc_grow_end_doy(:) <= nsc_grow_start_doy(:)) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_grow_start_doy_io and nsc_grow_end_doy_io must be '  // &
+                 'days of the year (1-366), with the end after the start.')
   END IF
   IF ( ANY(nsc_xylem_type(:) < 1) .OR. ANY(nsc_xylem_type(:) > 2) .OR.        &
        ANY(nsc_xylem_rate_max(:) < 0.0) .OR. ANY(nsc_cmax(:) < 0.0) .OR.      &
