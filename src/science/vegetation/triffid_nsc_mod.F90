@@ -334,6 +334,7 @@ USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,  &
                                 l_triffid, l_nsc_wmax_norm
 USE datetime_utils_mod, ONLY: day_of_year, days_in_year
 USE time_info_mod, ONLY: l_360, l_leap
+USE calc_c_comps_triffid_mod, ONLY: sapwood_c   ! MDK, 20/10/26
 USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
                    nsc_flush, nsc_kc, nsc_reserve_frac, nsc_tau_load,        &
                    nsc_wmax_fac, nsc_sapwood_frac, nsc_hold_plc,             &
@@ -622,13 +623,8 @@ DO n = n1,n2
       END IF
     END IF
     IF (l_rep .AND. (w > 0.0 .OR. nsc_xylem_type(n) == 2)) THEN
-      IF (nsc_la_sa(n) > 0.0) THEN
-        ! Pipe model on the balanced leaf area (sapwood area x height).
-        x_s = lai_bal(l,n) / nsc_la_sa(n) * ht(l,n) * nsc_wood_density(n)     &
-              * cmass
-      ELSE
-        x_s = nsc_sapwood_frac(n) * woodc(l,n)
-      END IF
+      ! Pipe model on the balanced leaf area, or a fraction of the wood.
+      x_s = sapwood_c(n, ht(l,n), lai_bal(l,n), woodc(l,n))   ! MDK, 20/10/26
       IF (nsc_xylem_type(n) == 2) THEN
         ! Ring-porous: the earlywood rebuild, once a year, from the store
         ! (not gated by the turgor or growth limits, nor capped: the new

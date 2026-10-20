@@ -116,6 +116,8 @@ USE CN_utils_mod, ONLY:                                                        &
 ! imported procedures
     get_can_ave_fac, nleaf_from_lai
 
+USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht, live_stemwood   ! MDK, 20/10/26
+
 USE pftparm, ONLY:                                                             &
 ! imported arrays that are not changed
     a_wl, a_ws, act_jmax, act_vcmax, alpha_elec, b_wl, c3, deact_jmax,         &
@@ -3721,8 +3723,7 @@ DO m = 1,veg_pts
   ! calculate the total nitrogen content of the leaf, root and stem
   ! Assume that root biomass is equal to balanced growth leaf biomass
   !---------------------------------------------------------------------------
-  lai_bal(l) = (a_ws(ft) * eta_sl(ft) * ht(l) / a_wl(ft))                      &
-               **(1.0 / (b_wl(ft) - 1.0))
+  lai_bal(l) = lai_bal_from_ht(ft, ht(l))   ! MDK, 20/10/26
 
   IF (l_red) lai_bal(l) = veg_state%lai_bal(l,ft)
 
@@ -3769,7 +3770,7 @@ DO m = 1,veg_pts
       n_root(l) = nr(ft) * root(l) * cmass
 
       !Initial calculation of N content in respiring stem wood
-      n_stem(l) = eta_sl(ft) * ht(l) * lai_bal(l) * nsw(ft)
+      n_stem(l) = live_stemwood(ft, ht(l), lai_bal(l)) * nsw(ft)   ! MDK, 20/10/26
       !USE veg3 allometry
       IF (l_red) n_stem(l) = veg_state%woodC(l,ft) / a_ws(ft) * nsw(ft)
 
