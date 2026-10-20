@@ -43,7 +43,7 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 stomata_model, stomata_desica,                 &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
                                 l_triffid_nsc, l_ximpair_rec_leaf_turn,        &
-                                l_phen_psi
+                                l_phen_psi, l_nsc_wmax_norm
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -332,7 +332,7 @@ IF ( l_triffid_nsc ) THEN
     CALL add_to_list( 'nsc_t_run', nvars, identifiers )
   ! The annual mean growth factor of the leaf renewal.
   ! MDK, 18/10/26
-  IF ( l_ximpair_rec_leaf_turn )                                               &
+  IF ( l_ximpair_rec_leaf_turn .OR. l_nsc_wmax_norm )                          &
     CALL add_to_list( 'nsc_ft_mean', nvars, identifiers )
 END IF
 ! Drought leaf shedding: daily water-status memory and the leaf factor.

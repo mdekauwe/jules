@@ -131,6 +131,12 @@ MODULE triffid_nsc_mod
 ! litter against W; over a shed-and-regrow cycle the store, not NPP, carries
 ! the cost, and the drawn carbon goes to TRIFFID growth).
 !
+! Release in the growth windows (l_nsc_wmax_norm, with the turgor or cold
+! limit): W_max is divided by <f_t>, the running annual mean of the growth
+! factor (nsc_ft_mean), so the store releases faster when growth is allowed
+! (spring flush drawn from the store) and the annual release still matches
+! the mean NPP.
+!
 ! Capacity: nsc_cmax > 0 sets C_max directly (kg C m-2 of the PFT), e.g.
 ! from measured NSC concentrations times biomass, in place of nsc_flush
 ! (leaf + root carbon).
@@ -303,7 +309,7 @@ SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,       &
 
 USE jules_surface_types_mod, ONLY: npft, nnpft
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,  &
-                                l_triffid
+                                l_triffid, l_nsc_wmax_norm
 USE datetime_utils_mod, ONLY: day_of_year, days_in_year
 USE time_info_mod, ONLY: l_360, l_leap
 USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
@@ -462,6 +468,9 @@ DO n = n1,n2
     w_max = 0.0
     IF (nsc_npp_wt(l,n) > 0.0)                                                 &
       w_max = nsc_wmax_fac(n) * MAX(nsc_npp_mean(l,n) / nsc_npp_wt(l,n), 0.0)
+    ! Release concentrated in the growth windows.
+    IF (l_nsc_wmax_norm .AND. l_turg .AND. nsc_ft_mean(l,n) > 0.0)            &
+      w_max = w_max / MAX(nsc_ft_mean(l,n), 0.05)
 
     ! Leaf regrowth queued by phenol (l_phen_psi), paid first from the
     ! accessible store (phenol limited it to that), as part of the release.
@@ -660,7 +669,7 @@ SUBROUTINE triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,   &
                                psi_rz, tair )
 
 USE jules_vegetation_mod, ONLY: l_triffid, triffid_period,                    &
-                                l_ximpair_rec_leaf_turn
+                                l_ximpair_rec_leaf_turn, l_nsc_wmax_norm
 USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero,   &
                    nsc_t_grow_full, g_leaf_0
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                  &
@@ -716,10 +725,13 @@ DO j = 1,veg_pts
     IF (nsc_turg_acc(l,ft) < -1.0e29) nsc_turg_acc(l,ft) = 0.0
     nsc_turg_acc(l,ft) = nsc_turg_acc(l,ft) + f * timestep / period
   END IF
-  ! Leaf renewal: production at the turnover rate, made while growing.
-  IF (l_ximpair_rec_leaf_turn) THEN
+  ! Running annual mean of the growth factor (leaf renewal, l_nsc_wmax_norm).
+  IF (l_ximpair_rec_leaf_turn .OR. l_nsc_wmax_norm) THEN
     IF (nsc_ft_mean(l,ft) < 0.0) nsc_ft_mean(l,ft) = 1.0
     nsc_ft_mean(l,ft) = nsc_ft_mean(l,ft) + a_yr * (f - nsc_ft_mean(l,ft))
+  END IF
+  ! Leaf renewal: production at the turnover rate, made while growing.
+  IF (l_ximpair_rec_leaf_turn) THEN
     d_renew = MIN(g_leaf_0(ft) * f / MAX(nsc_ft_mean(l,ft), 0.05)             &
                   * timestep / (360.0 * 86400.0), 1.0)
     ximpair_kcap_leaf(l,ft) = 1.0 - (1.0 - ximpair_kcap_leaf(l,ft))          &
