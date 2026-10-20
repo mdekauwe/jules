@@ -1683,17 +1683,19 @@ CASE ( 5, 6 )
         ! conductance summed over the layers. Every layer's sunlit (shaded)
         ! leaves are at T_sun (T_shd): their photosynthesis temperature
         ! terms, respiration and humidity deficit qs(T_leaf) - q_c.
-        ! MDK, 18/10/26
+        !
         ! ml_leaf_temp_model = 2 (l_lt_lyr): the same balance for the sunlit
         ! and the shaded leaf of every layer (leaf_temp_update_n with 2 x
         ! ilayers classes), each from its own absorbed short- and long-wave
         ! radiation, stomatal conductance and forced-convection boundary
         ! layer at the wind of its depth, all with one canopy air; each
         ! layer's classes use their own temperatures.
-        ! MDK, 19/10/26
+        !
         ! Either way the temperatures are updated after each pass but the
         ! last (leaf_temp_iter passes), so there are no more stom_opt_mod
         ! calls than without l_leaf_temp for leaf_temp_iter = iter.
+        !
+        ! MDK, 19/10/26
         n_pass_ml = iter
         IF ( l_leaf_temp ) THEN
           DO m = 1,veg_pts
