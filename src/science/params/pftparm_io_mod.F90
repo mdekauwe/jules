@@ -1553,13 +1553,14 @@ IF ( l_triffid_nsc ) THEN
                  'with nsc_xylem_type_io = 1.')
   END IF
   ! The two pools are kept only by the store's repair: no other recovery
-  ! (refilling, growth or slow recovery) may raise the stem cap.
+  ! (refilling, the annual reset, growth recovery) may raise the stem cap.
   IF ( ANY(nsc_xylem_replace(:) > 0 .AND. (ximpair_tau_rec(:) > 0.0 .OR.      &
-           ximpair_rec_years(:) > 0.0 .OR. ximpair_reset_mmdd(:) > 0)) ) THEN
+           ximpair_reset_mmdd(:) > 0)) .OR.                                   &
+       (ANY(nsc_xylem_replace(:) > 0) .AND. l_ximpair_rec_growth) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
-                 'nsc_xylem_replace_io > 0 needs ximpair_tau_rec_io, '     // &
-                 'ximpair_rec_years_io and ximpair_reset_mmdd_io off.')
+                 'nsc_xylem_replace_io > 0 needs ximpair_tau_rec_io and '  // &
+                 'ximpair_reset_mmdd_io off and l_ximpair_rec_growth = F.')
   END IF
   ! Leaf flush: a whole number of days.
   IF ( ANY(nsc_flush_start_doy(:) > -1.0e29 .AND.                             &
