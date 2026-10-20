@@ -61,6 +61,7 @@ INTEGER ::                                                                     &
   ! MDK, 18/10/26
   nsc_xylem_type_io(npft_max) = imdi,                                          &
   nsc_ring_mmdd_io(npft_max) = imdi,                                           &
+  nsc_xylem_replace_io(npft_max) = imdi,                                       &
   seg_root_vc_io(npft_max) = 0
       ! Root segment vulnerability curve (l_som_plant_segments):
       !   0: from p50_root_io / p88_root_io as given
@@ -287,6 +288,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_t_grow_full_io(npft_max) = rmdi,                                         &
   nsc_grow_start_doy_io(npft_max) = rmdi,                                      &
   nsc_grow_end_doy_io(npft_max) = rmdi,                                        &
+  nsc_flush_start_doy_io(npft_max) = rmdi,                                     &
+  nsc_flush_days_io(npft_max) = rmdi,                                          &
   nsc_overflow_resp_io(npft_max) = rmdi,                                       &
   nsc_xylem_rate_max_io(npft_max) = rmdi,                                      &
   nsc_cmax_io(npft_max) = rmdi,                                                &
@@ -371,8 +374,10 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_plc_background_io, nsc_la_sa_io, nsc_wood_density_io,                   &
   nsc_psi_turg_full_io, nsc_psi_turg_zero_io, nsc_t_grow_zero_io,              &
   nsc_t_grow_full_io, nsc_overflow_resp_io, nsc_xylem_rate_max_io,            &
-  nsc_grow_start_doy_io, nsc_grow_end_doy_io,                                 &
+  nsc_grow_start_doy_io, nsc_grow_end_doy_io, nsc_flush_start_doy_io,         &
+  nsc_flush_days_io,                                                          &
   nsc_xylem_type_io, nsc_ring_mmdd_io, nsc_cmax_io, phen_psi_tlp_io,           &
+  nsc_xylem_replace_io,                                                        &
   phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM_IO'
@@ -408,10 +413,10 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
-INTEGER, PARAMETER :: n_int = 11 * npft_max ! = the INTEGER arrays in
+INTEGER, PARAMETER :: n_int = 12 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
                                            ! impairment + 2 store)
-INTEGER, PARAMETER :: n_real = 174 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 176 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL pftparm arrays incl. xylem
                                              ! impairment)
 
@@ -427,6 +432,7 @@ TYPE :: my_namelist
   INTEGER :: ximpair_growth_basis_io(npft_max)
   INTEGER :: nsc_xylem_type_io(npft_max)
   INTEGER :: nsc_ring_mmdd_io(npft_max)
+  INTEGER :: nsc_xylem_replace_io(npft_max)
   INTEGER :: seg_root_vc_io(npft_max)
   REAL(KIND=real_jlslsm) :: a_wl_io(npft_max)
   REAL(KIND=real_jlslsm) :: a_ws_io(npft_max)
@@ -595,6 +601,8 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_t_grow_full_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_grow_start_doy_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_grow_end_doy_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_flush_start_doy_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_flush_days_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_overflow_resp_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_xylem_rate_max_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_cmax_io(npft_max)
@@ -655,6 +663,7 @@ IF (mype == 0) THEN
   my_nml % ximpair_growth_basis_io = ximpair_growth_basis_io
   my_nml % nsc_xylem_type_io = nsc_xylem_type_io
   my_nml % nsc_ring_mmdd_io = nsc_ring_mmdd_io
+  my_nml % nsc_xylem_replace_io = nsc_xylem_replace_io
   my_nml % seg_root_vc_io = seg_root_vc_io
   my_nml % dcatch_dlai_io = dcatch_dlai_io
   my_nml % deact_jmax_io  = deact_jmax_io
@@ -798,6 +807,8 @@ IF (mype == 0) THEN
   my_nml % nsc_t_grow_full_io = nsc_t_grow_full_io
   my_nml % nsc_grow_start_doy_io = nsc_grow_start_doy_io
   my_nml % nsc_grow_end_doy_io = nsc_grow_end_doy_io
+  my_nml % nsc_flush_start_doy_io = nsc_flush_start_doy_io
+  my_nml % nsc_flush_days_io = nsc_flush_days_io
   my_nml % nsc_overflow_resp_io = nsc_overflow_resp_io
   my_nml % nsc_xylem_rate_max_io = nsc_xylem_rate_max_io
   my_nml % nsc_cmax_io = nsc_cmax_io
@@ -846,6 +857,7 @@ IF (mype /= 0) THEN
   ximpair_growth_basis_io = my_nml % ximpair_growth_basis_io
   nsc_xylem_type_io = my_nml % nsc_xylem_type_io
   nsc_ring_mmdd_io = my_nml % nsc_ring_mmdd_io
+  nsc_xylem_replace_io = my_nml % nsc_xylem_replace_io
   seg_root_vc_io = my_nml % seg_root_vc_io
   dcatch_dlai_io  = my_nml % dcatch_dlai_io
   deact_jmax_io   = my_nml % deact_jmax_io
@@ -989,6 +1001,8 @@ IF (mype /= 0) THEN
   nsc_t_grow_full_io = my_nml % nsc_t_grow_full_io
   nsc_grow_start_doy_io = my_nml % nsc_grow_start_doy_io
   nsc_grow_end_doy_io = my_nml % nsc_grow_end_doy_io
+  nsc_flush_start_doy_io = my_nml % nsc_flush_start_doy_io
+  nsc_flush_days_io = my_nml % nsc_flush_days_io
   nsc_overflow_resp_io = my_nml % nsc_overflow_resp_io
   nsc_xylem_rate_max_io = my_nml % nsc_xylem_rate_max_io
   nsc_cmax_io = my_nml % nsc_cmax_io
@@ -1084,7 +1098,8 @@ USE pftparm, ONLY:                                                             &
   nsc_plc_background, nsc_la_sa,     nsc_wood_density,                        &
   nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero, nsc_t_grow_full,      &
   nsc_overflow_resp, nsc_xylem_rate_max, nsc_xylem_type, nsc_ring_mmdd,       &
-  nsc_grow_start_doy, nsc_grow_end_doy,                                       &
+  nsc_xylem_replace,                                                          &
+  nsc_grow_start_doy, nsc_grow_end_doy, nsc_flush_start_doy, nsc_flush_days,  &
   nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min
 
 
@@ -1427,6 +1442,10 @@ DO i = 1, npft
     nsc_grow_start_doy(i) = nsc_grow_start_doy_io(i)
   IF (ABS(nsc_grow_end_doy_io(i) - rmdi) > EPSILON(1.0))                       &
     nsc_grow_end_doy(i) = nsc_grow_end_doy_io(i)
+  IF (ABS(nsc_flush_start_doy_io(i) - rmdi) > EPSILON(1.0))                    &
+    nsc_flush_start_doy(i) = nsc_flush_start_doy_io(i)
+  IF (ABS(nsc_flush_days_io(i) - rmdi) > EPSILON(1.0))                         &
+    nsc_flush_days(i) = nsc_flush_days_io(i)
   IF (ABS(nsc_overflow_resp_io(i) - rmdi) > EPSILON(1.0))                      &
     nsc_overflow_resp(i) = nsc_overflow_resp_io(i)
   IF (ABS(nsc_xylem_rate_max_io(i) - rmdi) > EPSILON(1.0))                     &
@@ -1441,6 +1460,8 @@ DO i = 1, npft
     phen_fbleaf_min(i) = phen_fbleaf_min_io(i)
   IF (nsc_xylem_type_io(i) /= imdi) nsc_xylem_type(i) = nsc_xylem_type_io(i)
   IF (nsc_ring_mmdd_io(i) /= imdi) nsc_ring_mmdd(i) = nsc_ring_mmdd_io(i)
+  IF (nsc_xylem_replace_io(i) /= imdi)                                         &
+    nsc_xylem_replace(i) = nsc_xylem_replace_io(i)
 END DO
 
 ! TRIFFID store (l_triffid_nsc): parameter ranges and switch consistency.
@@ -1488,7 +1509,7 @@ IF ( l_triffid_nsc ) THEN
                  'nsc_t_grow_zero_io, and 0 <= nsc_overflow_resp_io <= 1.')
   END IF
   ! Growing season: days of the year, the end after the start.
-  ! ! MDK, 20/10/26
+  ! MDK, 20/10/26
   IF ( ANY(nsc_grow_start_doy(:) > -1.0e29 .AND.                              &
            (nsc_grow_start_doy(:) < 1.0 .OR. nsc_grow_start_doy(:) > 366.0))  &
        .OR. ANY(nsc_grow_end_doy(:) > -1.0e29 .AND.                           &
@@ -1501,6 +1522,16 @@ IF ( l_triffid_nsc ) THEN
                  'nsc_grow_start_doy_io and nsc_grow_end_doy_io must be '  // &
                  'days of the year (1-366), with the end after the start.')
   END IF
+  ! Leaf flush: a day of the year and a positive duration.
+  ! MDK, 20/10/26
+  IF ( ANY(nsc_flush_start_doy(:) > -1.0e29 .AND.                             &
+           (nsc_flush_start_doy(:) < 1.0 .OR. nsc_flush_start_doy(:) > 366.0  &
+            .OR. nsc_flush_days(:) < 1.0 .OR. nsc_flush_days(:) > 366.0)) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_flush_start_doy_io must be a day of the year (1-366) '// &
+                 'and nsc_flush_days_io 1-366 days.')
+  END IF
   IF ( ANY(nsc_xylem_type(:) < 1) .OR. ANY(nsc_xylem_type(:) > 2) .OR.        &
        ANY(nsc_xylem_rate_max(:) < 0.0) .OR. ANY(nsc_cmax(:) < 0.0) .OR.      &
        ANY(nsc_xylem_type(:) == 2 .AND. nsc_xylem_rate_max(:) <= 0.0) .OR.    &
@@ -1511,6 +1542,32 @@ IF ( l_triffid_nsc ) THEN
                  '(ring-porous, needs nsc_xylem_rate_max_io > 0), '        // &
                  'nsc_xylem_rate_max_io >= 0, nsc_ring_mmdd_io a mmdd, '   // &
                  'nsc_cmax_io >= 0.')
+  END IF
+  ! Two-pool stem memory: diffuse-porous store repair only.
+  ! MDK, 20/10/26
+  IF ( ANY(nsc_xylem_replace(:) < 0) .OR. ANY(nsc_xylem_replace(:) > 2) .OR.  &
+       ANY(nsc_xylem_replace(:) > 0 .AND. nsc_xylem_type(:) /= 1) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_xylem_replace_io must be 0, 1 or 2, and 1 or 2 only '// &
+                 'with nsc_xylem_type_io = 1.')
+  END IF
+  ! The two pools are kept only by the store's repair: no other recovery
+  ! (refilling, the annual reset, growth recovery) may raise the stem cap.
+  IF ( ANY(nsc_xylem_replace(:) > 0 .AND. (ximpair_tau_rec(:) > 0.0 .OR.      &
+           ximpair_reset_mmdd(:) > 0)) .OR.                                   &
+       (ANY(nsc_xylem_replace(:) > 0) .AND. l_ximpair_rec_growth) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_xylem_replace_io > 0 needs ximpair_tau_rec_io and '  // &
+                 'ximpair_reset_mmdd_io off and l_ximpair_rec_growth = F.')
+  END IF
+  ! Leaf flush: a whole number of days.
+  IF ( ANY(nsc_flush_start_doy(:) > -1.0e29 .AND.                             &
+           ABS(nsc_flush_days(:) - ANINT(nsc_flush_days(:))) > 1.0e-6) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_flush_days_io must be a whole number of days.')
   END IF
 END IF
 IF ( l_ximpair_rec_nsc ) THEN

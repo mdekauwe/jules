@@ -32,7 +32,10 @@ USE triffid_nsc_mod, ONLY: phen_fbleaf, nsc_pft, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
 USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, g_leaf_0, ximpair_leaf_sens,    &
                    sigl, nsc_flush, nsc_cmax, nsc_reserve_frac, phen_psi_tlp,   &
-                   lma
+                   lma, nsc_flush_start_doy, nsc_flush_days
+USE model_time_mod, ONLY: current_time
+USE datetime_utils_mod, ONLY: day_of_year, days_in_year
+USE time_info_mod, ONLY: l_360, l_leap
 USE jules_vegetation_mod, ONLY: l_trait_phys
 USE jules_surface_mod, ONLY: cmass
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock
@@ -95,6 +98,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
   leafc_b, c_max_l, c_free
     ! Leaf carbon at the balanced LAI, store capacity and accessible store
     ! less queued regrowth (kg C m-2), for regrowth paid from the store.
+
+LOGICAL :: l_pay
+    ! Regrowth paid from the store this call (drought shedding, or inside
+    ! the leaf-flush window).
+REAL(KIND=real_jlslsm) :: doy
+    ! Day of the year.
 
 REAL(KIND=real_jlslsm) ::                                                      &
   lai_bal(land_pts),                                                           &
@@ -183,8 +192,22 @@ DO j = 1,veg_pts
     ! regrowth is paid from the accessible store (queued for the next store
     ! step) and limited by it.
     ! MDK, 18/10/26
-    IF (l_phen_psi .AND. l_triffid_nsc .AND. dphen > 0.0 .AND.                &
-        phen_psi_tlp(n) > -1.0e29 .AND. ALLOCATED(nsc_pft)) THEN
+    ! With the leaf flush (nsc_flush_start_doy set) regrowth inside the
+    ! flush window is paid from the store too, e.g. a deciduous canopy
+    ! rebuilt each spring. Outside the window it stays free, as in TRIFFID:
+    ! paying for the brief regrowth of mild winter spells would drain the
+    ! store and collapse a deciduous canopy.
+    ! MDK, 20/10/26
+    l_pay = l_phen_psi .AND. phen_psi_tlp(n) > -1.0e29
+    IF (.NOT. l_pay .AND. nsc_flush_start_doy(n) > -1.0e29) THEN
+      doy = REAL(day_of_year(current_time%year, current_time%month,          &
+                             current_time%day, l_360, l_leap))
+      ! The flush window may cross the year end.
+      l_pay = MODULO(NINT(doy) - NINT(nsc_flush_start_doy(n)),               &
+                     days_in_year(current_time%year, l_360, l_leap))          &
+              < NINT(nsc_flush_days(n))
+    END IF
+    IF (l_triffid_nsc .AND. dphen > 0.0 .AND. ALLOCATED(nsc_pft) .AND. l_pay) THEN
      IF (nsc_pft(l,n) >= 0.0) THEN
       leafc_b = sigl(n) * lai_bal(l)
       IF (l_trait_phys) leafc_b = cmass * lma(n) * lai_bal(l)

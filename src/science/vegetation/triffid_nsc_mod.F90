@@ -114,7 +114,20 @@ MODULE triffid_nsc_mod
 ! to day 296 (Lempereur et al. 2015: stem growth starts in early-mid May,
 ! autumn growth ends in late October). Like the other limits it turns on the
 ! normalised release.
-! ! MDK, 20/10/26
+! MDK, 20/10/26
+!
+! Leaf flush (nsc_flush_start_doy set): leaves flush before stem growth
+! starts and the flush draws on the store (Q. ilex at Puechabon: budburst
+! about day 105, leaves open about day 127, Limousin et al. 2012; full size
+! 6-7 weeks after budburst, Misson et al. 2011), so
+! the store's release starts at budburst, not at nsc_grow_start_doy, and
+! the year's new leaf carbon, g_leaf_0 x leaf carbon, is drawn from the
+! accessible store evenly over nsc_flush_days days (part of W, like the
+! regrowth after drought shedding). The draw only moves when carbon leaves
+! the store: over a year the release still balances NPP. The growing
+! season then gates only the cambium: xylem repair and its cap are scaled
+! by the share of the store step's days inside it.
+! MDK, 20/10/26
 !
 ! Leaf renewal (l_ximpair_rec_leaf_turn, with the per-segment memory): new
 ! leaves arrive intact, so the leaf segment's loss falls by the fraction of
@@ -328,7 +341,8 @@ USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
                    nsc_plc_background, nsc_la_sa, nsc_wood_density,          &
                    nsc_psi_turg_zero, nsc_t_grow_zero, nsc_overflow_resp,    &
                    nsc_xylem_type, nsc_xylem_rate_max, nsc_ring_mmdd,        &
-                   nsc_cmax, nsc_grow_start_doy, nsc_grow_end_doy
+                   nsc_cmax, nsc_grow_start_doy, nsc_grow_end_doy,           &
+                   nsc_flush_start_doy, nsc_flush_days
 USE jules_surface_mod, ONLY: cmass
 USE model_time_mod, ONLY: current_time
 USE trif, ONLY: g_root, g_wood
@@ -398,8 +412,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
     ! growth (per 360 days), share of W, growth gate, repairable loss.
     ! Turgor-limited sink: turgor factor, accessible store when full (kg C
     ! m-2).
-LOGICAL :: l_rep, l_mem, l_turg, l_ring_now
-INTEGER :: doy_now, doy_ring
+LOGICAL :: l_rep, l_mem, l_turg, l_ring_now, l_flush
+INTEGER :: doy_now, doy_ring, k, d, nd
+REAL(KIND=real_jlslsm) :: f_flush, f_stem, w_flush
+    ! Leaf flush: share of the year's flush in this step, share of the
+    ! step's days in the growing season (cambium), flush draw (per 360 days).
 REAL(KIND=real_jlslsm) :: x_r
     ! Ring-porous: this store step holds the earlywood rebuild; day of year
     ! now and of nsc_ring_mmdd; earlywood ring (kg C m-2).
@@ -435,7 +452,33 @@ DO n = n1,n2
   a_mean = MIN(dt / MAX(nsc_tau_load(n), TINY(1.0_real_jlslsm)), 1.0)
   l_turg = nsc_psi_turg_zero(n) > -1.0e29 .OR. nsc_t_grow_zero(n) > -1.0e29 &
            .OR. nsc_grow_start_doy(n) > -1.0e29                          &
-           .OR. nsc_grow_end_doy(n) > -1.0e29
+           .OR. nsc_grow_end_doy(n) > -1.0e29                            &
+           .OR. nsc_flush_start_doy(n) > -1.0e29
+  ! Leaf flush: days of this store step (the nd days up to today) in the
+  ! flush and in the growing season.
+  ! MDK, 20/10/26
+  l_flush = nsc_flush_start_doy(n) > -1.0e29
+  f_flush = 0.0
+  f_stem  = 1.0
+  IF (l_flush) THEN
+    n_days  = days_in_year(current_time%year, l_360, l_leap)
+    doy_now = day_of_year(current_time%year, current_time%month,             &
+                          current_time%day, l_360, l_leap)
+    nd = MAX(NINT(dt * 360.0), 1)
+    f_stem = 0.0
+    DO k = 0,nd-1
+      d = MODULO(doy_now - k - 1, n_days) + 1
+      ! The flush window may cross the year end.
+      IF (MODULO(d - NINT(nsc_flush_start_doy(n)), n_days)                    &
+          < NINT(nsc_flush_days(n)))                                          &
+        f_flush = f_flush + 1.0 / REAL(NINT(nsc_flush_days(n)))
+      ! Only the start of the stem window: its end is already in the
+      ! growth factor (the release season).
+      IF (nsc_grow_start_doy(n) < -1.0e29 .OR.                                &
+          REAL(d) >= nsc_grow_start_doy(n))                                   &
+        f_stem = f_stem + 1.0 / REAL(nd)
+    END DO
+  END IF
   ! Ring-porous: is the earlywood date within this store step?
   l_ring_now = .FALSE.
   IF (nsc_xylem_type(n) == 2) THEN
@@ -493,6 +536,21 @@ DO n = n1,n2
       nsc_regrow_acc(l,n) = 0.0
     END IF
 
+    ! Leaf flush: this step's share of the year's new leaves, from the
+    ! accessible store, as part of the release.
+    ! MDK, 20/10/26
+    ! Phenology regrowth paid above in the flush window counts towards
+    ! it, so a deciduous canopy rebuilt by phenol is not paid twice: the
+    ! larger of the two is charged.
+    w_flush = 0.0
+    IF (f_flush > 0.0) THEN
+      w_flush = MIN(MAX(g_leaf_0(n) * leafc(l,n) * f_flush - w_regrow * dt,  &
+                        0.0),                                                 &
+                    MAX(nsc_pft(l,n) - c_res, 0.0))
+      nsc_pft(l,n) = nsc_pft(l,n) - w_flush
+      w_flush = w_flush / dt
+    END IF
+
     ! Michaelis-Menten loading on the accessible store.
     c_acc = MAX(nsc_pft(l,n) - c_res, 0.0)
     w = 0.0
@@ -518,7 +576,7 @@ DO n = n1,n2
     nsc_pft(l,n) = nsc_pft(l,n) - draw * dt
 
     ! The regrowth paid above is part of the release.
-    w = w + w_regrow
+    w = w + w_regrow + w_flush
 
     ! Extra input, before the cap.
     IF (PRESENT(c_in)) nsc_pft(l,n) = nsc_pft(l,n) + MAX(c_in(l,n), 0.0) * dt
@@ -546,6 +604,8 @@ DO n = n1,n2
     IF (l_rep) THEN
       IF (ximpair_psi_growth(n) > -1.0e29)                                     &
         f_grow = MIN(MAX(ximpair_grow_acc(l,n), 0.0), 1.0)
+      ! With the leaf flush, only in the growing season (cambium).
+      f_grow = f_grow * f_stem
       ximpair_grow_acc(l,n) = 0.0
       ! Only the loss the water status of the recent past does not
       ! re-impose. The memory of the worst stem conductance decays back to
@@ -596,11 +656,15 @@ DO n = n1,n2
           ! what is kept, at g_leaf_0, and m_X = 0.
           turn_l = (1.0 - plc) * g_leaf_0(n) * l_tot
         END IF
-        u = x_s / (x_s + l_tot) * MAX(1.0 - turn_l / w, 0.0)
-        repair(l,n) = MIN(f_grow * u * w, plc_rep * x_s / dt)
+        ! The leaf flush's carbon is for leaves: not shared with xylem.
+        u = x_s / (x_s + l_tot) * MAX(1.0 - turn_l / MAX(w - w_flush,        &
+                                                         TINY(1.0)), 0.0)
+        repair(l,n) = MIN(f_grow * u * MAX(w - w_flush, 0.0),                 &
+                          plc_rep * x_s / dt)
         ! Cambial production limit.
         IF (nsc_xylem_rate_max(n) > 0.0)                                       &
-          repair(l,n) = MIN(repair(l,n), nsc_xylem_rate_max(n) * f_turg * x_s)
+          repair(l,n) = MIN(repair(l,n), nsc_xylem_rate_max(n) * f_turg      &
+                                         * f_stem * x_s)
         ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                    &
                                    + repair(l,n) * dt / x_s
       END IF
@@ -683,7 +747,7 @@ USE jules_vegetation_mod, ONLY: l_triffid, triffid_period,                    &
                                 l_ximpair_rec_leaf_turn, l_nsc_wmax_norm
 USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero,   &
                    nsc_t_grow_full, g_leaf_0, nsc_grow_start_doy,             &
-                   nsc_grow_end_doy
+                   nsc_grow_end_doy, nsc_flush_start_doy
 USE model_time_mod, ONLY: current_time
 USE datetime_utils_mod, ONLY: day_of_year
 USE time_info_mod, ONLY: l_360, l_leap
@@ -710,10 +774,12 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
     ! Air temperature (K).
 
 INTEGER :: j, l
-REAL(KIND=real_jlslsm) :: period, f, a_t, a_yr, d_renew, f_season, doy
+REAL(KIND=real_jlslsm) :: period, f, a_t, a_yr, d_renew, f_season, doy,     &
+                          doy_start
 LOGICAL :: l_lim, l_season
 
-l_season = nsc_grow_start_doy(ft) > -1.0e29 .OR. nsc_grow_end_doy(ft) > -1.0e29
+l_season = nsc_grow_start_doy(ft) > -1.0e29 .OR. nsc_grow_end_doy(ft) > -1.0e29 &
+           .OR. nsc_flush_start_doy(ft) > -1.0e29
 l_lim = nsc_psi_turg_zero(ft) > -1.0e29 .OR. nsc_t_grow_zero(ft) > -1.0e29   &
         .OR. l_season
 IF (.NOT. l_lim .AND. .NOT. l_ximpair_rec_leaf_turn) RETURN
@@ -725,13 +791,16 @@ IF (l_triffid) period = 86400.0 * REAL(triffid_period)
 a_t = 1.0 - EXP(-timestep / 86400.0)
 a_yr = 1.0 - EXP(-timestep / (360.0 * 86400.0))
 ! Growing season: 0 outside the start and end days of the year.
-! ! MDK, 20/10/26
+! MDK, 20/10/26
 f_season = 1.0
 IF (l_season) THEN
   doy = REAL(day_of_year(current_time%year, current_time%month,              &
                          current_time%day, l_360, l_leap))
-  IF (nsc_grow_start_doy(ft) > -1.0e29 .AND. doy < nsc_grow_start_doy(ft))   &
-    f_season = 0.0
+  ! With the leaf flush the release starts at budburst.
+  ! MDK, 20/10/26
+  doy_start = nsc_grow_start_doy(ft)
+  IF (nsc_flush_start_doy(ft) > -1.0e29) doy_start = nsc_flush_start_doy(ft)
+  IF (doy_start > -1.0e29 .AND. doy < doy_start) f_season = 0.0
   IF (nsc_grow_end_doy(ft) > -1.0e29 .AND. doy >= nsc_grow_end_doy(ft))      &
     f_season = 0.0
 END IF
