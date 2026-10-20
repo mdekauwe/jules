@@ -991,11 +991,13 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls, xylem_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_psi_impaired_jls
 USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_segments_jls, ksr_path,      &
-                                       som_psi_in_min, xylem_f
+                                       som_psi_in_min, xylem_f,                &
+                                       leaf_psi_segments_lut_jls
+                                       ! MDK, 18/10/26
 
 USE jules_vegetation_mod, ONLY:                                                &
         photo_collatz, photo_farquhar, photo_johnson, photo_model,             &
-        CW_conductance, SOX_conductance, som_psi_solver,                       &
+        CW_conductance, SOX_conductance, som_psi_solver, psi_solver_lut,       &
         l_som_plant_segments, l_som_rhizo_series, l_som_coupled_e
 
 USE jb_photo_mod, ONLY: jb_eta_scale
@@ -1460,6 +1462,18 @@ IF (l_xylem_impairment .AND. l_som_plant_segments) THEN
     l = veg_index(open_index(j))
     kcap_frac_pts(l) = kmax(l) / MAX(kmax_ref(l), TINY(1.0_real_jlslsm))
   END DO
+  ! som_psi_solver = 3: the same capped segments from the supply tables.
+  ! MDK, 18/10/26
+  IF ( som_psi_solver == psi_solver_lut ) THEN
+    CALL leaf_psi_segments_lut_jls( pft, n_sample, land_pts, open_pts,         &
+                              veg_index, open_index, el_sample(1:n_sample,:),  &
+                              psi_root_zone, kmax_ref,                         &
+                              psi_sample(1:n_sample,:),                        &
+                              kl_sample(1:n_sample,:),                         &
+                              kcap_frac = kcap_frac_pts,                       &
+                              leaf_k_intact = kl_hc_sample(1:n_sample,:),      &
+                              stem_psi = psi_stem_work(1:n_sample,:) )
+  ELSE
   CALL leaf_psi_segments_jls( pft, n_sample, land_pts, open_pts, veg_index,   &
                               open_index, el_sample(1:n_sample,:),             &
                               psi_root_zone, kmax_ref, kcrit,                  &
@@ -1468,6 +1482,7 @@ IF (l_xylem_impairment .AND. l_som_plant_segments) THEN
                               kcap_frac = kcap_frac_pts,                       &
                               leaf_k_intact = kl_hc_sample(1:n_sample,:),      &
                               stem_psi = psi_stem_work(1:n_sample,:) )
+  END IF
 ELSE IF (l_xylem_impairment) THEN
   ! Leaf water potential and conductance on the impaired vulnerability
   ! curve. JBaguley
@@ -1571,7 +1586,14 @@ END IF
 ! it includes the soil-to-root conductance (l_som_rhizo_series) and any
 ! impairment.
 el_closed(:,:) = 0.0
-IF (l_xylem_impairment .AND. l_som_plant_segments) THEN
+IF (l_xylem_impairment .AND. l_som_plant_segments .AND.                      &
+    som_psi_solver == psi_solver_lut) THEN
+  ! MDK, 18/10/26
+  CALL leaf_psi_segments_lut_jls( pft, 1, land_pts, open_pts, veg_index,      &
+                                  open_index, el_closed, psi_root_zone,        &
+                                  kmax_ref, psi_closed, kl_closed,             &
+                                  kcap_frac = kcap_frac_pts )
+ELSE IF (l_xylem_impairment .AND. l_som_plant_segments) THEN
   CALL leaf_psi_segments_jls( pft, 1, land_pts, open_pts, veg_index,          &
                               open_index, el_closed, psi_root_zone, kmax_ref,  &
                               kcrit, psi_closed, kl_closed,                    &
@@ -1838,7 +1860,9 @@ USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls, xylem_conductance_jls
 USE xylem_hydraulics_CW_jls_mod, ONLY: supply_lut_psi, supply_lut_e_crit,       &
                                        supply_lut_f, leaf_psi_segments_jls,     &
-                                       ksr_path, som_psi_in_min, xylem_f
+                                       ksr_path, som_psi_in_min, xylem_f,       &
+                                       leaf_psi_segments_lut_jls
+                                       ! MDK, 18/10/26
 USE xylem_impairment_mod, ONLY: leaf_psi_impaired_jls
 
 INTEGER, INTENT(IN) ::                                                         &
@@ -1958,7 +1982,12 @@ l_lut = ( pft_conductance_model(pft) == CW_conductance .OR.                    &
 ! edge_by_gl_cap do not apply: use leaf_psi_jls, which adds the soil link, and
 ! the margin-based edge.
 IF ( l_som_rhizo_series .AND. fsmc_mod(pft) == 2 ) l_lut = .FALSE.
-! The table is the intact PFT curve: not for the impaired path.
+! The table is the intact PFT curve: not for the impaired path. (With
+! som_psi_solver = 3 and the memory model the impaired path is still solved
+! from the table, capped, in impaired_state; but the direct lookup and the
+! intact e_crit of edge_by_gl_cap do not apply, so the edge is found by
+! edge_by_margin.)
+! MDK, 18/10/26
 IF ( l_xylem_impairment ) l_lut = .FALSE.
 idx1(:) = 1
 ! CMax (stomata_model = 6): profit A_n - Theta(psi_leaf) in absolute carbon
@@ -2178,9 +2207,17 @@ DO j = 1, open_pts
   IF ( PRESENT(psi_stem_g) .AND. l_xylem_impairment .AND.                      &
        l_som_plant_segments .AND. gl_g(j) > 0.0 ) THEN
     el_s1(1,1) = el_g(j)
+    ! MDK, 18/10/26
+    IF ( som_psi_solver == psi_solver_lut ) THEN
+      CALL leaf_psi_segments_lut_jls( pft, 1, land_pts, 1, veg_index, idx1,    &
+                                      el_s1, psi_root_zone, kmax_ref, psi_s1,  &
+                                      kl_s1, kcap_frac = kcap_pts,             &
+                                      stem_psi = st_s1 )
+    ELSE
     CALL leaf_psi_segments_jls( pft, 1, land_pts, 1, veg_index, idx1, el_s1,   &
                                 psi_root_zone, kmax_ref, kcrit, psi_s1, kl_s1, &
                                 kcap_frac = kcap_pts, stem_psi = st_s1 )
+    END IF
     psi_stem_g(j) = st_s1(1,1)
   END IF
 END DO
@@ -2308,7 +2345,13 @@ CONTAINS
   REAL(KIND=real_jlslsm), INTENT(OUT) :: psi1(1,1), kl1(1,1), khc1(1,1)
   REAL(KIND=real_jlslsm) :: kmx1(1), kcr1(1), b1(1), c1(1), psi_in1, k_s1
 
-  IF ( l_som_plant_segments ) THEN
+  IF ( l_som_plant_segments .AND. som_psi_solver == psi_solver_lut ) THEN
+    ! The capped segments from the supply tables.
+    ! MDK, 18/10/26
+    CALL leaf_psi_segments_lut_jls( pft, 1, land_pts, 1, veg_index, idx1, el1, &
+                                    psi_root_zone, kmax_ref, psi1, kl1,        &
+                                    kcap_frac = kcap_pts, leaf_k_intact = khc1 )
+  ELSE IF ( l_som_plant_segments ) THEN
     CALL leaf_psi_segments_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,     &
                                 psi_root_zone, kmax_ref, kcrit, psi1, kl1,     &
                                 kcap_frac = kcap_pts, leaf_k_intact = khc1 )

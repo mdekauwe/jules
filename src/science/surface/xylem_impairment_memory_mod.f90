@@ -369,6 +369,10 @@ SUBROUTINE leaf_psi_impaired_memory( pft,                                      &
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
+USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_lut
+USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
+USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_capped_lut_jls
+! MDK, 18/10/26
 
 INTEGER, INTENT(IN) ::                                                         &
   pft, n_e_leaf, land_pnts, open_pnts, veg_index(land_pnts),                  &
@@ -406,6 +410,10 @@ REAL(KIND=real_jlslsm) :: psi_vec(n_e_leaf), e_vec(n_e_leaf),               &
                           k_vec(n_e_leaf), dpsi_vec(n_e_leaf)
 LOGICAL :: l_capped(n_e_leaf)
                             ! Samples solved within the capped part.
+LOGICAL :: l_pft_curve
+                            ! som_psi_solver = 3: every open point on the
+                            ! PFT curve (the table's).
+                            ! MDK, 18/10/26
 
 INTEGER, PARAMETER :: max_nr_iter = 20
 REAL(KIND=real_jlslsm), PARAMETER :: psi_tol = 1.0
@@ -417,6 +425,27 @@ REAL(KIND=jprb)               :: zhook_handle
 CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_PSI_IMPAIRED_MEMORY'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+! som_psi_solver = 3: the same capped curve inverted exactly from the PFT's
+! supply table (leaf_psi_capped_lut_jls), when every open point is on the
+! PFT curve (b, c), which the memory model does not change.
+! MDK, 18/10/26
+IF ( som_psi_solver == psi_solver_lut ) THEN
+  l_pft_curve = .TRUE.
+  DO j = 1, open_pnts
+    l = veg_index(open_index(j))
+    IF ( conductance_b(l) /= conductance_b_pft(pft) .OR.                      &
+         conductance_c(l) /= conductance_c_pft(pft) ) l_pft_curve = .FALSE.
+  END DO
+  IF ( l_pft_curve ) THEN
+    CALL leaf_psi_capped_lut_jls( pft, n_e_leaf, land_pnts, open_pnts,         &
+                                  veg_index, open_index, e_leaf,               &
+                                  root_zone_psi, kmax_ref, kcap, kcrit,        &
+                                  leaf_psi, leaf_k )
+    IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+    RETURN
+  END IF
+END IF
 
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
