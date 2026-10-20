@@ -49,6 +49,14 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_renew_wt(:,:)
 ! MDK, 17/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_repair_pend(:,:)
 
+! Two-pool stem memory (nsc_xylem_replace > 0): the share of the stem's
+! conducting xylem rebuilt from the store, and the worst loss of
+! conductance of that rebuilt pool since it was built. The old pool's
+! embolised share is the rest of the stem's loss.
+! MDK, 20/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_rebuilt(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock_new(:,:)
+
 ! Time since the last TRIFFID step with the root zone wetter than
 ! ximpair_psi_growth, as a fraction of the TRIFFID period (l_ximpair_rec_nsc;
 ! cleared at the TRIFFID step).
@@ -102,6 +110,11 @@ END IF
 IF (.NOT. ALLOCATED(ximpair_repair_pend)) THEN
   ALLOCATE(ximpair_repair_pend(n_land_pts, npft))
   ximpair_repair_pend(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(ximpair_rebuilt)) THEN
+  ALLOCATE(ximpair_rebuilt(n_land_pts, npft), ximpair_lock_new(n_land_pts, npft))
+  ximpair_rebuilt(:,:)  = 0.0
+  ximpair_lock_new(:,:) = 0.0
 END IF
 IF (.NOT. ALLOCATED(ximpair_grow_acc)) THEN
   ALLOCATE(ximpair_grow_acc(n_land_pts, npft))
@@ -616,7 +629,7 @@ USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
                    ximpair_tau_rec, ximpair_psi_refill, ximpair_wood_alloc,    &
                    ximpair_growth_basis, ximpair_rec_years, a_wl, a_ws, b_wl, &
                    ximpair_psi_growth, ximpair_tau_stem, ximpair_tau_leaf,     &
-                   conductance_b_seg, conductance_c_seg
+                   conductance_b_seg, conductance_c_seg, nsc_xylem_replace
 USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 ximpair_driver_root, ximpair_driver_stem,      &
                                 l_ximpair_rec_growth, l_triffid,               &
@@ -667,6 +680,9 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 
 ! Local variables
 INTEGER :: j, l, errcode
+REAL(KIND=real_jlslsm) :: rep_l, r_n, m_n, e_new, e_old, d_old, d_new
+LOGICAL :: l_two
+                            ! Two-pool stem memory (nsc_xylem_replace > 0).
 
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_x(n_land_pts), k_x(n_land_pts), kmax_pts(n_land_pts),                   &
@@ -728,8 +744,52 @@ f_new(:) = 0.0
 IF (l_ximpair_rec_nsc) THEN
   ! Xylem rebuilt from the TRIFFID store since the last update.
   CALL ximpair_memory_alloc( n_land_pts )
-  kcap(:) = MIN(kcap(:) + kmax_pts(:) * ximpair_repair_pend(:,pft),           &
-                kmax_pts(:))
+  IF (nsc_xylem_replace(pft) > 0) THEN
+    ! Two pools: the stem's loss is the old pool's embolised share plus
+    ! the rebuilt pool's share times its own worst loss. The new xylem
+    ! (repair_pend, as a share of the stem) is built embolism free.
+    ! MDK, 20/10/26
+    DO l = 1, n_land_pts
+      rep_l = ximpair_repair_pend(l,pft)
+      IF (rep_l <= 0.0) CYCLE
+      r_n   = ximpair_rebuilt(l,pft)
+      m_n   = ximpair_lock_new(l,pft)
+      e_new = r_n * m_n
+      e_old = MAX(1.0 - kcap(l) / kmax_pts(l) - e_new, 0.0)
+      IF (nsc_xylem_replace(pft) == 1) THEN
+        ! Embolised xylem first: the old pool's, then the rebuilt pool's.
+        d_old = MIN(rep_l, e_old)
+        d_new = MIN(rep_l - d_old, e_new)
+        e_old = e_old - d_old
+        e_new = e_new - d_new
+        r_n   = MIN(r_n + d_old, 1.0)
+      ELSE
+        ! Proportional: the old pool is replaced as it is, intact and
+        ! embolised alike.
+        d_old = 0.0
+        d_new = 0.0
+        IF (r_n < 1.0) d_old = MIN(rep_l, 1.0 - r_n) * e_old / (1.0 - r_n)
+        e_old = e_old - d_old
+        r_n   = MIN(r_n + rep_l, 1.0)
+      END IF
+      m_n = 0.0
+      IF (r_n > 0.0) m_n = MIN(e_new / r_n, 1.0)
+      ! Once the rebuilt xylem is the whole stem it becomes the old pool
+      ! (with its damage), so later repair acts on it again.
+      IF (r_n >= 1.0 - 1.0e-6) THEN
+        e_old = e_old + e_new
+        e_new = 0.0
+        r_n   = 0.0
+        m_n   = 0.0
+      END IF
+      ximpair_rebuilt(l,pft)  = r_n
+      ximpair_lock_new(l,pft) = m_n
+      kcap(l) = kmax_pts(l) * (1.0 - e_old - e_new)
+    END DO
+  ELSE
+    kcap(:) = MIN(kcap(:) + kmax_pts(:) * ximpair_repair_pend(:,pft),         &
+                  kmax_pts(:))
+  END IF
   ximpair_repair_pend(:,pft) = 0.0
   ! Count the time the root zone (~predawn) is wetter than
   ! ximpair_psi_growth, for the growth gate on the next repair, as a
@@ -872,6 +932,10 @@ IF (ximpair_reset_mmdd(pft) > 0) THEN
       .AND. current_time%time < timestep_len) THEN
     kcap(:) = kmax_pts(:)
     IF (l_ximpair_seg_memory) ximpair_kcap_leaf(:,pft) = 1.0
+    IF (ALLOCATED(ximpair_rebuilt)) THEN
+      ximpair_rebuilt(:,pft)  = 0.0
+      ximpair_lock_new(:,pft) = 0.0
+    END IF
   END IF
 END IF
 
@@ -879,12 +943,17 @@ END IF
 ! Damage: the cap can not exceed the intact conductance at the damage
 ! driver. Only points with open stomata (i.e. under tension) are damaged.
 !-----------------------------------------------------------------------------
+l_two = l_ximpair_rec_nsc .AND. nsc_xylem_replace(pft) > 0
 IF (l_ximpair_seg_memory) THEN
   ! Per segment: the stem by psi_stem on the stem curve, the leaf by
   ! psi_leaf on the leaf curve (the segments' intact Weibull curves).
   DO j = 1, n_open_pts
     l = open_index(j)
-    kcap(l) = MIN(kcap(l), kmax_pts(l) * seg_f(psi_stem(l), 2))
+    IF (l_two) THEN
+      CALL damage_two_pool( l, 1.0 - seg_f(psi_stem(l), 2) )
+    ELSE
+      kcap(l) = MIN(kcap(l), kmax_pts(l) * seg_f(psi_stem(l), 2))
+    END IF
     ! MDK, 17/10/26
     IF (l_ximpair_rec_nsc)                                                     &
       ximpair_fmin_acc(l,pft) = MIN(ximpair_fmin_acc(l,pft),                   &
@@ -899,7 +968,11 @@ ELSE
                              b_pts, c_pts, k_x )
   DO j = 1, n_open_pts
     l = open_index(j)
-    kcap(l) = MIN(kcap(l), k_x(l))
+    IF (l_two) THEN
+      CALL damage_two_pool( l, 1.0 - k_x(l) / kmax_pts(l) )
+    ELSE
+      kcap(l) = MIN(kcap(l), k_x(l))
+    END IF
     ! MDK, 17/10/26
     IF (l_ximpair_rec_nsc)                                                     &
       ximpair_fmin_acc(l,pft) = MIN(ximpair_fmin_acc(l,pft),                   &
@@ -918,6 +991,22 @@ ximpair_lock(:,pft) = 1.0 - kcap(:) / kmax_pts(:)
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 CONTAINS
+
+  ! Two-pool damage at point l from the intact loss plc_x at the current
+  ! water potential: the old pool's embolised share can rise to its share
+  ! of plc_x, the rebuilt pool's worst loss to plc_x.
+  ! MDK, 20/10/26
+  SUBROUTINE damage_two_pool( l, plc_x )
+  INTEGER, INTENT(IN) :: l
+  REAL(KIND=real_jlslsm), INTENT(IN) :: plc_x
+  r_n   = ximpair_rebuilt(l,pft)
+  m_n   = MAX(ximpair_lock_new(l,pft), plc_x)
+  e_old = MAX(1.0 - kcap(l) / kmax_pts(l) - r_n * ximpair_lock_new(l,pft),   &
+              0.0)
+  e_old = MAX(e_old, (1.0 - r_n) * plc_x)
+  ximpair_lock_new(l,pft) = m_n
+  kcap(l) = kmax_pts(l) * (1.0 - e_old - r_n * m_n)
+  END SUBROUTINE damage_two_pool
 
   ! Intact relative conductance of segment iseg at water potential psi.
   FUNCTION seg_f( psi, iseg ) RESULT( f )

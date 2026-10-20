@@ -459,10 +459,21 @@ nsc_xylem_type(:),                                                             &
                  !  capped by nsc_xylem_rate_max), 2 ring-porous (the stem
                  !  is rebuilt once a year, at nsc_ring_mmdd, by the new
                  !  earlywood ring, paid from the store).
-nsc_ring_mmdd(:)
+nsc_ring_mmdd(:)                                                               &
                  ! Month and day (month*100 + day) of the earlywood rebuild
                  !  of nsc_xylem_type 2.
                  ! MDK, 18/10/26
+,nsc_xylem_replace(:)
+                 ! Store repair, nsc_xylem_type 1: what the new xylem
+                 !  replaces. 0 = one stem memory (the rebuilt xylem shares
+                 !  the stem's worst loss). 1 = two pools, embolised xylem
+                 !  first: the rebuilt xylem keeps its own memory, so later
+                 !  droughts damage it (it is built embolism free). 2 = two
+                 !  pools, proportional: the new xylem replaces the old
+                 !  pool as it is, intact and embolised alike (sapwood
+                 !  turnover, as Paschalis et al. 2023 replace the oldest
+                 !  xylem), so only that share of the damage is repaired.
+                 !  MDK, 20/10/26
                  ! Carbon supply for the growth recovery term
                  !  (l_ximpair_rec_growth) of the memory impairment models:
                  !       1: ximpair_wood_alloc * canopy net photosynthesis
@@ -714,7 +725,18 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  from nsc_grow_end_doy to the year end, e.g. winter
                  !  dormancy in a mild climate where the cold limit rarely
                  !  binds. Unset (< -1e29) = no limit on that side.
-                 !  ! MDK, 20/10/26
+                 !  MDK, 20/10/26
+,nsc_flush_start_doy(:)                                                        &
+,nsc_flush_days(:)                                                             &
+                 ! Leaf flush of the TRIFFID store: from day of year
+                 !  nsc_flush_start_doy (budburst) the store's release
+                 !  starts, and the year's new leaf carbon (g_leaf_0 x leaf
+                 !  carbon) is drawn from the store evenly over
+                 !  nsc_flush_days days. The growing season
+                 !  (nsc_grow_start_doy, nsc_grow_end_doy) then gates only
+                 !  the cambium (xylem repair and its cap). Unset (< -1e29)
+                 !  = no leaf flush.
+                 !  MDK, 20/10/26
 ,nsc_overflow_resp(:)                                                          &
                  ! Share of the store carbon above C_max that is respired
                  !  (overflow respiration) instead of going to growth
@@ -1101,6 +1123,8 @@ ALLOCATE( nsc_t_grow_zero(npft))
 ALLOCATE( nsc_t_grow_full(npft))
 ALLOCATE( nsc_grow_start_doy(npft))
 ALLOCATE( nsc_grow_end_doy(npft))
+ALLOCATE( nsc_flush_start_doy(npft))
+ALLOCATE( nsc_flush_days(npft))
 ALLOCATE( nsc_overflow_resp(npft))
 ALLOCATE( nsc_xylem_rate_max(npft))
 ALLOCATE( nsc_cmax(npft))
@@ -1110,6 +1134,7 @@ ALLOCATE( phen_ndays(npft))
 ALLOCATE( phen_fbleaf_min(npft))
 ALLOCATE( nsc_xylem_type(npft))
 ALLOCATE( nsc_ring_mmdd(npft))
+ALLOCATE( nsc_xylem_replace(npft))
 
 leaf_crit(:) = 0.0
 pft_conductance_model(:) = 0
@@ -1178,6 +1203,8 @@ nsc_t_grow_zero(:) = -1.0e30
 nsc_t_grow_full(:) = -1.0e30
 nsc_grow_start_doy(:) = -1.0e30
 nsc_grow_end_doy(:) = -1.0e30
+nsc_flush_start_doy(:) = -1.0e30
+nsc_flush_days(:) = 45.0
 nsc_overflow_resp(:) = 0.0
 nsc_xylem_rate_max(:) = 0.0
 nsc_cmax(:) = 0.0
@@ -1187,6 +1214,7 @@ phen_ndays(:) = 10.0
 phen_fbleaf_min(:) = 0.0
 nsc_xylem_type(:) = 1
 nsc_ring_mmdd(:) = 401
+nsc_xylem_replace(:) = 0
 
 ! SOX parameters
 ALLOCATE( sox_a(npft))
@@ -1551,6 +1579,10 @@ WRITE(lineBuffer,*)' nsc_grow_start_doy = ',nsc_grow_start_doy
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_grow_end_doy = ',nsc_grow_end_doy
 CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_flush_start_doy = ',nsc_flush_start_doy
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_flush_days = ',nsc_flush_days
+CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_overflow_resp = ',nsc_overflow_resp
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_xylem_rate_max = ',nsc_xylem_rate_max
@@ -1568,6 +1600,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_xylem_type = ',nsc_xylem_type
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_ring_mmdd = ',nsc_ring_mmdd
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_xylem_replace = ',nsc_xylem_replace
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_psi_driver = ',ximpair_psi_driver
 CALL jules_print('pftparm',lineBuffer)

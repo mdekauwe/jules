@@ -20,7 +20,8 @@ USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
     ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt, &
-    ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc
+    ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc, ximpair_rebuilt,  &
+    ximpair_lock_new
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
@@ -2083,6 +2084,24 @@ CASE ( 'ximpair_kcap_leaf' )
   END IF
 
 ! MDK, 17/10/26
+CASE ( 'ximpair_rebuilt' )
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_rebuilt(:,:))
+  ELSE
+    ximpair_rebuilt(:,:) = const_val
+  END IF
+
+CASE ( 'ximpair_lock_new' )
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_lock_new(:,:))
+  ELSE
+    ximpair_lock_new(:,:) = const_val
+  END IF
+
 CASE ( 'ximpair_repair_pend' )
   CALL ximpair_memory_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN

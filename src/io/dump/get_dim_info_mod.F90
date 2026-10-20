@@ -164,6 +164,7 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                        &
        'ximpair_npp_prev', 'ximpair_wood_prev',                          &
        'ximpair_renew_mean', 'ximpair_renew_wt', 'ximpair_kcap_leaf',          &
        'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', &
+           'ximpair_rebuilt', 'ximpair_lock_new',                     &
            'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',           &
            'nsc_turg_acc', 'nsc_t_run',                       &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &

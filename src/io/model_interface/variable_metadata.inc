@@ -10124,4 +10124,32 @@ DATA metadata(781) / var_metadata(                                             &
 ! Units
     "1"                                                                       &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_rebuilt
+! MDK, 20/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(782) / var_metadata(                                             &
+! String identifier
+    'ximpair_rebuilt',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Share of the stem xylem rebuilt from the store (two-pool memory)",         &
+! Units
+    "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_lock_new
+! MDK, 20/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(783) / var_metadata(                                             &
+! String identifier
+    'ximpair_lock_new',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Worst loss of conductance of the rebuilt stem xylem (two-pool)",           &
+! Units
+    "1"                                                                        &
+  ) /
 #endif
