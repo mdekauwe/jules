@@ -707,6 +707,14 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  warmer than nsc_t_grow_full, linear in between, times
                  !  the turgor factor at each time step. Unset (< -1e29) =
                  !  no cold limit.
+,nsc_grow_start_doy(:)                                                         &
+,nsc_grow_end_doy(:)                                                           &
+                 ! Growing season of the store's growth sink (day of year):
+                 !  no growth (store release) before nsc_grow_start_doy or
+                 !  from nsc_grow_end_doy to the year end, e.g. winter
+                 !  dormancy in a mild climate where the cold limit rarely
+                 !  binds. Unset (< -1e29) = no limit on that side.
+                 !  ! MDK, 20/10/26
 ,nsc_overflow_resp(:)                                                          &
                  ! Share of the store carbon above C_max that is respired
                  !  (overflow respiration) instead of going to growth
@@ -1091,6 +1099,8 @@ ALLOCATE( nsc_psi_turg_full(npft))
 ALLOCATE( nsc_psi_turg_zero(npft))
 ALLOCATE( nsc_t_grow_zero(npft))
 ALLOCATE( nsc_t_grow_full(npft))
+ALLOCATE( nsc_grow_start_doy(npft))
+ALLOCATE( nsc_grow_end_doy(npft))
 ALLOCATE( nsc_overflow_resp(npft))
 ALLOCATE( nsc_xylem_rate_max(npft))
 ALLOCATE( nsc_cmax(npft))
@@ -1166,6 +1176,8 @@ nsc_psi_turg_full(:) = -1.0e30
 nsc_psi_turg_zero(:) = -1.0e30
 nsc_t_grow_zero(:) = -1.0e30
 nsc_t_grow_full(:) = -1.0e30
+nsc_grow_start_doy(:) = -1.0e30
+nsc_grow_end_doy(:) = -1.0e30
 nsc_overflow_resp(:) = 0.0
 nsc_xylem_rate_max(:) = 0.0
 nsc_cmax(:) = 0.0
@@ -1534,6 +1546,10 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_t_grow_zero = ',nsc_t_grow_zero
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_t_grow_full = ',nsc_t_grow_full
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_grow_start_doy = ',nsc_grow_start_doy
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_grow_end_doy = ',nsc_grow_end_doy
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_overflow_resp = ',nsc_overflow_resp
 CALL jules_print('pftparm',lineBuffer)
