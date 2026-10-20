@@ -36,7 +36,7 @@ USE trif_io, ONLY: jules_triffid,                                              &
 
 USE errormessagelength_mod, ONLY: errormessagelength
 
-USE pftparm, ONLY: a_wl, a_ws, eta_sl, b_wl
+USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht   ! MDK, 20/10/26
 
 IMPLICIT NONE
 
@@ -218,8 +218,7 @@ IF ( l_trif_biocrop ) THEN
     IF (harvest_type(n) == 2) THEN
 
       ! Calculate value of lai_bal at harvest_ht
-      tmp_minlai = ( harvest_ht(n) * a_ws(n) * eta_sl(n) / a_wl(n) )           &
-                   ** ( 1 / ( b_wl(n) - 1 ) )
+      tmp_minlai = lai_bal_from_ht(n, harvest_ht(n))   ! MDK, 20/10/26
 
       IF (lai_min(n) > tmp_minlai) THEN
         ERROR = 1

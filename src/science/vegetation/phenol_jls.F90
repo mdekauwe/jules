@@ -30,6 +30,7 @@ USE jules_vegetation_mod, ONLY: l_nitrogen, l_ximpair_leaf_loss,             &
                                 l_triffid_nsc
 USE triffid_nsc_mod, ONLY: phen_fbleaf, nsc_pft, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
+USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht   ! MDK, 20/10/26
 USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, g_leaf_0, ximpair_leaf_sens,    &
                    sigl, nsc_flush, nsc_cmax, nsc_reserve_frac, phen_psi_tlp,   &
                    lma, nsc_flush_start_doy, nsc_flush_days
@@ -129,8 +130,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !-----------------------------------------------------------------------------
 DO j = 1,veg_pts
   l = veg_index(j)
-  lai_bal(l) = (a_ws(n) * eta_sl(n) * ht(l)                                    &
-               /a_wl(n))**(1.0 / (b_wl(n) - 1.0))
+  lai_bal(l) = lai_bal_from_ht(n, ht(l))   ! MDK, 20/10/26
   phen(l)    = lai(l) / lai_bal(l)
 END DO
 

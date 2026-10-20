@@ -624,6 +624,7 @@ SUBROUTINE update_xylem_impairment_memory ( n_land_pts                         &
 ,                                           kcap                               &
                                           )
 
+USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht, live_stemwood   ! MDK, 20/10/26
 USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
                    eta_sl, ximpair_psi_driver, ximpair_reset_mmdd,             &
                    ximpair_tau_rec, ximpair_psi_refill, ximpair_wood_alloc,    &
@@ -829,8 +830,7 @@ IF (l_ximpair_rec_growth) THEN
                    'ximpair_growth_basis = 3 (TRIFFID wood) needs l_triffid')
     END IF
     wood(:) = a_ws(pft) * eta_sl(pft) * canht(:)                               &
-              * ( a_ws(pft) * eta_sl(pft) * MAX(canht(:), 0.0) / a_wl(pft) )   &
-              ** (1.0 / (b_wl(pft) - 1.0))
+              * lai_bal_from_ht(pft, MAX(canht(:), 0.0))   ! MDK, 20/10/26
     IF (.NOT. ALLOCATED(ximpair_wood_prev)) THEN
       ALLOCATE(ximpair_wood_prev(n_land_pts, npft))
       ximpair_wood_prev(:,:) = -1.0
@@ -852,8 +852,8 @@ IF (l_ximpair_rec_growth) THEN
   WHERE (psi_root(:) < ximpair_psi_growth(pft)) c_new(:) = 0.0
   ! Renew that fraction of the conducting (live stem) wood.
   f_renew(:) = c_new(:)                                                        &
-               / MAX(eta_sl(pft) * canht(:) * lai(:),                          &
-                     eta_sl(pft) * MAX(canht(:), 1.0) * lai_min)
+               / MAX(live_stemwood(pft, canht(:), lai(:)),                     &
+                     live_stemwood(pft, MAX(canht(:), 1.0), lai_min))   ! MDK, 20/10/26
   f_renew(:) = MIN(f_renew(:), 1.0)
   IF (l_slow .OR. l_ximpair_seg_memory) THEN
     f_new(:) = f_new(:) + f_renew(:)

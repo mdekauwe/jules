@@ -25,6 +25,7 @@ SUBROUTINE cancap (land_pts,veg_pts,veg_index,can_model,ft,                    &
                     dvi_cpft)
 
 USE pftparm, ONLY: kext, a_ws, eta_sl, a_wl, b_wl, lma, sigl
+USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht   ! MDK, 20/10/26
 USE jules_vegetation_mod, ONLY: l_trait_phys, l_limit_canhc, l_red
 USE jules_surface_mod, ONLY: hleaf,hwood,cmass
 USE jules_surface_types_mod, ONLY: nnpft, ncpft
@@ -128,8 +129,7 @@ ELSE IF (can_model == 3 .OR. can_model == 4) THEN
       leaf = leafc_from_prognostics(ft - nnpft, dvi_cpft(l,ft - nnpft), lai(l))
       wood = stemc_from_prognostics(ft - nnpft, ht(l) )
     ELSE
-      lai_bal(l) = ( a_ws(ft) * eta_sl(ft) * ht(l) /                           &
-                     a_wl(ft) )**(1.0 / (b_wl(ft) - 1))
+      lai_bal(l) = lai_bal_from_ht(ft, ht(l))   ! MDK, 20/10/26
       ! lma replaces sigl
       IF ( l_trait_phys ) THEN
         leaf = cmass * lma(ft) * lai_bal(l)

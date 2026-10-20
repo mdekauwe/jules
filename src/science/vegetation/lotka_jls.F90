@@ -28,7 +28,7 @@ SUBROUTINE lotka (land_pts, trif_pts, trif_index,                              &
                   frac_nofire, dfrac, dfrac_na, dfrac_nofire,g_burn_pft)
 
 USE jules_surface_types_mod, ONLY: npft, nnpft, ntype, soil
-USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl
+USE calc_c_comps_triffid_mod, ONLY: ht_from_lai_bal   ! MDK, 20/10/26
 USE jules_vegetation_mod, ONLY: frac_min, pow, l_triffid_nsc
 ! MDK, 17/10/26
 USE triffid_nsc_mod, ONLY: nsc_starv_pft
@@ -181,8 +181,8 @@ END DO
 DO t = 1,trif_pts
   l = trif_index(t)
 
-  hc1 = a_wl(1) / (a_ws(1) * eta_sl(1)) * (lai(l,1)**(b_wl(1) - 1.0))
-  hc2 = a_wl(2) / (a_ws(2) * eta_sl(2)) * (lai(l,2)**(b_wl(2) - 1.0))
+  hc1 = ht_from_lai_bal(1, lai(l,1))   ! MDK, 20/10/26
+  hc2 = ht_from_lai_bal(2, lai(l,2))
   diff_sum = (hc1 - hc2) / (hc1 + hc2)
 
   com(l,1,2) = 1.0 / (1.0 + EXP(pow * diff_sum))    ! BT vs NT
@@ -195,8 +195,8 @@ DO t = 1,trif_pts
   com(l,2,4) = 0.0                          ! NT vs C4G
   com(l,2,5) = 0.0                          ! NT vs S
 
-  hc3 = a_wl(3) / (a_ws(3) * eta_sl(3)) * (lai(l,3)**(b_wl(3) - 1.0))
-  hc4 = a_wl(4) / (a_ws(4) * eta_sl(4)) * (lai(l,4)**(b_wl(4) - 1.0))
+  hc3 = ht_from_lai_bal(3, lai(l,3))   ! MDK, 20/10/26
+  hc4 = ht_from_lai_bal(4, lai(l,4))
   diff_sum = (hc3 - hc4) / (hc3 + hc4)
 
   com(l,3,4) = 1.0 / (1.0 + EXP(pow * diff_sum)) ! C3G vs C4G

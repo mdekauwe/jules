@@ -105,7 +105,7 @@ USE soil_inorg_n_mod, ONLY: soil_n_deposition, soil_n_fertiliser,              &
                             soil_n_fixation, soil_n_uptake
 USE CN_utils_mod, ONLY: calc_n_comps_triffid
 USE calc_litter_flux_mod, ONLY: calc_litter_flux
-USE calc_c_comps_triffid_mod, ONLY: calc_c_comps_triffid
+USE calc_c_comps_triffid_mod, ONLY: calc_c_comps_triffid, ht_from_wood   ! MDK, 20/10/26
 USE lotka_noeq_subset_mod, ONLY: lotka_noeq_subset
 USE lotka_eq_mod, ONLY: lotka_eq
 USE lotka_noeq_mod, ONLY: lotka_noeq
@@ -858,8 +858,7 @@ DO n = 1,nnpft
   DO t = 1,trif_pts
     l = trif_index(t)
 
-    ht(l,n) = woodc_pft(l,n) / (a_ws(n) * eta_sl(n))                           &
-              * (a_wl(n) / woodc_pft(l,n))**(1.0 / b_wl(n))
+    ht(l,n) = ht_from_wood(n, woodc_pft(l,n))   ! MDK, 20/10/26
     IF (l_trait_phys) THEN
       lai_bal_pft(l,n) = leafc_pft(l,n) / (lma(n) * cmass)
     ELSE

@@ -133,6 +133,7 @@ USE soil_evap_or_mod, ONLY: gsoil_or, w1_or
 
 USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft,       &
                    soil_litter_depth, or_z0soil_fac
+USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht   ! MDK, 20/10/26
 USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, sigl, lma, rmass, kmax_pft
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs,                    &
@@ -1287,8 +1288,7 @@ DO n = 1,npft
       IF ( l_crop .AND. n > nnpft ) THEN
         root_mass(l) = rootc_cpft(l,n - nnpft) / rmass(n)
       ELSE
-        lai_bal_rt = ( a_ws(n) * eta_sl(n) * canht_pft(l,n) / a_wl(n) )       &
-                     **(1.0 / (b_wl(n) - 1.0))
+        lai_bal_rt = lai_bal_from_ht(n, canht_pft(l,n))   ! MDK, 20/10/26
         IF ( l_red ) lai_bal_rt = veg_state%lai_bal(l,n)
         IF ( l_trait_phys ) THEN
           root_mass(l) = lma(n) * lai_bal_rt
