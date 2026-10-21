@@ -159,7 +159,6 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_daily, triffid_nsc_turgor,             &
 USE jules_vegetation_mod, ONLY: discrimination_model, discrimination_off
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft, d13c_disc_alloc, d13c_disc_leaf
 
-USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
 USE xylem_hydraulics_CW_jls_mod, ONLY: set_ksr_path, ksr,                     &
@@ -380,10 +379,6 @@ open_index(land_pts)                                                           &
 !                                 !      with open stomata.
 ,open_pts                   ! OUT Number of land points
 !                                 !      with open stomata.
-
-REAL(KIND=real_jlslsm) ::                                                      &
- root_zone_k(land_pts)
-                            ! Root zone conductance (m/s).
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
  carbon_gain(land_pts)                                                         &
@@ -841,22 +836,10 @@ REAL(KIND=real_jlslsm) :: kmax_ref_sun_2l(land_pts), kmax_ref_shd_2l(land_pts)
                             ! under xylem impairment, as kmax_ref_bigleaf).
                             ! Unimpaired kmax_pft(ft) * LAI for the big-leaf
                             ! stomatal optimisation with xylem impairment.
-REAL(KIND=real_jlslsm) :: kmax_leaf_basis(land_pts), kcrit_leaf_basis(land_pts)
-                            ! kmax_pft(ft)/kcrit(ft) broadcast onto land_pts
-                            ! arrays, for the (leaf-basis) root zone
-                            ! conductance passed to the impairment update.
 INTEGER :: open_land_index(land_pts)
                             ! Land point of each open point (i.e.
                             ! veg_index(open_index(:))), for the impairment
                             ! update.
-REAL(KIND=real_jlslsm) :: kx_sun_2l(land_pts), kx_shd_2l(land_pts)
-                            ! Two-leaf: each class's impaired xylem
-                            ! conductance at its psi_leaf, for the
-                            ! impairment update.
-REAL(KIND=real_jlslsm) :: leaf_k_leaf_basis(land_pts)
-                            ! leaf_k from the big-leaf stomatal optimisation
-                            ! (canopy scale, see kmax_bigleaf) divided back
-                            ! by LAI, for the impairment update.
 REAL(KIND=real_jlslsm) :: kmax_bigleaf(land_pts), kcrit_bigleaf(land_pts)
 REAL(KIND=real_jlslsm) :: gl_max_eff(land_pts), share_sup(land_pts)
 REAL(KIND=real_jlslsm) :: gl_cut(land_pts), gl_cut_eff(land_pts),              &
@@ -2953,35 +2936,9 @@ CASE ( 1 )
         ! would otherwise be applied iter times per timestep. JBaguley
         IF (k == iter) THEN
 
-          ! The impairment model state (k_max, and the kcrit it is floored at)
-          ! is leaf-basis, so pass leaf-basis conductances to the update.
-          kmax_leaf_basis(:) = kmax_pft(ft)
-          kcrit_leaf_basis(:) = kcrit(ft)
-          ! The damage follows the xylem: the impaired xylem conductance at
-          ! psi_leaf, not leaf_k (Kplant, which includes the soil-to-root
-          ! conductance, so would let soil drying damage the xylem).
-          CALL leaf_conductance_impaired_jls( ft, land_pts, psi_leaf,           &
-                                              kmax_leaf_basis, k_max,          &
-                                              kcrit_leaf_basis, conductance_b, &
-                                              conductance_c, psi_leaf_extreme, &
-                                              leaf_k_leaf_basis )
-
-          ! calculate the root zone conductance to pass to imparment calculation.
-          ! psi_src: the root-zone psi with gravity (l_som_gravity), as the
-          ! hydraulics see it.
-          CALL leaf_conductance_impaired_jls(                                    &
-                ft,                                                              &
-                land_pts,                                                        &
-                psi_src,                                                         &
-                kmax_leaf_basis,                                                 &
-                k_max,                                                           &
-                kcrit_leaf_basis,                                                &
-                conductance_b,                                                   &
-                conductance_c,                                                   &
-                psi_root_extreme,                                                &
-                ! INTENT OUT
-                root_zone_k                                                      &
-          )
+          ! (The leaf and root-zone conductances once computed here for the
+          ! update were never used by it, so they are no longer computed.
+          ! MDK, 22/10/26)
 
           ! Apply xylem imapairment to the vulnerability curve.
           ! NOTE: open_index indexes veg_index, while update_xylem_impairment
@@ -3000,14 +2957,8 @@ CASE ( 1 )
                   psi_leaf,                                                      &
                   psi_src,                                                       &
                   psi_stem,                                                      &
-                  leaf_k_leaf_basis,                                             &
-                  root_zone_k,                                                   &
                 ! IN OUT
                   k_max,                                                         &
-                ! OUT
-                  conductance_b,                                                 &
-                  conductance_c,                                                 &
-                ! IN OUT
                   psi_leaf_extreme,                                              &
                   psi_root_extreme,                                              &
                 ! IN (recovery)
@@ -3612,37 +3563,8 @@ CASE ( 7 )
   ! iteration, cf. k == iter in the big-leaf path), driven by the canopy
   ! (leaf-area-weighted) psi_leaf: both classes share the one plant, so
   ! there is a single damage state per point, as for the big leaf.
-  kmax_leaf_basis(:) = kmax_pft(ft)
-  kcrit_leaf_basis(:) = kcrit(ft)
-  ! The damage follows the xylem: each class's impaired xylem conductance at
-  ! its psi_leaf, summed per unit leaf area, not leaf_k (Kplant, which
-  ! includes the soil-to-root conductance, so would let soil drying damage
-  ! the xylem).
-  CALL leaf_conductance_impaired_jls( ft, land_pts, psi_leaf_sun,              &
-                                      kmax_ref_sun_2l, kmax_sun_2l,            &
-                                      kcrit_sun_2l, conductance_b,             &
-                                      conductance_c, psi_leaf_extreme,         &
-                                      kx_sun_2l )
-  CALL leaf_conductance_impaired_jls( ft, land_pts, psi_leaf_shd,              &
-                                      kmax_ref_shd_2l, kmax_shd_2l,            &
-                                      kcrit_shd_2l, conductance_b,             &
-                                      conductance_c, psi_leaf_extreme,         &
-                                      kx_shd_2l )
-  leaf_k_leaf_basis(:) = ( kx_sun_2l(:) + kx_shd_2l(:) )                       &
-                         / MAX(lai(:), TINY(1.0_real_jlslsm))
-  ! kplant_model = 1: the class conductances carry kplant_scale; the
-  ! impairment state is leaf-basis (kmax_pft), so take it back out (kx is
-  ! linear in kmax, kmax_ref and kcrit), and the damage follows psi only.
-  ! MDK, 21/10/26
-  IF ( kplant_model == kplant_model_ground )                                   &
-    leaf_k_leaf_basis(:) = leaf_k_leaf_basis(:) / kplant_scale(:)
-  ! psi_src: the root-zone psi with gravity (l_som_gravity), as the
-  ! hydraulics see it.
-  CALL leaf_conductance_impaired_jls(                                          &
-        ft, land_pts, psi_src, kmax_leaf_basis, k_max,                         &
-        kcrit_leaf_basis, conductance_b, conductance_c, psi_root_extreme,      &
-        ! INTENT OUT
-        root_zone_k )
+  ! (The class and root-zone conductances once computed here for the update
+  ! were never used by it, so they are no longer computed. MDK, 22/10/26)
   open_pts = 0
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -3654,13 +3576,9 @@ CASE ( 7 )
   CALL update_xylem_impairment(                                                &
         ! IN
           land_pts, open_pts, open_land_index, ft, psi_leaf, psi_src,          &
-          psi_stem, leaf_k_leaf_basis, root_zone_k,                            &
+          psi_stem,                                                            &
         ! IN OUT
-          k_max,                                                               &
-        ! OUT
-          conductance_b, conductance_c,                                        &
-        ! IN OUT
-          psi_leaf_extreme, psi_root_extreme,                                  &
+          k_max, psi_leaf_extreme, psi_root_extreme,                                  &
         ! IN (recovery)
           lai, canht, anetc )
 

@@ -317,6 +317,8 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_JLS'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! Select the method to approximate the leaf water potential
+! psi is held at <= 0 in (psi/b)**c: a positive psi gave a negative base and
+! NaN. Unchanged for psi <= 0. MDK, 22/10/26
 SELECT CASE (som_psi_solver)
 
 ! ---------------------------------------------------------------------
@@ -346,7 +348,7 @@ CASE(psi_solver_taylor)
       !  reference water potential (this is equal to the root
       !  zone water potential).
       leaf_k(:,j) = kmax(l)                                                    &
-                 / (1 + (leaf_psi(:,j)/conductance_b(l))**conductance_c(l))
+                 / (1 + (MIN(leaf_psi(:,j),0.0_real_jlslsm)/conductance_b(l))**conductance_c(l))
 
       !  Iterate over the transpiration for each open point.
       DO i = 1,n_e_leaf
@@ -366,7 +368,7 @@ CASE(psi_solver_taylor)
           ! Calculate the new xylem conductance
           !  k(psi) = kmax * exp(-(psi/b) ** c)
           leaf_k_new = kmax(l)                                                 &
-                 / (1 + (reference_psi/conductance_b(l))**conductance_c(l))
+                 / (1 + (MIN(reference_psi,0.0_real_jlslsm)/conductance_b(l))**conductance_c(l))
 
           ! If the change in xylem conductance is less than
           !  k_conversion_limit then break the loop.
@@ -422,7 +424,7 @@ CASE(psi_solver_newton)
   ! potential, for all land points.
   root_psi_component = SOX_2F1_multiple_cf(land_pts,                           &
                                1 + 1/conductance_c,                            &
-                -(root_zone_psi/conductance_b)**conductance_c)
+                -(MIN(root_zone_psi,0.0_real_jlslsm)/conductance_b)**conductance_c)
 
   root_psi_component = root_zone_psi * root_psi_component
 
@@ -434,12 +436,15 @@ CASE(psi_solver_newton)
 
     ! Calculate the xylem conductance at the root zone water potential.
     leaf_k(:,j) = kmax(l)                                                      &
-        / (1 + (root_zone_psi(l)/conductance_b(l))**conductance_c(l))
+        / (1 + (MIN(root_zone_psi(l),0.0_real_jlslsm)/conductance_b(l))**conductance_c(l))
 
     ! The initial guess for the leaf water potential is that of the root zone
     ! meaning that the transpiration rate is zero. This simplifies the first
     ! prediction of the leaf water potential to;
-    leaf_psi(:,j) = root_zone_psi(l) - e_leaf(:,j) / leaf_k(:,j)
+    ! (leaf_k floored: it underflows to 0 in very dry soil, which gave a
+    ! -Inf first guess and then NaN. Only that case changes. MDK, 22/10/26)
+    leaf_psi(:,j) = root_zone_psi(l) - e_leaf(:,j)                             &
+                    / MAX(leaf_k(:,j), TINY(1.0_real_jlslsm))
 
     !WRITE(*,*) ' '
     !WRITE(*,*) 'root_psi', root_zone_psi(l)
@@ -457,13 +462,13 @@ CASE(psi_solver_newton)
       ! Calculate the xylem conductance for the current leaf water potential.
       leaf_k_prev(:,j) = leaf_k(:,j)
       leaf_k(:,j) = kmax(l)                                                    &
-        / (1 + (leaf_psi(:,j)/conductance_b(l))**conductance_c(l))
+        / (1 + (MIN(leaf_psi(:,j),0.0_real_jlslsm)/conductance_b(l))**conductance_c(l))
 
       ! Calculate the transpiration rate for the current leaf water potential.
       ! First get the incomplete gamma function for the leaf water potential.
       e_leaf_current(:,j) = SOX_2F1(n_e_leaf,                                  &
                                     1 + 1/conductance_c(l),                  &
-                   -(leaf_psi(:,j)/conductance_b(l))**conductance_c(l))
+                   -(MIN(leaf_psi(:,j),0.0_real_jlslsm)/conductance_b(l))**conductance_c(l))
 
       e_leaf_current(:,j) = leaf_psi(:,j) * e_leaf_current(:,j)
 
@@ -498,7 +503,7 @@ CASE(psi_solver_newton)
 
     ! Calculate the xylem conductance for the current leaf water potential.
     leaf_k(:,j) = kmax(l)                                                      &
-        / (1 + (leaf_psi(:,j)/conductance_b(l))**conductance_c(l))
+        / (1 + (MIN(leaf_psi(:,j),0.0_real_jlslsm)/conductance_b(l))**conductance_c(l))
 
   END DO
 
