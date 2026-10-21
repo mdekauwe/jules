@@ -35,6 +35,7 @@ USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,   &
                            nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day, &
                            phen_fbleaf, phen_nlow, phen_nhigh, nsc_regrow_acc, &
                            phen_psi_acc
+USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
@@ -3718,6 +3719,13 @@ CASE ( 't_leaf_clamp_pft' )
 
 CASE ('cica_ratio_pft')
   cube_land = cube_from_array(psparms%cica_ratio_pft)
+  cube = map_from_land(cube_land)
+
+  ! Leaf 13C discrimination (permil, discrimination_model); zero when off.
+CASE ( 'd13c_disc_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(d13c_disc_pft) ) workspace_pft(:,:) = d13c_disc_pft
+  cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
   ! Carbon gain for each plant functional type JBaguley
