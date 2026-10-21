@@ -25,6 +25,10 @@ USE pftparm_io, ONLY: jules_pftparm, init_pftparm_allocated,                   &
 
 USE pftparm, ONLY: print_nlist_jules_pftparm, check_jules_pftparm
 
+USE jules_vegetation_mod, ONLY: leaf_flux_mod, leaf_flux_stom_opt
+USE xylem_hydraulics_CW_jls_mod, ONLY: init_supply_luts
+                            ! MDK, 21/10/26
+
 USE errormessagelength_mod, ONLY: errormessagelength
 
 USE jules_print_mgr, ONLY: jules_print
@@ -106,6 +110,10 @@ CALL jules_print('pftparm',                                                    &
     '- - - - - - end of namelist - - - - - -')
 
 CALL check_jules_pftparm(npft,nnpft)
+! Stomatal optimisation: build the supply-function tables now, from the
+! checked parameters, rather than on first use in the timestep.
+! MDK, 21/10/26
+IF ( leaf_flux_mod == leaf_flux_stom_opt ) CALL init_supply_luts(npft)
 ! Check values of pftparm_io not copied to pftparm_mod before spreading
 IF ( ANY( ABS( canht_ft_io(1:npft) - rmdi ) < EPSILON(1.0) ) ) THEN
   ERROR = 1

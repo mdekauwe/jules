@@ -41,7 +41,8 @@ PUBLIC :: leaf_conductance_CW_jls                                              &
 ,         k_path_zero_flow                                                     &
 ,         set_k_ground_basis                                                   &
 ,         seg_kmax_fac                                                         &
-,         lut_pft_curve   ! MDK, 21/10/26
+,         lut_pft_curve                                                        &
+,         init_supply_luts   ! MDK, 21/10/26
 
 ! Soil-to-root (rhizosphere) conductance Ksr for l_som_rhizo_series, a
 ! conductance (not the soil conductivity soil_k), kept separate from the
@@ -1314,6 +1315,38 @@ s_psi = lut_tab(pft)%s(i0)                                                     &
         + (r - (i0 - 1)) * (lut_tab(pft)%s(i0+1) - lut_tab(pft)%s(i0))
 
 END FUNCTION lut_s_at
+
+! *****************************************************************************
+! Build the supply tables of every PFT (and the segment tables with
+! l_som_plant_segments) at initialisation, once the PFT parameters are read
+! and checked (init_pftparm_jules), instead of on first use inside the
+! timestep. So no table is built inside an OpenMP region, and the ready
+! flags the table functions test outside the critical sections are all set
+! before any thread reads them. Tables from an earlier call are discarded
+! first, so a re-initialisation with other parameters cannot keep stale
+! ones. (The table functions still build a missing table on first use, for
+! callers that do not come through here.)
+!
+! MDK, 21/10/26
+! *****************************************************************************
+SUBROUTINE init_supply_luts( npft )
+
+USE jules_vegetation_mod, ONLY: l_som_plant_segments
+
+INTEGER, INTENT(IN) :: npft
+INTEGER :: pft
+
+IF ( ALLOCATED(lut_tab) ) DEALLOCATE( lut_tab )
+IF ( ALLOCATED(lut_ready) ) DEALLOCATE( lut_ready )
+IF ( ALLOCATED(lut_sox) ) DEALLOCATE( lut_sox )
+IF ( ALLOCATED(lut_seg_tab) ) DEALLOCATE( lut_seg_tab )
+IF ( ALLOCATED(lut_seg_ready) ) DEALLOCATE( lut_seg_ready )
+DO pft = 1, npft
+  CALL build_supply_lut(pft)
+  IF ( l_som_plant_segments ) CALL build_supply_lut_seg(pft)
+END DO
+
+END SUBROUTINE init_supply_luts
 
 ! *****************************************************************************
 ! Build (once per PFT) the supply-function table used by psi_solver_lut:
