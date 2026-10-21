@@ -939,122 +939,124 @@ SELECT CASE ( som_base_parm )
           hydraulic_cost_out(l) = hydraulic_cost_bnd(j)
         END DO
       ELSE
-      carbon_gain(:,:) = 0.0
-      hydraulic_cost(:,:) = 0.0
-      profit(:,:) = 0.0
-      kl_SOX(:,:) = 0.0
-      l_good_sample(:,:) = .TRUE.
-      ci_lo(:) = MAX(ccp(:), 0.0)
-      ci_hi(:) = ca(:)
+        carbon_gain(:,:) = 0.0
+        hydraulic_cost(:,:) = 0.0
+        profit(:,:) = 0.0
+        kl_SOX(:,:) = 0.0
+        l_good_sample(:,:) = .TRUE.
+        ci_lo(:) = MAX(ccp(:), 0.0)
+        ci_hi(:) = ca(:)
 
-      CALL stom_opt_mod_ci(                                                    &
-      ! IN
-          land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,     &
-          som_n_sample, ci_lo, ci_hi,                                          &
-          rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,     &
-          km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,       &
-          l_multilayer, r_bl, r_ca, g_oth,                                    &
-          kmax_ref, conductance_b, conductance_c,                             &
-          psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,             &
-      ! OUT
-          ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample,   &
-          kl_hc_sample,                                                        &
-          psi_stem_sample = psi_stem_sample                                    &
-              )
+        CALL stom_opt_mod_ci(                                                  &
+        ! IN
+            land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,   &
+            som_n_sample, ci_lo, ci_hi,                                        &
+            rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,   &
+            km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,     &
+            l_multilayer, r_bl, r_ca, g_oth,                                   &
+            kmax_ref, conductance_b, conductance_c,                            &
+            psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,            &
+        ! OUT
+            ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample, &
+            kl_hc_sample,                                                      &
+            psi_stem_sample = psi_stem_sample                                  &
+                )
 
-      ! ------------------------------------------------------------------
-      !  Make mask of those samples that are physically reasonable.
-      ! ------------------------------------------------------------------
-      DO j = 1, open_pts
-        l = veg_index(open_index(j))
-
-        ! Require psi <= psi_root_zone
-        l_good_sample(:,j) = l_good_sample(:,j)                                &
-            .and. psi_sample(1:,j) <= psi_root_zone(l) + TINY(psi_root_zone(l))
-
-        ! Require k > k_crit
-        l_good_sample(:,j) = l_good_sample(:,j)                                &
-                             .and. kl_sample(1:,j) > kcrit(l)
-
-        ! Require gl <= gl_max (when the cap is enabled)
-        IF (gl_max(l) > 0.0) l_good_sample(:,j) = l_good_sample(:,j)           &
-                             .AND. gl_sample(1:,j) <= gl_max(l)
-      END DO
-
-      IF (l_xylem_impairment) THEN
-        ! With xylem impairment the SOX hydraulic cost uses the unimpaired
-        ! conductance at the leaf water potential, relative to the
-        ! unimpaired maximum conductance kmax_ref. JBaguley
-        kl_SOX(:,:) = kl_hc_sample(:,:)
+        ! ------------------------------------------------------------------
+        !  Make mask of those samples that are physically reasonable.
+        ! ------------------------------------------------------------------
         DO j = 1, open_pts
           l = veg_index(open_index(j))
-          max_kl(j) = kmax_ref(l)
+
+          ! Require psi <= psi_root_zone
+          l_good_sample(:,j) = l_good_sample(:,j)                              &
+              .and. psi_sample(1:,j) <= psi_root_zone(l)                       &
+                                        + TINY(psi_root_zone(l))
+
+          ! Require k > k_crit
+          l_good_sample(:,j) = l_good_sample(:,j)                              &
+                               .and. kl_sample(1:,j) > kcrit(l)
+
+          ! Require gl <= gl_max (when the cap is enabled)
+          IF (gl_max(l) > 0.0) l_good_sample(:,j) = l_good_sample(:,j)         &
+                               .AND. gl_sample(1:,j) <= gl_max(l)
         END DO
-      ELSE
-        ! Sox uses the xylem conductance for the average of the
-        !  leaf and root zone water potentials (Eller et al. 2018), here of
-        !  the whole path (k_path_zero_flow: every element - root, stem and
-        !  leaf segments, and the soil-to-root link in series - at psi_bar),
-        !  the same path as psi_leaf and the k > kcrit test. Without segments
-        !  and the soil link this is the PFT curve at psi_bar, as before
-        !  (except that xylem_conductance_jls floored k at kcrit).
-        DO j = 1, open_pts
-          l = veg_index(open_index(j))
 
-          SOX_mean_psi(:,j) = 0.5 * (psi_sample(:,j) + psi_root_zone(l))
-          DO i = 1, som_n_sample
-            kl_SOX(i,j) = k_path_zero_flow(pft, l, kmax(l), SOX_mean_psi(i,j))
+        IF (l_xylem_impairment) THEN
+          ! With xylem impairment the SOX hydraulic cost uses the unimpaired
+          ! conductance at the leaf water potential, relative to the
+          ! unimpaired maximum conductance kmax_ref. JBaguley
+          kl_SOX(:,:) = kl_hc_sample(:,:)
+          DO j = 1, open_pts
+            l = veg_index(open_index(j))
+            max_kl(j) = kmax_ref(l)
           END DO
-        END DO
+        ELSE
+          ! SOX_opt (Eller et al. 2018): the conductance is taken at psi_bar,
+          ! the mean of the leaf and root zone water potentials. Here it is the
+          ! whole path (root, stem and leaf segments and the soil-to-root link
+          ! in series, all at psi_bar; k_path_zero_flow), the same path as
+          ! psi_leaf and the k > kcrit test.
+          ! MDK, 21/10/26
+          DO j = 1, open_pts
+            l = veg_index(open_index(j))
 
-        ! Get the maximum xylem conductance for each land point.
-        max_kl = MAXVAL(kl_SOX(1:,:), MASK = l_good_sample, DIM = 1)
-      END IF
+            SOX_mean_psi(:,j) = 0.5 * (psi_sample(:,j) + psi_root_zone(l))
+            DO i = 1, som_n_sample
+              kl_SOX(i,j) = k_path_zero_flow(pft, l, kmax(l), SOX_mean_psi(i,j))
+            END DO
+          END DO
 
-      ! CG = An
-      carbon_gain(:,:) = al_sample(:,:)
+          ! Get the maximum xylem conductance for each land point.
+          max_kl = MAXVAL(kl_SOX(1:,:), MASK = l_good_sample, DIM = 1)
+        END IF
 
-      ! Loop over land points with open stomata
-      DO j = 1, open_pts
+        ! CG = An
+        carbon_gain(:,:) = al_sample(:,:)
+
+        ! Loop over land points with open stomata
+        DO j = 1, open_pts
           l = veg_index(open_index(j))
-          ! HC = 1 - k/ki_max
-          hydraulic_cost(:,j) = 1 - (kl_SOX(:,j)-kcrit(l))                     &
-                                    /(max_kl(j)-kcrit(l))
+          ! HC = 1 - (k - kcrit) / (max_k - kcrit)
+          ! MDK, 21/10/26
+          hydraulic_cost(:,j) = 1.0 - (kl_SOX(:,j)-kcrit(l))                   &
+                                      /(max_kl(j)-kcrit(l))
 
           ! Profit = CG*(1-HC)
-          profit(:,j) = carbon_gain(:,j)*(1-hydraulic_cost(:,j))
-      END DO ! i Land points
+          profit(:,j) = carbon_gain(:,j)*(1.0-hydraulic_cost(:,j))
+        END DO ! j open points
 
-      ! ------------------------------------------------------------------
-      !  Identify maximum profit and set leaf properties to those of the
-      !   optimal state. See the NOTE above stom_opt_profit_max_select for
-      !   what the zeroth (closed-stomata) sample represents.
-      ! ------------------------------------------------------------------
-      DO j = 1, open_pts
-        l = veg_index(open_index(j))
+        ! ------------------------------------------------------------------
+        !  Identify maximum profit and set leaf properties to those of the
+        !   optimal state. See the NOTE above stom_opt_profit_max_select for
+        !   what the zeroth (closed-stomata) sample represents.
+        ! ------------------------------------------------------------------
+        DO j = 1, open_pts
+          l = veg_index(open_index(j))
 
-        optimal_index = MAXLOC(profit(1:,j), DIM = 1, MASK = l_good_sample(:,j))
+          optimal_index = MAXLOC(profit(1:,j), DIM = 1,                        &
+                                 MASK = l_good_sample(:,j))
 
-        ci(l) = MAX(0.0, ci_sample(optimal_index,j))
-        IF (optimal_index == 0) THEN
-          al(l) = al_sample(0,j)
-        ELSE
-          al(l) = MAX(-rd(l), al_sample(optimal_index,j))
-        END IF
-        gl(l) = MAX(0.0, gl_sample(optimal_index,j))
-        ! gl = 0 means closed: al = -rd, as in set_closed.
-        IF (gl(l) <= 0.0) al(l) = -rd(l)
-        psi_leaf(l) = psi_sample(optimal_index,j)
-        ! psi_stem as the profit-max flat search, so the per-segment stem
-        ! damage follows the stem's water potential, not the root zone's.
-        ! MDK, 22/10/26
-        IF (PRESENT(psi_stem)) psi_stem(l) = psi_stem_sample(optimal_index,j)
-        el(l) = el_sample(optimal_index,j)
-        leaf_k(l) = kl_sample(optimal_index,j)
+          ci(l) = MAX(0.0, ci_sample(optimal_index,j))
+          IF (optimal_index == 0) THEN
+            al(l) = al_sample(0,j)
+          ELSE
+            al(l) = MAX(-rd(l), al_sample(optimal_index,j))
+          END IF
+          gl(l) = MAX(0.0, gl_sample(optimal_index,j))
+          ! gl = 0 means closed: al = -rd, as in set_closed.
+          IF (gl(l) <= 0.0) al(l) = -rd(l)
+          psi_leaf(l) = psi_sample(optimal_index,j)
+          ! psi_stem as the profit-max flat search, so the per-segment stem
+          ! damage follows the stem's water potential, not the root zone's.
+          ! MDK, 22/10/26
+          IF (PRESENT(psi_stem)) psi_stem(l) = psi_stem_sample(optimal_index,j)
+          el(l) = el_sample(optimal_index,j)
+          leaf_k(l) = kl_sample(optimal_index,j)
 
-        carbon_gain_out(l) = carbon_gain(optimal_index,j)
-        hydraulic_cost_out(l) = hydraulic_cost(optimal_index,j)
-      END DO
+          carbon_gain_out(l) = carbon_gain(optimal_index,j)
+          hydraulic_cost_out(l) = hydraulic_cost(optimal_index,j)
+        END DO
       END IF  ! som_ci_search (SOX)
 
     CASE (supply_loss_model)
