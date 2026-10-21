@@ -717,6 +717,8 @@ SELECT CASE ( som_base_parm )
           psi_leaf(l) = psi_e_fp(1,j)
           el(l) = el_e_fp(1,j)
           leaf_k(l) = kl_e_fp(1,j)
+          ! The near-ca sample is the max-A one, so A / max A = 1.
+          ! MDK, 21/10/26
           carbon_gain_out(l) = 1.0_real_jlslsm
           hydraulic_cost_out(l) = hc_at_maxstress(j)
         ELSE
