@@ -137,9 +137,9 @@ USE jules_vegetation_mod, ONLY:                                                &
         l_som_skip_search_wellwatered, som_hc_negligible_tol, l_som_nsl
 
 USE pftparm, ONLY:                                                             &
-        min_gl_pft, kcrit_fractional_loss
+        min_gl_pft
 
-USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls, leaf_conductance_jls
+USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow, ksr_path,          &
                                        seg_kmax_fac   ! MDK, 21/10/26
@@ -435,20 +435,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Carbon gain for each leaf state
 ,hydraulic_cost(0:som_n_sample, open_pts)                                      &
                             ! Hydraulic cost for each leaf state
-,max_al(open_pts)                                                              &
-                            ! Maximum net leaf photosynthesis (mol CO2/m2/s)
 ,max_kl(open_pts)                                                              &
-                            ! Maximum xylem conductance (m/s)
-,kmax_open(open_pts)                                                          &
-                            ! kmax gathered onto the open-point index, for
-                            ! the SOX xylem_conductance_jls call.
-,kcrit_open(open_pts)                                                          &
-                            ! kcrit gathered onto the open-point index, for
-                            ! the SOX xylem_conductance_jls call.
-,b_open(open_pts)                                                              &
-,c_open(open_pts)                                                              &
-                            ! conductance_b/c gathered onto the open-point
-                            ! index, for the SOX xylem_conductance_jls call.
+                            ! Maximum conductance (mol m-2 s-1 Pa-1)
+                            ! MDK, 21/10/26
 ,kl_hc_max(land_pts)                                                           &
                             ! Reference (maximum) xylem conductance for the
                             ! hydraulic cost with l_xylem_impairment: the
