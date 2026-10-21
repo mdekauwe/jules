@@ -217,6 +217,8 @@ USE xylem_impairment_whole_trunk_mod, ONLY: leaf_psi_impaired_whole_trunk
 USE xylem_impairment_memory_mod, ONLY: leaf_psi_impaired_memory
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 USE xylem_hydraulics_CW_jls_mod, ONLY: ksr_path, som_psi_in_min
+USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
+                            ! MDK, 21/10/26
 
 USE um_types, ONLY: real_jlslsm
 
@@ -283,9 +285,19 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! One sample per open point.
 , k_s                                                                          &
                             ! Soil-to-root conductance of the path.
-, psi_k(land_pnts)
+, psi_k(land_pnts)                                                             &
                             ! Whole trunk: inlet potential the inlet
                             ! conductance is taken at (Pa).
+                            !
+                            ! MDK, 21/10/26
+, k_s_e(open_pnts), dpsi_s
+                            ! l_som_rhizo_mfp: marginal soil conductance of
+                            ! the sample and soil drop (Pa), as leaf_psi_jls.
+                            !
+                            ! MDK, 21/10/26
+LOGICAL :: l_ok
+                            ! l_som_rhizo_mfp: the soil can carry the sample.
+                            !
                             ! MDK, 21/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -343,6 +355,19 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
           k_s = ksr_path(l)
           IF ( ksr_path(l) < 0.0 ) THEN
             ! No soil link for this PFT (fsmc_mod /= 2).
+          ELSE IF ( rhizo_active(l) ) THEN
+            ! l_som_rhizo_mfp: nonlinear soil link, as leaf_psi_jls; k_s_e
+            ! is the marginal soil conductance at this sample's root
+            ! potential. (This took the linear link before.)
+            !
+            ! MDK, 21/10/26
+            CALL rhizo_path_drop( l, e_leaf(i,j), dpsi_s, k_s_e(j), l_ok )
+            IF ( l_ok ) THEN
+              psi_in(l) = MAX(root_zone_psi(l) - dpsi_s, som_psi_in_min)
+            ELSE
+              psi_in(l) = som_psi_in_min
+              k_s_e(j)  = 0.0
+            END IF
           ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
             psi_in(l) = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
           ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
@@ -357,6 +382,7 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
           ! conductance is the unimpaired curve at the root's historic
           ! minimum (as leaf_psi_impaired_whole_trunk uses there), not the
           ! leaf's, which leaf_conductance_impaired_jls would use.
+          !
           ! MDK, 21/10/26
           psi_k(:) = MIN(psi_in(:), psi_root_extreme(:))
           CALL leaf_conductance_jls( pft, land_pnts, psi_k, kmax, kcrit,       &
@@ -370,6 +396,8 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
         DO j = 1, open_pnts
           l = veg_index(open_index(j))
           k_s = ksr_path(l)
+          IF ( ksr_path(l) >= 0.0 .AND. rhizo_active(l) ) k_s = k_s_e(j)
+                            ! MDK, 21/10/26
           leaf_psi(i,j) = psi1(1,j)
           IF ( ksr_path(l) < 0.0 ) THEN
             leaf_k(i,j) = k1(1,j)
