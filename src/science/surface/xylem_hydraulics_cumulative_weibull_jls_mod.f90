@@ -964,7 +964,7 @@ END SUBROUTINE leaf_psi_CW_jls
 
 ! *****************************************************************************
 ! Leaf water potential and conductance by inverting the tabulated supply
-! function (see lut_s at the top of this module):
+! function (the table lut_tab, see the top of this module):
 !   S(psi_l) = S(psi_r) + e_leaf/kmax.
 ! Exact up to the table's linear interpolation, with no iteration. A demand
 ! beyond what the curve can supply from psi_r puts the leaf at the bottom of
@@ -976,14 +976,13 @@ SUBROUTINE leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index, &
                                 open_index, e_leaf, root_zone_psi, kmax,       &
                                 leaf_psi, leaf_k )
 
-USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
-
 INTEGER, INTENT(IN) ::                                                         &
   pft, n_e_leaf, land_pts, open_pnts, veg_index(land_pts), open_index(land_pts)
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   e_leaf(n_e_leaf, open_pnts)                                                  &
-                            ! Transpiration rates for each open point.
+                            ! Transpiration rates for each open point
+                            ! (mol H2O m-2 s-1).
 , root_zone_psi(land_pts)                                                      &
                             ! Water potential in the root zone (Pa).
 , kmax(land_pts)
@@ -1032,9 +1031,9 @@ END SUBROUTINE leaf_psi_lut_jls
 !
 ! MDK, 18/10/26
 ! *****************************************************************************
-SUBROUTINE leaf_psi_capped_lut_jls( pft, n_e_leaf, land_pts, open_pnts,         &
-                                    veg_index, open_index, e_leaf,              &
-                                    root_zone_psi, kmax_ref, kcap, kcrit,       &
+SUBROUTINE leaf_psi_capped_lut_jls( pft, n_e_leaf, land_pts, open_pnts,        &
+                                    veg_index, open_index, e_leaf,             &
+                                    root_zone_psi, kmax_ref, kcap, kcrit,      &
                                     leaf_psi, leaf_k )
 
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
@@ -1044,7 +1043,8 @@ INTEGER, INTENT(IN) ::                                                         &
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   e_leaf(n_e_leaf, open_pnts)                                                  &
-                            ! Transpiration rates for each open point.
+                            ! Transpiration rates for each open point
+                            ! (mol H2O m-2 s-1).
 , root_zone_psi(land_pts)                                                      &
                             ! Water potential in the root zone (Pa).
 , kmax_ref(land_pts), kcap(land_pts), kcrit(land_pts)
@@ -1072,7 +1072,8 @@ DO j = 1, open_pnts
   IF ( kc < kmx * (1.0 - 1.0e-6) ) THEN
     r = kc / kmx
     IF ( lut_sox(pft) ) THEN
-      psi_s = conductance_b_pft(pft) * (1.0 / r - 1.0)**(1.0 / conductance_c_pft(pft))
+      psi_s = conductance_b_pft(pft)                                           &
+              * (1.0 / r - 1.0)**(1.0 / conductance_c_pft(pft))
     ELSE
       psi_s = conductance_b_pft(pft) * (-LOG(r))**(1.0 / conductance_c_pft(pft))
     END IF
@@ -1091,7 +1092,7 @@ DO j = 1, open_pnts
     IF ( psi_r > psi_s .AND. e_leaf(i,j) <= e_cap ) THEN
       leaf_psi(i,j) = psi_r - e_leaf(i,j) / kc
     ELSE
-      leaf_psi(i,j) = supply_lut_psi(pft, psi_top,                              &
+      leaf_psi(i,j) = supply_lut_psi(pft, psi_top,                             &
                       (e_leaf(i,j) - e_cap) / MAX(kmx, TINY(1.0_real_jlslsm)))
     END IF
     leaf_k(i,j) = MAX(MIN(kmx * supply_lut_f(pft, leaf_psi(i,j)), kc), kcrit(l))
@@ -1099,7 +1100,6 @@ DO j = 1, open_pnts
 END DO
 
 END SUBROUTINE leaf_psi_capped_lut_jls
-
 
 ! *****************************************************************************
 ! Leaf water potential (Pa) from the supply-function table, for root zone
@@ -1143,7 +1143,7 @@ s_target = lut_s_at(pft, psi_root) + e_over_kmax
 IF ( s_target >= lut_tab(pft)%s(n) ) THEN
   psi_l = MIN(-(n - 1) * dpsi, psi_root)
 ELSE
-  ! lut_s(lo) <= s_target < lut_s(hi); S is strictly increasing.
+  ! S(lo) <= s_target < S(hi); S is strictly increasing.
   ! Binary search for that cell, starting from psi_root's cell (the leaf is
   ! never wetter than the root zone). S rises with depth, so the cell is
   ! unique; the search takes about log2(n) = 12 steps (16 for n_lut_max).
@@ -1172,7 +1172,6 @@ END IF
 
 END FUNCTION supply_lut_psi
 
-
 ! *****************************************************************************
 ! Largest normalised transpiration, e/kmax (Pa), the curve can supply from
 ! psi_root while keeping k >= kcrit_frac * kmax: S(psi_crit) - S(psi_root),
@@ -1192,17 +1191,18 @@ REAL(KIND=real_jlslsm) :: psi_crit, r
 CALL build_supply_lut(pft)
 ! f(psi_crit) = kcrit_frac, kept inside (0, 1) (e.g. kcrit >= kmax would
 ! otherwise give a NaN).
-r = MIN(MAX(kcrit_frac, 1.0e-6_real_jlslsm), 1.0_real_jlslsm - 1.0e-6_real_jlslsm)
+r = MIN(MAX(kcrit_frac, 1.0e-6_real_jlslsm),                                  &
+        1.0_real_jlslsm - 1.0e-6_real_jlslsm)
 ! psi_crit by inverting the curve exactly (not from the table):
 ! SOX f = 1/(1 + (psi/b)^c) gives psi = b (1/f - 1)^(1/c);
 ! Weibull f = exp(-(psi/b)^c) gives psi = b (-ln f)^(1/c).
 !
 ! MDK, 18/10/26
 IF ( lut_sox(pft) ) THEN
-  psi_crit = conductance_b_pft(pft)                                                &
+  psi_crit = conductance_b_pft(pft)                                            &
              * (1.0 / r - 1.0)**(1.0 / conductance_c_pft(pft))
 ELSE
-  psi_crit = conductance_b_pft(pft)                                                &
+  psi_crit = conductance_b_pft(pft)                                            &
              * (-LOG(r))**(1.0 / conductance_c_pft(pft))
 END IF
 ! The flow (per unit kmax) that takes the leaf from psi_root down to
@@ -1266,8 +1266,9 @@ END FUNCTION lut_s_at
 
 ! *****************************************************************************
 ! Build (once per PFT) the supply-function table used by psi_solver_lut:
-! lut_s(i,pft) = integral(f, psi_i, 0) by Simpson's rule on each grid cell,
-! for the PFT's conductance model (see lut_s above). Built by numerical
+! lut_tab(pft)%s(i) = integral(f, psi_i, 0) by Simpson's rule on each grid
+! cell, for the PFT's conductance model (see lut_tab at the top of this
+! module). Built by numerical
 ! integration rather than the closed forms (incomplete gamma /
 ! hypergeometric series), whose series are poorly conditioned deep into the
 ! curve.
@@ -1275,8 +1276,8 @@ END FUNCTION lut_s_at
 SUBROUTINE build_supply_lut( pft )
 
 USE max_dimensions, ONLY: npft_max
-USE pftparm, ONLY: conductance_b_pft, conductance_c_pft, pft_conductance_model,       &
-                   kcrit_fractional_loss
+USE pftparm, ONLY: conductance_b_pft, conductance_c_pft,                       &
+                   pft_conductance_model, kcrit_fractional_loss
 USE jules_vegetation_mod, ONLY: SOX_conductance
 
 INTEGER, INTENT(IN) :: pft
