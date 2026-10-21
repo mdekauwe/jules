@@ -1412,9 +1412,13 @@ CASE ( photo_collatz )
                           * (ci_sample(:,j) - ccp(l))                          &
                           / (ci_sample(:,j) + 2.0 * ccp(l))
       wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
-      ! scaling for multi-layer calls, 29 Apr, MGDK
+      ! Multilayer calls: rescale the light-limited rate from the canopy's
+      ! absorbed PAR (apar) to that of this layer's sunlit or shaded leaves
+      ! (fapar_lf * ipar).
+      ! MDK, 21/10/26
       IF (l_multilayer) THEN
-          wlite_sample(:,j) = wlite_sample(:,j) / apar(l) * fapar_lf(l) * ipar(l)
+        wlite_sample(:,j) = wlite_sample(:,j) / apar(l) * fapar_lf(l)          &
+                            * ipar(l)
       END IF
       wexpt_sample(:,j) = fwe_c3 * vcmax(l)
     END DO
@@ -1434,9 +1438,13 @@ CASE ( photo_collatz )
       wcarb_sample(:,j) = vcmax(l)
       wlite_sample(:,j) = alpha(pft) * acr(l)
       wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
-      ! Scale to this leaf's absorbed light in multi-layer calls, as for C3.
+      ! Multilayer calls: rescale the light-limited rate from the canopy's
+      ! absorbed PAR (apar) to that of this layer's sunlit or shaded leaves
+      ! (fapar_lf * ipar).
+      ! MDK, 21/10/26
       IF (l_multilayer) THEN
-          wlite_sample(:,j) = wlite_sample(:,j) / apar(l) * fapar_lf(l) * ipar(l)
+        wlite_sample(:,j) = wlite_sample(:,j) / apar(l) * fapar_lf(l)          &
+                            * ipar(l)
       END IF
       wexpt_sample(:,j) = fwe_c4 * vcmax(l) * ci_sample(:,j) / pstar(l)
     END DO
@@ -1449,7 +1457,6 @@ CASE ( photo_collatz )
   !---------------------------------------------------------------------------
   beta1p2m4 = 4 * beta1 * beta1
   beta2p2m4 = 4 * beta2 * beta2
-
 
   b1(:,:) = beta1
   b2(:,:) = - (wcarb_sample(:,:) + wlite_sample(:,:))
@@ -1465,7 +1472,6 @@ CASE ( photo_collatz )
   wl_sample(:,:) = -b2(:,:) / (2.0 * b1(:,:))                                  &
           - SQRT(b2(:,:) * b2(:,:) / beta2p2m4       - b3(:,:) / b1(:,:))
 
-
 CASE ( photo_farquhar )
   !---------------------------------------------------------------------------
   ! Use the Farquhar model (for C3 plants only).
@@ -1478,22 +1484,22 @@ CASE ( photo_farquhar )
 !$OMP        ci_sample,ccp,km,je,n_sample,photo_model,l_multilayer,je_ratio)
   DO j = 1,open_pts
     l = veg_index(open_index(j))
-      wcarb_sample(:,j) = vcmax(l) * ( ci_sample(:,j) - ccp(l) )               &
-                          / ( ci_sample(:,j) + km(l) )
-      wlite_sample(:,j) = je(l) / 4.0 * ( ci_sample(:,j) - ccp(l) )            &
-                          / ( ci_sample(:,j) + 2.0 * ccp(l) )
-      ! Johnson-Berry: J depends on ci (see jb_photo_mod).
-      IF ( photo_model == photo_johnson )                                      &
-        wlite_sample(:,j) = wlite_sample(:,j)                                  &
-                            * jb_eta_scale( ccp(l), ci_sample(:,j) )
-      wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
+    wcarb_sample(:,j) = vcmax(l) * ( ci_sample(:,j) - ccp(l) )                 &
+                        / ( ci_sample(:,j) + km(l) )
+    wlite_sample(:,j) = je(l) / 4.0 * ( ci_sample(:,j) - ccp(l) )              &
+                        / ( ci_sample(:,j) + 2.0 * ccp(l) )
+    ! Johnson-Berry: J depends on ci (see jb_photo_mod).
+    IF ( photo_model == photo_johnson )                                        &
+      wlite_sample(:,j) = wlite_sample(:,j)                                    &
+                          * jb_eta_scale( ccp(l), ci_sample(:,j) )
+    wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
 
-      ! scaling 29 Apr, MGDK
-      IF (l_multilayer) THEN
-          wlite_sample(:,j) = wlite_sample(:,j) * je_ratio(l)
-      END IF
-
-
+    ! Multilayer calls: the electron transport of this layer's sunlit or
+    ! shaded leaves (je_ratio).
+    ! MDK, 21/10/26
+    IF (l_multilayer) THEN
+      wlite_sample(:,j) = wlite_sample(:,j) * je_ratio(l)
+    END IF
   END DO
 !$OMP END PARALLEL DO
 
@@ -1501,7 +1507,6 @@ CASE ( photo_farquhar )
   ! Calculate minimum of Rubisco and electron transport limited rates.
   !---------------------------------------------------------------------------
   wl_sample(:,:) = MIN( wcarb_sample(:,:), wlite_sample(:,:) )
-
 
 CASE DEFAULT
   errcode = 101  !  a hard error
@@ -1511,10 +1516,9 @@ CASE DEFAULT
 END SELECT  !  pft_photo_model
 
 ! ----------------------------------------------------------------------------
-! Calculate net photosynthetic rate, mol CO2 /m2/s.
+! Calculate net photosynthetic rate (mol CO2 m-2 s-1).
 !  al = wl - rd
 ! ----------------------------------------------------------------------------
-!TODO: add open mp to loop
 DO j = 1,open_pts
   l = veg_index(open_index(j))
 
@@ -1522,10 +1526,11 @@ DO j = 1,open_pts
 END DO
 
 ! ----------------------------------------------------------------------------
-! Calculate stomatal conductance in units of m/s.
-!  gsw = (1/1.6)*(A/(ca-ci))
+! Calculate stomatal conductance for H2O (m/s).
+!  gl = ratio A R T_leaf / (ca - ci), with ratio = 1.6 the ratio of the
+!  diffusivities of H2O and CO2 in air.
+!  MDK, 21/10/26
 ! ----------------------------------------------------------------------------
-!TODO: add open mp to loop
 DO j = 1,open_pts
   l = veg_index(open_index(j))
 
@@ -1558,7 +1563,6 @@ END DO
 ! Calculate transpiration rate.
 !   E = vpd * gl / pstar
 ! ----------------------------------------------------------------------------
-!TODO: add open mp to loop
 
 ! Calculate the factor for converting specific humidity to vapour pressure.
 ! Taken from leaf_limits_mod.F90, the 1.0e3 has been removed to give vpd
@@ -1759,7 +1763,6 @@ ELSE
 END IF
 DO j = 1, open_pts
   l = veg_index(open_index(j))
-  ci_sample(0,j)  = ca(l)
   al_sample(0,j)  = -rd(l)
   gl_sample(0,j)  = 0.0
   el_sample(0,j)  = 0.0
