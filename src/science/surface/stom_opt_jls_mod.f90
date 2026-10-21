@@ -1810,19 +1810,37 @@ USE jules_vegetation_mod, ONLY: l_som_gain_gross
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts                                                                    &
+                            ! Number of land points.
 , open_pts                                                                    &
+                            ! Number of open points to select for.
 , open_index(land_pts)                                                        &
+                            ! Index of the open points on veg_index.
 , veg_index(land_pts)                                                         &
+                            ! Index of vegetated points on the land grid.
 , n_sample
+                            ! Number of Ci samples (entry 0 is the closed
+                            ! state).
+                            ! MDK, 21/10/26
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
   al_sample(0:n_sample, open_pts)                                             &
+                            ! Net photosynthesis of each sample
+                            ! (mol CO2 m-2 s-1).
 , kl_sample(0:n_sample, open_pts)                                             &
+                            ! Whole-path conductance -dE/dpsi_leaf of each
+                            ! sample (mol m-2 s-1 Pa-1).
 , psi_sample(0:n_sample, open_pts)                                            &
+                            ! Leaf water potential of each sample (Pa).
 , gl_sample(0:n_sample, open_pts)                                             &
+                            ! Stomatal conductance for H2O of each sample
+                            ! (m/s).
 , psi_root_zone(land_pts)                                                     &
+                            ! Root zone water potential (Pa).
 , kcrit(land_pts)                                                             &
+                            ! Critical conductance (mol m-2 s-1 Pa-1).
 , gl_max(land_pts)                                                            &
+                            ! Cap on gl (m/s); <= 0 disables it.
+                            ! MDK, 21/10/26
 , kl_hc_sample(0:n_sample, open_pts)                                          &
                             ! Conductance used for the hydraulic cost - see
                             ! stom_opt_mod_ci.
@@ -1830,19 +1848,29 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
                             ! Reference conductance for the hydraulic cost
                             ! with l_xylem_impairment - see stom_opt_mod.
 , rd(land_pts)
-                            ! Dark respiration; added back to An for the
-                            ! gross-A gain (l_som_gain_gross).
+                            ! Dark respiration (mol CO2 m-2 s-1); added back
+                            ! to An for the gross-A gain (l_som_gain_gross).
 
 LOGICAL, INTENT(IN) :: l_xylem_impairment
+                            ! See stom_opt_mod.
 
 LOGICAL, INTENT(OUT) :: l_good_sample(n_sample, open_pts)
+                            ! .TRUE. for a feasible sample: psi_leaf <=
+                            ! psi_root_zone, k > kcrit and gl <= gl_max.
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                        &
   carbon_gain(0:n_sample, open_pts)                                           &
+                            ! A / max A of each sample (dimensionless).
 , hydraulic_cost(0:n_sample, open_pts)                                        &
+                            ! Loss of conductance of each sample, as a
+                            ! fraction of max_k - kcrit (dimensionless).
 , profit(0:n_sample, open_pts)
+                            ! carbon_gain - hydraulic_cost.
 
 INTEGER, INTENT(OUT) :: optimal_index(open_pts)
+                            ! Sample with the largest profit; 0 (closed) if
+                            ! none is feasible.
+                            ! MDK, 21/10/26
 
 INTEGER :: j, l
 
@@ -1878,7 +1906,7 @@ END DO
 
 ! ----------------------------------------------------------------------------
 !  Calculate the profit for each leaf state.
-!    CG = An/max(An)
+!    CG = An/max(An)   (An + Rd with l_som_gain_gross)
 !    HC = (ki_max - k)/(ki_max - k_crit)
 !    Profit = CG-HC
 ! ----------------------------------------------------------------------------
@@ -1916,10 +1944,12 @@ DO j = 1, open_pts
     ! CG = An/max(An)
     carbon_gain(:,j) = (al_sample(:,j) + gain_off(j)) / max_al(j)
 
-    ! HC = (ki_max - k)/(ki_max - k_crit). max_kl(j) > kcrit(l) is
-    ! guaranteed here because l_good_sample already required
-    ! kl_sample > kcrit(l) for at least the sample max_kl was taken from,
-    ! so this denominator can be small under severe stress but never zero.
+    ! HC = (ki_max - k)/(ki_max - k_crit). Without impairment max_kl(j) is
+    ! the largest k of the feasible samples, all of which have k > kcrit,
+    ! so the denominator is positive. With impairment max_kl(j) is
+    ! kl_hc_max, not taken from a sample, and the MAX(..., TINY) is what
+    ! stops a division by zero.
+    ! MDK, 21/10/26
     hydraulic_cost(:,j) =   (max_kl(j) - kl_hc_sample(:,j))                  &
                           / MAX(max_kl(j) - kcrit(l), TINY(1.0_real_jlslsm))
 
