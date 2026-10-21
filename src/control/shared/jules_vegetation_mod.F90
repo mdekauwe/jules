@@ -423,6 +423,16 @@ LOGICAL ::                                                                     &
        ! and height (store and repair only). See triffid_nsc_mod and
        ! NOTES_nsc_storage.md.
        ! MDK, 17/10/26
+   l_trif_hydmort = .FALSE.,                                                   &
+       ! Hydraulic (drought) mortality in TRIFFID: the stand's lethal losses
+       ! of conductance are spread logistically about hydmort_mu (width
+       ! hydmort_width), so the fraction of the stand dead is S(p), with p
+       ! the lasting loss of conductance of the memory impairment model
+       ! (ximpair_lock). A ratchet: each TRIFFID step kills only the part of
+       ! S the stand has not already lost, at the period's peak damage. The
+       ! killed area goes to litter (lotka with l_veg_compete; otherwise it
+       ! becomes bare soil). See triffid_hydmort_mod.
+       ! MDK, 21/10/26
 
 ! Switches for bug fixes.
     l_leaf_n_resp_fix = .FALSE.,                                               &
@@ -1071,7 +1081,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_fast,                                                               &
     l_ximpair_rec_growth, l_ximpair_leaf_loss, l_ximpair_seg_memory,          &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
-    l_nsc_wmax_norm,                                                           &
+    l_nsc_wmax_norm, l_trif_hydmort,                                           &
     ximpair_stomatal_response,                                                &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
     sl_kfail_frac,                                                             &
@@ -2033,6 +2043,18 @@ IF ( l_ximpair_rec_leaf_turn .AND.                                             &
                'l_ximpair_rec_leaf_turn needs the TRIFFID store and the '  //  &
                'per-segment memory (l_triffid_nsc, l_ximpair_seg_memory)')
 END IF
+! MDK, 21/10/26
+IF ( l_trif_hydmort .AND. .NOT. l_triffid ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_trif_hydmort needs TRIFFID (l_triffid=T)')
+END IF
+IF ( l_trif_hydmort .AND. l_triffid .AND. l_trif_eq ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_trif_hydmort is not coded for equilibrium TRIFFID ' //       &
+               '(l_trif_eq=T)')
+END IF
 IF ( l_nsc_wmax_norm .AND. .NOT. l_triffid_nsc ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2241,6 +2263,8 @@ WRITE(lineBuffer,*) ' l_ximpair_rec_nsc = ', l_ximpair_rec_nsc
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_triffid_nsc = ', l_triffid_nsc
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_trif_hydmort = ', l_trif_hydmort
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_rec_leaf_turn = ', l_ximpair_rec_leaf_turn
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_phen_psi = ', l_phen_psi
@@ -2397,7 +2421,7 @@ INTEGER, PARAMETER :: n_int = 25 ! +1 discrimination_model (MDK, 22/10/26), +1 k
 INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5) ! +1 leaf_wind_ext (MDK, 19/10/26), +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 55 + npft_max ! +1 l_som_cuticular_floor (deprecated name, MDK 21/10/26), +1 l_nsc_wmax_norm, +1 l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
+INTEGER, PARAMETER :: n_log = 56 + npft_max ! +1 l_trif_hydmort, +1 l_som_cuticular_floor (deprecated name, MDK 21/10/26), +1 l_nsc_wmax_norm, +1 l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -2482,6 +2506,7 @@ TYPE :: my_namelist
   LOGICAL :: l_ximpair_seg_memory
   LOGICAL :: l_ximpair_rec_nsc
   LOGICAL :: l_triffid_nsc
+  LOGICAL :: l_trif_hydmort
   LOGICAL :: l_ximpair_rec_leaf_turn
   LOGICAL :: l_phen_psi
   LOGICAL :: l_nsc_wmax_norm
@@ -2605,6 +2630,7 @@ IF (mype == 0) THEN
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
   my_nml % l_ximpair_rec_nsc = l_ximpair_rec_nsc
   my_nml % l_triffid_nsc = l_triffid_nsc
+  my_nml % l_trif_hydmort = l_trif_hydmort
   my_nml % l_ximpair_rec_leaf_turn = l_ximpair_rec_leaf_turn
   my_nml % l_phen_psi = l_phen_psi
   my_nml % l_nsc_wmax_norm = l_nsc_wmax_norm
@@ -2717,6 +2743,7 @@ IF (mype /= 0) THEN
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
   l_ximpair_rec_nsc = my_nml % l_ximpair_rec_nsc
   l_triffid_nsc = my_nml % l_triffid_nsc
+  l_trif_hydmort = my_nml % l_trif_hydmort
   l_ximpair_rec_leaf_turn = my_nml % l_ximpair_rec_leaf_turn
   l_phen_psi = my_nml % l_phen_psi
   l_nsc_wmax_norm = my_nml % l_nsc_wmax_norm

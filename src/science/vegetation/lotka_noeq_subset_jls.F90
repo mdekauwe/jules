@@ -33,8 +33,11 @@ USE jules_surface_types_mod, ONLY:                                             &
 
 ! MDK, 17/10/26
 USE triffid_nsc_mod, ONLY: nsc_starv_pft
+USE triffid_hydmort_mod, ONLY: hydmort_g_pft
 USE trif, ONLY: crop, g_area, ag_expand
-USE jules_vegetation_mod, ONLY: frac_min, frac_seed, l_triffid_nsc, l_ag_expand
+USE jules_vegetation_mod, ONLY: frac_min, frac_seed, l_triffid_nsc,          &
+                                l_ag_expand,                                   &
+                                l_trif_hydmort
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -195,6 +198,9 @@ DO n = 1,npft
     ! MDK, 17/10/26
     g_starv(l,n) = 0.0
     IF (l_triffid_nsc) g_starv(l,n) = nsc_starv_pft(l,n)
+    ! Hydraulic mortality (l_trif_hydmort).
+    ! MDK, 21/10/26
+    IF (l_trif_hydmort) g_starv(l,n) = g_starv(l,n) + hydmort_g_pft(l,n)
     g_dist(l,n) =  g_area(n) + g_burn_pft(l,n) + g_starv(l,n)
   END DO
 END DO

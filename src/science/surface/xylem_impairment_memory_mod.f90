@@ -567,10 +567,11 @@ USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 l_ximpair_rec_growth, l_triffid,               &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
                                 l_ximpair_rec_leaf_turn,                       &
-                                triffid_period
+                                triffid_period, l_trif_hydmort
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_psi_stem,                    &
                                           ximpair_seg_state_alloc
+USE triffid_hydmort_mod, ONLY: hydmort_accumulate   ! MDK, 21/10/26
 USE trif, ONLY: g_wood
 USE jules_surface_types_mod, ONLY: npft
 USE model_time_mod, ONLY: current_time, timestep_len
@@ -918,6 +919,10 @@ IF (.NOT. ALLOCATED(ximpair_lock)) THEN
   ximpair_lock(:,:) = 0.0
 END IF
 ximpair_lock(:,pft) = 1.0 - kcap(:) / kmax_pts(:)
+! Worst damage of the TRIFFID period, for hydraulic mortality.
+! MDK, 21/10/26
+IF (l_trif_hydmort) CALL hydmort_accumulate( n_land_pts, pft,                  &
+                                             ximpair_lock(:,pft) )
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 

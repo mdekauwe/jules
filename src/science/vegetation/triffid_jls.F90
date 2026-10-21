@@ -142,10 +142,14 @@ USE jules_vegetation_mod, ONLY: l_veg_compete, l_ht_compete,                   &
                                 l_trait_phys, l_trif_eq, l_landuse,            &
                                 can_rad_mod, l_nitrogen,                       &
                                 l_trif_crop, frac_min, triffid_period,         &
-                                l_trif_biocrop, l_triffid_nsc
+                                l_trif_biocrop, l_triffid_nsc,                 &
+                                l_trif_hydmort
 
 ! MDK, 17/10/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_store, triffid_nsc_area, nsc_dc_pft
+! MDK, 21/10/26
+USE triffid_hydmort_mod, ONLY: triffid_hydmort, triffid_hydmort_cover
+USE xylem_impairment_memory_mod, ONLY: ximpair_lock
 
 USE parkind1, ONLY: jprb, jpim
 
@@ -929,6 +933,13 @@ END DO  !  PFTs
 ! If l_ht_compete=T, there are separate subroutines for dynamic (lotka_noeq)
 ! and equilibrium mode (lotka_eq).
 !-----------------------------------------------------------------------------
+! Hydraulic mortality (l_trif_hydmort): the fraction of each PFT's cover
+! killed in this step, from the period's peak xylem damage; used by lotka
+! (g) or, with fixed fractions, moved to bare soil below.
+! MDK, 21/10/26
+IF ( l_trif_hydmort )                                                          &
+  CALL triffid_hydmort( land_pts, trif_pts, trif_index, r_gamma, ximpair_lock )
+
 IF ( l_veg_compete ) THEN
 
   IF ( l_trif_crop ) THEN
@@ -1028,6 +1039,12 @@ ELSE
   dfrac(:,:)        = 0.0
   dfrac_na(:,:)     = 0.0
   dfrac_nofire(:,:) = 0.0
+  ! Fixed fractions: the cover killed by drought becomes bare soil.
+  ! MDK, 21/10/26
+  IF ( l_trif_hydmort )                                                        &
+    CALL triffid_hydmort_cover( land_pts, trif_pts, trif_index, frac,          &
+                                frac_na, frac_nofire, dfrac, dfrac_na,         &
+                                dfrac_nofire )
 
 END IF  !  l_veg_compete
 

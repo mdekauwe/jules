@@ -283,6 +283,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_sapwood_frac_io(npft_max) = rmdi,                                        &
   nsc_hold_plc_io(npft_max) = rmdi,                                            &
   nsc_g_starv_io(npft_max) = rmdi,                                             &
+  hydmort_mu_io(npft_max) = rmdi,                                              &
+  hydmort_width_io(npft_max) = rmdi,                                           &
+  hydmort_plc_bg_io(npft_max) = rmdi,                                          &
   nsc_repair_window_io(npft_max) = rmdi,                                       &
   nsc_plc_background_io(npft_max) = rmdi,                                      &
   nsc_la_sa_io(npft_max) = rmdi,                                               &
@@ -381,6 +384,7 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_flush_io,    nsc_kc_io,        nsc_reserve_frac_io,                      &
   nsc_tau_load_io, nsc_wmax_fac_io,  nsc_sapwood_frac_io,                      &
   nsc_hold_plc_io, nsc_g_starv_io, nsc_repair_window_io,                       &
+  hydmort_mu_io, hydmort_width_io, hydmort_plc_bg_io,                          &
   nsc_plc_background_io, nsc_la_sa_io, nsc_wood_density_io,                   &
   nsc_psi_turg_full_io, nsc_psi_turg_zero_io, nsc_t_grow_zero_io,              &
   nsc_t_grow_full_io, nsc_overflow_resp_io, nsc_xylem_rate_max_io,            &
@@ -427,9 +431,10 @@ INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 12 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
                                            ! impairment + 2 store)
-INTEGER, PARAMETER :: n_real = 181 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 184 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL pftparm arrays incl. xylem
                                              ! impairment; +1 lai_ref_k_io,
+                                             ! +3 hydmort_*;
                                              ! MDK, 21/10/26)
 
 TYPE :: my_namelist
@@ -604,6 +609,9 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_sapwood_frac_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_hold_plc_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_g_starv_io(npft_max)
+  REAL(KIND=real_jlslsm) :: hydmort_mu_io(npft_max)
+  REAL(KIND=real_jlslsm) :: hydmort_width_io(npft_max)
+  REAL(KIND=real_jlslsm) :: hydmort_plc_bg_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_repair_window_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_plc_background_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_la_sa_io(npft_max)
@@ -815,6 +823,9 @@ IF (mype == 0) THEN
   my_nml % nsc_sapwood_frac_io = nsc_sapwood_frac_io
   my_nml % nsc_hold_plc_io = nsc_hold_plc_io
   my_nml % nsc_g_starv_io = nsc_g_starv_io
+  my_nml % hydmort_mu_io = hydmort_mu_io
+  my_nml % hydmort_width_io = hydmort_width_io
+  my_nml % hydmort_plc_bg_io = hydmort_plc_bg_io
   my_nml % nsc_repair_window_io = nsc_repair_window_io
   my_nml % nsc_plc_background_io = nsc_plc_background_io
   my_nml % nsc_la_sa_io = nsc_la_sa_io
@@ -1014,6 +1025,9 @@ IF (mype /= 0) THEN
   nsc_sapwood_frac_io = my_nml % nsc_sapwood_frac_io
   nsc_hold_plc_io = my_nml % nsc_hold_plc_io
   nsc_g_starv_io = my_nml % nsc_g_starv_io
+  hydmort_mu_io = my_nml % hydmort_mu_io
+  hydmort_width_io = my_nml % hydmort_width_io
+  hydmort_plc_bg_io = my_nml % hydmort_plc_bg_io
   nsc_repair_window_io = my_nml % nsc_repair_window_io
   nsc_plc_background_io = my_nml % nsc_plc_background_io
   nsc_la_sa_io = my_nml % nsc_la_sa_io
@@ -1123,6 +1137,7 @@ USE pftparm, ONLY:                                                             &
   nsc_flush,       nsc_kc,           nsc_reserve_frac,                         &
   nsc_tau_load,    nsc_wmax_fac,     nsc_sapwood_frac,                         &
   nsc_hold_plc,    nsc_g_starv,      nsc_repair_window,                        &
+  hydmort_mu,      hydmort_width,    hydmort_plc_bg,                         &
   nsc_plc_background, nsc_la_sa,     nsc_wood_density,                        &
   nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero, nsc_t_grow_full,      &
   nsc_overflow_resp, nsc_xylem_rate_max, nsc_xylem_type, nsc_ring_mmdd,       &
@@ -1146,7 +1161,8 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 xylem_impairment_memory,                       &
                                 ximpair_driver_stem, l_triffid_nsc,            &
                                 l_ximpair_rec_nsc, l_veg_compete,              &
-                                l_ximpair_rec_growth, l_ximpair_seg_memory
+                                l_ximpair_rec_growth, l_ximpair_seg_memory,    &
+                                l_trif_hydmort
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1453,6 +1469,12 @@ DO i = 1, npft
     nsc_hold_plc(i) = nsc_hold_plc_io(i)
   IF (ABS(nsc_g_starv_io(i) - rmdi) > EPSILON(1.0))                            &
     nsc_g_starv(i) = nsc_g_starv_io(i)
+  IF (ABS(hydmort_mu_io(i) - rmdi) > EPSILON(1.0))                             &
+    hydmort_mu(i) = hydmort_mu_io(i)
+  IF (ABS(hydmort_width_io(i) - rmdi) > EPSILON(1.0))                          &
+    hydmort_width(i) = hydmort_width_io(i)
+  IF (ABS(hydmort_plc_bg_io(i) - rmdi) > EPSILON(1.0))                         &
+    hydmort_plc_bg(i) = hydmort_plc_bg_io(i)
   IF (ABS(nsc_repair_window_io(i) - rmdi) > EPSILON(1.0))                      &
     nsc_repair_window(i) = nsc_repair_window_io(i)
   IF (ABS(nsc_plc_background_io(i) - rmdi) > EPSILON(1.0))                    &
@@ -1622,6 +1644,27 @@ IF ( l_triffid_nsc ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'nsc_flush_days_io must be a whole number of days.')
+  END IF
+END IF
+! Hydraulic mortality (l_trif_hydmort): parameter ranges and the damage
+! state it is driven by.
+! MDK, 21/10/26
+IF ( l_trif_hydmort ) THEN
+  IF ( ANY(hydmort_mu(:) <= 0.0) .OR. ANY(hydmort_width(:) <= 0.0) .OR.     &
+       ANY(hydmort_plc_bg(:) < 0.0) .OR.                                      &
+       ANY(hydmort_plc_bg(:) >= hydmort_mu(:)) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'l_trif_hydmort needs hydmort_mu_io > 0, '                // &
+                 'hydmort_width_io > 0 and '                               // &
+                 '0 <= hydmort_plc_bg_io < hydmort_mu_io.')
+  END IF
+  IF ( .NOT. ANY(pft_xylem_impairment_model(:) == xylem_impairment_memory) ) &
+  THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'l_trif_hydmort needs pft_xylem_impairment_model = 3 '    // &
+                 '(memory) for at least one PFT.')
   END IF
 END IF
 IF ( l_ximpair_rec_nsc ) THEN

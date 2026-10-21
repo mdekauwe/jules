@@ -21,7 +21,7 @@ USE fill_variables_from_file_mod, ONLY: fill_variables_from_file
 
 USE string_utils_mod, ONLY: to_string
 
-USE jules_vegetation_mod, ONLY: l_veg_compete
+USE jules_vegetation_mod, ONLY: l_veg_compete, l_trif_hydmort   ! MDK, 21/10/26
 
 USE dump_mod, ONLY: ancil_dump_read
 
@@ -80,10 +80,11 @@ IF ( .NOT. ancil_dump_read%frac) THEN !we read from the ancil file
   !-------------------------------------------------------------------------
   ! Frac is prognostic if competing veg is on, so must be read as an initial
   ! condition
-  IF ( l_veg_compete ) THEN
+  ! Hydraulic mortality also makes frac prognostic. MDK, 21/10/26
+  IF ( l_veg_compete .OR. l_trif_hydmort ) THEN
     CALL log_info("init_frac",                                                 &
-                  "Competing vegetation is enabled - frac will be read " //    &
-                  "as an initial condition")
+                  "Competing vegetation or hydraulic mortality is "  //        &
+                  "enabled - frac will be read as an initial condition")
     RETURN
   END IF
 

@@ -1048,6 +1048,13 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   CASE ( 'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc', 'gpp_acc', 'resp_s_acc' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  ! Hydraulic mortality: -1 = not set (the damage at the first TRIFFID
+  ! step); nothing killed yet.
+  ! MDK, 21/10/26
+  CASE ( 'hydmort_pref', 'hydmort_plc_peak' )
+    CALL dict_set(defaults_dict, identifiers(i), -1.0)
+  CASE ( 'hydmort_dead' )
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'nsc_store' )
     ! TRIFFID store: -1 = filled to its capacity at the first TRIFFID step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
