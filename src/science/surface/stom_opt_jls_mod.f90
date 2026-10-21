@@ -237,7 +237,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! terms. Only used with the Farquhar model.
 ,dq(land_pts)                                                                  &
                             ! Specific humidity deficit of air (kg H2O/kg air).
-                            ! Leaf saturation vapour pressure (Pa).
 ,qs(land_pts)                                                                  &
                             ! Saturated specific humidity
                             !      (kg H2O/kg air).
@@ -246,24 +245,47 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 ,t_leaf(land_pts)                                                              &
                             ! Leaf temperature (K)
 ,je_ratio(land_pts)                                                            &
+                            ! Electron transport of this leaf over
+                            ! that of the canopy (dimensionless). Scales J
+                            ! in multilayer calls; 1 otherwise.
+                            ! MDK, 21/10/26
 ,fapar_lf(land_pts)                                                            &
+                            ! Fraction of the incident PAR absorbed by this
+                            ! layer's leaf (dimensionless). Used in
+                            ! multilayer calls.
+                            ! MDK, 21/10/26
 ,kmax(land_pts)                                                                &
+                            ! Maximum whole-path (soil-to-leaf) conductance
+                            ! (mol m-2 s-1 Pa-1), on the basis of this call
+                            ! (canopy, leaf or leaf). The impaired
+                            ! value with l_xylem_impairment.
+                            ! MDK, 21/10/26
 ,kcrit(land_pts)                                                               &
+                            ! Critical conductance (mol m-2 s-1 Pa-1, same
+                            ! basis as kmax): states with k <= kcrit are
+                            ! infeasible.
+                            ! MDK, 21/10/26
 ,gl_max(land_pts)                                                              &
                             ! Maximum stomatal conductance for H2O (m/s, same
                             ! basis as gl: per leaf area for multilayer,
                             ! canopy for big-leaf). Samples with gl above it
                             ! are infeasible. <= 0 disables the cap.
 ,ipar(land_pts)                                                                &
+                            ! Incident PAR (W m-2).
+                            ! MDK, 21/10/26
 ,kmax_ref(land_pts)                                                            &
-                            ! Unimpaired maximum xylem conductance (m/s),
-                            ! with the same scaling as kmax (kmax is the
-                            ! impaired value when l_xylem_impairment).
+                            ! Unimpaired maximum conductance
+                            ! (mol m-2 s-1 Pa-1), with the same scaling as
+                            ! kmax (kmax is the impaired value when
+                            ! l_xylem_impairment).
+                            ! MDK, 21/10/26
 ,conductance_b(land_pts)                                                       &
                             ! Conductance parameter b for each land point
                             ! (Pa).
 ,conductance_c(land_pts)                                                       &
-                            ! Conductance parameter c for each land point.
+                            ! Conductance parameter c for each land point
+                            ! (dimensionless).
+                            ! MDK, 21/10/26
 ,psi_leaf_extreme(land_pts)                                                    &
                             ! Historic minimum leaf water potential (Pa).
 ,psi_root_extreme(land_pts)
