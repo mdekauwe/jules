@@ -955,8 +955,10 @@ IF (leaf_flux_mod == leaf_flux_stom_opt) THEN
 ,                               psparms%kmax_impaired_pft                  &
 ,                               psparms%psi_leaf_extreme_pft               &
 ,                               psparms%psi_root_extreme_pft               &
+,                               progs%lai_pft                              &
                               ! INTENT OUT
 ,                               psparms%psi_canopy_pft                     &
+                              ! INTENT IN OUT
 ,                               psparms%k_canopy_pft                       &
 ,                               psparms%psi_leaf_pft                       &
 ,                               psparms%som_transpiration_pft              &

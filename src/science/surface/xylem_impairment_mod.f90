@@ -616,8 +616,10 @@ SUBROUTINE canopy_impaired_psi_jls( land_pts                                   &
 ,                                   kmax_pft                                   &
 ,                                   psi_leaf_extreme                           &
 ,                                   psi_root_extreme                           &
+,                                   lai_pft                                    &
                                   ! INTENT OUT
 ,                                   canopy_psi                                 &
+                                  ! INTENT IN OUT
 ,                                   canopy_k                                   &
                                   ! TMP TESTING PURPOSES ONLY
 ,                                   psi_leaf                                   &
@@ -629,6 +631,8 @@ USE jules_surface_types_mod,  ONLY: npft
 USE ancil_info,               ONLY: nsurft
 USE pftparm, ONLY: kmax_pft_ref => kmax_pft, kcrit
 USE xylem_hydraulics_CW_jls_mod, ONLY: ksr_path
+USE water_constants_mod, ONLY: Water_kg_per_mol
+                            ! MDK, 21/10/26
 
 USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
@@ -645,8 +649,10 @@ INTEGER, INTENT(IN) ::                                                         &
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   e_canopy(land_pts, nsurft)                                                     &
-                            ! Transpiration rates for each open point
-                            ! (kg/m2/s)
+                            ! Transpiration of each tile (mol m-2 ground
+                            ! s-1; et_stom_surft / Water_kg_per_mol).
+                            !
+                            ! MDK, 21/10/26
 , root_zone_psi(land_pts, npft)                                                &
                              ! Water potential in the root zone (Pa)
 , conductance_b(land_pts, npft)                                                &
@@ -661,17 +667,40 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 , psi_leaf_extreme(land_pts, npft)                                             &
                             ! Minimum leaf water potential for each land point
                             ! (Pa)
-, psi_root_extreme(land_pts, npft)
+, psi_root_extreme(land_pts, npft)                                             &
                             ! Minimum root water potential for each land point
                             ! (Pa)
+, lai_pft(land_pts, npft)
+                            ! Leaf area index of each PFT (m2 leaf m-2
+                            ! ground): e_canopy / lai_pft is the leaf-area
+                            ! flux that goes with the leaf-basis kmax_pft,
+                            ! as kmax_pft * LAI with the canopy flux in
+                            ! sf_stom.
+                            !
+                            ! MDK, 21/10/26
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
-  canopy_psi(land_pts, npft)                                                 &
+  canopy_psi(land_pts, npft)
                             ! Canopy water potential for each open point
                             ! (Pa)
-, canopy_k(land_pts, npft)
-                            ! Canopy conductance for each open point
-                            ! (mol m-2 s-1)
+
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+  canopy_k(land_pts, npft)
+                            ! Leaf-basis canopy conductance (kmax_pft
+                            ! units). Set at points with open stomata; kept
+                            ! from the last open step elsewhere
+                            ! (init_vars_tmp starts it at kmax), so IN OUT,
+                            ! not OUT.
+                            !
+                            ! MDK, 21/10/26
+
+REAL(KIND=real_jlslsm), PARAMETER :: e_canopy_max = 1.0e-2 / Water_kg_per_mol
+                            ! Upper cut-off on e_canopy (mol m-2 s-1): the
+                            ! old 1e-2 kg m-2 s-1. The test used to read
+                            ! 1e-2 against e_canopy in mol m-2 s-1, which
+                            ! dropped the points with the largest fluxes.
+                            !
+                            ! MDK, 21/10/26
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
   psi_leaf(land_pts, npft)                                                     &
@@ -729,7 +758,8 @@ DO pft = 1, npft
     l = surface_index(i, pft)
 
     ! If there is transpiration throught the vegitation tile note this point as having open stomata
-    IF (e_canopy(l, pft) > TINY(0.0) .AND. e_canopy(l, pft) < 1e-2) THEN
+    IF (e_canopy(l, pft) > TINY(0.0) .AND. e_canopy(l, pft) < e_canopy_max     &
+        .AND. lai_pft(l, pft) > TINY(0.0)) THEN
       open_pnts = open_pnts + 1
       open_index(open_pnts) = i
     END IF
@@ -746,8 +776,12 @@ DO pft = 1, npft
     canopy_psi_open(n) = root_zone_psi(l, pft)
     canopy_k_open(n) = kmax_pft(l, pft)
 
-    ! Construct array of transpiration rates for points with open stomata
-    e_canopy_open(n) = e_canopy(l, pft)
+    ! Transpiration per unit leaf area for points with open stomata, to go
+    ! with the leaf-basis kmax (it was the ground flux, LAI times too
+    ! large).
+    !
+    ! MDK, 21/10/26
+    e_canopy_open(n) = e_canopy(l, pft) / lai_pft(l, pft)
   END DO
 
   ! Leaf-basis (unscaled) curve, as this diagnostic has always used.
