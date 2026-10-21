@@ -764,34 +764,8 @@ SELECT CASE ( som_base_parm )
         !-------------------------------------------------------------------
         open_pts_flat = 0
         IF (open_pts_search > 0) THEN
-          CALL stom_opt_bounded_search(                                       &
-          ! IN
-              land_pts, pft, open_pts_search, open_index_search,              &
-              pft_photo_model, veg_index,                                     &
-              rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,&
-              km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,      &
-              gl_max, l_multilayer, r_bl, r_ca, g_oth,                        &
-              som_n_sample, som_n_ci_golden_iter,                             &
-              kmax_ref, conductance_b, conductance_c, psi_leaf_extreme,       &
-              psi_root_extreme, l_xylem_impairment, kl_hc_max,                &
-          ! OUT
-              ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                        &
-              el_bnd, carbon_gain_bnd, hydraulic_cost_bnd,                    &
-              psi_stem_g = psi_stem_bnd                                       &
-                  )
-
-          DO j = 1, open_pts_search
-            l = veg_index(open_index_search(j))
-            IF (PRESENT(psi_stem)) psi_stem(l) = psi_stem_bnd(j)
-            ci(l) = ci_bnd(j)
-            al(l) = al_bnd(j)
-            gl(l) = gl_bnd(j)
-            psi_leaf(l) = psi_bnd(j)
-            el(l) = el_bnd(j)
-            leaf_k(l) = kl_bnd(j)
-            carbon_gain_out(l) = carbon_gain_bnd(j)
-            hydraulic_cost_out(l) = hydraulic_cost_bnd(j)
-          END DO
+          CALL bounded_search( open_pts_search, open_index_search, .TRUE. )
+          CALL scatter_bnd( open_pts_search, open_index_search, .TRUE. )
         END IF
       ELSE
         ! Every point not resolved by the fast path goes to the flat search
@@ -892,41 +866,13 @@ SELECT CASE ( som_base_parm )
       !
       ! MDK, 21/10/26
       !-------------------------------------------------------------------
-      CALL stom_opt_bounded_search(                                           &
-      ! IN
-          land_pts, pft, open_pts, open_index,                                &
-          pft_photo_model, veg_index,                                         &
-          rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,    &
-          km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,          &
-          gl_max, l_multilayer, r_bl, r_ca, g_oth,                            &
-          som_n_sample, som_n_ci_golden_iter,                                 &
-          kmax_ref, conductance_b, conductance_c, psi_leaf_extreme,           &
-          psi_root_extreme, l_xylem_impairment, kl_hc_max,                    &
-      ! OUT
-          ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                            &
-          el_bnd, carbon_gain_bnd, hydraulic_cost_bnd,                        &
-          psi_stem_g = psi_stem_bnd,                                          &
-      ! IN (optional)
-          lai_cost = lai_cost                                                 &
-              )
-
       ! psi_stem as the profit-max bounded path, so the per-segment stem
       ! damage (l_ximpair_seg_memory) follows the stem's own water
       ! potential, not the root zone's.
       !
       ! MDK, 21/10/26
-      DO j = 1, open_pts
-        l = veg_index(open_index(j))
-        IF (PRESENT(psi_stem)) psi_stem(l) = psi_stem_bnd(j)
-        ci(l) = ci_bnd(j)
-        al(l) = al_bnd(j)
-        gl(l) = gl_bnd(j)
-        psi_leaf(l) = psi_bnd(j)
-        el(l) = el_bnd(j)
-        leaf_k(l) = kl_bnd(j)
-        carbon_gain_out(l) = carbon_gain_bnd(j)
-        hydraulic_cost_out(l) = hydraulic_cost_bnd(j)
-      END DO
+      CALL bounded_search( open_pts, open_index, .TRUE. )
+      CALL scatter_bnd( open_pts, open_index, .TRUE. )
 
     CASE (sox_opt_profit_model)
       !-------------------------------------------------------------------
@@ -937,31 +883,8 @@ SELECT CASE ( som_base_parm )
       ! for the impaired curve: with impairment the flat grid is kept.)
       !-------------------------------------------------------------------
       IF (som_ci_search == som_ci_bounded .AND. .NOT. l_xylem_impairment) THEN
-        CALL stom_opt_bounded_search(                                         &
-        ! IN
-            land_pts, pft, open_pts, open_index,                              &
-            pft_photo_model, veg_index,                                       &
-            rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,  &
-            km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,        &
-            gl_max, l_multilayer, r_bl, r_ca, g_oth,                          &
-            som_n_sample, som_n_ci_golden_iter,                               &
-            kmax_ref, conductance_b, conductance_c, psi_leaf_extreme,         &
-            psi_root_extreme, l_xylem_impairment, kl_hc_max,                  &
-        ! OUT
-            ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                          &
-            el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                       &
-                )
-        DO j = 1, open_pts
-          l = veg_index(open_index(j))
-          ci(l) = ci_bnd(j)
-          al(l) = al_bnd(j)
-          gl(l) = gl_bnd(j)
-          psi_leaf(l) = psi_bnd(j)
-          el(l) = el_bnd(j)
-          leaf_k(l) = kl_bnd(j)
-          carbon_gain_out(l) = carbon_gain_bnd(j)
-          hydraulic_cost_out(l) = hydraulic_cost_bnd(j)
-        END DO
+        CALL bounded_search( open_pts, open_index, .FALSE. )
+        CALL scatter_bnd( open_pts, open_index, .FALSE. )
       ELSE
         carbon_gain(:,:) = 0.0
         hydraulic_cost(:,:) = 0.0
@@ -1106,17 +1029,7 @@ SELECT CASE ( som_base_parm )
           el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                          &
               )
 
-      DO j = 1, open_pts
-        l = veg_index(open_index(j))
-        ci(l) = ci_bnd(j)
-        al(l) = al_bnd(j)
-        gl(l) = gl_bnd(j)
-        psi_leaf(l) = psi_bnd(j)
-        el(l) = el_bnd(j)
-        leaf_k(l) = kl_bnd(j)
-        carbon_gain_out(l) = carbon_gain_bnd(j)
-        hydraulic_cost_out(l) = hydraulic_cost_bnd(j)
-      END DO
+      CALL scatter_bnd( open_pts, open_index, .FALSE. )
 
     CASE DEFAULT
       errcode = 101  !  a hard error
@@ -1153,6 +1066,84 @@ END DO
 ! MDK, 21/10/26
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
+CONTAINS
+
+!-----------------------------------------------------------------------------
+! The bounded Ci search (stom_opt_bounded_search) on n points, idx in the
+! open_index convention. l_lai: pass lai_cost (profit max, which does not
+! use it, and CMax, CGain and CAP); SOX_opt's bounded search has always run
+! without it. These were three copies of the same call.
+!
+! MDK, 21/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE bounded_search( n, idx, l_lai )
+INTEGER, INTENT(IN) :: n, idx(:)
+LOGICAL, INTENT(IN) :: l_lai
+
+IF ( l_lai ) THEN
+  CALL stom_opt_bounded_search(                                               &
+  ! IN
+      land_pts, pft, n, idx,                                                  &
+      pft_photo_model, veg_index,                                             &
+      rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,        &
+      km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,              &
+      gl_max, l_multilayer, r_bl, r_ca, g_oth,                                &
+      som_n_sample, som_n_ci_golden_iter,                                     &
+      kmax_ref, conductance_b, conductance_c, psi_leaf_extreme,               &
+      psi_root_extreme, l_xylem_impairment, kl_hc_max,                        &
+  ! OUT
+      ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                                &
+      el_bnd, carbon_gain_bnd, hydraulic_cost_bnd,                            &
+      psi_stem_g = psi_stem_bnd,                                              &
+  ! IN (optional)
+      lai_cost = lai_cost                                                     &
+          )
+ELSE
+  CALL stom_opt_bounded_search(                                               &
+  ! IN
+      land_pts, pft, n, idx,                                                  &
+      pft_photo_model, veg_index,                                             &
+      rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,        &
+      km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,              &
+      gl_max, l_multilayer, r_bl, r_ca, g_oth,                                &
+      som_n_sample, som_n_ci_golden_iter,                                     &
+      kmax_ref, conductance_b, conductance_c, psi_leaf_extreme,               &
+      psi_root_extreme, l_xylem_impairment, kl_hc_max,                        &
+  ! OUT
+      ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                                &
+      el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                             &
+          )
+END IF
+
+END SUBROUTINE bounded_search
+
+!-----------------------------------------------------------------------------
+! Copy the *_bnd results of n points (idx in the open_index convention) to
+! the land-point outputs; l_stem: also psi_stem (not set by
+! stom_opt_supply_loss, nor used by SOX_opt). These were four copies.
+!
+! MDK, 21/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE scatter_bnd( n, idx, l_stem )
+INTEGER, INTENT(IN) :: n, idx(:)
+LOGICAL, INTENT(IN) :: l_stem
+INTEGER :: j, l
+
+DO j = 1, n
+  l = veg_index(idx(j))
+  IF (l_stem .AND. PRESENT(psi_stem)) psi_stem(l) = psi_stem_bnd(j)
+  ci(l) = ci_bnd(j)
+  al(l) = al_bnd(j)
+  gl(l) = gl_bnd(j)
+  psi_leaf(l) = psi_bnd(j)
+  el(l) = el_bnd(j)
+  leaf_k(l) = kl_bnd(j)
+  carbon_gain_out(l) = carbon_gain_bnd(j)
+  hydraulic_cost_out(l) = hydraulic_cost_bnd(j)
+END DO
+
+END SUBROUTINE scatter_bnd
 
 END SUBROUTINE stom_opt_mod
 
