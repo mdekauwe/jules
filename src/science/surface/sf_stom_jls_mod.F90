@@ -2211,6 +2211,21 @@ CASE ( 5, 6 )
                         gl_shd(l) = gl_shd(l) / lai(l)
                     END IF
                 END DO
+                ! The same for open leaves the optimiser closed (no flux,
+                ! gl = min_gl_pft from stom_opt_mod).
+                !
+                ! MDK, 21/10/26
+                DO i = 1,open_pts
+                    l = veg_index(open_index(i))
+                    IF ( lai(l) > EPSILON(0.0) ) THEN
+                        IF ( el_sun(l) <= 0.0 .AND.                            &
+                             gl_sun(l) <= min_gl_pft(ft) )                     &
+                          gl_sun(l) = gl_sun(l) / lai(l)
+                        IF ( el_shd(l) <= 0.0 .AND.                            &
+                             gl_shd(l) <= min_gl_pft(ft) )                     &
+                          gl_shd(l) = gl_shd(l) / lai(l)
+                    END IF
+                END DO
 
             CASE DEFAULT
                 errcode = 101  !  a hard error
@@ -3361,6 +3376,16 @@ CASE ( 7 )
         gl_sun(l) = 0.5 * gl_sun(l)
       END IF
     END DO
+    ! The same for open leaves the optimiser closed (no flux, gl =
+    ! min_gl_pft from stom_opt_mod).
+    !
+    ! MDK, 21/10/26
+    DO i = 1,open_pts
+      l = veg_index(open_index(i))
+      IF ( el_sun(l) <= 0.0 .AND. gl_sun(l) <= min_gl_pft(ft) .AND.           &
+           lai(l) > EPSILON(0.0) )                                            &
+        gl_sun(l) = gl_sun(l) * lai_sun_2l(l) / lai(l)
+    END DO
 
     !-------------------------------------------------------------------------
     ! Shaded leaf.
@@ -3458,6 +3483,15 @@ CASE ( 7 )
       ELSE
         gl_shd(l) = 0.5 * gl_shd(l)
       END IF
+    END DO
+    ! As the sunlit leaf, for open leaves the optimiser closed.
+    !
+    ! MDK, 21/10/26
+    DO i = 1,open_pts
+      l = veg_index(open_index(i))
+      IF ( el_shd(l) <= 0.0 .AND. gl_shd(l) <= min_gl_pft(ft) .AND.           &
+           lai(l) > EPSILON(0.0) )                                            &
+        gl_shd(l) = gl_shd(l) * lai_shd_2l(l) / lai(l)
     END DO
 
     DO m = 1,veg_pts
