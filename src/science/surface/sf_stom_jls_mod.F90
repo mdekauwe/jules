@@ -3278,221 +3278,27 @@ CASE ( 7 )
     END IF
 
     !-------------------------------------------------------------------------
-    ! Sunlit leaf.
-    !-------------------------------------------------------------------------
-    clos_pts = 0
-    open_pts = 0
-    DO i = 1,veg_pts
-      l = veg_index(i)
-      IF ( apar_sun_2l(l) > 0.0 .AND. lai_sun_2l(l) > EPSILON(0.0) ) THEN
-        open_pts = open_pts + 1
-        open_index(open_pts) = i
-      ELSE
-        clos_pts = clos_pts + 1
-        clos_index(clos_pts) = i
-      END IF
-    END DO
-
-    ! Soil supply cap, and this class's share of the soil-to-root
-    ! conductance (set_ksr_path): its share of the undamaged plant
-    ! conductance (kmax_ref), so that xylem impairment does not touch the
-    ! soil term.
-    DO m = 1,veg_pts
-      l = veg_index(m)
-      share_sup(l) = kmax_ref_sun_2l(l) /                                      &
-                     MAX(kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l), TINY(1.0))
-    END DO
-    ! lai_cost (stom_opt_mod): this class's leaf area, for the CMax / CGain
-    ! cost per unit leaf area (the kmax share above is N-weighted).
-    ! MDK, 22/10/26
-
-    CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,   &
-                         dqc, dq, qs_sun_lt, q1, dq_sun_lt, gbw_sun_lt,        &
-                         gbw_shd_lt, ra_ca_lt, gl_shd, g_soil_c, qs,           &
-                         dq_opt, r_bl_c, r_ca_c, g_oth_c )
-
-    IF ( l_leaf_temp ) THEN
-      CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,         &
-                               share_sup, dq_opt, t_sun_lt, pstar,             &
-                               gl_max_sun_2l, gl_max_eff,                      &
-                               r_bl_c, r_ca_c, g_oth_c )
-      CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-
-      CALL stom_opt_mod (                                                      &
-              ! IN
-                land_pts, som_base_parm, ft, open_pts, open_index,             &
-                pft_photo_model, veg_pts, veg_index,                           &
-                ca, psi_src, acr_sun_2l, apar_sun_2l, oa, vcmax_sun_2l,        &
-                kc_sun_lt, ko_sun_lt, ccp_sun_lt, pstar,                       &
-                km_sun_lt, dq_opt, qs_sun_lt, je_sun, t_sun_lt, je_dummy,      &
-                fapar_dummy,                                                   &
-                kmax_sun_2l, kcrit_sun_2l, gl_max_eff, ipar,                   &
-                l_multilayer, r_bl_c, r_ca_c, g_oth_c,                         &
-                kmax_ref_sun_2l, conductance_b, conductance_c,              &
-                psi_leaf_extreme, psi_root_extreme, .TRUE.,                    &
-              ! IN OUT
-                rd_sun,                                                        &
-              ! OUT
-                ci_sun_2l, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun,        &
-                gl_sun, psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,              &
-                psi_stem = psi_stem_sun,                                       &
-                lai_cost = lai_sun_2l                                          &
-        )
-    ELSE
-    CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
-                             share_sup, dq_opt, tstar, pstar, gl_max_sun_2l,   &
-                             gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
-    CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-
-    CALL stom_opt_mod (                                                        &
-            ! IN
-              land_pts, som_base_parm, ft, open_pts, open_index,               &
-              pft_photo_model, veg_pts, veg_index,                             &
-              ca, psi_src, acr_sun_2l, apar_sun_2l, oa, vcmax_sun_2l,          &
-              kc, ko, ccp, pstar,                                              &
-              km, dq_opt, qs, je_sun, tstar, je_dummy, fapar_dummy,            &
-              kmax_sun_2l, kcrit_sun_2l, gl_max_eff, ipar,                     &
-              l_multilayer, r_bl_c, r_ca_c, g_oth_c,                           &
-              kmax_ref_sun_2l, conductance_b, conductance_c,                   &
-              psi_leaf_extreme, psi_root_extreme, .TRUE.,                      &
-            ! IN OUT
-              rd_sun,                                                          &
-            ! OUT
-              ci_sun_2l, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun, gl_sun,  &
-              psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,                        &
-              psi_stem = psi_stem_sun,                                         &
-              lai_cost = lai_sun_2l                                            &
-      )
-    END IF
-
-    ! Closed leaves get min_gl_pft from stom_opt_mod as a canopy value;
-    ! share it by leaf area so the two classes together give big-leaf's
-    ! (half each when there is no leaf area).
-    DO i = 1,clos_pts
-      l = veg_index(clos_index(i))
-      IF ( lai(l) > EPSILON(0.0) ) THEN
-        gl_sun(l) = gl_sun(l) * lai_sun_2l(l) / lai(l)
-      ELSE
-        gl_sun(l) = 0.5 * gl_sun(l)
-      END IF
-    END DO
-    ! The same for open leaves the optimiser closed (no flux, gl =
-    ! min_gl_pft from stom_opt_mod).
+    ! Sunlit, then shaded leaf (the shaded leaf sees this pass's sunlit gl
+    ! through coupled_inputs).
     !
     ! MDK, 21/10/26
-    DO i = 1,open_pts
-      l = veg_index(open_index(i))
-      IF ( el_sun(l) <= 0.0 .AND. gl_sun(l) <= min_gl_pft(ft) .AND.           &
-           lai(l) > EPSILON(0.0) )                                            &
-        gl_sun(l) = gl_sun(l) * lai_sun_2l(l) / lai(l)
-    END DO
-
     !-------------------------------------------------------------------------
-    ! Shaded leaf.
-    !-------------------------------------------------------------------------
-    clos_pts = 0
-    open_pts = 0
-    DO i = 1,veg_pts
-      l = veg_index(i)
-      IF ( apar_shd_2l(l) > 0.0 .AND. lai_shd_2l(l) > EPSILON(0.0) ) THEN
-        open_pts = open_pts + 1
-        open_index(open_pts) = i
-      ELSE
-        clos_pts = clos_pts + 1
-        clos_index(clos_pts) = i
-      END IF
-    END DO
-
-    ! Soil supply cap, and this class's share of the soil-to-root
-    ! conductance (set_ksr_path): its share of the undamaged plant
-    ! conductance (kmax_ref), so that xylem impairment does not touch the
-    ! soil term.
-    DO m = 1,veg_pts
-      l = veg_index(m)
-      share_sup(l) = kmax_ref_shd_2l(l) /                                      &
-                     MAX(kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l), TINY(1.0))
-    END DO
-    ! lai_cost (stom_opt_mod): this class's leaf area, for the CMax / CGain
-    ! cost per unit leaf area (the kmax share above is N-weighted).
-    ! MDK, 22/10/26
-
-    ! (The other class is the sunlit leaf of this pass.)
-    CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,   &
-                         dqc, dq, qs_shd_lt, q1, dq_shd_lt, gbw_shd_lt,        &
-                         gbw_sun_lt, ra_ca_lt, gl_sun, g_soil_c, qs,           &
-                         dq_opt, r_bl_c, r_ca_c, g_oth_c )
-
-    IF ( l_leaf_temp ) THEN
-      CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,         &
-                               share_sup, dq_opt, t_shd_lt, pstar,             &
-                               gl_max_shd_2l, gl_max_eff,                      &
-                               r_bl_c, r_ca_c, g_oth_c )
-      CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-
-      CALL stom_opt_mod (                                                      &
-              ! IN
-                land_pts, som_base_parm, ft, open_pts, open_index,             &
-                pft_photo_model, veg_pts, veg_index,                           &
-                ca, psi_src, acr_shd_2l, apar_shd_2l, oa, vcmax_shd_2l,        &
-                kc_shd_lt, ko_shd_lt, ccp_shd_lt, pstar,                       &
-                km_shd_lt, dq_opt, qs_shd_lt, je_shd, t_shd_lt, je_dummy,      &
-                fapar_dummy,                                                   &
-                kmax_shd_2l, kcrit_shd_2l, gl_max_eff, ipar,                   &
-                l_multilayer, r_bl_c, r_ca_c, g_oth_c,                         &
-                kmax_ref_shd_2l, conductance_b, conductance_c,              &
-                psi_leaf_extreme, psi_root_extreme, .TRUE.,                    &
-              ! IN OUT
-                rd_shd,                                                        &
-              ! OUT
-                ci_shd_2l, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd,        &
-                gl_shd, psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,              &
-                psi_stem = psi_stem_shd,                                       &
-                lai_cost = lai_shd_2l                                          &
-        )
-    ELSE
-    CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
-                             share_sup, dq_opt, tstar, pstar, gl_max_shd_2l,   &
-                             gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
-    CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-
-    CALL stom_opt_mod (                                                        &
-            ! IN
-              land_pts, som_base_parm, ft, open_pts, open_index,               &
-              pft_photo_model, veg_pts, veg_index,                             &
-              ca, psi_src, acr_shd_2l, apar_shd_2l, oa, vcmax_shd_2l,          &
-              kc, ko, ccp, pstar,                                              &
-              km, dq_opt, qs, je_shd, tstar, je_dummy, fapar_dummy,            &
-              kmax_shd_2l, kcrit_shd_2l, gl_max_eff, ipar,                     &
-              l_multilayer, r_bl_c, r_ca_c, g_oth_c,                           &
-              kmax_ref_shd_2l, conductance_b, conductance_c,                   &
-              psi_leaf_extreme, psi_root_extreme, .TRUE.,                      &
-            ! IN OUT
-              rd_shd,                                                          &
-            ! OUT
-              ci_shd_2l, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd, gl_shd,  &
-              psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,                        &
-              psi_stem = psi_stem_shd,                                         &
-              lai_cost = lai_shd_2l                                            &
-      )
-    END IF
-
-    DO i = 1,clos_pts
-      l = veg_index(clos_index(i))
-      IF ( lai(l) > EPSILON(0.0) ) THEN
-        gl_shd(l) = gl_shd(l) * lai_shd_2l(l) / lai(l)
-      ELSE
-        gl_shd(l) = 0.5 * gl_shd(l)
-      END IF
-    END DO
-    ! As the sunlit leaf, for open leaves the optimiser closed.
-    !
-    ! MDK, 21/10/26
-    DO i = 1,open_pts
-      l = veg_index(open_index(i))
-      IF ( el_shd(l) <= 0.0 .AND. gl_shd(l) <= min_gl_pft(ft) .AND.           &
-           lai(l) > EPSILON(0.0) )                                            &
-        gl_shd(l) = gl_shd(l) * lai_shd_2l(l) / lai(l)
-    END DO
+    CALL two_leaf_class( apar_sun_2l, lai_sun_2l, kmax_ref_sun_2l,            &
+                         qs_sun_lt, dq_sun_lt, gbw_sun_lt, gbw_shd_lt,         &
+                         gl_shd, t_sun_lt, gl_max_sun_2l, acr_sun_2l,          &
+                         vcmax_sun_2l, kc_sun_lt, ko_sun_lt, ccp_sun_lt,       &
+                         km_sun_lt, je_sun, kmax_sun_2l, kcrit_sun_2l,         &
+                         rd_sun, ci_sun_2l, anetl_sun, el_sun,                 &
+                         flux_o3_l_sun, fo3_l_sun, gl_sun, psi_leaf_sun,       &
+                         CG_sun, HC_sun, leaf_k_sun, psi_stem_sun )
+    CALL two_leaf_class( apar_shd_2l, lai_shd_2l, kmax_ref_shd_2l,            &
+                         qs_shd_lt, dq_shd_lt, gbw_shd_lt, gbw_sun_lt,         &
+                         gl_sun, t_shd_lt, gl_max_shd_2l, acr_shd_2l,          &
+                         vcmax_shd_2l, kc_shd_lt, ko_shd_lt, ccp_shd_lt,       &
+                         km_shd_lt, je_shd, kmax_shd_2l, kcrit_shd_2l,         &
+                         rd_shd, ci_shd_2l, anetl_shd, el_shd,                 &
+                         flux_o3_l_shd, fo3_l_shd, gl_shd, psi_leaf_shd,       &
+                         CG_shd, HC_shd, leaf_k_shd, psi_stem_shd )
 
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -4073,6 +3879,143 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
 
 CONTAINS
+
+!-----------------------------------------------------------------------------
+! Two-leaf canopy (can_rad_mod = 7), one leaf class (sunlit or shaded) for
+! one pass: the open points, this class's share of the supply cap and of the
+! soil-to-root conductance, the coupled-transpiration inputs (with the other
+! class's gl, gl_o), the optimisation (at the class's leaf temperature with
+! l_leaf_temp, else at tstar), and min_gl_pft shared by leaf area at the
+! points that end up closed. The arguments are the class's arrays (_o: the
+! other class's). This was two copies of the same code, one per class.
+!
+! MDK, 21/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE two_leaf_class( apar_c, lai_c, kmax_ref_c, qs_lt_c, dq_lt_c,       &
+                           gbw_c, gbw_o, gl_o, t_lt_c, gl_max_c, acr_c,       &
+                           vcmax_c, kc_lt_c, ko_lt_c, ccp_lt_c, km_lt_c,      &
+                           je_c, kmax_c, kcrit_c, rd_c, ci_c, anetl_c, el_c,  &
+                           flux_o3_c, fo3_c, gl_c, psi_leaf_c, cg_c, hc_c,    &
+                           leaf_k_c, psi_stem_c )
+IMPLICIT NONE
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
+  apar_c(land_pts), lai_c(land_pts), kmax_ref_c(land_pts),                    &
+  qs_lt_c(land_pts), dq_lt_c(land_pts), gbw_c(land_pts), gbw_o(land_pts),     &
+  gl_o(land_pts), t_lt_c(land_pts), gl_max_c(land_pts), acr_c(land_pts),      &
+  vcmax_c(land_pts), kc_lt_c(land_pts), ko_lt_c(land_pts),                    &
+  ccp_lt_c(land_pts), km_lt_c(land_pts), je_c(land_pts), kmax_c(land_pts),    &
+  kcrit_c(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: rd_c(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                     &
+  ci_c(land_pts), anetl_c(land_pts), el_c(land_pts), flux_o3_c(land_pts),     &
+  fo3_c(land_pts), gl_c(land_pts), psi_leaf_c(land_pts), cg_c(land_pts),      &
+  hc_c(land_pts), leaf_k_c(land_pts), psi_stem_c(land_pts)
+                            ! OUT from stom_opt_mod; IN OUT here so that
+                            ! points it does not set keep their values, as
+                            ! with the arrays passed directly before.
+
+INTEGER :: i, l, m
+
+clos_pts = 0
+open_pts = 0
+DO i = 1,veg_pts
+  l = veg_index(i)
+  IF ( apar_c(l) > 0.0 .AND. lai_c(l) > EPSILON(0.0) ) THEN
+    open_pts = open_pts + 1
+    open_index(open_pts) = i
+  ELSE
+    clos_pts = clos_pts + 1
+    clos_index(clos_pts) = i
+  END IF
+END DO
+
+! Soil supply cap, and this class's share of the soil-to-root conductance
+! (set_ksr_path): its share of the undamaged plant conductance (kmax_ref),
+! so that xylem impairment does not touch the soil term. lai_cost
+! (stom_opt_mod): this class's leaf area, for the CMax / CGain cost per
+! unit leaf area (the kmax share is N-weighted).
+DO m = 1,veg_pts
+  l = veg_index(m)
+  share_sup(l) = kmax_ref_c(l) /                                              &
+                 MAX(kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l), TINY(1.0))
+END DO
+
+CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,       &
+                     dqc, dq, qs_lt_c, q1, dq_lt_c, gbw_c, gbw_o, ra_ca_lt,    &
+                     gl_o, g_soil_c, qs, dq_opt, r_bl_c, r_ca_c, g_oth_c )
+
+IF ( l_leaf_temp ) THEN
+  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
+                           share_sup, dq_opt, t_lt_c, pstar, gl_max_c,         &
+                           gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
+  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
+  CALL stom_opt_mod (                                                          &
+          ! IN
+            land_pts, som_base_parm, ft, open_pts, open_index,                 &
+            pft_photo_model, veg_pts, veg_index,                               &
+            ca, psi_src, acr_c, apar_c, oa, vcmax_c,                           &
+            kc_lt_c, ko_lt_c, ccp_lt_c, pstar,                                 &
+            km_lt_c, dq_opt, qs_lt_c, je_c, t_lt_c, je_dummy,                  &
+            fapar_dummy,                                                       &
+            kmax_c, kcrit_c, gl_max_eff, ipar,                                 &
+            l_multilayer, r_bl_c, r_ca_c, g_oth_c,                             &
+            kmax_ref_c, conductance_b, conductance_c,                          &
+            psi_leaf_extreme, psi_root_extreme, .TRUE.,                        &
+          ! IN OUT
+            rd_c,                                                              &
+          ! OUT
+            ci_c, anetl_c, el_c, flux_o3_c, fo3_c,                             &
+            gl_c, psi_leaf_c, cg_c, hc_c, leaf_k_c,                            &
+            psi_stem = psi_stem_c,                                             &
+            lai_cost = lai_c                                                   &
+    )
+ELSE
+  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
+                           share_sup, dq_opt, tstar, pstar, gl_max_c,          &
+                           gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
+  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
+  CALL stom_opt_mod (                                                          &
+          ! IN
+            land_pts, som_base_parm, ft, open_pts, open_index,                 &
+            pft_photo_model, veg_pts, veg_index,                               &
+            ca, psi_src, acr_c, apar_c, oa, vcmax_c,                           &
+            kc, ko, ccp, pstar,                                                &
+            km, dq_opt, qs, je_c, tstar, je_dummy, fapar_dummy,                &
+            kmax_c, kcrit_c, gl_max_eff, ipar,                                 &
+            l_multilayer, r_bl_c, r_ca_c, g_oth_c,                             &
+            kmax_ref_c, conductance_b, conductance_c,                          &
+            psi_leaf_extreme, psi_root_extreme, .TRUE.,                        &
+          ! IN OUT
+            rd_c,                                                              &
+          ! OUT
+            ci_c, anetl_c, el_c, flux_o3_c, fo3_c, gl_c,                       &
+            psi_leaf_c, cg_c, hc_c, leaf_k_c,                                  &
+            psi_stem = psi_stem_c,                                             &
+            lai_cost = lai_c                                                   &
+    )
+END IF
+
+! Closed leaves get min_gl_pft from stom_opt_mod as a canopy value; share it
+! by leaf area so the two classes together give big-leaf's (half each when
+! there is no leaf area). The same for open leaves the optimiser closed (no
+! flux, gl = min_gl_pft).
+DO i = 1,clos_pts
+  l = veg_index(clos_index(i))
+  IF ( lai(l) > EPSILON(0.0) ) THEN
+    gl_c(l) = gl_c(l) * lai_c(l) / lai(l)
+  ELSE
+    gl_c(l) = 0.5 * gl_c(l)
+  END IF
+END DO
+DO i = 1,open_pts
+  l = veg_index(open_index(i))
+  IF ( el_c(l) <= 0.0 .AND. gl_c(l) <= min_gl_pft(ft) .AND.                   &
+       lai(l) > EPSILON(0.0) )                                                &
+    gl_c(l) = gl_c(l) * lai_c(l) / lai(l)
+END DO
+
+END SUBROUTINE two_leaf_class
 
 !-----------------------------------------------------------------------------
 ! Leaf energy balance (l_leaf_temp), two-leaf and multilayer: the radiation
