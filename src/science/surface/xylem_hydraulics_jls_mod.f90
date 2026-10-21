@@ -24,7 +24,7 @@ CONTAINS
 ! *********************************************************************
 
 ! ---------------------------------------------------------------------
-! Function to manage leaf conductance calculations for different
+! Subroutine to manage leaf conductance calculations for different
 ! conductance models, for all land points. JBaguley
 ! ---------------------------------------------------------------------
 SUBROUTINE leaf_conductance_jls( pft,                                          &
@@ -58,18 +58,20 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Water potentials for each land point (Pa)
 , kmax(land_pnts)                                                              &
                             ! Maximum xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , kcrit(land_pnts)                                                             &
                             ! Critical xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , conductance_b(land_pnts)                                                     &
                             ! Conductance parameter b for each land point (Pa)
 , conductance_c(land_pnts)
                             ! Conductance parameter c for each land point
+                            ! (dimensionless)
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_k(land_pnts)
-                            ! Leaf conductance for each land point (m/s)
+                            ! Leaf conductance for each land point
+                            ! (mol m-2 s-1 Pa-1)
 
 ! Local variables
 INTEGER :: errcode
@@ -106,9 +108,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE leaf_conductance_jls
 
 ! ---------------------------------------------------------------------
-! Function to manage xylem conductance calculations for different
+! Subroutine to manage xylem conductance calculations for different
 ! conductance models.
-! NOTE: This function is designed for the stomatal optimisation model.
+! NOTE: This subroutine is designed for the stomatal optimisation model.
 !       It assumes that the input and output arrays are only large
 !       enough to contain values for points with open stomata.
 ! ---------------------------------------------------------------------
@@ -146,19 +148,21 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Water potentials for each open point (Pa)
 , kmax(open_pnts)                                                              &
                             ! Maximum xylem conductance for each open point
-                            ! (m/s).
+                            ! (mol m-2 s-1 Pa-1).
 , kcrit(open_pnts)                                                             &
                             ! Critical xylem conductance for each open point
-                            ! (m/s).
+                            ! (mol m-2 s-1 Pa-1).
 , conductance_b(open_pnts)                                                     &
                             ! Conductance parameter b for each open point
                             ! (Pa). JBaguley
 , conductance_c(open_pnts)
-                            ! Conductance parameter c for each open point.
+                            ! Conductance parameter c for each open point
+                            ! (dimensionless).
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   xylem_conductance(n_water_potentials, open_pnts)
-                            ! Xylem conductance for each open point (m/s)
+                            ! Xylem conductance for each open point
+                            ! (mol m-2 s-1 Pa-1)
 
 ! Local variables
 INTEGER :: errcode
@@ -212,7 +216,7 @@ END SUBROUTINE xylem_conductance_jls
 ! Subroutine to manage leaf water potential calculations for different
 ! conductance models.
 ! NOTE: This function is designed for the stomatal optimisation model.
-!       It returns an output array that only contain values for points
+!       It returns an output array that only contains values for points
 !       with open stomata.
 ! ---------------------------------------------------------------------
 SUBROUTINE leaf_psi_jls( pft,                                                  &
@@ -232,14 +236,12 @@ SUBROUTINE leaf_psi_jls( pft,                                                  &
                          leaf_k                                                &
   )
 
-USE pftparm, ONLY: pft_conductance_model, conductance_b_pft,                  &
-                   conductance_c_pft
-USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,             &
-                                som_psi_solver, psi_solver_lut,           &
+USE pftparm, ONLY: pft_conductance_model
+USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,               &
+                                som_psi_solver, psi_solver_lut,                &
                                 l_som_plant_segments, l_som_rhizo_series
-USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls, leaf_psi_lut_jls,     &
-                                       supply_lut_f, ksr_path,                 &
-                                       som_psi_in_min, xylem_f_bc
+USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls, leaf_psi_lut_jls,      &
+                                       ksr_path, som_psi_in_min, xylem_f_bc
 USE xylem_hydraulics_SOX_jls_mod, ONLY: leaf_psi_SOX_jls
 USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
 
@@ -263,26 +265,29 @@ INTEGER, INTENT(IN) ::                                                         &
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   e_leaf(n_e_leaf, open_pnts)                                                  &
-                            ! Transpiration rates for each open point (kg/m2/s)
+                            ! Transpiration rates for each open point
+                            ! (mol H2O m-2 s-1)
 , root_zone_psi(land_pts)                                                      &
                              ! Water potential in the root zone (Pa)
 , kmax(land_pts)                                                               &
                             ! Maximum xylem conductance for each land point
-                            ! (m/s).
+                            ! (mol m-2 s-1 Pa-1).
 , kcrit(land_pts)                                                              &
                             ! Critical xylem conductance for each land point
-                            ! (m/s).
+                            ! (mol m-2 s-1 Pa-1).
 , conductance_b(land_pts)                                                      &
                             ! Conductance parameter b for each land point
                             ! (Pa). JBaguley
 , conductance_c(land_pts)
-                            ! Conductance parameter c for each land point.
+                            ! Conductance parameter c for each land point
+                            ! (dimensionless).
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_psi(n_e_leaf, open_pnts)                                                &
-                            ! Leaf water potential for each open point (m/s)
+                            ! Leaf water potential for each open point (Pa)
 , leaf_k(n_e_leaf, open_pnts)
-                            ! Leaf conductance for each open point (m/s)
+                            ! Whole-path conductance -dE/dpsi_leaf for each
+                            ! open point (mol m-2 s-1 Pa-1)
 
 ! Local variables
 INTEGER :: errcode, i, j, l
@@ -303,7 +308,7 @@ LOGICAL :: l_ok
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_JLS'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_PSI_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
@@ -355,14 +360,12 @@ ELSE
       IF ( ksr_path(l) >= 0.0 .AND. rhizo_active(l) ) k_s = k_s_e(j)
       ! The plant conductance at the inlet on this point's curve: the
       ! impaired one (conductance_b/c) under xylem impairment, else the PFT
-      ! curve, from the supply table as the plant path.
-      IF ( conductance_b(l) == conductance_b_pft(pft) .AND.                    &
-           conductance_c(l) == conductance_c_pft(pft) ) THEN
-        k_in = kmax(l) * supply_lut_f(pft, psi_in(l))
-      ELSE
-        k_in = kmax(l) * xylem_f_bc(pft, psi_in(l), conductance_b(l),          &
-                                    conductance_c(l))
-      END IF
+      ! curve. (This used to take supply_lut_f when b and c equalled the
+      ! PFT's, which gives the same value for psi <= 0 but built the supply
+      ! table even with the Newton solver.)
+      ! MDK, 21/10/26
+      k_in = kmax(l) * xylem_f_bc(pft, psi_in(l), conductance_b(l),            &
+                                  conductance_c(l))
       leaf_psi(i,j) = psi1(1,j)
       IF ( ksr_path(l) < 0.0 ) THEN
         leaf_k(i,j) = k1(1,j)
@@ -391,18 +394,18 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: psi_out(n_e, open_pnts),               &
 SELECT CASE ( pft_conductance_model(pft) )
 
 CASE ( CW_conductance )
-  IF ( som_psi_solver == psi_solver_lut .AND.                             &
+  IF ( som_psi_solver == psi_solver_lut .AND.                                 &
        .NOT. l_som_plant_segments ) THEN
     ! Direct call: skips leaf_psi_CW_jls's automatic work arrays.
-    CALL leaf_psi_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,        &
-                              open_index, e_in, psi_root, kmax,                &
-                              psi_out, k_out )
+    CALL leaf_psi_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
+                           open_index, e_in, psi_root, kmax,                   &
+                           psi_out, k_out )
   ELSE
-  CALL leaf_psi_CW_jls( pft, n_e, land_pts, open_pnts, veg_index,             &
-                        open_index, e_in, psi_root, kmax, kcrit,               &
-                        conductance_b, conductance_c,                          &
-                     ! INTENT OUT
-                        psi_out, k_out )
+    CALL leaf_psi_CW_jls( pft, n_e, land_pts, open_pnts, veg_index,            &
+                          open_index, e_in, psi_root, kmax, kcrit,             &
+                          conductance_b, conductance_c,                        &
+                       ! INTENT OUT
+                          psi_out, k_out )
   END IF
 
 CASE ( SOX_conductance )
@@ -411,11 +414,11 @@ CASE ( SOX_conductance )
                            open_index, e_in, psi_root, kmax,                   &
                            psi_out, k_out )
   ELSE
-  CALL leaf_psi_SOX_jls( pft, n_e, land_pts, open_pnts, veg_index,             &
-                         open_index, e_in, psi_root, kmax, kcrit,              &
-                         conductance_b, conductance_c,                         &
-                      ! INTENT OUT
-                         psi_out, k_out )
+    CALL leaf_psi_SOX_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
+                           open_index, e_in, psi_root, kmax, kcrit,            &
+                           conductance_b, conductance_c,                       &
+                        ! INTENT OUT
+                           psi_out, k_out )
   END IF
 
 CASE DEFAULT
