@@ -80,12 +80,21 @@ REAL(KIND=real_jlslsm) :: litter_flux
 !    frac_flux = frac - (1.0-frac)*dfrac
 !    old_veg = veg - dveg
 
-litter_flux = npp - r_gamma / frac_flux *                                      &
-              ( veg * frac - (veg - dveg) * (frac - dfrac) )
+! A PFT with no cover at the start of the step (frac_flux = 0, e.g. the
+! absent PFTs of a fixed-fraction site run) has no litter per m2 of PFT;
+! its land litter is the change in its carbon alone (0 if it stays absent).
+! The division gave NaN, which reached the soil carbon.
+! MDK, 21/10/26
+IF ( frac_flux > 0.0 ) THEN
+  litter_flux = npp - r_gamma / frac_flux *                                    &
+                ( veg * frac - (veg - dveg) * (frac - dfrac) )
 
-! Convert units from [kg/(m2 of PFT)/(360 days)]
-!                 to [kg/(m2 of land)/(360 days)]
-litter_flux = litter_flux * frac_flux
+  ! Convert units from [kg/(m2 of PFT)/(360 days)]
+  !                 to [kg/(m2 of land)/(360 days)]
+  litter_flux = litter_flux * frac_flux
+ELSE
+  litter_flux = - r_gamma * ( veg * frac - (veg - dveg) * (frac - dfrac) )
+END IF
 
 END FUNCTION calc_litter_flux
 

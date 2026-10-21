@@ -1508,6 +1508,10 @@ END IF
 DO t = 1,trif_pts
   l = trif_index(t)
   DO n = 1,nnpft
+    ! No cover at the start of the step: leave the (zero) fluxes per m2 of
+    ! land rather than divide by 0.
+    ! MDK, 21/10/26
+    IF (frac_flux(l,n) <= 0.0 .OR. frac_flux_nat(l,n) <= 0.0) CYCLE
     IF (frac(l,n) < frac_na(l,n)) THEN
       lit_c(l,n)            = lit_c(l,n)        / frac_flux_nat(l,n)
       lit_n_pft(l,n)        = lit_n_pft(l,n)    / frac_flux_nat(l,n)
