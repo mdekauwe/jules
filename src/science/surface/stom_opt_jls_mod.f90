@@ -1061,9 +1061,11 @@ SELECT CASE ( som_base_parm )
 
     CASE (supply_loss_model)
       !-------------------------------------------------------------------
-      ! Supply-loss stomata (stomata_model = 9): no optimisation; gl_max
-      ! carries only the soil supply limit; see stom_opt_supply_loss. The bounded-search outputs are
-      ! reused.
+      ! Supply-loss stomata (stomata_model = 9; Sperry and Love 2015): no
+      ! optimisation. gl_max carries only the soil supply limit; see
+      ! stom_opt_supply_loss. Its results come back in the bounded search's
+      ! *_bnd arrays.
+      ! MDK, 21/10/26
       !-------------------------------------------------------------------
       CALL stom_opt_supply_loss(                                               &
       ! IN
@@ -1097,7 +1099,7 @@ SELECT CASE ( som_base_parm )
     END SELECT ! som_profit_model
 
   CASE (som_base_parm_psi)
-    WRITE(*,*) "psi not implimented yet"
+    WRITE(*,*) "psi not implemented yet"
 
   CASE DEFAULT
     errcode = 101  !  a hard error
@@ -1105,15 +1107,11 @@ SELECT CASE ( som_base_parm )
                'som_base_parm should be 1 or 2')
 END SELECT
 
-! leaf_k is Kplant, the chosen sample's whole-path (soil-to-leaf)
-! conductance, also with xylem impairment (it used to be replaced here by
-! the impaired xylem conductance at psi_leaf, for PLC_pft; PLC_pft now comes
-! from psi_leaf on the curve itself).
-
-!TODO: Redetermine if stomata are open or closed?
-
-!TODO: Calculate ozone exposure here. Create subroutine using code in
-!TODO:  leaf_jls_mod.
+! leaf_k is Kplant: the whole-path (soil-to-leaf) conductance of the chosen
+! state, also with xylem impairment.
+! Ozone exposure (flux_o3, fo3) is not calculated (TODO: port from
+! leaf_jls_mod).
+! MDK, 21/10/26
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
@@ -2841,6 +2839,17 @@ END SUBROUTINE stom_opt_bounded_search
 ! after a coarse scan), so nothing can diverge near E_crit; the supply
 ! function itself comes from leaf_psi_jls (table, or Newton with
 ! som_psi_solver = 2).
+!
+! References:
+! - Sperry, J.S. and Love, D.M. (2015), What plant hydraulics can tell us
+!   about responses to climate-change droughts. New Phytol, 207: 14-27.
+!   https://doi.org/10.1111/nph.13354
+! - Sperry, J.S., Wang, Y., Wolfe, B.T., Mackay, D.S., Anderegg, W.R.L.,
+!   McDowell, N.G. and Pockman, W.T. (2016), Pragmatic hydraulic theory
+!   predicts stomatal responses to climatic water deficits. New Phytol,
+!   212: 577-589. https://doi.org/10.1111/nph.14059
+!
+! MDK, 21/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_supply_loss(                                               &
 ! IN
