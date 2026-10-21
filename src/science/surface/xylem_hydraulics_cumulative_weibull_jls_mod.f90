@@ -678,6 +678,8 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_JLS'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! Select the method to approximate the leaf water potential
+! psi is held at <= 0 in (psi/b)**c: a positive psi gave a negative base and
+! NaN. Unchanged for psi <= 0. MDK, 22/10/26
 SELECT CASE (som_psi_solver)
 
 ! ---------------------------------------------------------------------
@@ -708,7 +710,7 @@ CASE(psi_solver_taylor)
       !  zone water potential).
       !  k(psi) = kmax * exp(-(psi/b) ** c)
       leaf_k(:,j) = kmax(l)                                               &
-          * EXP( -(leaf_psi(:,j)/conductance_b(l))**conductance_c(l) )
+          * EXP( -(MIN(leaf_psi(:,j),0.0_real_jlslsm)/conductance_b(l))**conductance_c(l) )
 
       !  Iterate over the transpiration for each open point.
       DO i = 1,n_e_leaf
@@ -727,7 +729,7 @@ CASE(psi_solver_taylor)
           ! Calculate the new xylem conductance
           !  k(psi) = kmax * exp(-(psi/b) ** c)
           leaf_k_new = kmax(l)                                              &
-             * EXP( -(reference_psi/conductance_b(l))**conductance_c(l) )
+             * EXP( -(MIN(reference_psi,0.0_real_jlslsm)/conductance_b(l))**conductance_c(l) )
 
           ! If the change in xylem conductance is less than
           !  k_conversion_limit then break the loop.
@@ -790,7 +792,7 @@ CASE(psi_solver_newton)
   ! Calculate the lower incomplete gamma function for the root zone water
   ! potential, for all land points.
   gamma_root_psi = incomplete_gamma_different_a(land_pts, 1/conductance_c,    &
-                                    (root_zone_psi/conductance_b)              &
+                                    (MIN(root_zone_psi,0.0_real_jlslsm)/conductance_b)              &
                                     **conductance_c)
 
   DO j = 1, open_pnts ! Iterate over the open points.
@@ -800,12 +802,16 @@ CASE(psi_solver_newton)
 
     ! Calculate the xylem conductance at the root zone water potential.
     leaf_k(:,j) = kmax(l)                                                      &
-        * EXP( -(root_zone_psi(l)/conductance_b(l))**conductance_c(l) )
+        * EXP( -(MIN(root_zone_psi(l),0.0_real_jlslsm)/conductance_b(l))**conductance_c(l) )
 
     ! The initial guess for the leaf water potential is that of the root zone
     ! meaning that the transpiration rate is zero. This simplifies the first
     ! prediction of the leaf water potential to;
-    leaf_psi(:,j) = root_zone_psi(l) - e_leaf(:,j) / leaf_k(:,j)
+    ! (leaf_k floored as in the update below: in very dry soil it underflows
+    ! to 0, and the first guess was then -Inf and the sample NaN. Only that
+    ! case changes. MDK, 22/10/26)
+    leaf_psi(:,j) = root_zone_psi(l) - e_leaf(:,j)                             &
+                    / MAX(leaf_k(:,j), TINY(1.0_real_jlslsm))
 
     ! Convergence tolerance for this point, matching the psi_solver_taylor
     ! tolerance above (10% of kcrit).
@@ -825,13 +831,13 @@ CASE(psi_solver_newton)
       ! Calculate the xylem conductance for the current leaf water potential.
       leaf_k_prev(:,j) = leaf_k(:,j)
       leaf_k(:,j) = kmax(l)                                                    &
-          * EXP( -(leaf_psi(:,j)/conductance_b(l))**conductance_c(l) )
+          * EXP( -(MIN(leaf_psi(:,j),0.0_real_jlslsm)/conductance_b(l))**conductance_c(l) )
 
       ! Calculate the transpiration rate for the current leaf water potential.
       ! First get the incomplete gamma function for the leaf water potential.
       e_leaf_current(:,j) = incomplete_gamma(n_e_leaf,                         &
                                              1/conductance_c(l),             &
-                                             (leaf_psi(:,j)/conductance_b(l))&
+                                             (MIN(leaf_psi(:,j),0.0_real_jlslsm)/conductance_b(l))&
                                               **conductance_c(l))
 
       ! Calculate the difference between the incomplete gamma function at the
@@ -865,7 +871,7 @@ CASE(psi_solver_newton)
 
     ! Calculate the xylem conductance for the current leaf water potential.
     leaf_k(:,j) = kmax(l)                                                    &
-          * EXP( -(leaf_psi(:,j)/conductance_b(l))**conductance_c(l) )
+          * EXP( -(MIN(leaf_psi(:,j),0.0_real_jlslsm)/conductance_b(l))**conductance_c(l) )
 
   END DO
 

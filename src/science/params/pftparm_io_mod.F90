@@ -1622,6 +1622,15 @@ END IF
 ! ---------------------------------------------------------------------
 DO i = 1, npft
 
+  ! kcrit_fractional_loss = 1 gives kcrit = 0: the curve fit below takes
+  ! LOG(0), and the memory impairment divides by kcrit once the cap reaches
+  ! it. MDK, 22/10/26
+  IF ( kcrit_fractional_loss(i) >= 1.0 ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'kcrit_fractional_loss_io must be below 1.')
+  END IF
+
   ! Calculate critical conductance
   kcrit(i) = (1-kcrit_fractional_loss(i))*kmax_pft(i)
 

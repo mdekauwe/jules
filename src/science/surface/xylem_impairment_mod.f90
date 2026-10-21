@@ -15,7 +15,6 @@ IMPLICIT NONE
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_IMPAIRMENT_MOD'
 
 PUBLIC :: leaf_conductance_impaired_jls,                                       &
-          xylem_conductance_impaired_stom_opt_jls,                             &
           leaf_psi_impaired_jls,                                               &
           update_xylem_impairment,                                             &
           canopy_impaired_psi_jls
@@ -178,180 +177,6 @@ END SELECT
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE leaf_conductance_impaired_jls
-
-! ---------------------------------------------------------------------
-! Function to manage xylem conductance calculations for different
-! impairment models.
-! NOTE: This function is designed for the stomatal optimisation model.
-!       It asumes that the input and output arrays are only large
-!       enough to contain values for points with open stomata.
-! ---------------------------------------------------------------------
-SUBROUTINE xylem_conductance_impaired_stom_opt_jls( pft,                       &
-                                           n_water_potentials,                 &
-                                           open_pnts,                          &
-                                           open_index,                         &
-                                           veg_index,                          &
-                                           land_pnts,                          &
-                                           water_potential,                    &
-                                           kmax_ref,                           &
-                                           kmax,                               &
-                                           kcrit,                              &
-                                           conductance_b,                      &
-                                           conductance_c,                      &
-                                           psi_extreme,                        &
-                                         ! INTENT OUT
-                                           xylem_conductance                   &
-  )
-
-USE model_time_mod, ONLY: is_spinup
-USE jules_vegetation_mod, ONLY: xylem_impairment_none,                         &
-                                xylem_impairment_whole_trunk,                  &
-                                xylem_impairment_memory
-USE pftparm, ONLY: pft_xylem_impairment_model,                                 &
-                   conductance_c_pft, conductance_b_pft
-
-USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls
-USE xylem_impairment_whole_trunk_mod, ONLY: xylem_conductance_impaired_whole_trunk_stom_opt_jls
-USE xylem_impairment_memory_mod,                                               &
-    ONLY: xylem_conductance_impaired_memory_stom_opt_jls
-
-USE um_types, ONLY: real_jlslsm
-
-USE ereport_mod, ONLY: ereport
-USE parkind1, ONLY: jprb, jpim
-USE yomhook, ONLY: lhook, dr_hook
-
-INTEGER, INTENT(IN) ::                                                         &
-  pft                                                                          &
-                            ! Plant functional type index
-, n_water_potentials                                                           &
-                            ! Number of water potentials per open point
-, open_pnts                                                                    &
-                            ! Number of open stomata
-, open_index(open_pnts)                                                        &
-                            ! Index of open stomata into veg_index
-, land_pnts                                                                    &
-                            ! Number of land points
-, veg_index(land_pnts)
-                            ! Index of vegetated points on the land grid
-
-REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
-  water_potential(n_water_potentials, open_pnts)                               &
-                            ! Water potentials for each open point (Pa)
-, kmax_ref(land_pnts)                                                          &
-                            ! Unimpaired maximum xylem conductance for each
-                            ! land point (m/s)
-, kmax(land_pnts)                                                              &
-                            ! Maximum xylem conductance for each land point
-                            ! (m/s)
-, kcrit(land_pnts)                                                             &
-                            ! Critical xylem conductance for each land point
-                            ! (m/s)
-, conductance_b(land_pnts)                                                     &
-                            ! Conductance parameter b for each land point (Pa)
-, conductance_c(land_pnts)                                                     &
-                            ! Conductance parameter c for each land point
-, psi_extreme(land_pnts)
-                            ! Historic minimum water potential at a given point
-                            ! in the tree for each land point (Pa).
-                            ! To calculate the leaf (root) conductance this
-                            ! value is the historic minm=imum leaf (root) water
-                            ! potential.
-
-REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
-  xylem_conductance(n_water_potentials, open_pnts)
-                            ! Xylem conductance for each open point (m/s)
-
-! Local variables
-INTEGER :: errcode, i, l
-
-REAL(KIND=real_jlslsm) ::                                                      &
-  kmax_open(open_pnts), kcrit_open(open_pnts), b_open(open_pnts),             &
-  c_open(open_pnts)
-                            ! Unimpaired curve parameters gathered onto the
-                            ! open-point index.
-
-INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
-INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
-REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_IMPAIRED_STOM_OPT_JLS'
-
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
-
-! Do not use xylem impairment model during spinup, and use the default
-! conductance model when no impairment model is selected.
-IF (is_spinup .OR.                                                             &
-    pft_xylem_impairment_model(pft) == xylem_impairment_none) THEN
-  DO i = 1, open_pnts
-    l = veg_index(open_index(i))
-    kmax_open(i)  = kmax_ref(l)
-    kcrit_open(i) = kcrit(l)
-  END DO
-  b_open(:) = conductance_b_pft(pft)
-  c_open(:) = conductance_c_pft(pft)
-
-  CALL xylem_conductance_jls( pft,                                             &
-                              n_water_potentials,                              &
-                              open_pnts,                                       &
-                              water_potential,                                 &
-                              kmax_open,                                       &
-                              kcrit_open,                                      &
-                              b_open,                                          &
-                              c_open,                                          &
-                            ! INTENT OUT
-                              xylem_conductance                                &
-                              )
-
-  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-  RETURN
-END IF
-
-SELECT CASE ( pft_xylem_impairment_model(pft) )
-
-CASE ( xylem_impairment_whole_trunk )
-  CALL xylem_conductance_impaired_whole_trunk_stom_opt_jls( pft,               &
-                                               n_water_potentials,            &
-                                               open_pnts,                     &
-                                               open_index,                    &
-                                               veg_index,                     &
-                                               land_pnts,                     &
-                                               water_potential,               &
-                                               kmax,                          &
-                                               kcrit,                         &
-                                               conductance_b,                 &
-                                               conductance_c,                 &
-                                               psi_extreme,                   &
-                                             ! INTENT OUT
-                                               xylem_conductance              &
-                                               )
-
-CASE ( xylem_impairment_memory )
-  CALL xylem_conductance_impaired_memory_stom_opt_jls( pft,                   &
-                                               n_water_potentials,            &
-                                               open_pnts,                     &
-                                               open_index,                    &
-                                               veg_index,                     &
-                                               land_pnts,                     &
-                                               water_potential,               &
-                                               kmax_ref,                      &
-                                               kmax,                          &
-                                               kcrit,                         &
-                                               conductance_b,                 &
-                                               conductance_c,                 &
-                                             ! INTENT OUT
-                                               xylem_conductance              &
-                                               )
-
-CASE DEFAULT
-  errcode = 101  !  a hard error
-  CALL ereport(RoutineName, errcode,                                           &
-   'pft_xylem_impairment_model should be none (0), whole_trunk (2) or memory (3)')
-
-END SELECT
-
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-
-END SUBROUTINE xylem_conductance_impaired_stom_opt_jls
 
 ! ---------------------------------------------------------------------
 ! Subroutine to manage leaf water potential calculations for different
@@ -616,11 +441,7 @@ SUBROUTINE update_xylem_impairment ( n_land_pts                                &
 ,                                    psi_leaf                                  &
 ,                                    psi_root                                  &
 ,                                    psi_stem                                  &
-,                                    leaf_conductance                          &
-,                                    root_conductance                          &
 ,                                    impaired_k_max                            &
-,                                    impaired_conductance_b                    &
-,                                    impaired_conductance_c                    &
 ,                                    psi_leaf_extreme                          &
 ,                                    psi_root_extreme                          &
 ,                                    lai                                       &
@@ -632,7 +453,7 @@ USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: xylem_impairment_none,                         &
                                 xylem_impairment_whole_trunk,                  &
                                 xylem_impairment_memory
-USE pftparm, ONLY: pft_xylem_impairment_model, kmax_pft
+USE pftparm, ONLY: pft_xylem_impairment_model
 
 USE xylem_impairment_whole_trunk_mod, ONLY: update_xylem_impairment_whole_trunk
 USE xylem_impairment_memory_mod, ONLY: update_xylem_impairment_memory
@@ -658,12 +479,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Leaf water potential (Pa)
 , psi_root(n_land_pts)                                                         &
                             ! Root water potential (Pa)
-, psi_stem(n_land_pts)                                                         &
+, psi_stem(n_land_pts)
                             ! Stem water potential (Pa; memory model driver 4)
-, leaf_conductance(n_land_pts)                                                 &
-                            ! Leaf conductance (m/s)
-, root_conductance(n_land_pts)
-                            ! Root conductance (m/s)
 
 REAL(KIND=real_jlslsm), INTENT(INOUT) ::                                       &
   impaired_k_max(n_land_pts)                                                   &
@@ -680,14 +497,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Canopy height (m)
 , anetc(n_land_pts)
                             ! Canopy net photosynthesis (mol CO2 m-2 s-1)
-
-REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
-  impaired_conductance_b(n_land_pts)                                           &
-                            ! Conductance model parameter b (Pa). Only
-                            ! changed by the kmax impairment model.
-, impaired_conductance_c(n_land_pts)
-                            ! Conductance model parameter c (unitless)
-
 
 
 INTEGER :: errcode

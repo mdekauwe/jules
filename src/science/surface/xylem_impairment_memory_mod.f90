@@ -16,7 +16,6 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_IMPAIRMENT_MEMORY_MOD'
 
 PUBLIC :: ximpair_memory_alloc,                                                &
           leaf_conductance_impaired_memory_jls,                                &
-          xylem_conductance_impaired_memory_stom_opt_jls,                      &
           leaf_psi_impaired_memory,                                            &
           update_xylem_impairment_memory,                                      &
           ximpair_store_npp
@@ -287,74 +286,6 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE leaf_conductance_impaired_memory_jls
 
-! ---------------------------------------------------------------------
-! Xylem conductance on the capped curve for open points (stomatal
-! optimisation layout).
-! ---------------------------------------------------------------------
-SUBROUTINE xylem_conductance_impaired_memory_stom_opt_jls( pft,                &
-                                                 n_water_potentials,           &
-                                                 open_pnts,                    &
-                                                 open_index,                   &
-                                                 veg_index,                    &
-                                                 land_pnts,                    &
-                                                 water_potential,              &
-                                                 kmax_ref,                     &
-                                                 kcap,                         &
-                                                 kcrit,                        &
-                                                 conductance_b,                &
-                                                 conductance_c,                &
-                                               ! INTENT OUT
-                                                 xylem_conductance             &
-  )
-
-USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls
-
-USE parkind1, ONLY: jprb, jpim
-USE yomhook, ONLY: lhook, dr_hook
-
-INTEGER, INTENT(IN) ::                                                         &
-  pft, n_water_potentials, open_pnts, open_index(open_pnts), land_pnts,       &
-  veg_index(land_pnts)
-
-REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
-  water_potential(n_water_potentials, open_pnts)                               &
-, kmax_ref(land_pnts), kcap(land_pnts), kcrit(land_pnts)                       &
-, conductance_b(land_pnts), conductance_c(land_pnts)
-                            ! See leaf_conductance_impaired_memory_jls.
-
-REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
-  xylem_conductance(n_water_potentials, open_pnts)
-
-INTEGER :: i, l
-REAL(KIND=real_jlslsm) ::                                                      &
-  kmax_open(open_pnts), kcrit_open(open_pnts), b_open(open_pnts),             &
-  c_open(open_pnts), kcap_open(open_pnts)
-
-INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
-INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
-REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_IMPAIRED_MEMORY_STOM_OPT_JLS'
-
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
-
-DO i = 1, open_pnts
-  l = veg_index(open_index(i))
-  kmax_open(i)  = kmax_ref(l)
-  kcrit_open(i) = kcrit(l)
-  b_open(i)     = conductance_b(l)
-  c_open(i)     = conductance_c(l)
-  kcap_open(i)  = MAX(kcap(l), kcrit(l))
-END DO
-
-CALL xylem_conductance_jls( pft, n_water_potentials, open_pnts,                &
-                            water_potential, kmax_open, kcrit_open, b_open,    &
-                            c_open, xylem_conductance )
-xylem_conductance = MIN(xylem_conductance,                                     &
-                   SPREAD(kcap_open, DIM = 1, NCOPIES = n_water_potentials))
-
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-
-END SUBROUTINE xylem_conductance_impaired_memory_stom_opt_jls
 
 ! ---------------------------------------------------------------------
 ! Leaf water potential from transpiration on the capped curve, for open
