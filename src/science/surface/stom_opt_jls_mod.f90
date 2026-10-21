@@ -2380,10 +2380,14 @@ DO j = 1, open_pts
   el_g(j) = best_el
   kl_g(j) = best_kl
   carbon_gain_g(j) = (best_al + g_off) / max_al
-  hydraulic_cost_g(j) = (max_kl - best_khc) / (max_kl - kcrit(l))
+  ! (Guarded as the flat search: with impairment max_kl is kl_hc_max, not
+  ! taken from a sample. MDK, 21/10/26)
+  hydraulic_cost_g(j) = (max_kl - best_khc)                                    &
+                        / MAX(max_kl - kcrit(l), TINY(1.0_real_jlslsm))
   ! CMax, CGain: the cost as a fraction of the maximum A on the range.
   IF ( l_cmax .OR. l_cgain ) hydraulic_cost_g(j) = (best_al - profit(best_al, &
-                                                    best_khc, best_psi)) / max_al
+                                                    best_khc, best_psi))       &
+                                                   / max_al
   ! SOX: 1 - the factor on A (as the flat-grid SOX).
   IF ( l_sox ) hydraulic_cost_g(j) = 1.0 - sox_factor(best_psi)
   ! CAP: the nonstomatal loss of A as a fraction of the maximum A.
@@ -2394,7 +2398,8 @@ DO j = 1, open_pts
   !    the impaired path delivers less at it. Find Ci in [ci_lo, best_ci]
   !    whose transpiration on the impaired path gives psi_leaf = psi_star
   !    (psi falls as Ci, gl and E rise), by bisection. If even ci_lo is
-  !    below psi_star, take ci_lo. The gain and cost are those of the intact-path optimum.
+  !    below psi_star, take ci_lo. The gain and cost are those of the
+  !    intact-path optimum.
   !---------------------------------------------------------------------------
   IF ( l_intact_search .AND. gl_g(j) > 0.0 ) THEN
     psi_star = best_psi
@@ -2518,7 +2523,10 @@ CONTAINS
   END SUBROUTINE eval_ci
 
   ! Conductance, transpiration, leaf psi and xylem k at internal CO2 ci for
-  ! net photosynthesis al (sets al_u, gl_u, el_u, psi_u, kl_u).
+  ! net photosynthesis al. Sets al_u, gl_u, el_u, psi_u, kl_u and khc_u, the
+  ! conductance for the hydraulic cost (kl_u, or with impairment and
+  ! ximpair_hold_gs the intact path's, khc1).
+  ! MDK, 21/10/26
   SUBROUTINE hydraulic_state(ci, al)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci, al
   REAL(KIND=real_jlslsm) :: vpd
@@ -2529,7 +2537,8 @@ CONTAINS
   vpd = dq(l) * pstar(l) / repsilon
   el_u = MAX(0.0, vpd * gl_u / pstar(l) * pstar(l) / (rmol * t_leaf(l)))
   IF ( l_som_coupled_e ) el_u = vpd * g_eff_e(MAX(gl_u, 0.0_real_jlslsm),     &
-                                    r_bl(l), r_ca(l), g_oth(l)) / (rmol * t_leaf(l))
+                                    r_bl(l), r_ca(l), g_oth(l))                &
+                                / (rmol * t_leaf(l))
 
   IF ( l_lut ) THEN
     psi_u = supply_lut_psi(pft, psi_root_zone(l),                              &
@@ -2557,7 +2566,7 @@ CONTAINS
     kl_u = kl1(1,1)
   END IF
   khc_u = kl_u
-  IF ( l_xylem_impairment .AND. .NOT. l_intact_search .AND.                          &
+  IF ( l_xylem_impairment .AND. .NOT. l_intact_search .AND.                  &
        ximpair_stomatal_response == ximpair_hold_gs ) khc_u = khc1(1,1)
   END SUBROUTINE hydraulic_state
 
@@ -2700,7 +2709,8 @@ CONTAINS
     ELSE
       g_cap = MIN(g_cap, kmax(l)                                               &
        * supply_lut_e_crit(pft, psi_root_zone(l),                              &
-                           kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm))) / conv_e)
+                           kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm)))     &
+       / conv_e)
     END IF
   END IF
   IF ( g_cap >= HUGE(1.0_real_jlslsm) ) RETURN
@@ -2788,8 +2798,16 @@ CONTAINS
   END IF
   END FUNCTION margin
 
-  ! Profit = CG - HC, as stom_opt_profit_max_select; for CMax (l_cmax)
-  ! A_n - Theta(psi_leaf) in mol CO2 m-2 s-1 (Wolf et al. 2016, Eq. 8).
+  ! Profit of a state with net photosynthesis al_in, hydraulic-cost
+  ! conductance kl_in and leaf water potential psi_in:
+  !   profit max: CG - HC, as stom_opt_profit_max_select (dimensionless)
+  !   CMax:  A_n - Theta(psi_leaf) (Wolf et al. 2016, Eq. 8)
+  !   CGain: A_n - varpi (k_max - k) / k_max (Lu et al. 2020)
+  !   SOX:   A_n * the SOX factor (Eller et al. 2018)
+  !   CAP:   A_n, which carries the nonstomatal limitation
+  ! The last four are in mol CO2 m-2 s-1, on the basis of the call (whole
+  ! canopy, the sunlit or shaded leaves, or a layer's leaves).
+  ! MDK, 21/10/26
   REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in, psi_in)
   REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in, psi_in
   IF ( l_cmax ) THEN
@@ -2813,7 +2831,8 @@ CONTAINS
   ! the root zone and leaf water potentials, k of the whole path.
   REAL(KIND=real_jlslsm) FUNCTION sox_factor(psi)
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
-  sox_factor = ( k_path_zero_flow(pft, l, kmax(l), 0.5 * (psi + psi_root_zone(l))) &
+  sox_factor = ( k_path_zero_flow(pft, l, kmax(l),                            &
+                                   0.5 * (psi + psi_root_zone(l)))             &
                  - kcrit(l) ) / MAX(k_sox_ref - kcrit(l), TINY(1.0_real_jlslsm))
   sox_factor = MAX(sox_factor, 0.0_real_jlslsm)
   END FUNCTION sox_factor
@@ -2841,6 +2860,9 @@ CONTAINS
   IF ( profit_u > best_f ) CALL store_best(profit_u, last_ci)
   END FUNCTION profit_u
 
+  ! Keep the latest evaluation (*_u) as the best so far, with profit f at
+  ! Ci ci.
+  ! MDK, 21/10/26
   SUBROUTINE store_best(f, ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: f, ci
   best_f = f; best_ci = ci; best_al = al_u; best_gl = gl_u; best_el = el_u
