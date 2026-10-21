@@ -2110,94 +2110,33 @@ CASE ( 5, 6 )
                          dlai(l) * 1.0e6 >  10.0 ) rd_shd(l) = 0.7 * rd_shd(l)
                   END DO
 
-                  CALL apply_supply_limit( land_pts, veg_pts, veg_index,       &
-                                           e_supply, share_sup, dq_sun_lt,     &
-                                           t_sun_lt, pstar, gl_max_lf,         &
-                                           gl_max_eff )
-                  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-                  CALL stom_opt_mod (                                          &
-                      ! IN
-                      land_pts, som_base_parm, ft, open_pts, open_index,       &
-                      pft_photo_model, veg_pts, veg_index,                     &
-                      ca, psi_src, acr, apar, oa, vcmax_sun_ml, kc_sun_lt,     &
-                      ko_sun_lt, ccp_sun_lt, pstar,                            &
-                      km_sun_lt, dq_sun_lt, qs_sun_lt, je_sun_ml, t_sun_lt,    &
-                      ones_c, fapar_sun(:,n),                                  &
-                      kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,         &
-                      l_multilayer, zero_c, zero_c, zero_c,                    &
-                      kmax_leaf_lyr, b_pft_pts, c_pft_pts,                     &
-                      psi_leaf_extreme, psi_root_extreme, .FALSE.,             &
-                      ! IN OUT
-                      rd_sun,                                                  &
-                      ! OUT
-                      ci_sun_ml, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun,  &
-                      gl_sun, psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun         &
-                  )
-
-                  CALL apply_supply_limit( land_pts, veg_pts, veg_index,       &
-                                           e_supply, share_sup, dq_shd_lt,     &
-                                           t_shd_lt, pstar, gl_max_lf,         &
-                                           gl_max_eff )
-                  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-                  CALL stom_opt_mod (                                          &
-                      ! IN
-                      land_pts, som_base_parm, ft, open_pts, open_index,       &
-                      pft_photo_model, veg_pts, veg_index,                     &
-                      ca, psi_src, acr, apar, oa, vcmax_shd_ml, kc_shd_lt,     &
-                      ko_shd_lt, ccp_shd_lt, pstar,                            &
-                      km_shd_lt, dq_shd_lt, qs_shd_lt, je_shd_ml, t_shd_lt,    &
-                      ones_c, fapar_shd(:,n),                                  &
-                      kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,         &
-                      l_multilayer, zero_c, zero_c, zero_c,                    &
-                      kmax_leaf_lyr, b_pft_pts, c_pft_pts,                     &
-                      psi_leaf_extreme, psi_root_extreme, .FALSE.,             &
-                      ! IN OUT
-                      rd_shd,                                                  &
-                      ! OUT
-                      ci_shd_ml, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd,  &
-                      gl_shd, psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd         &
-                  )
+                  ! Sunlit, then shaded leaf of the layer, each at its own
+                  ! leaf temperature (MDK, 21/10/26).
+                  CALL ml_class( vcmax_sun_ml, kc_sun_lt, ko_sun_lt,          &
+                                 ccp_sun_lt, km_sun_lt, dq_sun_lt, qs_sun_lt,  &
+                                 je_sun_ml, t_sun_lt, ones_c, fapar_sun(:,n),  &
+                                 rd_sun, ci_sun_ml, anetl_sun, el_sun,         &
+                                 flux_o3_l_sun, fo3_l_sun, gl_sun,             &
+                                 psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun )
+                  CALL ml_class( vcmax_shd_ml, kc_shd_lt, ko_shd_lt,          &
+                                 ccp_shd_lt, km_shd_lt, dq_shd_lt, qs_shd_lt,  &
+                                 je_shd_ml, t_shd_lt, ones_c, fapar_shd(:,n),  &
+                                 rd_shd, ci_shd_ml, anetl_shd, el_shd,         &
+                                 flux_o3_l_shd, fo3_l_shd, gl_shd,             &
+                                 psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd )
                 ELSE
                 ! share_sup: this layer's kmax share, set with kmax_leaf_lyr.
-                CALL apply_supply_limit( land_pts, veg_pts, veg_index,         &
-                                         e_supply, share_sup, dqc, tstar,      &
-                                         pstar, gl_max_lf, gl_max_eff )
-                CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-                ! Added gs opt call for sunlit, 29 Apr, MGDK
-                CALL stom_opt_mod (                                            &
-                    ! IN
-                    land_pts, som_base_parm, ft, open_pts, open_index,         &
-                    pft_photo_model, veg_pts, veg_index,                       &
-                    ca, psi_src, acr, apar, oa, vcmax, kc, ko, ccp, pstar,     &
-                    km, dqc, qs, je, tstar, je_sun_ratio, fapar_sun(:,n),      &
-                    kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,           &
-                    l_multilayer, zero_c, zero_c, zero_c,                      &
-                    kmax_leaf_lyr, b_pft_pts, c_pft_pts,                       &
-                    psi_leaf_extreme, psi_root_extreme, .FALSE.,               &
-                    ! IN OUT
-                    rd_sun,                                                    &
-                    ! OUT
-                    ci_sun_ml, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun,    &
-                    gl_sun, psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun           &
-                )
-
-                ! Added gs opt call for shaded , 29 Apr, MGDK
-                CALL stom_opt_mod (                                            &
-                    ! IN
-                    land_pts, som_base_parm, ft, open_pts, open_index,         &
-                    pft_photo_model, veg_pts, veg_index,                       &
-                    ca, psi_src, acr, apar, oa, vcmax, kc, ko, ccp, pstar,     &
-                    km, dqc, qs, je, tstar,  je_shd_ratio, fapar_shd(:,n),     &
-                    kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,           &
-                    l_multilayer, zero_c, zero_c, zero_c,                      &
-                    kmax_leaf_lyr, b_pft_pts, c_pft_pts,                       &
-                    psi_leaf_extreme, psi_root_extreme, .FALSE.,               &
-                    ! IN OUT
-                    rd_shd,                                                    &
-                    ! OUT
-                    ci_shd_ml, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd,    &
-                    gl_shd, psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd           &
-                )
+                ! Added gs opt calls for sunlit and shaded, 29 Apr, MGDK
+                CALL ml_class( vcmax, kc, ko, ccp, km, dqc, qs, je, tstar,     &
+                               je_sun_ratio, fapar_sun(:,n),                   &
+                               rd_sun, ci_sun_ml, anetl_sun, el_sun,           &
+                               flux_o3_l_sun, fo3_l_sun, gl_sun,               &
+                               psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun )
+                CALL ml_class( vcmax, kc, ko, ccp, km, dqc, qs, je, tstar,     &
+                               je_shd_ratio, fapar_shd(:,n),                   &
+                               rd_shd, ci_shd_ml, anetl_shd, el_shd,           &
+                               flux_o3_l_shd, fo3_l_shd, gl_shd,               &
+                               psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd )
                 END IF
 
                 ! Closed leaves get min_gl_pft from stom_opt_mod, a canopy
@@ -3879,6 +3818,57 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
 
 CONTAINS
+
+!-----------------------------------------------------------------------------
+! Multilayer canopy, one leaf class (sunlit or shaded) of the current layer:
+! the supply cap and soil-to-root share for the class's deficit dq_x and
+! temperature t_x, then the optimisation with the class's photosynthesis
+! inputs (_x: at the leaf temperature with l_leaf_temp, else the canopy
+! values at tstar). This was four copies of the same call. (Without
+! l_leaf_temp both classes see dqc and tstar, so the cap is the same for
+! both, as when it was set once for the pair.)
+!
+! MDK, 21/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE ml_class( vcmax_x, kc_x, ko_x, ccp_x, km_x, dq_x, qs_x, je_x,      &
+                     t_x, je_ratio_x, fapar_x, rd_c, ci_c, anetl_c, el_c,     &
+                     flux_o3_c, fo3_c, gl_c, psi_leaf_c, cg_c, hc_c,          &
+                     leaf_k_c )
+IMPLICIT NONE
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
+  vcmax_x(land_pts), kc_x(land_pts), ko_x(land_pts), ccp_x(land_pts),         &
+  km_x(land_pts), dq_x(land_pts), qs_x(land_pts), je_x(land_pts),             &
+  t_x(land_pts), je_ratio_x(land_pts), fapar_x(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: rd_c(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                     &
+  ci_c(land_pts), anetl_c(land_pts), el_c(land_pts), flux_o3_c(land_pts),     &
+  fo3_c(land_pts), gl_c(land_pts), psi_leaf_c(land_pts), cg_c(land_pts),      &
+  hc_c(land_pts), leaf_k_c(land_pts)
+                            ! OUT from stom_opt_mod; IN OUT here so that
+                            ! points it does not set keep their values.
+
+CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply, share_sup,  &
+                         dq_x, t_x, pstar, gl_max_lf, gl_max_eff )
+CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
+CALL stom_opt_mod (                                                            &
+    ! IN
+    land_pts, som_base_parm, ft, open_pts, open_index,                         &
+    pft_photo_model, veg_pts, veg_index,                                       &
+    ca, psi_src, acr, apar, oa, vcmax_x, kc_x, ko_x, ccp_x, pstar,             &
+    km_x, dq_x, qs_x, je_x, t_x, je_ratio_x, fapar_x,                          &
+    kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,                           &
+    l_multilayer, zero_c, zero_c, zero_c,                                      &
+    kmax_leaf_lyr, b_pft_pts, c_pft_pts,                                       &
+    psi_leaf_extreme, psi_root_extreme, .FALSE.,                               &
+    ! IN OUT
+    rd_c,                                                                      &
+    ! OUT
+    ci_c, anetl_c, el_c, flux_o3_c, fo3_c,                                     &
+    gl_c, psi_leaf_c, cg_c, hc_c, leaf_k_c                                     &
+)
+
+END SUBROUTINE ml_class
 
 !-----------------------------------------------------------------------------
 ! Two-leaf canopy (can_rad_mod = 7), one leaf class (sunlit or shaded) for
