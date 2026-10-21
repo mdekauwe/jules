@@ -297,8 +297,11 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 ! IN OUT real variables
 !-----------------------------------------------------------------------------
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
- rd(land_pts)              ! Dark respiration (mol CO2/m2/s).
-                             ! This is modified only if l_o3_damage=.TRUE..
+ rd(land_pts)
+                            ! Dark respiration (mol CO2/m2/s).
+                            ! Not modified: the ozone damage is not coded
+                            ! here (flux_o3 and fo3 are returned as 0).
+                            ! MDK, 21/10/26
 
 !-----------------------------------------------------------------------------
 ! OUT real variables.
@@ -312,48 +315,62 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
                             ! Transpiration rate (mol H2O/m2/s)
 ,flux_o3(land_pts)                                                             &
                             ! Flux of O3 to stomata (nmol O3/m2/s).
+                            ! Always 0: ozone not coded.
+                            ! MDK, 21/10/26
 ,fo3(land_pts)                                                                 &
-                            ! Ozone exposure factor.
+                            ! Ozone exposure factor. Always 0: ozone not
+                            ! coded.
+                            ! MDK, 21/10/26
 ,gl(land_pts)                                                                  &
                             ! Leaf conductance for H2O (m/s).
 ,psi_leaf(land_pts)                                                            &
                             ! Leaf water potential (Pa)
-,leaf_k(land_pts)
+,leaf_k(land_pts)                                                              &
                             ! Whole-path (soil-to-leaf) conductance
                             ! -dE/dpsi_leaf, in the units of kmax (Kplant).
+,carbon_gain_out(land_pts)                                                     &
+                            ! Carbon gain of the chosen state: A / max A
+                            ! (dimensionless) for profit max, CMax, CGain and
+                            ! CAP; A (mol CO2/m2/s) for the SOX flat search.
+                            ! 0 where the stomata are closed.
+                            ! MDK, 21/10/26
+,hydraulic_cost_out(land_pts)
+                            ! Hydraulic cost of the chosen state, as a
+                            ! fraction (dimensionless): of the k range for
+                            ! profit max, of max A for CMax, CGain and CAP,
+                            ! and 1 - the factor on A for SOX. 0 where the
+                            ! stomata are closed.
+                            ! MDK, 21/10/26
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
  psi_stem(land_pts)
                             ! Stem water potential (Pa): the outlet of the
                             ! stem segment of the chosen sample, with
-                            ! l_som_plant_segments and xylem impairment (flat
-                            ! search); psi_root_zone otherwise.
+                            ! l_som_plant_segments and xylem impairment;
+                            ! psi_root_zone otherwise.
+                            ! MDK, 21/10/26
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
  lai_cost(land_pts)
                             ! Leaf area of this call (m2 leaf m-2 ground):
                             ! the CMax / CGain cost is per unit leaf area.
                             ! Absent: kmax_ref / kmax_pft (the leaf area for
                             ! big leaf and multilayer, without kplant_model
-                            ! = 1). The two-leaf classes pass theirs, as
-                            ! their kmax share is N-weighted.
-                            ! MDK, 22/10/26
+                            ! = 1). The two-leaf sunlit and shaded leaves
+                            ! pass theirs, as their kmax share is
+                            ! N-weighted.
+                            ! MDK, 21/10/26
 REAL(KIND=real_jlslsm) ::                                                      &
  psi_stem_sample(0:som_n_sample, open_pts)
                             ! Stem water potential of each Ci sample.
-
-! TEMPORARY: output variables for testing
-REAL(KIND=real_jlslsm) ::                                                      &
- carbon_gain_out(land_pts)                                                     &
-                            ! Carbon gain for each leaf state
-,hydraulic_cost_out(land_pts)
-                            ! Hydraulic cost for each leaf state
 
 !-----------------------------------------------------------------------------
 ! Local scalar variables.
 !-----------------------------------------------------------------------------
 INTEGER ::                                                                     &
  optimal_index                                                                 &
-                            ! Holds index of the optimal stomatal conductance
-                            !  for each land point. Used by sox_opt_profit_model.
+                            ! Index of the optimal sample for a land point.
+                            ! Used by the SOX flat search
+                            ! (sox_opt_profit_model).
+                            ! MDK, 21/10/26
 ,i,j,l,iseg,m                                                                  &
                             ! Iterators
 ,errcode
