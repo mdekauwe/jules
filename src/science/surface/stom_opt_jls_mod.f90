@@ -762,12 +762,18 @@ SELECT CASE ( som_base_parm )
       ! OUT
           ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                            &
           el_bnd, carbon_gain_bnd, hydraulic_cost_bnd,                        &
+          psi_stem_g = psi_stem_bnd,                                          &
       ! IN (optional)
           lai_cost = lai_cost                                                 &
               )
 
+      ! psi_stem as the profit-max bounded path, so the per-segment stem
+      ! damage (l_ximpair_seg_memory) follows the stem's own water
+      ! potential, not the root zone's.
+      ! MDK, 22/10/26
       DO j = 1, open_pts
         l = veg_index(open_index(j))
+        IF (PRESENT(psi_stem)) psi_stem(l) = psi_stem_bnd(j)
         ci(l) = ci_bnd(j)
         al(l) = al_bnd(j)
         gl(l) = gl_bnd(j)
