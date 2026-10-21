@@ -1380,7 +1380,7 @@ END SUBROUTINE build_supply_lut
 ! *****************************************************************************
 ! Leaf water potential and whole-plant conductance for the plant as root,
 ! stem and leaf segments in series (l_som_plant_segments), as in GDAY
-! gs_opt.c (setup_plant / plant_supply) and Wang et al. (2019).
+! gs_opt.c (setup_plant / plant_supply).
 !
 ! Segment s has maximum conductance kmax * seg_kfac(pft,s) (the segments
 ! share the whole-plant resistance, so in series they give kmax when well
@@ -1489,7 +1489,7 @@ DO j = 1, open_pnts
   ! l_som_rhizo_series: the soil (rhizosphere) link in series ahead of the
   ! root segment. Linear in E: psi_root = psi_src - E / K_s, and the chain
   ! starts from dpsi_root/dE = -1/K_s, so leaf_k is the conductance of the
-  ! whole soil-to-leaf path. The soil is not damage, so the intact chain
+  ! whole soil-to-leaf path. The soil is not damaged, so the intact chain
   ! (leaf_k_intact, for the hydraulic cost under impairment: the intact
   ! segments at the same water potentials) starts the same way.
   IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
@@ -1510,14 +1510,15 @@ DO j = 1, open_pnts
         END IF
       END DO
     ELSE
-    k_s = ksr_path(l)
-    IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
-      psi_in(:)  = MAX(root_zone_psi(l) - e_leaf(:,j) / k_s, som_psi_in_min)
-      dpsi_de(:) = -1.0 / k_s
-      dpsi_de_int(:) = -1.0 / k_s
-    ELSE
-      l_closed(:) = e_leaf(:,j) > 0.0
-    END IF
+      k_s = ksr_path(l)
+      IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+        psi_in(:)  = MAX(root_zone_psi(l) - e_leaf(:,j) / k_s,                 &
+                         som_psi_in_min)
+        dpsi_de(:) = -1.0 / k_s
+        dpsi_de_int(:) = -1.0 / k_s
+      ELSE
+        l_closed(:) = e_leaf(:,j) > 0.0
+      END IF
     END IF
   END IF
 
@@ -1754,19 +1755,19 @@ DO j = 1, open_pnts
           CYCLE
         END IF
       ELSE
-      k_s = ksr_path(l)
-      IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
-        psi_in  = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
-        dpsi_de = -1.0 / k_s
-        dpsi_de_int = -1.0 / k_s
-      ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
-        leaf_psi(i,j) = som_psi_in_min
-        leaf_k(i,j)   = 0.0
-        ! MDK, 18/10/26
-        IF ( PRESENT(leaf_k_intact) ) leaf_k_intact(i,j) = 0.0
-        IF ( PRESENT(stem_psi) ) stem_psi(i,j) = som_psi_in_min
-        CYCLE
-      END IF
+        k_s = ksr_path(l)
+        IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+          psi_in  = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
+          dpsi_de = -1.0 / k_s
+          dpsi_de_int = -1.0 / k_s
+        ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
+          leaf_psi(i,j) = som_psi_in_min
+          leaf_k(i,j)   = 0.0
+          ! MDK, 18/10/26
+          IF ( PRESENT(leaf_k_intact) ) leaf_k_intact(i,j) = 0.0
+          IF ( PRESENT(stem_psi) ) stem_psi(i,j) = som_psi_in_min
+          CYCLE
+        END IF
       END IF
     END IF
     ! Root, stem then leaf in series. Each segment carries the same E, so its
@@ -1786,7 +1787,8 @@ DO j = 1, open_pnts
       l_cap = .FALSE.
       fr = 1.0
       IF ( l_impair .AND. iseg >= 2 ) THEN
-        fr = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor), 1.0)
+        fr = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor),  &
+                 1.0)
         l_cap = fr < 1.0 - 1.0e-6
       END IF
       IF ( l_cap ) THEN
@@ -1802,7 +1804,8 @@ DO j = 1, open_pnts
             psi_out = psi_in - e_pos / MAX(fr * kmx, TINY(1.0_real_jlslsm))
           ELSE
             psi_out = seg_lut_psi(pft, iseg, psi_cap,                          &
-                                  (e_pos - e_cap) / MAX(kmx, TINY(1.0_real_jlslsm)))
+                                  (e_pos - e_cap)                              &
+                                  / MAX(kmx, TINY(1.0_real_jlslsm)))
           END IF
         ELSE
           psi_out = seg_lut_psi(pft, iseg, psi_in,                             &
@@ -1813,17 +1816,18 @@ DO j = 1, open_pnts
         k_out = MAX(MIN(kmx * EXP( -(ABS(psi_out/bs))**cs ), fr * kmx),        &
                     k_floor * kmx)
       ELSE
-      psi_out = seg_lut_psi(pft, iseg, psi_in,                                 &
-                            e_leaf(i,j) / MAX(kmx, TINY(1.0_real_jlslsm)))
-      k_in  = MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ), k_floor * kmx)
-      k_out = MAX(kmx * EXP( -(ABS(psi_out/bs))**cs ), k_floor * kmx)
+        psi_out = seg_lut_psi(pft, iseg, psi_in,                               &
+                              e_leaf(i,j) / MAX(kmx, TINY(1.0_real_jlslsm)))
+        k_in  = MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ), k_floor * kmx)
+        k_out = MAX(kmx * EXP( -(ABS(psi_out/bs))**cs ), k_floor * kmx)
       END IF
       dpsi_de = ( k_in * dpsi_de - 1.0 ) / k_out
       ! The intact chain at the same water potentials (hydraulic cost).
       !
       ! MDK, 18/10/26
       IF ( PRESENT(leaf_k_intact) )                                            &
-        dpsi_de_int = ( MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ), k_floor * kmx) &
+        dpsi_de_int = ( MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ),              &
+                            k_floor * kmx)                                     &
                         * dpsi_de_int - 1.0 )                                  &
                       / MAX(kmx * EXP( -(ABS(psi_out/bs))**cs ), k_floor * kmx)
       psi_in  = psi_out
@@ -1841,7 +1845,8 @@ DO j = 1, open_pnts
       leaf_k(i,j) = 0.0
     END IF
     IF ( PRESENT(leaf_k_intact) ) THEN
-      IF ( dpsi_de_int < 0.0 .AND. ABS(dpsi_de_int) < HUGE(1.0_real_jlslsm) ) THEN
+      IF ( dpsi_de_int < 0.0 .AND.                                             &
+           ABS(dpsi_de_int) < HUGE(1.0_real_jlslsm) ) THEN
         leaf_k_intact(i,j) = -1.0 / dpsi_de_int
       ELSE
         leaf_k_intact(i,j) = 0.0
@@ -1876,7 +1881,7 @@ n = lut_seg_tab(pft,iseg)%n
 r  = MIN(MAX(-psi_in / dpsi, 0.0), REAL(n - 1))
 i0 = MIN(INT(r) + 1, n - 1)
 s_in = lut_seg_tab(pft,iseg)%s(i0)                                             &
-       + (r - (i0 - 1)) * (lut_seg_tab(pft,iseg)%s(i0+1)                        &
+       + (r - (i0 - 1)) * (lut_seg_tab(pft,iseg)%s(i0+1)                       &
                            - lut_seg_tab(pft,iseg)%s(i0))
 s_target = s_in + MAX(e_over_k, 0.0)
 
@@ -1915,7 +1920,8 @@ SUBROUTINE build_supply_lut_seg( pft )
 USE max_dimensions, ONLY: npft_max
 USE pftparm, ONLY: conductance_b_seg, conductance_c_seg, seg_kfac,             &
                    kcrit_fractional_loss
-USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground   ! MDK, 21/10/26
+USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground
+                                ! MDK, 21/10/26
 
 INTEGER, INTENT(IN) :: pft
 
