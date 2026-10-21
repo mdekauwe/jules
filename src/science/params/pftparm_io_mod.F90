@@ -203,6 +203,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
   p88_root_io(npft_max) = rmdi,                                                &
   p88_stem_io(npft_max) = rmdi,                                                &
   p88_leaf_io(npft_max) = rmdi,                                                &
+  ! Reference LAI for kplant_model = 1 (root and stem segment
+  ! conductances per unit ground area at this LAI; <= 0: the TRIFFID
+  ! balanced LAI from canopy height).
+  ! MDK, 21/10/26
+  lai_ref_k_io(npft_max) = 0.0,                                                &
   ! Cuticular leaf conductance (mmol H2O m-2 leaf s-1), the floor used when
   ! l_som_cuticular_floor (default 3, SurEau-Ecos Q. ilex, Ruffault 2022).
   gcuticular_io(npft_max) = 3.0,                                               &
@@ -348,6 +353,7 @@ NAMELIST  / jules_pftparm/                                                     &
   seg_frac_root_io, seg_frac_stem_io, seg_frac_leaf_io,                        &
   p50_root_io,     p50_stem_io,      p50_leaf_io,                              &
   p88_root_io,     p88_stem_io,      p88_leaf_io,                              &
+  lai_ref_k_io,                                                                &
   gcuticular_io,         psi_nsl_onset_io, psi_nsl0_io,                        &
   cmax_a_io,       cmax_b_io,        cgain_varpi_io,                           &
   sl_cica_well_watered_io,                                                     &
@@ -416,9 +422,10 @@ INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 12 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
                                            ! impairment + 2 store)
-INTEGER, PARAMETER :: n_real = 176 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 177 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL pftparm arrays incl. xylem
-                                             ! impairment)
+                                             ! impairment; +1 lai_ref_k_io,
+                                             ! MDK, 21/10/26)
 
 TYPE :: my_namelist
   SEQUENCE
@@ -530,6 +537,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: p50_io(npft_max) ! JBaguley
   REAL(KIND=real_jlslsm) :: p88_io(npft_max) ! JBaguley
   REAL(KIND=real_jlslsm) :: seg_frac_root_io(npft_max)
+  REAL(KIND=real_jlslsm) :: lai_ref_k_io(npft_max)
   REAL(KIND=real_jlslsm) :: gcuticular_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_nsl_onset_io(npft_max)
   REAL(KIND=real_jlslsm) :: psi_nsl0_io(npft_max)
@@ -736,6 +744,7 @@ IF (mype == 0) THEN
   my_nml % p50_io         = p50_io ! JBaguley
   my_nml % p88_io         = p88_io ! JBaguley
   my_nml % seg_frac_root_io = seg_frac_root_io
+  my_nml % lai_ref_k_io  = lai_ref_k_io
   my_nml % gcuticular_io        = gcuticular_io
   my_nml % psi_nsl_onset_io = psi_nsl_onset_io
   my_nml % psi_nsl0_io    = psi_nsl0_io
@@ -930,6 +939,7 @@ IF (mype /= 0) THEN
   p50_io          = my_nml % p50_io ! JBaguley
   p88_io          = my_nml % p88_io ! JBaguley
   seg_frac_root_io = my_nml % seg_frac_root_io
+  lai_ref_k_io    = my_nml % lai_ref_k_io
   gcuticular_io         = my_nml % gcuticular_io
   psi_nsl_onset_io = my_nml % psi_nsl_onset_io
   psi_nsl0_io     = my_nml % psi_nsl0_io
@@ -1034,6 +1044,7 @@ USE pftparm, ONLY:                                                             &
   psi_open,        min_rootc_pft,    root_psi_crit,                            & ! JBaguley
   root_radi_pft,   rootc_density_pft, min_gl_pft,                              & ! JBaguley
   gcuticular,            psi_nsl_onset,    psi_nsl0,         fsmc_q,           &
+  lai_ref_k,                                                                   &
   cmax_a,          cmax_b,           cgain_varpi,                              &
   psi_vcmax_f,     sf_vcmax,         psi_vcmax_fmin,   soil_litter_depth,      &
   or_z0soil_fac,                                                               &
@@ -1220,6 +1231,7 @@ fsmc_mod(:)         = fsmc_mod_io(1:npft)
 WHERE (ABS(min_gl_pft_io(1:npft) - rmdi) > EPSILON(1.0))                     &
   min_gl_pft(:) = min_gl_pft_io(1:npft) ! JBaguley
 gcuticular(:)      = gcuticular_io(1:npft)
+lai_ref_k(:)       = lai_ref_k_io(1:npft)   ! MDK, 21/10/26
 ! Nonstomatal limitation ramp: keep the pftparm_alloc defaults where unset.
 WHERE (ABS(psi_nsl_onset_io(1:npft) - rmdi) > EPSILON(1.0))                  &
   psi_nsl_onset(:) = psi_nsl_onset_io(1:npft)

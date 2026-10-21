@@ -511,6 +511,12 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,conductance_c_seg(:,:)                                                        &
                  ! Cumulative Weibull b (Pa) and c of each segment, from the
                  ! segment P50/P88 (default: the PFT's P50/P88). (npft, 3)
+,lai_ref_k(:)                                                                  &
+                 ! kplant_model = 1: reference LAI at which the root and
+                 ! stem segment conductances (per unit ground area) are
+                 ! kmax_pft * seg_kfac * LAI. <= 0: the TRIFFID balanced LAI
+                 ! from canopy height.
+                 ! MDK, 21/10/26
 ,gcuticular(:)                                                                 &
                  ! Cuticular (minimum) leaf conductance to water vapour, per
                  ! unit leaf area (mmol H2O m-2 s-1), applied as a floor on
@@ -1074,6 +1080,7 @@ ALLOCATE( conductance_b_pft(npft))
 ALLOCATE( conductance_c_pft(npft))
 ALLOCATE( ximpair_psi_driver(npft))
 ALLOCATE( seg_kfac(npft,3))
+ALLOCATE( lai_ref_k(npft))
 ALLOCATE( gcuticular(npft))
 ALLOCATE( psi_nsl_onset(npft))
 ALLOCATE( psi_nsl0(npft))
@@ -1154,6 +1161,7 @@ conductance_b_pft(:) = 1.0
 conductance_c_pft(:) = 1.0
 ximpair_psi_driver(:) = 1
 seg_kfac(:,:) = 1.0
+lai_ref_k(:) = 0.0
 gcuticular(:) = 3.0
 psi_nsl_onset(:) = 0.0
 psi_nsl0(:) = -3.0e6
@@ -1482,6 +1490,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' conductance_b_pft = ',conductance_b_pft
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' conductance_c_pft = ',conductance_c_pft
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' lai_ref_k = ',lai_ref_k
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' gcuticular = ',gcuticular
 CALL jules_print('pftparm',lineBuffer)

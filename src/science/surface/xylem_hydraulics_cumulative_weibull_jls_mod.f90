@@ -27,7 +27,9 @@ PUBLIC :: leaf_conductance_CW_jls                                              &
 ,         set_ksr_path                                                         &
 ,         xylem_f                                                              &
 ,         xylem_f_bc                                                           &
-,         k_path_zero_flow
+,         k_path_zero_flow                                                     &
+,         set_k_ground_basis                                                   &
+,         seg_kmax_fac
 
 ! Soil-to-root (rhizosphere) conductance Ksr for l_som_rhizo_series, a
 ! conductance (not the soil conductivity soil_k), kept separate from the
@@ -45,6 +47,30 @@ PUBLIC :: leaf_conductance_CW_jls                                              &
 ! Used by leaf_psi_jls (single conductance curve) and the segment solvers
 ! below.
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
+
+! Root and stem conductance per unit ground area (kplant_model = 1, with
+! l_som_plant_segments). On the leaf-area basis of kmax_pft the root and
+! stem segments have kmax_pft * seg_kfac_s * r, r = LAI_ref / LAI (capped
+! at k_ground_ratio_max), and the leaf segment kmax_pft * seg_kfac_leaf, so
+! the well-watered whole plant (segments in series) is
+!   kmax_pft * g,  1 / g = sum_s 1 / (seg_kfac_s r_s)  (r_leaf = 1).
+! sf_stom gives the optimiser kmax, its intact reference and kcrit times g
+! (kplant_scale), so every use of the whole-plant kmax (cost, kcrit test,
+! closed leaf_k) sees the plant actually present, and the segment solvers
+! use seg_kfac_s * r_s / g (seg_kscale) of that kmax, which keeps the
+! series sum of the segments equal to the kmax they are given (as seg_kfac
+! does). Xylem impairment caps each segment at a fraction of its intact
+! (scaled) conductance, so the stored damage does not change with LAI.
+! Both are set per PFT by set_k_ground_basis before the leaf paths.
+!   kplant_scale : g (land_pts).
+!   seg_kscale   : r_s / g (land_pts, 3).
+! MDK, 21/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: kplant_scale(:),               &
+                                               seg_kscale(:,:)
+
+REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: k_ground_ratio_max = 10.0
+      ! Cap on LAI_ref / LAI (kplant_model = 1), also used as LAI -> 0.
+      ! MDK, 21/10/26
 
 REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: som_psi_in_min = -1.0e9
       ! Floor on the root inlet potential (Pa) with l_som_rhizo_series when
@@ -148,6 +174,79 @@ END IF
 END SUBROUTINE set_ksr_path
 
 ! *****************************************************************************
+! kplant_model = 1: set kplant_scale and seg_kscale (see their declaration)
+! for PFT pft from the current LAI and the reference LAI lai_ref (both m2
+! leaf m-2 ground). Root and stem keep the conductance they have at
+! lai_ref, per unit ground area; the leaf segment scales with LAI. With
+! kplant_model = 0 both are 1 and are not used.
+! MDK, 21/10/26
+! *****************************************************************************
+SUBROUTINE set_k_ground_basis( pft, land_pts, veg_pts, veg_index, lai,        &
+                               lai_ref )
+
+USE pftparm, ONLY: seg_kfac
+USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: pft, land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: lai(land_pts), lai_ref(land_pts)
+
+INTEGER :: l, m, iseg
+REAL(KIND=real_jlslsm) :: r(3), rinv
+
+IF ( .NOT. ALLOCATED(kplant_scale) ) THEN
+  ALLOCATE(kplant_scale(land_pts))
+  ALLOCATE(seg_kscale(land_pts,3))
+END IF
+kplant_scale(:) = 1.0
+seg_kscale(:,:) = 1.0
+IF ( kplant_model /= kplant_model_ground ) RETURN
+
+DO m = 1,veg_pts
+  l = veg_index(m)
+  ! Root and stem: LAI_ref / LAI, capped (and the cap as LAI -> 0).
+  IF ( lai(l) * k_ground_ratio_max > lai_ref(l) ) THEN
+    r(1:2) = lai_ref(l) / lai(l)
+  ELSE
+    r(1:2) = k_ground_ratio_max
+  END IF
+  r(3) = 1.0
+  ! Whole-plant (series) conductance relative to kmax: 1 / sum_s 1/k_s.
+  rinv = 0.0
+  DO iseg = 1, 3
+    rinv = rinv + 1.0 / (seg_kfac(pft,iseg) * r(iseg))
+  END DO
+  kplant_scale(l) = 1.0 / rinv
+  DO iseg = 1, 3
+    seg_kscale(l,iseg) = r(iseg) * rinv
+  END DO
+END DO
+
+END SUBROUTINE set_k_ground_basis
+
+! *****************************************************************************
+! Maximum conductance of segment iseg as a multiple of the whole-plant kmax
+! given to the solvers at point l: seg_kfac, times seg_kscale with
+! kplant_model = 1 (see set_k_ground_basis).
+! MDK, 21/10/26
+! *****************************************************************************
+FUNCTION seg_kmax_fac( pft, l, iseg ) RESULT( fac )
+
+USE pftparm, ONLY: seg_kfac
+USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: pft, l, iseg
+REAL(KIND=real_jlslsm) :: fac
+
+fac = seg_kfac(pft,iseg)
+IF ( kplant_model == kplant_model_ground ) fac = fac * seg_kscale(l,iseg)
+
+END FUNCTION seg_kmax_fac
+
+! *****************************************************************************
 ! Fraction of kmax left on the PFT's whole-plant vulnerability curve at psi
 ! (Pa), as pft_conductance_model. psi >= 0 gives 1. Xylem only (no soil).
 ! *****************************************************************************
@@ -195,6 +294,8 @@ END FUNCTION xylem_f_bc
 ! with no flow there is no drop along the path, so every element sits at
 ! psi_root and the elements add in series,
 !   1 / K = 1 / ksr_path + sum_s 1 / (kmax seg_kfac_s f_s(psi_root)),
+! (seg_kfac_s times seg_kscale with kplant_model = 1: seg_kmax_fac;
+! MDK, 21/10/26)
 ! (one element on the PFT curve without l_som_plant_segments; no soil term
 ! without l_som_rhizo_series or for ksr_path < 0). This is what the solvers
 ! give at E = 0, for points the optimiser does not visit (closed stomata).
@@ -210,7 +311,7 @@ END FUNCTION xylem_f_bc
 FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, b, c, kcap_frac, kx,       &
                            l_plant_only ) RESULT( k0 )
 
-USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
+USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_rhizo_series
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
 USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_k_zero
@@ -237,12 +338,12 @@ IF ( PRESENT(kx) ) THEN
 ELSE IF ( l_som_plant_segments ) THEN
   r = 0.0
   DO iseg = 1, 3
-    k_el = kmax * seg_kfac(pft,iseg)                                           &
+    k_el = kmax * seg_kmax_fac(pft,l,iseg)                                     &
            * EXP(-( ABS(MIN(psi_root, 0.0) / conductance_b_seg(pft,iseg)) )    &
                  **conductance_c_seg(pft,iseg))
     IF ( PRESENT(kcap_frac) .AND. iseg >= 2 )                                  &
       k_el = MIN(k_el, MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac),      &
-                               0.0), 1.0) * kmax * seg_kfac(pft,iseg))
+                               0.0), 1.0) * kmax * seg_kmax_fac(pft,l,iseg))
     IF ( k_el <= TINY(1.0_real_jlslsm) ) RETURN
     r = r + 1.0 / k_el
   END DO
@@ -1232,7 +1333,7 @@ SUBROUTINE leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
 ! present, is the whole-plant conductance of the intact segments at the
 ! same (impaired) water potentials, for the hydraulic cost.
 
-USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
+USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
 USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
@@ -1339,8 +1440,8 @@ DO j = 1, open_pnts
   END IF
 
   DO iseg = 1, n_seg
-    kmx = kmax(l) * seg_kfac(pft,iseg)
-    kcr = kcrit(l) * seg_kfac(pft,iseg)
+    kmx = kmax(l) * seg_kmax_fac(pft,l,iseg)   ! MDK, 21/10/26
+    kcr = kcrit(l) * seg_kmax_fac(pft,l,iseg)
     bs  = conductance_b_seg(pft,iseg)
     cs  = conductance_c_seg(pft,iseg)
 
@@ -1492,7 +1593,7 @@ SUBROUTINE leaf_psi_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
                                       root_zone_psi, kmax, leaf_psi, leaf_k,   &
                                       kcap_frac, leaf_k_intact, stem_psi )
 
-USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
+USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
@@ -1587,7 +1688,7 @@ DO j = 1, open_pnts
     ! from E = integral(k), k_out dpsi_out = k_in dpsi_in - dE.
     ! MDK, 18/10/26
     DO iseg = 1, n_seg
-      kmx = kmax(l) * seg_kfac(pft,iseg)
+      kmx = kmax(l) * seg_kmax_fac(pft,l,iseg)   ! MDK, 21/10/26
       bs  = conductance_b_seg(pft,iseg)
       cs  = conductance_c_seg(pft,iseg)
       ! Cap on the stem and leaf segments (not the root), as
@@ -1721,11 +1822,14 @@ SUBROUTINE build_supply_lut_seg( pft )
 USE max_dimensions, ONLY: npft_max
 USE pftparm, ONLY: conductance_b_seg, conductance_c_seg, seg_kfac,             &
                    kcrit_fractional_loss
+USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground   ! MDK, 21/10/26
 
 INTEGER, INTENT(IN) :: pft
 
 INTEGER :: i, iseg, n
 REAL(KIND=real_jlslsm) :: b, c, dpsi, p0, pm, p1
+REAL(KIND=real_jlslsm) :: kfac_lut   ! segment share the table is built for
+                                     ! MDK, 21/10/26
 
 ! Same structure as build_supply_lut: fast exit once built, allocate for all
 ! PFTs inside the critical section on the first call, then build this PFT's
@@ -1752,9 +1856,15 @@ IF ( .NOT. lut_seg_ready(pft) ) THEN
     ! sl_kfail_frac) is a fraction 1/seg_kfac of it on the segment's own
     ! curve. seg_kfac >= 1 for segments in series; the MAX guards others.
     ! MDK, 20/10/26
+    ! With kplant_model = 1 a segment's share also moves with LAI
+    ! (seg_kscale), so the table is built for the largest share the
+    ! LAI_ref / LAI cap allows, k_ground_ratio_max x seg_kfac.
+    ! MDK, 21/10/26
+    kfac_lut = MAX(seg_kfac(pft,iseg), 1.0_real_jlslsm)
+    IF ( kplant_model == kplant_model_ground )                                 &
+      kfac_lut = kfac_lut * k_ground_ratio_max
     CALL lut_grid( b, c, .FALSE., lut_f_floor,                                 &
-                   lut_f_crit(1.0 - kcrit_fractional_loss(pft),                &
-                              MAX(seg_kfac(pft,iseg), 1.0_real_jlslsm)),       &
+                   lut_f_crit(1.0 - kcrit_fractional_loss(pft), kfac_lut),     &
                    dpsi, n )
     lut_seg_tab(pft,iseg)%dpsi = dpsi
     lut_seg_tab(pft,iseg)%n = n

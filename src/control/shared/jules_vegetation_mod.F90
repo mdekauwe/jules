@@ -531,6 +531,29 @@ LOGICAL ::                                                                     &
       ! conductance k = -dE/dpsi_leaf (Sperry et al. 2017). With .FALSE.
       ! (default) the hydraulics are the single segment as before.
 
+INTEGER, PARAMETER ::                                                          &
+  kplant_model_param  = 0,                                                     &
+  kplant_model_ground = 1
+      ! Values of kplant_model.
+      ! MDK, 21/10/26
+INTEGER ::                                                                     &
+  kplant_model = kplant_model_param
+      ! Whole-plant hydraulic conductance (needs l_som_plant_segments for 1):
+      ! 0 (kplant_model_param, default): kmax_pft, per unit leaf area, at
+      !   every LAI, so all three segments scale with leaf area.
+      ! 1 (kplant_model_ground): the root and stem segments are held per
+      !   unit ground area at their kmax_pft value for a reference LAI
+      !   (lai_ref_k_io in pft_params; unset or <= 0: the TRIFFID balanced
+      !   LAI from canopy height), while the leaf segment scales with LAI.
+      !   Segment s in {root, stem} has kmax_pft * seg_kfac_s * LAI_ref / LAI
+      !   (ratio capped at k_ground_ratio_max), so losing leaves raises the
+      !   supply per remaining leaf and adding leaves lowers it (as in
+      !   SurEau, where trunk, branch and root conductances are Ks x area /
+      !   length). Xylem impairment stays a fraction of each segment's
+      !   intact conductance, so a change in LAI neither repairs nor adds
+      !   damage. kmax_pft keeps its meaning at LAI = LAI_ref.
+      ! MDK, 21/10/26
+
 LOGICAL ::                                                                     &
   l_som_supply_limit = .FALSE.
       ! When .TRUE., the stomatal optimisation can only choose transpiration
@@ -1009,7 +1032,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
     l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
     leaf_shelter, leaf_aero_model, l_leaf_coexp_lai, leaf_wind_ext,            &
-    ml_leaf_temp_model,                                                        &
+    ml_leaf_temp_model, kplant_model,                                          &
     l_som_gain_gross,                                                          &
     l_som_cuticular_floor, l_som_gravity, l_som_coupled_e,                    &
     l_som_rhizo_mfp, l_som_rhizo_hr,                                          &
@@ -1729,6 +1752,18 @@ IF ( l_som_plant_segments .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.     &
                'som_psi_solver=2 or 3 and can_rad_mod=1 or 7')
 END IF
 
+! kplant_model 1 needs the segments (which imply the profit-max path and
+! can_rad_mod = 1 or 7, checked above; DESICA has no segments).
+! MDK, 21/10/26
+IF ( ( kplant_model /= kplant_model_param .AND.                                &
+       kplant_model /= kplant_model_ground ) .OR.                              &
+     ( kplant_model == kplant_model_ground .AND.                               &
+       .NOT. l_som_plant_segments ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'kplant_model must be 0, or 1 with l_som_plant_segments=T')
+END IF
+
 IF ( l_som_cuticular_floor .AND.                                               &
      ( ( leaf_flux_mod /= leaf_flux_stom_opt .AND.                            &
          stomata_model /= stomata_desica ) .OR.                               &
@@ -2100,6 +2135,9 @@ END IF
 WRITE(lineBuffer,*) ' l_som_plant_segments = ', l_som_plant_segments
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' kplant_model = ', kplant_model   ! MDK, 21/10/26
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 WRITE(lineBuffer,*) ' l_som_gain_gross = ', l_som_gain_gross
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -2268,7 +2306,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 23 ! +1 ml_leaf_temp_model (MDK, 19/10/26), +1 ximpair_stomatal_response, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
+INTEGER, PARAMETER :: n_int = 24 ! +1 kplant_model (MDK, 21/10/26), +1 ml_leaf_temp_model (MDK, 19/10/26), +1 ximpair_stomatal_response, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
 INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5) ! +1 leaf_wind_ext (MDK, 19/10/26), +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
@@ -2296,6 +2334,7 @@ TYPE :: my_namelist
   INTEGER :: leaf_temp_iter
   INTEGER :: leaf_aero_model
   INTEGER :: ml_leaf_temp_model
+  INTEGER :: kplant_model
   INTEGER :: ilayers
   INTEGER :: leaf_flux_mod !JBaguley
   INTEGER :: som_base_parm !JBaguley
@@ -2463,6 +2502,7 @@ IF (mype == 0) THEN
   my_nml % l_leaf_coexp_lai = l_leaf_coexp_lai
   my_nml % leaf_aero_model = leaf_aero_model
   my_nml % ml_leaf_temp_model = ml_leaf_temp_model
+  my_nml % kplant_model = kplant_model
   my_nml % leaf_shelter = leaf_shelter
   my_nml % leaf_temp_iter = leaf_temp_iter
   my_nml % leaf_width = leaf_width
@@ -2572,6 +2612,7 @@ IF (mype /= 0) THEN
   l_leaf_coexp_lai = my_nml % l_leaf_coexp_lai
   leaf_aero_model = my_nml % leaf_aero_model
   ml_leaf_temp_model = my_nml % ml_leaf_temp_model
+  kplant_model = my_nml % kplant_model
   leaf_shelter = my_nml % leaf_shelter
   leaf_temp_iter = my_nml % leaf_temp_iter
   leaf_width = my_nml % leaf_width
