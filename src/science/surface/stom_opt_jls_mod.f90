@@ -90,8 +90,18 @@ END FUNCTION g_of_geff
 ! net carbon uptake.
 !
 ! References:
-! TODO: Add reference to profit max paper.
-! TODO: ADD reference to JULES paper.
+! - Sperry, J. S., Venturas, M. D., Anderegg, W. R. L., Mencuccini, M., Mackay,
+!   D. S., Wang, Y., and Love, D. M. (2017) Predicting stomatal responses to
+!   the environment from the optimization of photosynthetic gain and hydraulic
+!   cost. Plant, Cell & Environment, 40: 816-830. doi: 10.1111/pce.12852.
+! - De Kauwe, M.G., Sabot, M.E.B., Medlyn, B.E., Pitman, A.J., Meir, P.,
+!   Cernusak, L.A., Gallagher, R.V., Ukkola, A.M., Rifai, S.W. and Choat, B.
+!   (2022), Towards species-level forecasts of drought-induced tree mortality
+!   risk. New Phytol, 235: 94-110. https://doi.org/10.1111/nph.18129
+! - Baguley, J. C., Quaife, T., Rowland, L., Meir, P., Bell, M. C., Sabot, M.
+!   E. B., and De Kauwe, M. G.: Limited modelled legacy effects of drought on
+!   carbon and water fluxes in a temperate oak forest despite hydraulic
+!   impairment. Biogeosciences, in review
 ! *********************************************************************
 
 SUBROUTINE stom_opt_mod (                                                      &
