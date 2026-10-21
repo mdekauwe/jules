@@ -1674,7 +1674,7 @@ ELSE IF (l_xylem_impairment) THEN
   ! With the soil-to-root conductance in series (l_som_rhizo_series), the
   ! cost uses the whole path as the unimpaired cost does: the intact xylem
   ! at the same water potentials, in series with the soil (which is not
-  ! damage, so the stomata see it). As leaf_psi_jls, the marginal
+  ! damaged, so the stomata see it). As leaf_psi_jls, the marginal
   ! conductance of the path is k(psi_leaf) / (1 + k(psi_in) / K_s), with the
   ! root inlet psi_in = psi_src - E / K_s and k the intact curve.
   IF ( l_som_rhizo_series ) THEN
@@ -1716,25 +1716,20 @@ ELSE
   kl_hc_sample(:,:) = kl_sample(:,:)
 END IF
 
-! Reset entry 0 to the closed-stomata state. The whole-column (:,j)
-! photosynthesis/conductance calculations above also evaluated entry 0 at
-! ci = ca, leaving al_sample(0,j) at the net assimilation rate for fully open
-! stomata and gl_sample(0,j) = al * conv / MAX(ca - ci, 1e-2) - i.e. near the
-! maximum photosynthesis and a huge conductance. So whenever stom_opt_mod
-! fell back to "closed" (no feasible sample, e.g. under severe drought),
-! it actually reported maximal carbon uptake and gc of O(1-10) m/s, exactly
-! when the hydraulics said the stomata should shut. Closed stomata: no
-! conductance or transpiration, net assimilation = -rd, leaf at the root
-! zone water potential.
+! Reset entry 0 to the closed-stomata state. The photosynthesis and
+! conductance calculations above ran over the whole column, so they also
+! filled entry 0 with the open state at ci = ca. Closed stomata have no
+! conductance or transpiration, net assimilation -rd, and the leaf at the
+! root zone water potential.
 !
-! The conductance of the closed state is the whole path at zero flow,
-! K(psi_root_zone), from the same solve as the samples. It used to be set to 0, which made PLC_pft report 100 % whenever
-! the stomata shut (e.g. at twilight, when net A <= 0 at every ci). Entry 0
-! is never a candidate in the profit selection, so this only changes the
-! reported leaf_k.
-! The closed state is solved at E = 0 on the same path as the samples, so
-! it includes the soil-to-root conductance (l_som_rhizo_series) and any
-! impairment.
+! The conductance of the closed state is that of the whole path when the
+! plant is not transpiring, K(psi_root_zone). It is solved at E = 0 on
+! the same path as the samples, so it includes the soil-to-root link and
+! any impairment. It is not 0, which would report 100 % loss of
+! conductance (PLC_pft) whenever the stomata shut, e.g. at twilight.
+! Entry 0 is never a profit candidate, so this only changes the reported
+! leaf_k.
+! MDK, 21/10/26
 el_closed(:,:) = 0.0
 IF (l_xylem_impairment .AND. l_som_plant_segments .AND.                      &
     som_psi_solver == psi_solver_lut) THEN
@@ -1766,10 +1761,6 @@ DO j = 1, open_pts
   al_sample(0,j)  = -rd(l)
   gl_sample(0,j)  = 0.0
   el_sample(0,j)  = 0.0
-  ! K(psi_root_zone) at zero flow (with the soil in series), not 0: 0 made
-  ! PLC_pft report 100 % whenever the stomata shut (e.g. at twilight, when
-  ! net A <= 0 at every ci). Entry 0 is never a profit candidate, so this
-  ! only changes the reported leaf_k.
   kl_sample(0,j)  = kl_closed(1,j)
   kl_hc_sample(0,j) = kl_sample(0,j)
   psi_sample(0,j) = psi_root_zone(l)
