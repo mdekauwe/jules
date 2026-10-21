@@ -244,6 +244,20 @@ ELSE IF ( l_crop ) THEN
   CALL add_to_list( 'cropcanht', nvars, identifiers )
 END IF
 
+! TRIFFID's period timer and the accumulators that drive the next TRIFFID
+! step, so a restart that is not on a TRIFFID step is exact (otherwise the
+! steps restart from the dump time and the partial-period sums are lost).
+! MDK, 22/10/26
+IF ( l_triffid ) THEN
+  CALL add_to_list( 'trif_asteps', nvars, identifiers )
+  CALL add_to_list( 'npp_acc', nvars, identifiers )
+  CALL add_to_list( 'resp_w_acc', nvars, identifiers )
+  CALL add_to_list( 'g_leaf_acc', nvars, identifiers )
+  CALL add_to_list( 'g_leaf_phen_acc', nvars, identifiers )
+  CALL add_to_list( 'gpp_acc', nvars, identifiers )
+  CALL add_to_list( 'resp_s_acc', nvars, identifiers )
+END IF
+
 IF ( l_triffid .AND. l_landuse ) THEN
   ! With TRIFFID on,  agricultural frac and WP pools are required for LUC
   CALL add_to_list( 'frac_agr_prev',  nvars, identifiers )

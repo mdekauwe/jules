@@ -22,6 +22,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      
     ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt, &
     ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc, ximpair_rebuilt,  &
     ximpair_lock_new
+USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
@@ -3061,6 +3062,66 @@ CASE ( 'albobs_nir' )
     CALL cube_get_data(cube_land, psparms%albobs_nir_gb)
   ELSE
     psparms%albobs_nir_gb(:) = const_val
+  END IF
+
+! TRIFFID's period timer and accumulators. MDK, 22/10/26
+CASE ( 'trif_asteps' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, co2_tmp)   ! a land-sized work array
+    asteps_since_triffid = NINT(co2_tmp(1))
+  ELSE
+    asteps_since_triffid = NINT(const_val)
+  END IF
+
+CASE ( 'npp_acc' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, trifctltype%npp_acc_pft(:,:))
+  ELSE
+    trifctltype%npp_acc_pft(:,:) = const_val
+  END IF
+
+CASE ( 'resp_w_acc' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, trifctltype%resp_w_acc_pft(:,:))
+  ELSE
+    trifctltype%resp_w_acc_pft(:,:) = const_val
+  END IF
+
+CASE ( 'g_leaf_acc' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, trifctltype%g_leaf_acc_pft(:,:))
+  ELSE
+    trifctltype%g_leaf_acc_pft(:,:) = const_val
+  END IF
+
+CASE ( 'g_leaf_phen_acc' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, trifctltype%g_leaf_phen_acc_pft(:,:))
+  ELSE
+    trifctltype%g_leaf_phen_acc_pft(:,:) = const_val
+  END IF
+
+CASE ( 'gpp_acc' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, trif_vars%gpp_pft_acc(:,:))
+  ELSE
+    trif_vars%gpp_pft_acc(:,:) = const_val
+  END IF
+
+CASE ( 'resp_s_acc' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, trifctltype%resp_s_acc_soilt(:,1,:,:))
+    trifctltype%resp_s_acc_soilt(:,:,:,:) =                                    &
+                      SPREAD(trifctltype%resp_s_acc_soilt(:,1,:,:), 2, nsoilt)
+  ELSE
+    trifctltype%resp_s_acc_soilt(:,:,:,:) = const_val
   END IF
 
 CASE ( 'co2_mmr' )

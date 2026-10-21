@@ -114,14 +114,18 @@ TYPE(trifctl_type), INTENT(IN OUT)  :: trifctltype
 
 !-----------------------------------------------------------------------
 ! Initialise accumulated fluxes for TRIFFID and phenology.
-! This is not necessary if these are read from a restart file - but at
-! present they're not.
+! With TRIFFID on they are now read from the dump (or set to 0 by the
+! initial-condition defaults), so they are not reset here; resetting them
+! made a restart that is not on a TRIFFID step inexact.
+! MDK, 22/10/26
 !-----------------------------------------------------------------------
-trifctltype%g_leaf_acc_pft(:,:)       = 0.0
-trifctltype%g_leaf_phen_acc_pft(:,:)  = 0.0
-trifctltype%npp_acc_pft(:,:)          = 0.0
-trifctltype%resp_s_acc_soilt(:,:,:,:) = 0.0
-trifctltype%resp_w_acc_pft(:,:)       = 0.0
+IF ( .NOT. l_triffid ) THEN
+  trifctltype%g_leaf_acc_pft(:,:)       = 0.0
+  trifctltype%g_leaf_phen_acc_pft(:,:)  = 0.0
+  trifctltype%npp_acc_pft(:,:)          = 0.0
+  trifctltype%resp_s_acc_soilt(:,:,:,:) = 0.0
+  trifctltype%resp_w_acc_pft(:,:)       = 0.0
+END IF
 
 !-----------------------------------------------------------------------
 ! Set saturated hydraulic conductivity to zero at land ice points.

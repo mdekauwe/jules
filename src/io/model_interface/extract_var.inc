@@ -28,6 +28,7 @@ USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf, ximpair_psi_stem
 USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_grow_acc, &
                                        ximpair_rebuilt, ximpair_lock_new,     &
                                        ximpair_fmin_acc
+USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,   &
                            nsc_repair_pft, nsc_starv_pft, nsc_turg_acc,   &
                            nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day, &
@@ -1483,6 +1484,36 @@ CASE ( 'npp' )
 
 CASE ( 'o3_exp_fac' )
   cube_land = cube_from_array(chemvars%fo3_pft)
+  cube = map_from_land(cube_land)
+
+! TRIFFID's period timer and accumulators. MDK, 22/10/26
+CASE ( 'trif_asteps' )
+  onedvar_tmp(:) = REAL(asteps_since_triffid)
+  cube_land = cube_from_array(onedvar_tmp)
+  cube = map_from_land(cube_land)
+
+CASE ( 'npp_acc' )
+  cube_land = cube_from_array(trifctltype%npp_acc_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'resp_w_acc' )
+  cube_land = cube_from_array(trifctltype%resp_w_acc_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'g_leaf_acc' )
+  cube_land = cube_from_array(trifctltype%g_leaf_acc_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'g_leaf_phen_acc' )
+  cube_land = cube_from_array(trifctltype%g_leaf_phen_acc_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'gpp_acc' )
+  cube_land = cube_from_array(trif_vars%gpp_pft_acc)
+  cube = map_from_land(cube_land)
+
+CASE ( 'resp_s_acc' )
+  cube_land = cube_from_array(trifctltype%resp_s_acc_soilt(:,1,:,:))
   cube = map_from_land(cube_land)
 
 CASE ( 'co2_mmr' )

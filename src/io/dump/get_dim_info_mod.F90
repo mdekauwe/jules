@@ -165,6 +165,8 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                        &
        'ximpair_renew_mean', 'ximpair_renew_wt', 'ximpair_kcap_leaf',          &
        'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', &
            'ximpair_rebuilt', 'ximpair_lock_new',                     &
+           'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc', &
+           'gpp_acc',          &
            'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',           &
            'nsc_turg_acc', 'nsc_t_run',                       &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
@@ -184,7 +186,7 @@ CASE ( 'cropdvi', 'croprootc', 'cropharvc', 'cropreservec',                    &
   dim_names(1:ndims) = [ land_dim_name, cpft_dim_name ]
   dim_sizes(1:ndims) = [ global_land_pts, ncpft ]
 
-CASE ( 'cs', 'ns', 'frac_c_label_pool' )
+CASE ( 'cs', 'ns', 'frac_c_label_pool', 'resp_s_acc' )
   ndims = 3
   dim_names(1:ndims) = [ land_dim_name, sclayer_dim_name,                      &
                           scpool_dim_name ]
@@ -463,6 +465,12 @@ CASE ( 'conv_loss_frac', 'sfc_water_frac' )
   END IF
 
   ! CO2 ancil namelist
+  ! TRIFFID's period timer: a scalar. MDK, 22/10/26
+CASE ( 'trif_asteps' )
+  ndims = 1
+  dim_names(1) = scalar_dim_name
+  dim_sizes(1) = 1
+
 CASE ( 'co2_mmr' )
   IF ( need_dims( l_reading, ancil_dump_read%co2 ) ) THEN
     ! Scalar variables are represented by an array of dimension 1.

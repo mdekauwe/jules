@@ -13,6 +13,7 @@ CONTAINS
 
 SUBROUTINE read_dump(file_name, identifiers)
 
+USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, ainfo, trif_vars,      &
                             soilecosse, progs, progs_data, trifctltype,        &
                             jules_vars, fluxes, rivers, water_resources
@@ -128,6 +129,7 @@ INTEGER :: seed_rain_len
 
 INTEGER :: i, j, m, n, s  ! Loop counters
 
+REAL :: trif_asteps_r   ! TRIFFID timer from the dump (MDK, 22/10/26)
 INTEGER :: ERROR  ! Variable to collect MPI errors - most MPI
                   ! implementations bail on error, so this is not checked.
 
@@ -225,6 +227,8 @@ DO i = 1,nvars
            'ximpair_renew_mean', 'ximpair_renew_wt', 'ximpair_kcap_leaf',      &
            'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', &
            'ximpair_rebuilt', 'ximpair_lock_new',                     &
+           'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc', &
+           'gpp_acc',          &
            'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',           &
            'nsc_turg_acc', 'nsc_t_run',                       &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
@@ -298,6 +302,16 @@ DO i = 1,nvars
     CASE ( 'cs','ns', 'frac_c_label_pool' )
       CALL file_read_var(FILE, var_ids(i),                                     &
                          global_data_3d(:,1:dim_cslayer,1:dim_cs1))
+
+    ! Not in dumps written before it was added: an empty sum (as before).
+    ! MDK, 22/10/26
+    CASE ( 'resp_s_acc' )
+      IF ( var_ids(i) > 0 ) THEN
+        CALL file_read_var(FILE, var_ids(i),                                   &
+                           global_data_3d(:,1:dim_cslayer,1:dim_cs1))
+      ELSE
+        global_data_3d(:,1:dim_cslayer,1:dim_cs1) = 0.0
+      END IF
 
     CASE ( 'cs_soilt', 'ns_soilt', 'frac_c_label_pool_soilt' )
       CALL file_read_var(FILE, var_ids(i),                                     &
@@ -458,6 +472,12 @@ DO i = 1,nvars
       IF ( ancil_dump_read%water_resources_props ) THEN
         CALL file_read_var(FILE, var_ids(i), global_data_1d)
       END IF
+
+      ! TRIFFID's period timer. MDK, 22/10/26
+    CASE ( 'trif_asteps' )
+      ! < 0: not in the dump, so the timer keeps its start-of-run value.
+      trif_asteps_r = -1.0
+      IF ( var_ids(i) > 0 ) CALL file_read_var(FILE, var_ids(i), trif_asteps_r)
 
       !CO2 ancil namelist
     CASE ( 'co2_mmr' )
@@ -1687,6 +1707,47 @@ DO i = 1,nvars
     IF ( ancil_dump_read%water_resources_props ) THEN
       CALL scatter_land_field(global_data_1d, water_resources%sfc_water_frac)
     END IF
+
+  ! TRIFFID's period timer and accumulators. MDK, 22/10/26
+  CASE ( 'trif_asteps' )
+    CALL mpi_bcast(trif_asteps_r, 1, mpi_real,                                 &
+         master_task_id, mpi_local_comm, ERROR)
+    IF ( trif_asteps_r >= 0.0 ) asteps_since_triffid = NINT(trif_asteps_r)
+
+  CASE ( 'npp_acc' )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), trifctltype%npp_acc_pft(:,n))
+    END DO
+
+  CASE ( 'resp_w_acc' )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), trifctltype%resp_w_acc_pft(:,n))
+    END DO
+
+  CASE ( 'g_leaf_acc' )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), trifctltype%g_leaf_acc_pft(:,n))
+    END DO
+
+  CASE ( 'g_leaf_phen_acc' )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), trifctltype%g_leaf_phen_acc_pft(:,n))
+    END DO
+
+  CASE ( 'gpp_acc' )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), trif_vars%gpp_pft_acc(:,n))
+    END DO
+
+  CASE ( 'resp_s_acc' )
+    DO s = 1,nsoilt
+      DO n = 1,dim_cs1
+        DO m = 1,dim_cslayer
+          CALL scatter_land_field(global_data_3d(:,m,n),                       &
+                                  trifctltype%resp_s_acc_soilt(:,s,m,n))
+        END DO
+      END DO
+    END DO
 
     !CO2 ancil namelist
   CASE ( 'co2_mmr' )

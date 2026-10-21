@@ -14,6 +14,7 @@ CONTAINS
 
 SUBROUTINE write_dump()
 
+USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE jules_fields_mod, ONLY: crop_vars, psparms, ainfo, trif_vars, progs,       &
                             fluxes, lake_vars, rivers, water_resources
 
@@ -1131,6 +1132,44 @@ DO i = 1,nvars
   CASE ( 'sfc_water_frac' )
     CALL gather_land_field(water_resources%sfc_water_frac, global_data_1d)
 
+    ! TRIFFID's period timer (written directly) and accumulators. MDK, 22/10/26
+  CASE ( 'trif_asteps' )
+    ! Nothing to do
+
+  CASE ( 'npp_acc' )
+    DO n = 1,npft
+      CALL gather_land_field(trifctltype%npp_acc_pft(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'resp_w_acc' )
+    DO n = 1,npft
+      CALL gather_land_field(trifctltype%resp_w_acc_pft(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'g_leaf_acc' )
+    DO n = 1,npft
+      CALL gather_land_field(trifctltype%g_leaf_acc_pft(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'g_leaf_phen_acc' )
+    DO n = 1,npft
+      CALL gather_land_field(trifctltype%g_leaf_phen_acc_pft(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'gpp_acc' )
+    DO n = 1,npft
+      CALL gather_land_field(trif_vars%gpp_pft_acc(:,n), global_data_2d(:,n))
+    END DO
+
+    !Case if nsoilt == 1, so it is OK to hardwire the 2nd dimension to 1
+  CASE ( 'resp_s_acc' )
+    DO n = 1,dim_cs1
+      DO m = 1,dim_cslayer
+        CALL gather_land_field(trifctltype%resp_s_acc_soilt(:,1,m,n),          &
+                               global_data_3d(:,m,n))
+      END DO
+    END DO
+
     !CO2 ancil namelist
   CASE ( 'co2_mmr' )
     !Nothing to do
@@ -1186,6 +1225,8 @@ DO i = 1,nvars
            'ximpair_renew_mean', 'ximpair_renew_wt', 'ximpair_kcap_leaf',      &
            'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', &
            'ximpair_rebuilt', 'ximpair_lock_new',                     &
+           'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc', &
+           'gpp_acc',          &
            'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',           &
            'nsc_turg_acc', 'nsc_t_run',                       &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
@@ -1227,7 +1268,7 @@ DO i = 1,nvars
     CASE ( 'rgrainl', 'snow_ds', 'snow_ice', 'snow_liq', 'tsnow' )
       CALL file_write_var(FILE, var_ids(i),                                    &
                           global_data_3d(:,1:nsurft,1:nsmax))
-    CASE ( 'cs','ns', 'frac_c_label_pool' )
+    CASE ( 'cs','ns', 'frac_c_label_pool', 'resp_s_acc' )
       CALL file_write_var(FILE, var_ids(i),                                    &
                           global_data_3d(:,1:dim_cslayer,1:dim_cs1))
 
@@ -1355,6 +1396,10 @@ DO i = 1,nvars
 
     CASE ( 'sfc_water_frac' )
       CALL file_write_var(FILE, var_ids(i), global_data_1d)
+
+      ! TRIFFID's period timer. MDK, 22/10/26
+    CASE ( 'trif_asteps' )
+      CALL file_write_var(FILE, var_ids(i), REAL(asteps_since_triffid))
 
       !CO2 ancil namelist
     CASE ( 'co2_mmr' )

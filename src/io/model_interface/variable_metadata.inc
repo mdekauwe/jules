@@ -10152,4 +10152,102 @@ DATA metadata(783) / var_metadata(                                             &
 ! Units
     "1"                                                                        &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for trif_asteps
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(784) / var_metadata(                                             &
+! String identifier
+    'trif_asteps',                                                              &
+! Variable type
+    var_type_surface,                                                          &
+! Long name
+    "Timesteps since the last TRIFFID step",                                   &
+! Units
+    "-"                                                                         &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for npp_acc
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(785) / var_metadata(                                             &
+! String identifier
+    'npp_acc',                                                                  &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "NPP accumulated since the last TRIFFID step",                             &
+! Units
+    "kg m-2"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for resp_w_acc
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(786) / var_metadata(                                             &
+! String identifier
+    'resp_w_acc',                                                               &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Wood respiration accumulated since the last TRIFFID step",                &
+! Units
+    "kg m-2"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for g_leaf_acc
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(787) / var_metadata(                                             &
+! String identifier
+    'g_leaf_acc',                                                               &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Leaf turnover accumulated since the last TRIFFID step",                   &
+! Units
+    "-"                                                                         &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for g_leaf_phen_acc
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(788) / var_metadata(                                             &
+! String identifier
+    'g_leaf_phen_acc',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Phenological leaf turnover accumulated since the last TRIFFID step",      &
+! Units
+    "-"                                                                         &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for gpp_acc
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(789) / var_metadata(                                             &
+! String identifier
+    'gpp_acc',                                                                  &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "GPP accumulated since the last TRIFFID step",                             &
+! Units
+    "kg m-2"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for resp_s_acc
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(790) / var_metadata(                                             &
+! String identifier
+    'resp_s_acc',                                                               &
+! Variable type
+    var_type_scpool,                                                           &
+! Long name
+    "Soil respiration accumulated since the last TRIFFID step",                &
+! Units
+    "kg m-2"                                                                    &
+  ) /
 #endif
