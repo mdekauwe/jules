@@ -414,14 +414,18 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,gl_sample(0:som_n_sample, open_pts)                                           &
                             ! Leaf conductance for H2O (m/s).
 ,kl_sample(0:som_n_sample, open_pts)                                           &
-                            ! Xylem conductance at leaf (m/s).
+                            ! Whole-path conductance -dE/dpsi_leaf of each
+                            ! sample (mol m-2 s-1 Pa-1).
+                            ! MDK, 21/10/26
 ,kl_hc_sample(0:som_n_sample, open_pts)                                        &
-                            ! Xylem conductance at leaf used for the
-                            ! hydraulic cost (m/s) - see stom_opt_mod_ci.
+                            ! Conductance used for the hydraulic cost
+                            ! (mol m-2 s-1 Pa-1) - see stom_opt_mod_ci.
+                            ! MDK, 21/10/26
 ,kl_SOX(0:som_n_sample, open_pts)                                              &
-                            ! Xylem conductance for SOX_opt model.
-                            !  Calculated from the average of the leaf and
-                            !  root zone water potentials. (m/s)
+                            ! Conductance for the SOX_opt model: the whole
+                            ! path at the mean of the leaf and root zone
+                            ! water potentials (mol m-2 s-1 Pa-1).
+                            ! MDK, 21/10/26
 ,psi_sample(0:som_n_sample, open_pts)                                          &
                             ! Water potential at leaf (Pa)
 ,SOX_mean_psi(0:som_n_sample, open_pts)                                        &
@@ -1220,16 +1224,19 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,gl_sample(0:n_sample, open_pts)                                             &
                             ! Leaf conductance for H2O (m/s).
 ,kl_sample(0:n_sample, open_pts)                                             &
-                            ! Xylem conductance at leaf (m/s).
+                            ! Whole-path conductance -dE/dpsi_leaf of each
+                            ! sample (mol m-2 s-1 Pa-1).
+                            ! MDK, 21/10/26
 ,psi_sample(0:n_sample, open_pts)                                            &
                             ! Water potential at leaf (Pa)
 ,el_sample(0:n_sample, open_pts)                                             &
                             ! Transpiration rate (mol H2O/m2/s)
 ,kl_hc_sample(0:n_sample, open_pts)
-                            ! Xylem conductance at leaf used for the
-                            ! hydraulic cost (m/s): kl_sample, or with
+                            ! Conductance used for the hydraulic cost
+                            ! (mol m-2 s-1 Pa-1): kl_sample, or with
                             ! l_xylem_impairment the conductance at
                             ! psi_sample on the unimpaired PFT curve.
+                            ! MDK, 21/10/26
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
  psi_stem_sample(0:n_sample, open_pts)
                             ! Stem water potential (Pa) of each sample: the
