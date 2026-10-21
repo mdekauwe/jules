@@ -593,17 +593,31 @@ c_ref(:) = conductance_c_pft(pft)
 kl_hc_max(:) = kmax_ref(:)
 IF (l_xylem_impairment) THEN
   IF (l_som_plant_segments) THEN
-    ! Segments in series: the intact whole-plant conductance with no flow,
-    ! 1 / sum_s 1 / k_s(psi_root_zone).
-    DO l = 1, land_pts
+    ! Segments (root, stem, leaf): the reference conductance is that of the
+    ! intact plant when it is not transpiring. With no transpiration there
+    ! is no drop in water potential along the plant, so every segment sits
+    ! at the root zone water potential, and the segments add in series:
+    !   1 / kl_hc_max = sum over segments of 1 / k_s(psi_root_zone),
+    ! where k_s is the segment's maximum conductance reduced by its own
+    ! vulnerability curve. This is the most the undamaged plant could
+    ! conduct at today's soil water potential; the hydraulic cost of a
+    ! stomatal opening is the loss of conductance from it.
+    ! Vegetated points only (psi_root_zone means nothing elsewhere).
+    ! MDK, 21/10/26
+    DO m = 1, veg_pts
+      l = veg_index(m)
       kl_hc_max(l) = 0.0
       DO iseg = 1, 3
-        ! (seg_kmax_fac: seg_kfac, times seg_kscale with kplant_model = 1;
-        ! MDK, 21/10/26)
+        ! The segment's maximum conductance is kmax_ref times its share,
+        ! seg_kmax_fac: seg_kfac, and with kplant_model = 1 also the LAI
+        ! scaling seg_kscale.
+        ! MDK, 21/10/26
         kl_hc_max(l) = kl_hc_max(l) + 1.0 / MAX(kmax_ref(l)                   &
                        * seg_kmax_fac(pft,l,iseg)                              &
-                       * EXP( -(psi_root_zone(l) / conductance_b_seg(pft,iseg)) &
-                              **conductance_c_seg(pft,iseg) ), TINY(1.0_real_jlslsm))
+                       * EXP( -(psi_root_zone(l)                               &
+                                / conductance_b_seg(pft,iseg))                 &
+                              **conductance_c_seg(pft,iseg) ),                 &
+                       TINY(1.0_real_jlslsm))
       END DO
       kl_hc_max(l) = 1.0 / kl_hc_max(l)
     END DO
@@ -612,7 +626,7 @@ IF (l_xylem_impairment) THEN
                                b_ref, c_ref, kl_hc_max )
   END IF
   ! The soil-to-root conductance in series (l_som_rhizo_series): the soil is
-  ! not damage, so the stomata see it, as in the unimpaired cost (where
+  ! not damaged, so the stomata see it, as in the unimpaired cost (where
   ! leaf_k is the whole soil-to-leaf path). Zero flow: the series sum.
   IF ( l_som_rhizo_series ) THEN
     DO m = 1, veg_pts
