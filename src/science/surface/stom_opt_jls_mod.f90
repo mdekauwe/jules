@@ -21,25 +21,61 @@ PUBLIC stom_opt_mod, g_of_geff
 CONTAINS
 
 !-----------------------------------------------------------------------------
-! Coupled transpiration (l_som_coupled_e): the conductance for water of a
-! stomatal conductance g (m/s, >= 0) in series with the leaf boundary layer
-! r_bl (s/m) and, shared with the other leaf class (effective conductance
-! g_o, m/s), the canopy air resistance r_ca (s/m),
-!   g' = g / (1 + g r_bl),   g_eff = g' / (1 + r_ca (g' + g_o)),
-! so that E = D g_eff for the deficit D from the leaf to the level-1 air.
+! Coupled transpiration (l_som_coupled_e): the effective conductance for
+! water vapour from the leaf to the level-1 air, so that E = D g_eff, with D
+! the deficit from the leaf to the level-1 air.
+!
+! Water vapour crosses the stomata and the leaf boundary layer in series,
+! then the canopy air, which this leaf class shares with the other class:
+!   g'    = g / (1 + g r_bl)
+!   g_eff = g' / (1 + r_ca (g' + g_o))
+!
+! MDK, 21/10/26
 !-----------------------------------------------------------------------------
 ELEMENTAL FUNCTION g_eff_e( g, r_bl, r_ca, g_o ) RESULT( g_eff )
-REAL(KIND=real_jlslsm), INTENT(IN) :: g, r_bl, r_ca, g_o
-REAL(KIND=real_jlslsm) :: g_eff, gp
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  g,                                                                           &
+                            ! Stomatal conductance for H2O (m/s, >= 0).
+  r_bl,                                                                        &
+                            ! Leaf boundary layer resistance (s/m).
+  r_ca,                                                                        &
+                            ! Canopy air to level-1 resistance (s/m).
+  g_o
+                            ! Effective conductance of the other leaf class
+                            ! sharing the canopy air (m/s).
+REAL(KIND=real_jlslsm) :: g_eff
+                            ! Effective conductance (m/s).
+REAL(KIND=real_jlslsm) :: gp
+                            ! Stomata and boundary layer in series (m/s).
 gp    = g / ( 1.0 + g * r_bl )
 g_eff = gp / ( 1.0 + r_ca * ( gp + g_o ) )
 END FUNCTION g_eff_e
 
-! The inverse: the stomatal conductance with effective conductance x (HUGE
-! where no finite g reaches it).
+!-----------------------------------------------------------------------------
+! The inverse of g_eff_e: the stomatal conductance g whose effective
+! conductance is x. Returns HUGE when no finite g reaches x, because the
+! resistances in series cap g_eff below it.
+!
+! Used to turn a cap on transpiration into a cap on g: the hydraulic limit
+! in the bounded search, and the soil supply limit in sf_stom.
+!
+! MDK, 21/10/26
+!-----------------------------------------------------------------------------
 ELEMENTAL FUNCTION g_of_geff( x, r_bl, r_ca, g_o ) RESULT( g )
-REAL(KIND=real_jlslsm), INTENT(IN) :: x, r_bl, r_ca, g_o
-REAL(KIND=real_jlslsm) :: g, gp, den
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  x,                                                                           &
+                            ! Effective conductance to reach (m/s).
+  r_bl,                                                                        &
+                            ! Leaf boundary layer resistance (s/m).
+  r_ca,                                                                        &
+                            ! Canopy air to level-1 resistance (s/m).
+  g_o
+                            ! Effective conductance of the other leaf class
+                            ! sharing the canopy air (m/s).
+REAL(KIND=real_jlslsm) :: g
+                            ! Stomatal conductance for H2O (m/s).
+REAL(KIND=real_jlslsm) :: gp, den
+                            ! g' as in g_eff_e (m/s), and a denominator.
 g   = HUGE(1.0_real_jlslsm)
 den = 1.0 - r_ca * x
 IF ( den <= 0.0 ) RETURN
