@@ -430,8 +430,11 @@ END FUNCTION k_path_zero_flow
 ! *********************************************************************
 
 ! ---------------------------------------------------------------------
-! Function to calculate the leaf conductance from the leaf water
-! potential for all land points. JBaguley
+! Subroutine to calculate the leaf conductance from the leaf water
+! potential for all land points, floored at kcrit: it returns
+! MAX(k(psi), kcrit), not k(psi). JBaguley
+!
+! MDK, 21/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE leaf_conductance_CW_jls( pft,                                       &
                                     land_pnts,                                 &
@@ -444,7 +447,6 @@ SUBROUTINE leaf_conductance_CW_jls( pft,                                       &
                                     leaf_conductance                           &
   )
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -459,18 +461,20 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Water potentials for each land point (Pa)
 , kmax(land_pnts)                                                              &
                             ! Maximum xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , kcrit(land_pnts)                                                             &
                             ! Critical xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , conductance_b(land_pnts)                                                     &
                             ! Conductance parameter b for each land point (Pa)
 , conductance_c(land_pnts)
                             ! Conductance parameter c for each land point
+                            ! (dimensionless)
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_conductance(land_pnts)
-                            ! Leaf conductance for each land point (m/s)
+                            ! Leaf conductance for each land point
+                            ! (mol m-2 s-1 Pa-1)
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -492,11 +496,14 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE leaf_conductance_CW_jls
 
 ! ---------------------------------------------------------------------
-! Function to calculate xylem conductance using a cumulative weibull
-! distribution.
-! NOTE: This function is designed for the stomatal optimisation model.
+! Subroutine to calculate xylem conductance using a cumulative Weibull
+! distribution, floored at kcrit: it returns MAX(k(psi), kcrit), not
+! k(psi).
+! NOTE: This subroutine is designed for the stomatal optimisation model.
 !       It assumes that the input and output arrays are only large
 !       enough to contain values for points with open stomata.
+!
+! MDK, 21/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE xylem_conductance_CW_jls( pft,                                      &
                                      n_water_potentials,                       &
@@ -510,7 +517,6 @@ SUBROUTINE xylem_conductance_CW_jls( pft,                                      &
                                      xylem_conductance                         &
   )
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -524,29 +530,30 @@ INTEGER, INTENT(IN) ::                                                         &
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   water_potential(n_water_potentials, open_pnts)                               &
-                            ! Water potentials for each open point)
+                            ! Water potentials for each open point (Pa)
 , kmax(open_pnts)                                                              &
                             ! Maximum xylem conductance for each open point
-                            ! (m/s). Lets a layer- or PFT-specific maximum
-                            ! be used rather than always reading kmax_pft.
+                            ! (mol m-2 s-1 Pa-1): the kmax of this call (whole
+                            ! canopy, the sunlit or shaded leaves, or a
+                            ! layer's leaves), not always kmax_pft.
 , kcrit(open_pnts)                                                             &
                             ! Critical xylem conductance for each open point
-                            ! (m/s), scaled to match whatever kmax is being
-                            ! used (e.g. kcrit_per_lyr alongside kmax_per_lyr).
+                            ! (mol m-2 s-1 Pa-1), on the same basis as kmax.
 , conductance_b(open_pnts)                                                     &
                             ! Conductance parameter b for each open point
                             ! (Pa). Per point rather than per PFT so an
                             ! impaired vulnerability curve can be used.
                             ! JBaguley
 , conductance_c(open_pnts)
-                            ! Conductance parameter c for each open point.
+                            ! Conductance parameter c for each open point
+                            ! (dimensionless).
+                            !
+                            ! MDK, 21/10/26
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   xylem_conductance(n_water_potentials, open_pnts)
-                            ! Xylem conductance for each open point (m/s)
-
-! Local variables
-INTEGER :: i
+                            ! Xylem conductance for each open point
+                            ! (mol m-2 s-1 Pa-1)
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -567,8 +574,6 @@ xylem_conductance = MAX(xylem_conductance,                                     &
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE xylem_conductance_CW_jls
-
-
 
 ! ---------------------------------------------------------------------
 ! Function to calculate the leaf water potential from the transpiration
