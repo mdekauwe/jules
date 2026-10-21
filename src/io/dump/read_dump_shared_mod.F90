@@ -191,6 +191,13 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump: TRIFFID steps " //  &
              "count from the restart (restart not exact).")
+        CASE ( 'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd',                &
+               'cpl_gbw_sun', 'cpl_gbw_shd', 'cpl_ra_ca' )
+          ! sf_stom state: dumps written without it start from 'not yet set'
+          ! (the restart is then not exact). MDK, 22/10/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts " //       &
+             "'not yet set' (restart not exact).")
         CASE ( 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', 'nsc_npp_day',      &
                'nsc_turg_acc', 'nsc_t_run', 'nsc_ft_mean',                     &
                'ximpair_repair_pend', 'ximpair_grow_acc', 'ximpair_fmin_acc',  &

@@ -29,6 +29,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_grow_acc, &
                                        ximpair_rebuilt, ximpair_lock_new,     &
                                        ximpair_fmin_acc
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
+USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state   ! MDK, 22/10/26
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,   &
                            nsc_repair_pft, nsc_starv_pft, nsc_turg_acc,   &
                            nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day, &
@@ -3910,6 +3911,44 @@ CASE ( 'nsc_npp_day' )
 CASE ( 'nsc_ft_mean' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(nsc_ft_mean) ) workspace_pft(:,:) = nsc_ft_mean
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! sf_stom state: -1 (not yet set) before the first sf_stom call.
+! MDK, 22/10/26
+CASE ( 'fvcmax_psi_state' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(f_vcmax_state) ) workspace_pft(:,:) = f_vcmax_state(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'cpl_gl_sun' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(cpl_state) ) workspace_pft(:,:) = cpl_state(:,:,1)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'cpl_gl_shd' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(cpl_state) ) workspace_pft(:,:) = cpl_state(:,:,2)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'cpl_gbw_sun' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(cpl_state) ) workspace_pft(:,:) = cpl_state(:,:,3)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'cpl_gbw_shd' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(cpl_state) ) workspace_pft(:,:) = cpl_state(:,:,4)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'cpl_ra_ca' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(cpl_state) ) workspace_pft(:,:) = cpl_state(:,:,5)
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

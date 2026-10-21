@@ -9,20 +9,15 @@
 MODULE sf_stom_mod
 
 USE um_types, ONLY: real_jlslsm
+USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state, sf_stom_state_alloc   ! MDK, 22/10/26
 
 IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='SF_STOM_MOD'
 
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: f_vcmax_state(:,:)
-    ! Soil-water capacity factor of l_som_vcmax_psi after the recovery lag
-    ! (land_pts, npft); < 0 until first set.
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: cpl_state(:,:,:)
-    ! Coupled transpiration (l_som_coupled_e), two-leaf: the last sunlit and
-    ! shaded stomatal conductances and leaf boundary layer conductances
-    ! (m/s) and canopy air resistance (s/m) (land_pts, npft, 5: gl_sun,
-    ! gl_shd, gbw_sun, gbw_shd, ra_ca), the first guess of a timestep's first
-    ! pass; < 0 until first set.
+! f_vcmax_state (l_som_vcmax_psi) and cpl_state (l_som_coupled_e, two-leaf)
+! are in sf_stom_state_mod, so they go in the dump.
+! MDK, 22/10/26
 
 INTEGER, SAVE, PRIVATE :: n_lt_clamp_warn = 0
 INTEGER, PARAMETER, PRIVATE :: max_lt_clamp_warn = 20
@@ -5247,7 +5242,6 @@ SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
 ! the instant value).
 
 USE pftparm, ONLY: psi_vcmax_f, sf_vcmax, psi_vcmax_fmin
-USE jules_surface_types_mod, ONLY: npft
 USE timestep_mod, ONLY: timestep
 
 IMPLICIT NONE
@@ -5264,10 +5258,7 @@ REAL(KIND=real_jlslsm), PARAMETER :: tau_rec = 5.0 * 86400.0
 INTEGER :: l, m
 REAL(KIND=real_jlslsm) :: psi_mpa, f_psi, f_now, w_rec
 
-IF ( .NOT. ALLOCATED(f_vcmax_state) ) THEN
-  ALLOCATE( f_vcmax_state(land_pts, npft) )
-  f_vcmax_state(:,:) = -1.0
-END IF
+CALL sf_stom_state_alloc( land_pts )   ! MDK, 22/10/26
 w_rec = 1.0 - EXP( -timestep / tau_rec )
 
 DO m = 1,veg_pts
@@ -5775,7 +5766,6 @@ SUBROUTINE cpl_state_load( ft, land_pts, veg_pts, veg_index, lai, lai_sun,    &
                            lai_shd, gc, gl_sun, gl_shd, gbw_sun, gbw_shd,      &
                            ra_ca )
 
-USE jules_surface_types_mod, ONLY: npft
 
 IMPLICIT NONE
 
@@ -5788,10 +5778,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: gl_sun(land_pts), gl_shd(land_pts),    &
 INTEGER :: l, m
 REAL(KIND=real_jlslsm) :: f_sun
 
-IF ( .NOT. ALLOCATED(cpl_state) ) THEN
-  ALLOCATE( cpl_state(land_pts, npft, 5) )
-  cpl_state(:,:,:) = -1.0
-END IF
+CALL sf_stom_state_alloc( land_pts )   ! MDK, 22/10/26
 gl_sun(:)  = 0.0
 gl_shd(:)  = 0.0
 gbw_sun(:) = 0.0

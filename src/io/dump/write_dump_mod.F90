@@ -15,6 +15,7 @@ CONTAINS
 SUBROUTINE write_dump()
 
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
+USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
 USE jules_fields_mod, ONLY: crop_vars, psparms, ainfo, trif_vars, progs,       &
                             fluxes, lake_vars, rivers, water_resources
 
@@ -465,6 +466,38 @@ DO i = 1,nvars
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(nsc_t_run(:,n), global_data_2d(:,n))
+    END DO
+
+  ! sf_stom state (sf_stom_state_mod; -1 = not yet set). MDK, 22/10/26
+  CASE ( 'fvcmax_psi_state' )
+    CALL sf_stom_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(f_vcmax_state(:,n), global_data_2d(:,n))
+    END DO
+  CASE ( 'cpl_gl_sun' )
+    CALL sf_stom_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(cpl_state(:,n,1), global_data_2d(:,n))
+    END DO
+  CASE ( 'cpl_gl_shd' )
+    CALL sf_stom_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(cpl_state(:,n,2), global_data_2d(:,n))
+    END DO
+  CASE ( 'cpl_gbw_sun' )
+    CALL sf_stom_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(cpl_state(:,n,3), global_data_2d(:,n))
+    END DO
+  CASE ( 'cpl_gbw_shd' )
+    CALL sf_stom_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(cpl_state(:,n,4), global_data_2d(:,n))
+    END DO
+  CASE ( 'cpl_ra_ca' )
+    CALL sf_stom_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(cpl_state(:,n,5), global_data_2d(:,n))
     END DO
 
   CASE ( 'nsc_ft_mean' )
@@ -1228,6 +1261,8 @@ DO i = 1,nvars
            'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc', &
            'gpp_acc',          &
            'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',           &
+           'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',     &
+           'cpl_gbw_shd', 'cpl_ra_ca',                                       &
            'nsc_turg_acc', 'nsc_t_run',                       &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
            'phen_fbleaf', 'nsc_regrow_acc' )

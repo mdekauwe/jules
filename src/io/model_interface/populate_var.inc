@@ -23,6 +23,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      
     ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc, ximpair_rebuilt,  &
     ximpair_lock_new
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
+USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
@@ -2146,6 +2147,61 @@ CASE ( 'nsc_turg_acc' )
     CALL cube_get_data(cube_land, nsc_turg_acc(:,:))
   ELSE
     nsc_turg_acc(:,:) = const_val
+  END IF
+
+! sf_stom state (sf_stom_state_mod). MDK, 22/10/26
+CASE ( 'fvcmax_psi_state' )
+  CALL sf_stom_state_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, f_vcmax_state(:,:))
+  ELSE
+    f_vcmax_state(:,:) = const_val
+  END IF
+
+CASE ( 'cpl_gl_sun' )
+  CALL sf_stom_state_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, cpl_state(:,:,1))
+  ELSE
+    cpl_state(:,:,1) = const_val
+  END IF
+
+CASE ( 'cpl_gl_shd' )
+  CALL sf_stom_state_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, cpl_state(:,:,2))
+  ELSE
+    cpl_state(:,:,2) = const_val
+  END IF
+
+CASE ( 'cpl_gbw_sun' )
+  CALL sf_stom_state_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, cpl_state(:,:,3))
+  ELSE
+    cpl_state(:,:,3) = const_val
+  END IF
+
+CASE ( 'cpl_gbw_shd' )
+  CALL sf_stom_state_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, cpl_state(:,:,4))
+  ELSE
+    cpl_state(:,:,4) = const_val
+  END IF
+
+CASE ( 'cpl_ra_ca' )
+  CALL sf_stom_state_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, cpl_state(:,:,5))
+  ELSE
+    cpl_state(:,:,5) = const_val
   END IF
 
 CASE ( 'nsc_t_run' )

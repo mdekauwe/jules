@@ -838,7 +838,8 @@ SELECT CASE ( som_base_parm )
           psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,             &
       ! OUT
           ci_sample, al_sample, gl_sample, kl_sample, psi_sample, el_sample,   &
-          kl_hc_sample                                                         &
+          kl_hc_sample,                                                        &
+          psi_stem_sample = psi_stem_sample                                    &
               )
 
       ! ------------------------------------------------------------------
@@ -924,6 +925,10 @@ SELECT CASE ( som_base_parm )
         ! gl = 0 means closed: al = -rd, as in set_closed.
         IF (gl(l) <= 0.0) al(l) = -rd(l)
         psi_leaf(l) = psi_sample(optimal_index,j)
+        ! psi_stem as the profit-max flat search, so the per-segment stem
+        ! damage follows the stem's water potential, not the root zone's.
+        ! MDK, 22/10/26
+        IF (PRESENT(psi_stem)) psi_stem(l) = psi_stem_sample(optimal_index,j)
         el(l) = el_sample(optimal_index,j)
         leaf_k(l) = kl_sample(optimal_index,j)
 
