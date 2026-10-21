@@ -265,7 +265,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! by the stomatal optimisation: a numerical floor, applied
                  ! as a canopy value in every canopy scheme (not scaled by
                  ! LAI). Physical night-time/cuticular loss is gcuticular
-                 ! (l_som_cuticular_floor), per unit leaf area.
+                 ! (l_som_cuticular_loss), per unit leaf area.
 ,min_rootc_pft(:)                                                              & ! JBaguley
                  ! Minimum root C mass per unit area (kg m-2) for each pft.
                  ! Used when calculating water stress using root resistivity
@@ -520,7 +520,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,gcuticular(:)                                                                 &
                  ! Cuticular (minimum) leaf conductance to water vapour, per
                  ! unit leaf area (mmol H2O m-2 s-1), applied as a floor on
-                 ! the canopy conductance when l_som_cuticular_floor.
+                 ! the canopy conductance when l_som_cuticular_loss.
 ,psi_nsl_onset(:)                                                              &
                  ! Leaf water potential (Pa) below which the nonstomatal
                  ! limitation starts (l_som_nsl). 0 (default) gives Dewar et

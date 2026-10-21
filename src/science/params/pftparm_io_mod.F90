@@ -209,7 +209,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! MDK, 21/10/26
   lai_ref_k_io(npft_max) = 0.0,                                                &
   ! Cuticular leaf conductance (mmol H2O m-2 leaf s-1), the floor used when
-  ! l_som_cuticular_floor (default 3, SurEau-Ecos Q. ilex, Ruffault 2022).
+  ! l_som_cuticular_loss (default 3, SurEau-Ecos Q. ilex, Ruffault 2022).
   gcuticular_io(npft_max) = 3.0,                                               &
   ! Nonstomatal limitation (l_som_nsl): onset and zero point of the
   ! leaf-psi ramp on photosynthesis (Pa; missing = pftparm defaults 0 and

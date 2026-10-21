@@ -101,7 +101,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_bvoc_emis, l_fapar_diag, l_trait_phys, l_stem_resp_fix, l_o3_damage,     &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_gl_max, l_som_supply_limit,                                            &
-    l_som_cuticular_floor, l_som_gravity, l_red, l_som_rhizo_series,           &
+    l_som_cuticular_loss, l_som_gravity, l_red, l_som_rhizo_series,           &
     l_som_coupled_e,                                                           &
     l_som_vcmax_psi, kplant_model, kplant_model_ground,                        &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model,          &
@@ -844,7 +844,7 @@ REAL(KIND=real_jlslsm) :: kmax_bigleaf(land_pts), kcrit_bigleaf(land_pts)
 REAL(KIND=real_jlslsm) :: gl_max_eff(land_pts), share_sup(land_pts)
 REAL(KIND=real_jlslsm) :: gl_cut(land_pts), gl_cut_eff(land_pts),              &
                           kmax_cut(land_pts), kcrit_cut(land_pts)
-                            ! Cuticular floor (l_som_cuticular_floor):
+                            ! Cuticular loss (l_som_cuticular_loss):
                             ! canopy floor conductance (m s-1) before and
                             ! after the soil-supply cap, and the canopy
                             ! kmax/kcrit used to re-solve psi_leaf.
@@ -3021,7 +3021,7 @@ CASE ( 1 )
       ! Trial E for this fw, with the cuticular floor if it is on (here
       ! without its supply/xylem bounds, which only act near closure).
       gl_cut_ds = 0.0
-      IF ( l_som_cuticular_floor ) gl_cut_ds = gcuticular(ft) * 1.0e-3 * rmol  &
+      IF ( l_som_cuticular_loss ) gl_cut_ds = gcuticular(ft) * 1.0e-3 * rmol  &
                                                * tstar(l) / pstar(l) * lai(l)
       el_try(l) = MAX(dqc(l), 0.0) * pstar(l) / repsilon                     &
                   * MAX(gc(l), gl_cut_ds) / (rmol * tstar(l))
@@ -3609,7 +3609,7 @@ IF ( stomata_model == stomata_desica ) THEN
 END IF
 
 !-----------------------------------------------------------------------------
-! Cuticular floor (l_som_cuticular_floor). Water still leaks through the
+! Cuticular loss (l_som_cuticular_loss). Water still leaks through the
 ! cuticle once the stomata have (nearly) shut, whatever the carbon: the
 ! canopy conductance is not allowed below gcuticular * LAI. This is applied after
 ! the optimisation, so it is not traded against carbon (A is unchanged), but
@@ -3617,7 +3617,7 @@ END IF
 ! psi_leaf / leaf_k are re-solved for the total flux. Applies at night too
 ! (closed points), as cuticular loss is not stomatal.
 !-----------------------------------------------------------------------------
-IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
+IF ( l_som_cuticular_loss .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
                                    stomata_model == stomata_desica ) ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
