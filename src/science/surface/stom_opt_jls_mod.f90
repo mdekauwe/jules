@@ -1135,6 +1135,16 @@ SELECT CASE ( som_base_parm )
                'som_base_parm should be 1 or 2')
 END SELECT
 
+! Open points the optimiser closed (gl = 0) get the same minimum
+! conductance as points closed by darkness (gl = min_gl_pft above), so a
+! night-closed and a drought-closed canopy are treated alike. (They got 0.)
+!
+! MDK, 21/10/26
+DO j = 1, open_pts
+  l = veg_index(open_index(j))
+  IF ( gl(l) <= 0.0 ) gl(l) = min_gl_pft(pft)
+END DO
+
 ! leaf_k is Kplant: the whole-path (soil-to-leaf) conductance of the chosen
 ! state, also with xylem impairment.
 ! Ozone exposure (flux_o3, fo3) is not calculated (TODO: port from
