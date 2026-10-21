@@ -133,7 +133,8 @@ USE jules_vegetation_mod, ONLY:                                                &
         som_base_parm_ci, som_base_parm_psi, som_n_sample,                     &
         profit_max_profit_model, sox_opt_profit_model, som_profit_model,       &
         cmax_profit_model, cgain_profit_model, supply_loss_model,              &
-        cap_profit_model, som_ci_search, som_ci_bounded, som_n_ci_golden_iter,                  &
+        cap_profit_model, som_ci_search, som_ci_bounded,                       &
+        som_n_ci_golden_iter,                                                  &
         l_som_skip_search_wellwatered, som_hc_negligible_tol, l_som_nsl
 
 USE pftparm, ONLY:                                                             &
@@ -144,7 +145,7 @@ USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow, ksr_path,          &
                                        seg_kmax_fac   ! MDK, 21/10/26
 
-USE pftparm, ONLY: conductance_b_pft, conductance_c_pft,                        &
+USE pftparm, ONLY: conductance_b_pft, conductance_c_pft,                       &
                    pft_xylem_impairment_model
 USE jules_vegetation_mod, ONLY: xylem_impairment_none, l_som_plant_segments,  &
                                 l_som_rhizo_series
@@ -404,8 +405,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Upper bound of the Ci sampling range for the
                             ! pass about to be run.
 
-! -- Flat-search sample arrays (sox_opt_profit_model, and profit_max_profit_model
-! -- with som_ci_search = 1) --
+! -- Flat-search sample arrays (sox_opt_profit_model, and
+! -- profit_max_profit_model with som_ci_search = 1) --
 REAL(KIND=real_jlslsm) ::                                                      &
  ci_sample(0:som_n_sample, open_pts)                                           &
                             ! Internal CO2 pressure (Pa).
@@ -1093,7 +1094,7 @@ SELECT CASE ( som_base_parm )
     CASE DEFAULT
       errcode = 101  !  a hard error
       CALL ereport(RoutineName, errcode,                                       &
-                 'profit_model should be profit_max, SOX_opt, CMax, CGain, ' //  &
+                 'profit_model should be profit_max, SOX_opt, CMax, CGain, ' //&
                  'supply-loss or CAP')
 
     END SELECT ! som_profit_model
@@ -2033,9 +2034,9 @@ USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
 USE planet_constants_mod, ONLY: repsilon
 USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls, xylem_conductance_jls
-USE xylem_hydraulics_CW_jls_mod, ONLY: supply_lut_psi, supply_lut_e_crit,       &
-                                       supply_lut_f, leaf_psi_segments_jls,     &
-                                       ksr_path, som_psi_in_min, xylem_f,       &
+USE xylem_hydraulics_CW_jls_mod, ONLY: supply_lut_psi, supply_lut_e_crit,      &
+                                       supply_lut_f, leaf_psi_segments_jls,    &
+                                       ksr_path, som_psi_in_min, xylem_f,      &
                                        leaf_psi_segments_lut_jls
                                        ! MDK, 18/10/26
 USE xylem_impairment_mod, ONLY: leaf_psi_impaired_jls
@@ -3250,7 +3251,8 @@ DO j = 1, open_pts
     xc = 0.5 * (xa + xb)
   END IF
   ! A consistent with gl and ci (gl = ratio A R T/(ca - ci)).
-  CALL set_state(xc, gl_reg * MAX(ca(l) - xc, 1.0e-2_real_jlslsm) / (ratio * rt), &
+  CALL set_state(xc,                                                           &
+                 gl_reg * MAX(ca(l) - xc, 1.0e-2_real_jlslsm) / (ratio * rt),  &
                  gl_reg, e_reg, psi_reg, k_reg)
   carbon_gain_g(j) = al_g(j) / al_d
 END DO
