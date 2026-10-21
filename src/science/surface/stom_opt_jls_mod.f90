@@ -1145,19 +1145,18 @@ USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_segments_jls, ksr_path,      &
 
 USE jules_vegetation_mod, ONLY:                                                &
         photo_collatz, photo_farquhar, photo_johnson, photo_model,             &
-        CW_conductance, SOX_conductance, som_psi_solver, psi_solver_lut,       &
+        som_psi_solver, psi_solver_lut,                                        &
         l_som_plant_segments, l_som_rhizo_series, l_som_coupled_e
 
 USE jb_photo_mod, ONLY: jb_eta_scale
 
 USE pftparm, ONLY:                                                             &
-        leaf_crit, c3, alpha, pft_conductance_model,                           &
-        conductance_b_pft, conductance_c_pft
+        c3, alpha, conductance_b_pft, conductance_c_pft
 
 USE jules_surface_mod, ONLY: fwe_c3, fwe_c4
-USE jules_surface_mod, ONLY: beta1, beta2, ratio, ratio_o3
+USE jules_surface_mod, ONLY: beta1, beta2, ratio
 
-USE planet_constants_mod, ONLY: repsilon, one_minus_epsilon
+USE planet_constants_mod, ONLY: repsilon
 
 USE c_rmol, ONLY: rmol
 
@@ -1287,7 +1286,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
 ! Local integer variables.
 !-----------------------------------------------------------------------------
 INTEGER ::                                                                     &
- i,j,k,l                                                                       &
+ i,j,l                                                                         &
                             ! Internal iterators
 ,errcode
                             ! Error code to pass to ereport.
@@ -1320,9 +1319,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! equation.
 ,beta1p2m4, beta2p2m4                                                          &
                             ! beta[12] ** 2 * 4.
-,kl_sample_new, psi_sample_new                                                 &
-                            ! Temporary variables for use when estimating
-                            ! leaf water potential from transpiration rate.
 ,vpd(land_pts)                                                                 &
                             ! Vapour pressure deficit (Pa)
 ,vpd_factor                                                                    &
@@ -1332,16 +1328,19 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Leaf conductance for CO2 (m/s)
 ,conv(land_pts)                                                                &
                             ! Factor for converting mol/m3 into Pa (J/m3)
-,conductance_conversion_limit                                                  &
-                            ! Limit for the change in conductance when
-                            ! estimating leaf water potential from
-                            ! transpiration rate.
 ,kmax_open(open_pts), kcrit_open(open_pts), b_open(open_pts), c_open(open_pts) &
+                            ! The unimpaired PFT curve (kmax_ref, kcrit,
+                            ! conductance_b/c_pft) gathered onto the
+                            ! open-point index, for the conductance of the
+                            ! hydraulic cost (kl_hc_sample).
+                            ! MDK, 21/10/26
 ,kcap_frac_pts(land_pts)                                                       &
+                            ! Segments with xylem impairment: impaired over
+                            ! intact kmax (kmax / kmax_ref), the cap on the
+                            ! stem and leaf segments.
+                            ! MDK, 21/10/26
 ,psi_stem_work(0:n_sample, open_pts)
-                            ! Stem water potential of each sample.
-                            ! Unimpaired PFT curve gathered onto the
-                            ! open-point index, for kl_hc_sample.
+                            ! Stem water potential of each sample (Pa).
 
 REAL(KIND=real_jlslsm) :: k_s, psi_in_s
                             ! l_som_rhizo_series: the path's soil-to-root
@@ -1356,10 +1355,6 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 !-----------------------------------------------------------------------------
 ! Setup parameters.
-! NOTE: The zeroth entry to the sample array for each land point corresponds
-!        to closed stomata and is only used when determining the optimal leaf
-!        state in stom_opt_mod above. This is why all loops are over the
-!        range 1:n_sample, NOT 0:n_sample.
 !-----------------------------------------------------------------------------
 
 al_sample(:,:)      = 0.0
