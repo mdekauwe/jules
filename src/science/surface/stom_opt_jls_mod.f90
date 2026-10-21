@@ -2199,6 +2199,13 @@ LOGICAL :: l_intact_search
 REAL(KIND=real_jlslsm) :: psi_star, hc_star, cg_star, s_lo, s_hi, s_mid
                             ! Hold leaf psi: target psi_leaf and the intact-path
                             ! gain/cost, and the Ci bisection bracket.
+REAL(KIND=real_jlslsm) :: h_ci, h_al, h_gl, h_el, h_psi, h_kl
+LOGICAL :: l_h_ok
+                            ! Hold leaf psi: the feasible evaluation on the
+                            ! impaired path with the largest Ci, and whether
+                            ! there is one.
+                            !
+                            ! MDK, 21/10/26
 REAL(KIND=real_jlslsm) :: kcap_pts(land_pts)
                             ! Impairment with segments: stem/leaf cap,
                             ! kmax / kmax_ref.
@@ -2484,15 +2491,20 @@ DO j = 1, open_pts
     cg_star  = carbon_gain_g(j)
     hc_star  = hydraulic_cost_g(j)
     l_intact_search = .FALSE.
+    l_h_ok = .FALSE.
+    h_ci = -HUGE(1.0_real_jlslsm)
     s_lo = ci_lo
     s_hi = best_ci
     CALL eval_ci(s_hi)
+    CALL keep_feasible()
     IF ( psi_u < psi_star ) THEN
       CALL eval_ci(s_lo)
+      CALL keep_feasible()
       IF ( psi_u > psi_star ) THEN
         DO i = 1, n_sperry_iter
           s_mid = 0.5 * (s_lo + s_hi)
           CALL eval_ci(s_mid)
+          CALL keep_feasible()
           IF ( psi_u > psi_star ) THEN
             s_lo = s_mid
           ELSE
@@ -2502,15 +2514,34 @@ DO j = 1, open_pts
         END DO
       END IF
     END IF
-    ci_g(j) = MAX(0.0, last_ci)
-    al_g(j) = MAX(-rd(l), al_u)
-    gl_g(j) = MAX(0.0, gl_u)
-    IF (gl_g(j) <= 0.0) al_g(j) = -rd(l)
-    psi_g(j) = psi_u
-    el_g(j) = el_u
-    kl_g(j) = kl_u
-    carbon_gain_g(j) = cg_star
-    hydraulic_cost_g(j) = hc_star
+    ! On the impaired path the last evaluation can be infeasible (k <=
+    ! kcrit, or gl > gl_max). Take instead the feasible evaluation with the
+    ! largest Ci (feasibility only falls as Ci rises), else ci_lo if that is
+    ! feasible on the impaired path (section 1 checked it on the intact
+    ! one), else close the point. (It returned the last state as open.)
+    !
+    ! MDK, 21/10/26
+    IF ( .NOT. ok_u .AND. .NOT. l_h_ok ) THEN
+      CALL eval_ci(ci_lo)
+      CALL keep_feasible()
+    END IF
+    IF ( .NOT. ok_u .AND. l_h_ok ) THEN
+      last_ci = h_ci; al_u = h_al; gl_u = h_gl; el_u = h_el
+      psi_u = h_psi; kl_u = h_kl
+    END IF
+    IF ( ok_u .OR. l_h_ok ) THEN
+      ci_g(j) = MAX(0.0, last_ci)
+      al_g(j) = MAX(-rd(l), al_u)
+      gl_g(j) = MAX(0.0, gl_u)
+      IF (gl_g(j) <= 0.0) al_g(j) = -rd(l)
+      psi_g(j) = psi_u
+      el_g(j) = el_u
+      kl_g(j) = kl_u
+      carbon_gain_g(j) = cg_star
+      hydraulic_cost_g(j) = hc_star
+    ELSE
+      CALL set_closed()
+    END IF
   END IF
 
   ! Stem outlet psi at the chosen transpiration on the (impaired) segment
@@ -2968,6 +2999,20 @@ CONTAINS
   best_f = f; best_ci = ci; best_al = al_u; best_gl = gl_u; best_el = el_u
   best_psi = psi_u; best_kl = kl_u; best_khc = khc_u
   END SUBROUTINE store_best
+
+  !---------------------------------------------------------------------------
+  ! Hold leaf psi (section 4): keep the latest evaluation if it is feasible
+  ! and has the largest Ci so far.
+  !
+  ! MDK, 21/10/26
+  !---------------------------------------------------------------------------
+  SUBROUTINE keep_feasible()
+  IF ( ok_u .AND. last_ci >= h_ci ) THEN
+    l_h_ok = .TRUE.
+    h_ci = last_ci; h_al = al_u; h_gl = gl_u; h_el = el_u
+    h_psi = psi_u; h_kl = kl_u
+  END IF
+  END SUBROUTINE keep_feasible
 
   SUBROUTINE set_closed()
   ! Closed stomata: zero flow, so the conductance is K(psi_root_zone) on the
