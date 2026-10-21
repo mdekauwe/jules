@@ -10250,4 +10250,88 @@ DATA metadata(790) / var_metadata(                                             &
 ! Units
     "kg m-2"                                                                    &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for fvcmax_psi_state
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(791) / var_metadata(                                             &
+! String identifier
+    'fvcmax_psi_state',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Soil-water capacity factor after the recovery lag (l_som_vcmax_psi)",     &
+! Units
+    "1"                                                                         &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for cpl_gl_sun
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(792) / var_metadata(                                             &
+! String identifier
+    'cpl_gl_sun',                                                               &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Last sunlit-leaf stomatal conductance (coupled E first guess)",           &
+! Units
+    "m s-1"                                                                     &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for cpl_gl_shd
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(793) / var_metadata(                                             &
+! String identifier
+    'cpl_gl_shd',                                                               &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Last shaded-leaf stomatal conductance (coupled E first guess)",           &
+! Units
+    "m s-1"                                                                     &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for cpl_gbw_sun
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(794) / var_metadata(                                             &
+! String identifier
+    'cpl_gbw_sun',                                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Last sunlit-leaf boundary layer conductance (coupled E)",                 &
+! Units
+    "m s-1"                                                                     &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for cpl_gbw_shd
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(795) / var_metadata(                                             &
+! String identifier
+    'cpl_gbw_shd',                                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Last shaded-leaf boundary layer conductance (coupled E)",                 &
+! Units
+    "m s-1"                                                                     &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for cpl_ra_ca
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(796) / var_metadata(                                             &
+! String identifier
+    'cpl_ra_ca',                                                                &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Last canopy air resistance (coupled E first guess)",                      &
+! Units
+    "s m-1"                                                                     &
+  ) /
 #endif

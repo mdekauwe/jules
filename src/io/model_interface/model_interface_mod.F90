@@ -177,7 +177,7 @@ END TYPE var_metadata
 ! or output. The CABLE land surface model adds 10 prognostics for tiled
 ! soil/snow prognostics.
 ! soil/snow prognostics.
-INTEGER, PARAMETER :: n_vars = 790 ! +7 TRIFFID timer/accumulators (MDK, 22/10/26), +2 ximpair_rebuilt/lock_new (MDK, 20/10/26), +1 t_leaf_clamp_pft (MDK, 18/10/26), +19 TRIFFID store (nsc_*, ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc), +1 ximpair_kcap_leaf, upstream 723 + 10 stomatal optimisation
+INTEGER, PARAMETER :: n_vars = 796 ! +6 sf_stom state (MDK, 22/10/26), +7 TRIFFID timer/accumulators (MDK, 22/10/26), +2 ximpair_rebuilt/lock_new (MDK, 20/10/26), +1 t_leaf_clamp_pft (MDK, 18/10/26), +19 TRIFFID store (nsc_*, ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc), +1 ximpair_kcap_leaf, upstream 723 + 10 stomatal optimisation
                                     ! + 6 DESICA + gc_stom_pft + 6 xylem
                                     ! impairment + 11 xylem impairment state
                                     ! + 3 leaf temperatures + kplant_pft

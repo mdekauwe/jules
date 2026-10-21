@@ -1123,7 +1123,8 @@ USE jules_surface_types_mod, ONLY: npft
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 l_som_vcmax_psi, stomata_model, stomata_cmax,  &
                                 stomata_cgain, stomata_supply_loss,            &
-                                stomata_cap,                                   &
+                                stomata_profit_max,                            &
+                                stomata_sox_opt,                               &
                                 xylem_impairment_memory,                       &
                                 ximpair_driver_stem, l_triffid_nsc,            &
                                 l_ximpair_rec_nsc, l_veg_compete,              &
@@ -1754,16 +1755,21 @@ DO i = 1, npft
     CALL ereport(RoutineName, errcode,                                         &
                  'ximpair_psi_driver = 4 (stem) needs l_som_plant_segments.')
   END IF
+  ! A list of the models it works with, not of those it doesn't: Jacobs,
+  ! Medlyn, SOX-analytical and DESICA never see the impaired curve, so
+  ! impairment would silently do nothing with them.
+  ! MDK, 22/10/26
   IF ( pft_xylem_impairment_model(i) /= 0 .AND.                                &
-       ( stomata_model == stomata_cgain .OR.                                   &
-         stomata_model == stomata_supply_loss .OR.                             &
-         stomata_model == stomata_cap ) ) THEN
+       stomata_model /= stomata_profit_max .AND.                               &
+       stomata_model /= stomata_sox_opt .AND.                                  &
+       stomata_model /= stomata_cmax ) THEN
     ! Xylem impairment is coded and tested for the profit max (4), SOX_opt
     ! (5) and CMax (6) only: CGain, supply-loss and CAP (from
     ! global_change_ecology) do not see the impaired curve consistently
     ! (e.g. CGain's k_max uses the impaired kmax). CMax takes its supply
     ! from the impaired curve and its cost per unit of intact leaf area
-    ! (kmax_ref), on the bounded search as SOX_opt.
+    ! (kmax_ref), on the bounded search as the profit max (SOX_opt with
+    ! impairment uses the flat search).
     ! MDK, 22/10/26
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &

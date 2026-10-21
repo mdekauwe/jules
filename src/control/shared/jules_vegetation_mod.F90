@@ -1260,13 +1260,16 @@ CASE DEFAULT
 END SELECT
 
 ! Check that the som_base_parm is suitable. JBaguley
+! Only 1 (Ci) is implemented: 2 (psi) only prints a message in stom_opt_mod
+! and leaves every point closed.
+! MDK, 22/10/26
 SELECT CASE( som_base_parm)
-CASE ( 1, 2)
+CASE ( som_base_parm_ci )
   ! Valid values
 CASE DEFAULT
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'som_bas_parm should be 1 or 2')
+               'som_base_parm should be 1 (2, psi, is not implemented)')
 END SELECT
 
 ! Check that the som_n_sample is suficently large. JBaguley

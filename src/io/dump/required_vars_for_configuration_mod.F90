@@ -44,7 +44,8 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 stomata_model, stomata_desica,                 &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
                                 l_triffid_nsc, l_ximpair_rec_leaf_turn,        &
-                                l_phen_psi, l_nsc_wmax_norm
+                                l_phen_psi, l_nsc_wmax_norm,                   &
+                                l_som_vcmax_psi, l_som_coupled_e   ! MDK, 22/10/26
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -242,6 +243,19 @@ ELSE IF ( l_crop ) THEN
   ! Otherwise, if the crop scheme is on, canopy height is prognostic for crop
   ! PFTs only
   CALL add_to_list( 'cropcanht', nvars, identifiers )
+END IF
+
+! sf_stom state carried between timesteps (sf_stom_state_mod), so a restart
+! reproduces a continuous run: the lagged Vcmax(psi) factor and the coupled-E
+! first guesses (two-leaf only).
+! MDK, 22/10/26
+IF ( l_som_vcmax_psi ) CALL add_to_list( 'fvcmax_psi_state', nvars, identifiers )
+IF ( l_som_coupled_e .AND. can_rad_mod == 7 ) THEN
+  CALL add_to_list( 'cpl_gl_sun', nvars, identifiers )
+  CALL add_to_list( 'cpl_gl_shd', nvars, identifiers )
+  CALL add_to_list( 'cpl_gbw_sun', nvars, identifiers )
+  CALL add_to_list( 'cpl_gbw_shd', nvars, identifiers )
+  CALL add_to_list( 'cpl_ra_ca', nvars, identifiers )
 END IF
 
 ! TRIFFID's period timer and the accumulators that drive the next TRIFFID

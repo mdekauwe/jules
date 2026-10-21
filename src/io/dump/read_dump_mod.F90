@@ -14,6 +14,7 @@ CONTAINS
 SUBROUTINE read_dump(file_name, identifiers)
 
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
+USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
 USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, ainfo, trif_vars,      &
                             soilecosse, progs, progs_data, trifctltype,        &
                             jules_vars, fluxes, rivers, water_resources
@@ -230,6 +231,8 @@ DO i = 1,nvars
            'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc', &
            'gpp_acc',          &
            'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',           &
+           'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',     &
+           'cpl_gbw_shd', 'cpl_ra_ca',                                       &
            'nsc_turg_acc', 'nsc_t_run',                       &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
            'phen_fbleaf', 'nsc_regrow_acc' )
@@ -240,7 +243,10 @@ DO i = 1,nvars
         ! from the "not yet set" values (read_dump_shared warns).
         ! MDK, 18/10/26
         SELECT CASE ( identifiers(i) )
-        CASE ( 'nsc_store', 'nsc_t_run', 'nsc_ft_mean' )
+        CASE ( 'nsc_store', 'nsc_t_run', 'nsc_ft_mean',                       &
+               'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd',                &
+               'cpl_gbw_sun', 'cpl_gbw_shd', 'cpl_ra_ca' )
+          ! (sf_stom state: -1 = not yet set; MDK, 22/10/26)
           global_data_2d(:,1:npft) = -1.0
         CASE ( 'nsc_turg_acc' )
           global_data_2d(:,1:npft) = -1.0e30
@@ -730,6 +736,38 @@ DO i = 1,nvars
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), nsc_t_run(:,n))
+    END DO
+
+  ! sf_stom state (sf_stom_state_mod). MDK, 22/10/26
+  CASE ( 'fvcmax_psi_state' )
+    CALL sf_stom_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), f_vcmax_state(:,n))
+    END DO
+  CASE ( 'cpl_gl_sun' )
+    CALL sf_stom_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), cpl_state(:,n,1))
+    END DO
+  CASE ( 'cpl_gl_shd' )
+    CALL sf_stom_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), cpl_state(:,n,2))
+    END DO
+  CASE ( 'cpl_gbw_sun' )
+    CALL sf_stom_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), cpl_state(:,n,3))
+    END DO
+  CASE ( 'cpl_gbw_shd' )
+    CALL sf_stom_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), cpl_state(:,n,4))
+    END DO
+  CASE ( 'cpl_ra_ca' )
+    CALL sf_stom_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), cpl_state(:,n,5))
     END DO
 
   CASE ( 'nsc_ft_mean' )
