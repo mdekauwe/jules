@@ -212,7 +212,7 @@ USE jules_vegetation_mod, ONLY: xylem_impairment_none,                         &
 USE pftparm, ONLY: pft_xylem_impairment_model,                                 &
                    conductance_c_pft, conductance_b_pft
 
-USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
+USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls, leaf_conductance_jls
 USE xylem_impairment_whole_trunk_mod, ONLY: leaf_psi_impaired_whole_trunk
 USE xylem_impairment_memory_mod, ONLY: leaf_psi_impaired_memory
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
@@ -281,8 +281,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! and impaired conductance there, one sample.
 , e1(1, open_pnts), psi1(1, open_pnts), k1(1, open_pnts)                       &
                             ! One sample per open point.
-, k_s
+, k_s                                                                          &
                             ! Soil-to-root conductance of the path.
+, psi_k(land_pnts)
+                            ! Whole trunk: inlet potential the inlet
+                            ! conductance is taken at (Pa).
+                            ! MDK, 21/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -347,10 +351,22 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
           e1(1,j) = e_leaf(i,j)
         END DO
         CALL impaired_path( 1, e1, psi_in, psi1, k1 )
-        CALL leaf_conductance_impaired_jls( pft, land_pnts, psi_in, kmax_ref,  &
-                                            kmax, kcrit, conductance_b,        &
-                                            conductance_c, psi_leaf_extreme,   &
-                                            k_inlet )
+        IF ( pft_xylem_impairment_model(pft) ==                                &
+             xylem_impairment_whole_trunk ) THEN
+          ! Whole trunk: the inlet is the root end of the path, so its
+          ! conductance is the unimpaired curve at the root's historic
+          ! minimum (as leaf_psi_impaired_whole_trunk uses there), not the
+          ! leaf's, which leaf_conductance_impaired_jls would use.
+          ! MDK, 21/10/26
+          psi_k(:) = MIN(psi_in(:), psi_root_extreme(:))
+          CALL leaf_conductance_jls( pft, land_pnts, psi_k, kmax, kcrit,       &
+                                     conductance_b, conductance_c, k_inlet )
+        ELSE
+          CALL leaf_conductance_impaired_jls( pft, land_pnts, psi_in,          &
+                                              kmax_ref, kmax, kcrit,           &
+                                              conductance_b, conductance_c,    &
+                                              psi_leaf_extreme, k_inlet )
+        END IF
         DO j = 1, open_pnts
           l = veg_index(open_index(j))
           k_s = ksr_path(l)
