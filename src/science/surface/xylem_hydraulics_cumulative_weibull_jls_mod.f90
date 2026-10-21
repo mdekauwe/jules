@@ -279,9 +279,12 @@ f = xylem_f_bc( pft, psi, conductance_b_pft(pft), conductance_c_pft(pft) )
 END FUNCTION xylem_f
 
 ! *****************************************************************************
-! As xylem_f, on the curve with parameters b (Pa) and c (e.g. a point's
-! impaired curve): cumulative Weibull exp(-(psi/b)^c), or SOX
-! 1 / (1 + (psi/b)^c), as pft_conductance_model.
+! As xylem_f, on the curve with parameters b (Pa, negative) and c
+! (dimensionless), e.g. a point's impaired curve: cumulative Weibull
+! exp(-(psi/b)^c), or SOX 1 / (1 + (psi/b)^c), as pft_conductance_model.
+! psi >= 0 gives 1.
+!
+! MDK, 21/10/26
 ! *****************************************************************************
 FUNCTION xylem_f_bc( pft, psi, b, c ) RESULT( f )
 
@@ -304,23 +307,30 @@ END IF
 END FUNCTION xylem_f_bc
 
 ! *****************************************************************************
-! Whole-path conductance -dE/dpsi_leaf at zero flow, in the units of kmax:
-! with no flow there is no drop along the path, so every element sits at
-! psi_root and the elements add in series,
-!   1 / K = 1 / ksr_path + sum_s 1 / (kmax seg_kfac_s f_s(psi_root)),
-! (seg_kfac_s times seg_kscale with kplant_model = 1: seg_kmax_fac;
-! MDK, 21/10/26)
-! (one element on the PFT curve without l_som_plant_segments; no soil term
-! without l_som_rhizo_series or for ksr_path < 0). This is what the solvers
-! give at E = 0, for points the optimiser does not visit (closed stomata).
-! Xylem impairment: b, c give the point's impaired curve (single curve), and
-! kcap_frac caps the stem and leaf segments (memory model with segments,
-! kmax then the intact value; with l_ximpair_seg_memory the leaf segment
-! has its own cap), as leaf_psi_segments_jls; kx, the plant
-! (xylem) conductance at psi_root if already known (e.g. any impairment
-! model's), replaces the curve. ksr_path must be set (set_ksr_path) for this
-! path. With l_plant_only present and .TRUE., the plant only (no soil
-! term), e.g. CGain's k_max.
+! Whole-path conductance -dE/dpsi_leaf (in the units of kmax) when the
+! plant is not transpiring. With no flow there is no drop in water
+! potential along the path, so every element sits at psi_root and the
+! elements add in series:
+!   1 / K = 1 / ksr_path + sum over segments of 1 / k_s(psi_root)
+! This is what the solvers give at E = 0, and is used for points the
+! optimiser does not visit (closed stomata).
+!
+! The elements:
+! - Segments (l_som_plant_segments): root, stem and leaf, each with maximum
+!   conductance kmax * seg_kmax_fac (seg_kfac, times the LAI scaling
+!   seg_kscale with kplant_model = 1) and its own curve. Without segments,
+!   one element on the PFT curve, or on the curve b, c if given (a point's
+!   impaired curve).
+! - kcap_frac (xylem impairment, memory model with segments): caps the stem
+!   and leaf segments, as leaf_psi_segments_jls; kmax is then the intact
+!   value. With l_ximpair_seg_memory the leaf segment has its own cap.
+! - kx: the plant (xylem) conductance at psi_root, if already known (e.g.
+!   from an impairment model); replaces the curve.
+! - The soil-to-root link ksr_path (l_som_rhizo_series, ksr_path >= 0),
+!   which must be set by set_ksr_path for this path. Left out when
+!   l_plant_only is .TRUE. (e.g. CGain's k_max).
+!
+! MDK, 21/10/26
 ! *****************************************************************************
 FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, b, c, kcap_frac, kx,       &
                            l_plant_only ) RESULT( k0 )
@@ -333,10 +343,23 @@ USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_k_zero
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: pft, l
+                            ! Plant functional type and land point.
 REAL(KIND=real_jlslsm), INTENT(IN) :: kmax, psi_root
+                            ! Whole-plant maximum conductance
+                            ! (mol m-2 s-1 Pa-1) and the root zone water
+                            ! potential (Pa).
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: b, c, kcap_frac, kx
+                            ! Curve parameters b (Pa) and c
+                            ! (dimensionless); the segment cap fraction
+                            ! (dimensionless); the known plant conductance
+                            ! at psi_root (mol m-2 s-1 Pa-1).
 LOGICAL, INTENT(IN), OPTIONAL :: l_plant_only
+                            ! .TRUE.: leave out the soil-to-root link.
 REAL(KIND=real_jlslsm) :: k0, r, k_el, k_s
+                            ! The result (mol m-2 s-1 Pa-1); the series
+                            ! resistance sum; an element's and the soil's
+                            ! conductance.
+                            ! MDK, 21/10/26
 INTEGER :: iseg
 LOGICAL :: l_soil
 
