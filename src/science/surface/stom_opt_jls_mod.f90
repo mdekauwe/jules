@@ -890,7 +890,7 @@ SELECT CASE ( som_base_parm )
       ! psi_stem as the profit-max bounded path, so the per-segment stem
       ! damage (l_ximpair_seg_memory) follows the stem's own water
       ! potential, not the root zone's.
-      ! MDK, 22/10/26
+      ! MDK, 21/10/26
       DO j = 1, open_pts
         l = veg_index(open_index(j))
         IF (PRESENT(psi_stem)) psi_stem(l) = psi_stem_bnd(j)
@@ -1049,7 +1049,7 @@ SELECT CASE ( som_base_parm )
           psi_leaf(l) = psi_sample(optimal_index,j)
           ! psi_stem as the profit-max flat search, so the per-segment stem
           ! damage follows the stem's water potential, not the root zone's.
-          ! MDK, 22/10/26
+          ! MDK, 21/10/26
           IF (PRESENT(psi_stem)) psi_stem(l) = psi_stem_sample(optimal_index,j)
           el(l) = el_sample(optimal_index,j)
           leaf_k(l) = kl_sample(optimal_index,j)
@@ -2011,18 +2011,20 @@ USE yomhook, ONLY: lhook, dr_hook
 USE ereport_mod, ONLY: ereport
 USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,          &
                                 cgain_profit_model, sox_opt_profit_model,      &
-                                cap_profit_model, l_som_coupled_e,             &
-                                kplant_model, kplant_model_ground   ! MDK, 22/10/26
+                                cap_profit_model,                              &
+                                kplant_model, kplant_model_ground
+                                ! MDK, 21/10/26
 USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 photo_farquhar, photo_johnson, photo_model,    &
                                 CW_conductance,                                &
                                 SOX_conductance,                               &
-                                som_psi_solver, psi_solver_lut,           &
+                                som_psi_solver, psi_solver_lut,                &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_stomatal_response, ximpair_hold_gs,    &
                                 ximpair_hold_psi,                              &
                                 l_som_rhizo_series, l_som_coupled_e
-USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow, kplant_scale   ! MDK, 22/10/26
+USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow, kplant_scale
+                                       ! MDK, 21/10/26
 USE jb_photo_mod, ONLY: jb_eta_scale
 USE pftparm, ONLY: c3, alpha, pft_conductance_model, psi_nsl_onset, psi_nsl0,  &
                    fsmc_mod, cmax_a, cmax_b, kmax_pft, cgain_varpi,            &
@@ -2064,18 +2066,36 @@ LOGICAL, INTENT(IN) :: l_xylem_impairment
 
 LOGICAL, INTENT(IN) :: l_multilayer
 
+! The chosen state of each open point:
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
-  ci_g(open_pts), al_g(open_pts), gl_g(open_pts), kl_g(open_pts),            &
-  psi_g(open_pts), el_g(open_pts), carbon_gain_g(open_pts),                  &
+  ci_g(open_pts),                                                              &
+                            ! Internal CO2 pressure (Pa).
+  al_g(open_pts),                                                              &
+                            ! Net photosynthesis (mol CO2 m-2 s-1).
+  gl_g(open_pts),                                                              &
+                            ! Stomatal conductance for H2O (m/s).
+  kl_g(open_pts),                                                              &
+                            ! Whole-path conductance -dE/dpsi_leaf
+                            ! (mol m-2 s-1 Pa-1).
+  psi_g(open_pts),                                                             &
+                            ! Leaf water potential (Pa).
+  el_g(open_pts),                                                              &
+                            ! Transpiration (mol H2O m-2 s-1).
+  carbon_gain_g(open_pts),                                                     &
+                            ! Carbon gain (dimensionless; see
+                            ! carbon_gain_out in stom_opt_mod).
   hydraulic_cost_g(open_pts)
+                            ! Hydraulic cost (dimensionless; see
+                            ! hydraulic_cost_out in stom_opt_mod).
+                            ! MDK, 21/10/26
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: psi_stem_g(open_pts)
-REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: lai_cost(land_pts)
-                            ! Leaf area of the call (see stom_opt_mod).
-                            ! MDK, 22/10/26
                             ! Stem segment outlet water potential at the
                             ! chosen state (xylem impairment with segments,
                             ! for the per-segment stem damage); psi_root_zone
                             ! otherwise and for closed points.
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: lai_cost(land_pts)
+                            ! Leaf area of the call (see stom_opt_mod).
+                            ! MDK, 21/10/26
 REAL(KIND=real_jlslsm) :: el_s1(1,1), psi_s1(1,1), kl_s1(1,1), st_s1(1,1)
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
@@ -2112,21 +2132,40 @@ REAL(KIND=real_jlslsm) :: kcap_pts(land_pts)
                             ! Impairment with segments: stem/leaf cap,
                             ! kmax / kmax_ref.
 REAL(KIND=real_jlslsm) :: b_curve(land_pts), c_curve(land_pts)
-                            ! The PFT's intact vulnerability curve on land_pts
-                            ! (l_som_fast is not coded for xylem impairment).
-LOGICAL :: l_lut, ok_u, l_edge, l_cmax, l_cgain, l_abs, l_sox, l_cap
+                            ! The PFT's intact vulnerability curve on
+                            ! land_pts.
+                            ! MDK, 21/10/26
+LOGICAL ::                                                                     &
+  l_lut,                                                                       &
+                            ! Leaf psi straight from the supply table.
+  ok_u,                                                                        &
+                            ! The latest evaluation (eval_ci) is feasible.
+  l_edge,                                                                      &
+                            ! edge_by_gl_cap found the edge.
+  l_cmax, l_cgain, l_sox, l_cap,                                               &
+                            ! The profit model is CMax, CGain, SOX_opt or
+                            ! CAP.
+  l_abs
+                            ! Any of those four: profit in absolute carbon
+                            ! units, on net A.
+                            ! MDK, 21/10/26
 
-REAL(KIND=real_jlslsm) :: cmax_scale, k_unstressed, k_sox_ref
+REAL(KIND=real_jlslsm) :: lai_call, k_unstressed, k_sox_ref
                             ! k_sox_ref: SOX's whole-path k at zero flow
                             ! (psi_bar = psi_root_zone), which normalises
                             ! the SOX factor (a constant for the point, so
                             ! it does not move the optimum).
-                            ! cmax_scale: leaf area of this call
-                            ! (kmax/kmax_pft), so the CMax and CGain costs,
-                            ! given per unit leaf area, are on the same basis
-                            ! as A (canopy, class or leaf).
-                            ! k_unstressed: CGain's k_max, the whole-path
-                            ! conductance at psi = 0 (soil link included).
+                            ! lai_call: leaf area of this call (m2 leaf m-2
+                            ! ground): kmax_ref / kmax_pft, divided by
+                            ! kplant_scale with kplant_model = 1, or
+                            ! lai_cost when given. The CMax and CGain costs,
+                            ! given per unit leaf area, are scaled by it to
+                            ! the basis of A (whole canopy, the sunlit or
+                            ! shaded leaves, or a layer's leaves).
+                            ! k_unstressed: CGain's k_max, the plant's
+                            ! conductance at psi = 0 (plant only, no soil
+                            ! link).
+                            ! MDK, 21/10/26
 
 REAL(KIND=real_jlslsm) ::                                                      &
   g_off, max_al, max_kl, ci_lo, ci_top, tol1,                                  &
@@ -2193,21 +2232,24 @@ DO j = 1, open_pts
   IF ( PRESENT(psi_stem_g) ) psi_stem_g(j) = psi_root_zone(l)
   idx1(1) = open_index(j)
   g_off = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
-  ! (CMax and CGain work on net A, as Wolf et al. 2016 and Lu et al. 2020.)
+  ! (CMax, CGain, SOX and CAP work on net A, as Wolf et al. 2016 and Lu et
+  ! al. 2020.)
+  ! MDK, 21/10/26
   IF ( l_abs ) g_off = 0.0
-  cmax_scale = 1.0
+  lai_call = 1.0
   ! The leaf area of the call from the intact plant (kmax_ref; = kmax
   ! without xylem impairment), so damage does not shrink the CMax or CGain
   ! cost, and without the kplant_model = 1 ground factor, which is not leaf
   ! area.
-  ! MDK, 22/10/26
-  IF ( l_abs ) cmax_scale = kmax_ref(l) / MAX(kmax_pft(pft), TINY(1.0_real_jlslsm))
+  ! MDK, 21/10/26
+  IF ( l_abs ) lai_call = kmax_ref(l)                                          &
+                          / MAX(kmax_pft(pft), TINY(1.0_real_jlslsm))
   IF ( l_abs .AND. kplant_model == kplant_model_ground )                       &
-    cmax_scale = cmax_scale / kplant_scale(l)
-  ! The two-leaf classes give their leaf area (their kmax share is
-  ! N-weighted, not leaf area).
-  ! MDK, 22/10/26
-  IF ( l_abs .AND. PRESENT(lai_cost) ) cmax_scale = lai_cost(l)
+    lai_call = lai_call / kplant_scale(l)
+  ! The two-leaf sunlit and shaded leaves give their leaf area (their kmax
+  ! share is N-weighted, not leaf area).
+  ! MDK, 21/10/26
+  IF ( l_abs .AND. PRESENT(lai_cost) ) lai_call = lai_cost(l)
   k_unstressed = 1.0
   k_sox_ref = 1.0
   IF ( l_sox ) k_sox_ref = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
@@ -2760,7 +2802,7 @@ CONTAINS
   ELSE IF ( l_cgain ) THEN
     ! Lu et al. (2020) / Sabot et al. (2022, Eq. 15), varpi per unit leaf
     ! area (umol m-2 s-1) scaled to this call.
-    profit = al_in - cmax_scale * 1.0e-6_real_jlslsm * cgain_varpi(pft)        &
+    profit = al_in - lai_call * 1.0e-6_real_jlslsm * cgain_varpi(pft)          &
                      * MAX(k_unstressed - kl_in, 0.0_real_jlslsm) / k_unstressed
   ELSE
     profit = (al_in + g_off) / max_al - (max_kl - kl_in) / (max_kl - kcrit(l))
@@ -2779,12 +2821,12 @@ CONTAINS
   ! CMax carbon cost of leaf water potential psi (Pa), Anderegg et al.
   ! (2018) / Sabot et al. (2022, Eq. 12): Theta = a/2 psi^2 + b |psi| with
   ! psi in MPa and a, b per unit leaf area in umol m-2 s-1 MPa-2 and MPa-1;
-  ! returned in mol CO2 s-1 on the basis of this call (x cmax_scale).
+  ! returned in mol CO2 m-2 s-1 on the basis of this call (x lai_call).
   REAL(KIND=real_jlslsm) FUNCTION theta_cmax(psi)
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
   REAL(KIND=real_jlslsm) :: p_mpa
   p_mpa = ABS(MIN(psi, 0.0_real_jlslsm)) * 1.0e-6_real_jlslsm
-  theta_cmax = cmax_scale * 1.0e-6_real_jlslsm                                 &
+  theta_cmax = lai_call * 1.0e-6_real_jlslsm                                   &
                * ( 0.5_real_jlslsm * cmax_a(pft) * p_mpa * p_mpa               &
                    + cmax_b(pft) * p_mpa )
   END FUNCTION theta_cmax
