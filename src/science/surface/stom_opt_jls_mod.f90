@@ -837,11 +837,35 @@ SELECT CASE ( som_base_parm )
 
     CASE (cmax_profit_model, cgain_profit_model, cap_profit_model)
       !-------------------------------------------------------------------
-      ! CMax (Wolf et al. 2016; stomata_model = 6): A_n - Theta(psi_leaf),
-      ! and CGain (Lu et al. 2020; stomata_model = 7):
-      ! A_n - varpi (k_max - k)/k_max, in absolute carbon units, on the
-      ! bounded Ci search for every open point (no fast path). See
-      ! stom_opt_bounded_search.
+      ! The alternatives to profit max, all on the bounded Ci search for
+      ! every open point (no fast path; see stom_opt_bounded_search). Each
+      ! maximises net assimilation A_n (absolute carbon units) minus a cost:
+      !   CMax (Wolf et al. 2016; stomata_model = 6): A_n - Theta(psi_leaf),
+      !     a carbon cost of leaf water potential.
+      !   CGain (Lu et al. 2020; stomata_model = 7):
+      !     A_n - varpi (k_max - k) / k_max, a carbon cost of lost
+      !     conductance. varpi (cgain_varpi, umol CO2 m-2 leaf s-1) is the
+      !     cost of losing all of the path's conductance.
+      !   CAP (Dewar et al. 2017, stomata_model = 10): A_n with the nonstomatal
+      !     limitation (l_som_nsl) and no stomatal cost.
+      !
+      ! References:
+      ! -----------
+      ! - Wolf, A, Anderegg, W.R.L. & Pacala, S.W. (2016) Optimal stomatal
+      !   behavior with competition for water and risk of hydraulic impairment,
+      !   Proc. Natl. Acad. Sci. U.S.A. 113 (46) E7222-E7230,
+      !   https://doi.org/10.1073/pnas.1615144113
+      ! - Lu, Y., Duursma, R.A., Farrior, C.E., Medlyn, B.E. and Feng, X.
+      !   (2020), Optimal stomatal drought response shaped by competition for
+      !   water and hydraulic risk can explain plant trait covariation. New
+      !   Phytol, 225: 1206-1217. https://doi.org/10.1111/nph.16207
+      ! - Dewar, R., Mauranen, A., Makela, A., Holtta, T., Medlyn, B., &
+      !   Vesala, T. (2017). New insights into the covariation of stomatal,
+      !   mesophyll and hydraulic conductances from optimization models
+      !   incorporating nonstomatal limitations to photosynthesis. New
+      !   Phytologist, 217, 571-585. https://doi.org/10.1111/nph.14848
+      !
+      ! MDK, 21/10/26
       !-------------------------------------------------------------------
       CALL stom_opt_bounded_search(                                           &
       ! IN
@@ -2524,6 +2548,14 @@ CONTAINS
   ! Nonstomatal limitation factor at leaf psi (Pa): Dewar et al. (2022)
   ! Eqn 3(b) generalised to an onset, f = 1 - (psi - psi_on)/(psi0 - psi_on)
   ! clipped to [0, 1] (see l_som_nsl).
+  !
+  ! Reference:
+  ! - Dewar, R., Holtta, T. and Salmon, Y. (2022), Exploring optimal
+  !   stomatal control under alternative hypotheses for the regulation of
+  !   plant sources and sinks. New Phytol, 233: 639-654.
+  !   https://doi.org/10.1111/nph.17795
+  !
+  ! MDK, 21/10/26
   REAL(KIND=real_jlslsm) FUNCTION nsl_factor(psi)
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
   nsl_factor = 1.0 - (psi - psi_nsl_onset(pft))                               &
