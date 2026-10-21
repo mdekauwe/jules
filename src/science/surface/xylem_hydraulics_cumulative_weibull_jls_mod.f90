@@ -12,6 +12,14 @@ USE um_types, ONLY: real_jlslsm
 
 IMPLICIT NONE
 
+! Everything is private unless listed here or marked PUBLIC where it is
+! declared (the module variables ksr, ksr_path, kplant_scale, seg_kscale,
+! k_ground_ratio_max and som_psi_in_min). The supply-table helpers
+! (lut_s_at, build_supply_lut, build_supply_lut_seg, seg_lut_psi,
+! lut_f_crit, lut_grid) are internal.
+! MDK, 21/10/26
+PRIVATE
+
 CHARACTER(LEN=*),PARAMETER,PRIVATE :: ModuleName='XYLEM_HYDRAULICS_CW_JLS_MOD'
 
 PUBLIC :: leaf_conductance_CW_jls                                              &
@@ -20,10 +28,12 @@ PUBLIC :: leaf_conductance_CW_jls                                              &
 ,         incomplete_gamma                                                     &
 ,         incomplete_gamma_different_a                                         &
 ,         leaf_psi_lut_jls                                                     &
+,         leaf_psi_capped_lut_jls                                              &
 ,         supply_lut_psi                                                       &
 ,         supply_lut_e_crit                                                    &
-,         supply_lut_f                                                 &
+,         supply_lut_f                                                         &
 ,         leaf_psi_segments_jls                                                &
+,         leaf_psi_segments_lut_jls                                            &
 ,         set_ksr_path                                                         &
 ,         xylem_f                                                              &
 ,         xylem_f_bc                                                           &
