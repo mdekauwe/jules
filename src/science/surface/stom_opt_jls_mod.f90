@@ -93,13 +93,14 @@ USE pftparm, ONLY:                                                             &
 
 USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls, leaf_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
-USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow, ksr_path
+USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow, ksr_path,          &
+                                       seg_kmax_fac   ! MDK, 21/10/26
 
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft,                        &
                    pft_xylem_impairment_model
 USE jules_vegetation_mod, ONLY: xylem_impairment_none, l_som_plant_segments,  &
                                 l_som_rhizo_series
-USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
+USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
 USE model_time_mod, ONLY: is_spinup
 
 LOGICAL, INTENT(IN) :: l_multilayer
@@ -506,7 +507,10 @@ IF (l_xylem_impairment) THEN
     DO l = 1, land_pts
       kl_hc_max(l) = 0.0
       DO iseg = 1, 3
-        kl_hc_max(l) = kl_hc_max(l) + 1.0 / MAX(kmax_ref(l) * seg_kfac(pft,iseg) &
+        ! (seg_kmax_fac: seg_kfac, times seg_kscale with kplant_model = 1;
+        ! MDK, 21/10/26)
+        kl_hc_max(l) = kl_hc_max(l) + 1.0 / MAX(kmax_ref(l)                   &
+                       * seg_kmax_fac(pft,l,iseg)                              &
                        * EXP( -(psi_root_zone(l) / conductance_b_seg(pft,iseg)) &
                               **conductance_c_seg(pft,iseg) ), TINY(1.0_real_jlslsm))
       END DO

@@ -89,7 +89,7 @@ USE jules_surface_types_mod, ONLY: nnpft, ncpft
 
 USE pftparm, ONLY:                                                             &
         kmax_pft, conductance_b_pft, conductance_c_pft, kcrit, gcuticular,     &
-        min_gl_pft
+        min_gl_pft, lai_ref_k   ! lai_ref_k: MDK, 21/10/26
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported model ids. JBaguley
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
@@ -108,7 +108,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     som_gl_max, l_som_supply_limit,                                            &
     l_som_cuticular_floor, l_som_gravity, l_red, l_som_rhizo_series,           &
     l_som_coupled_e,                                                           &
-    l_som_vcmax_psi,                                                           &
+    l_som_vcmax_psi, kplant_model, kplant_model_ground,                        &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model,          &
     leaf_wind_ext, ml_leaf_temp_model, ml_leaf_temp_layers
 
@@ -165,7 +165,9 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_daily, triffid_nsc_turgor,             &
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
-USE xylem_hydraulics_CW_jls_mod, ONLY: set_ksr_path, ksr
+USE xylem_hydraulics_CW_jls_mod, ONLY: set_ksr_path, ksr,                     &
+                                       set_k_ground_basis, kplant_scale
+                                       ! MDK, 21/10/26
 
 USE planet_constants_mod, ONLY: repsilon, g, r
 USE water_constants_mod, ONLY: rho_water
@@ -866,6 +868,11 @@ REAL(KIND=real_jlslsm) :: gl_cut(land_pts), gl_cut_eff(land_pts),              &
                             ! canopy floor conductance (m s-1) before and
                             ! after the soil-supply cap, and the canopy
                             ! kmax/kcrit used to re-solve psi_leaf.
+REAL(KIND=real_jlslsm) :: lai_ref_kg(land_pts)
+                            ! kplant_model = 1: reference LAI of the root
+                            ! and stem conductances (lai_ref_k, or the
+                            ! balanced LAI from canopy height).
+                            ! MDK, 21/10/26
 INTEGER, PARAMETER :: n_cut = 20
                             ! Floor fluxes tried, E_floor * i / n_cut, to
                             ! find the largest one the xylem can carry.
@@ -1499,6 +1506,32 @@ IF ( .NOT. l_leaf_temp ) THEN
     t_can(l)      = tstar(l)
   END DO
 END IF
+
+!-----------------------------------------------------------------------------
+! Root and stem conductance per unit ground area (kplant_model = 1): the
+! reference LAI is lai_ref_k, or where that is unset the balanced LAI from
+! canopy height (as lai_bal below, so it follows TRIFFID growth).
+! set_k_ground_basis gives the whole-plant factor kplant_scale on kmax,
+! its intact reference and kcrit (applied to the paths below) and the
+! segment shares used by the segment solvers. With kplant_model = 0 it
+! sets 1.
+! MDK, 21/10/26
+!-----------------------------------------------------------------------------
+IF ( kplant_model == kplant_model_ground ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( lai_ref_k(ft) > 0.0 ) THEN
+      lai_ref_kg(l) = lai_ref_k(ft)
+    ELSE IF ( l_red ) THEN
+      lai_ref_kg(l) = veg_state%lai_bal(l,ft)
+    ELSE
+      lai_ref_kg(l) = lai_bal_from_ht(ft, ht(l))
+    END IF
+  END DO
+ELSE
+  lai_ref_kg(:) = lai(:)
+END IF
+CALL set_k_ground_basis( ft, land_pts, veg_pts, veg_index, lai, lai_ref_kg )
 
 !-----------------------------------------------------------------------------
 ! Calculate fluxes.
@@ -2865,6 +2898,16 @@ CASE ( 1 )
        ! reference for the hydraulic cost.
        kmax_ref_bigleaf(:) = kmax_bigleaf(:)
        kmax_bigleaf(:) = k_max(:) * lai(:)
+       ! kplant_model = 1: root and stem per unit ground area, the whole
+       ! plant in series. The same factor on the impaired and intact plant
+       ! and kcrit, so the damage fraction (k_max / kmax_pft) is unchanged;
+       ! the impairment update below uses the unscaled leaf-basis values.
+       ! MDK, 21/10/26
+       IF ( kplant_model == kplant_model_ground ) THEN
+         kmax_bigleaf(:)     = kmax_bigleaf(:)     * kplant_scale(:)
+         kmax_ref_bigleaf(:) = kmax_ref_bigleaf(:) * kplant_scale(:)
+         kcrit_bigleaf(:)    = kcrit_bigleaf(:)    * kplant_scale(:)
+       END IF
 
        CALL stom_opt_mod (                                                  &
               ! IN
@@ -3142,6 +3185,20 @@ CASE ( 7 )
                      / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
     kcrit_sun_2l(l) = kmax_ref_sun_2l(l) * (kcrit(ft) / kmax_pft(ft))
     kcrit_shd_2l(l) = kmax_ref_shd_2l(l) * (kcrit(ft) / kmax_pft(ft))
+    ! kplant_model = 1: root and stem per unit ground area, each class's
+    ! path in series. One factor for both classes (so the shares are
+    ! unchanged) and for the impaired, intact and critical conductances
+    ! (so the damage fraction is unchanged); the impairment update divides
+    ! it back out.
+    ! MDK, 21/10/26
+    IF ( kplant_model == kplant_model_ground ) THEN
+      kmax_sun_2l(l)     = kmax_sun_2l(l)     * kplant_scale(l)
+      kmax_shd_2l(l)     = kmax_shd_2l(l)     * kplant_scale(l)
+      kmax_ref_sun_2l(l) = kmax_ref_sun_2l(l) * kplant_scale(l)
+      kmax_ref_shd_2l(l) = kmax_ref_shd_2l(l) * kplant_scale(l)
+      kcrit_sun_2l(l)    = kcrit_sun_2l(l)    * kplant_scale(l)
+      kcrit_shd_2l(l)    = kcrit_shd_2l(l)    * kplant_scale(l)
+    END IF
     ! som_gl_max is per unit leaf area: x the class leaf area.
     gl_max_sun_2l(l) = gl_leaf_cap * lai_sun_2l(l)
     gl_max_shd_2l(l) = gl_leaf_cap * lai_shd_2l(l)
@@ -3538,6 +3595,12 @@ CASE ( 7 )
                                       kx_shd_2l )
   leaf_k_leaf_basis(:) = ( kx_sun_2l(:) + kx_shd_2l(:) )                       &
                          / MAX(lai(:), TINY(1.0_real_jlslsm))
+  ! kplant_model = 1: the class conductances carry kplant_scale; the
+  ! impairment state is leaf-basis (kmax_pft), so take it back out (kx is
+  ! linear in kmax, kmax_ref and kcrit), and the damage follows psi only.
+  ! MDK, 21/10/26
+  IF ( kplant_model == kplant_model_ground )                                   &
+    leaf_k_leaf_basis(:) = leaf_k_leaf_basis(:) / kplant_scale(:)
   ! psi_src: the root-zone psi with gravity (l_som_gravity), as the
   ! hydraulics see it.
   CALL leaf_conductance_impaired_jls(                                          &
@@ -3621,6 +3684,10 @@ IF ( l_som_cuticular_floor .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
     l = veg_index(m)
     kmax_cut(l)  = MAX(k_max(l) * lai(l), TINY(1.0_real_jlslsm))
     kcrit_cut(l) = kcrit(ft) * lai(l)
+    IF ( kplant_model == kplant_model_ground ) THEN   ! MDK, 21/10/26
+      kmax_cut(l)  = kmax_cut(l)  * kplant_scale(l)
+      kcrit_cut(l) = kcrit_cut(l) * kplant_scale(l)
+    END IF
     l_cut(l) = gl_cut(l) > 0.0 .AND. gc(l) < gl_cut_eff(l)
     ! Canopy transpiration (mol H2O m-2 s-1) at the floor, as in
     ! stom_opt_mod_ci.
