@@ -1755,17 +1755,20 @@ DO i = 1, npft
                  'ximpair_psi_driver = 4 (stem) needs l_som_plant_segments.')
   END IF
   IF ( pft_xylem_impairment_model(i) /= 0 .AND.                                &
-       ( stomata_model == stomata_cmax .OR. stomata_model == stomata_cgain .OR.&
+       ( stomata_model == stomata_cgain .OR.                                   &
          stomata_model == stomata_supply_loss .OR.                             &
          stomata_model == stomata_cap ) ) THEN
-    ! Xylem impairment is coded and tested for the profit max (4) and
-    ! SOX_opt (5) only: CMax, CGain, supply-loss and CAP (from
+    ! Xylem impairment is coded and tested for the profit max (4), SOX_opt
+    ! (5) and CMax (6) only: CGain, supply-loss and CAP (from
     ! global_change_ecology) do not see the impaired curve consistently
-    ! (e.g. the CMax/CGain cost scaling and CGain's k_max use kmax).
+    ! (e.g. CGain's k_max uses the impaired kmax). CMax takes its supply
+    ! from the impaired curve and its cost per unit of intact leaf area
+    ! (kmax_ref), on the bounded search as SOX_opt.
+    ! MDK, 22/10/26
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'pft_xylem_impairment_model /= 0 needs stomata_model = 4 ' // &
-                 '(profit max) or 5 (SOX_opt).')
+                 '(profit max), 5 (SOX_opt) or 6 (CMax).')
   END IF
   IF ( ANY(seg_frac(:) <= 0.0) ) THEN
     errcode = 101
