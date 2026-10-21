@@ -211,6 +211,10 @@ DO m = 1,veg_pts
   ELSE
     r(1:2) = k_ground_ratio_max
   END IF
+  ! and floored at 1 / k_ground_ratio_max, so LAI_ref = 0 (no height) or
+  ! LAI >> LAI_ref cannot give a zero segment (NaN shares).
+  ! MDK, 22/10/26
+  r(1:2) = MAX(r(1:2), 1.0 / k_ground_ratio_max)
   r(3) = 1.0
   ! Whole-plant (series) conductance relative to kmax: 1 / sum_s 1/k_s.
   rinv = 0.0

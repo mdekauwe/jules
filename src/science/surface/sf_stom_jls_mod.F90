@@ -3328,6 +3328,9 @@ CASE ( 7 )
       share_sup(l) = kmax_ref_sun_2l(l) /                                      &
                      MAX(kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l), TINY(1.0))
     END DO
+    ! lai_cost (stom_opt_mod): this class's leaf area, for the CMax / CGain
+    ! cost per unit leaf area (the kmax share above is N-weighted).
+    ! MDK, 22/10/26
 
     CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,   &
                          dqc, dq, qs_sun_lt, q1, dq_sun_lt, gbw_sun_lt,        &
@@ -3358,7 +3361,8 @@ CASE ( 7 )
               ! OUT
                 ci_sun_2l, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun,        &
                 gl_sun, psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,              &
-                psi_stem = psi_stem_sun                                        &
+                psi_stem = psi_stem_sun,                                       &
+                lai_cost = lai_sun_2l                                          &
         )
     ELSE
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
@@ -3382,7 +3386,8 @@ CASE ( 7 )
             ! OUT
               ci_sun_2l, anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun, gl_sun,  &
               psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,                        &
-              psi_stem = psi_stem_sun                                          &
+              psi_stem = psi_stem_sun,                                         &
+              lai_cost = lai_sun_2l                                            &
       )
     END IF
 
@@ -3423,6 +3428,9 @@ CASE ( 7 )
       share_sup(l) = kmax_ref_shd_2l(l) /                                      &
                      MAX(kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l), TINY(1.0))
     END DO
+    ! lai_cost (stom_opt_mod): this class's leaf area, for the CMax / CGain
+    ! cost per unit leaf area (the kmax share above is N-weighted).
+    ! MDK, 22/10/26
 
     ! (The other class is the sunlit leaf of this pass.)
     CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,   &
@@ -3454,7 +3462,8 @@ CASE ( 7 )
               ! OUT
                 ci_shd_2l, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd,        &
                 gl_shd, psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,              &
-                psi_stem = psi_stem_shd                                        &
+                psi_stem = psi_stem_shd,                                       &
+                lai_cost = lai_shd_2l                                          &
         )
     ELSE
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
@@ -3478,7 +3487,8 @@ CASE ( 7 )
             ! OUT
               ci_shd_2l, anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd, gl_shd,  &
               psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,                        &
-              psi_stem = psi_stem_shd                                          &
+              psi_stem = psi_stem_shd,                                         &
+              lai_cost = lai_shd_2l                                            &
       )
     END IF
 
