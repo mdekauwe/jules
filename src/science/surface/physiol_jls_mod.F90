@@ -147,6 +147,7 @@ USE urban_param_mod, ONLY: emiss,                                              &
   cap_roof, dz_roof_p, omega_day
 
 USE timestep_mod, ONLY: timestep
+USE phen_budburst_mod, ONLY: phen_bb_update
 
 USE cropparm, ONLY: rt_dir, cfrac_r
 
@@ -1703,6 +1704,12 @@ DO n = 1,npft
 
   CALL leaf_lit (land_pts,surft_pts(n),surft_index(:,n)                        &
 ,                n,fsmc_pft(:,n),tstar,g_leaf(:,n))
+
+  ! Budburst for deciduous phenology: degree-days on the air temperature
+  ! (returns at once unless phen_bb_doy or phen_bb_gdd is set).
+  ! MDK, 20/10/26
+  CALL phen_bb_update(land_pts, surft_pts(n), surft_index(:,n), n, timestep,  &
+                      tair_land)
 
   CALL cancap (land_pts,surft_pts(n),surft_index(:,n),can_model,n              &
 ,              veg_state                                                       &

@@ -28,6 +28,8 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      
     ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt, &
     ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc, ximpair_rebuilt,  &
     ximpair_lock_new
+USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,           &
+                             phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
@@ -528,6 +530,25 @@ DO i = 1,nvars
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(phen_fbleaf(:,n), global_data_2d(:,n))
+    END DO
+
+  ! MDK, 20/10/26
+  CASE ( 'phen_gdd' )
+    CALL phen_bb_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(phen_gdd(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'phen_bb_day' )
+    CALL phen_bb_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(phen_bb_day(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'phen_dormant' )
+    CALL phen_bb_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(phen_dormant(:,n), global_data_2d(:,n))
     END DO
 
   CASE ( 'nsc_regrow_acc' )
@@ -1265,7 +1286,8 @@ DO i = 1,nvars
            'cpl_gbw_shd', 'cpl_ra_ca',                                       &
            'nsc_turg_acc', 'nsc_t_run',                       &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
-           'phen_fbleaf', 'nsc_regrow_acc' )
+           'phen_fbleaf', 'nsc_regrow_acc',                                  &
+           'phen_gdd', 'phen_bb_day', 'phen_dormant' )
       CALL file_write_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 
     CASE ( 'cropdvi', 'croprootc', 'cropharvc', 'cropreservec',                &

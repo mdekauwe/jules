@@ -30,6 +30,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_grow_acc, &
                                        ximpair_fmin_acc
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state   ! MDK, 22/10/26
+USE phen_budburst_mod, ONLY: phen_gdd, phen_bb_day, phen_dormant
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,   &
                            nsc_repair_pft, nsc_starv_pft, nsc_turg_acc,   &
                            nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day, &
@@ -3889,6 +3890,25 @@ CASE ( 'phen_psi_acc' )
 CASE ( 'phen_fbleaf' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(phen_fbleaf) ) workspace_pft(:,:) = phen_fbleaf
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! MDK, 20/10/26
+CASE ( 'phen_gdd' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(phen_gdd) ) workspace_pft(:,:) = phen_gdd
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'phen_bb_day' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(phen_bb_day) ) workspace_pft(:,:) = phen_bb_day
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'phen_dormant' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(phen_dormant) ) workspace_pft(:,:) = phen_dormant
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

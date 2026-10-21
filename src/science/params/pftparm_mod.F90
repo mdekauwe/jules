@@ -760,6 +760,23 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  thresholds before f_bleaf changes (Xu et al. 2016: 10).
 ,phen_fbleaf_min(:)                                                           &
                  ! l_phen_psi: lowest leaf biomass factor (0 = Xu et al.).
+,phen_bb_doy(:)                                                               &
+,phen_bb_gdd(:)                                                               &
+,phen_bb_tbase(:)                                                             &
+,phen_bb_min_days(:)                                                          &
+                 ! Budburst for deciduous phenology (phenol): from the
+                 !  canopy's autumn fall to its floor until budburst the
+                 !  PFT is dormant and phenol does not regrow leaves (no
+                 !  regrowth in mild winter spells). Budburst is on day of
+                 !  year phen_bb_doy, or when the growing degree-days from
+                 !  1 January, the sum of the daily mean air temperature
+                 !  above phen_bb_tbase (degC), reach phen_bb_gdd (degC d).
+                 !  Leaf fall is the standard cold leaf drop (tleaf_of,
+                 !  dgl_dt), except for the first phen_bb_min_days days
+                 !  after budburst (0 = from budburst), so cold nights do
+                 !  not interrupt the flush or drop a summer canopy. Unset
+                 !  (< -1e29) = no budburst gate (standard TRIFFID).
+                 !  MDK, 20/10/26
 ,nsc_cmax(:)                                                                  &
                  ! Store capacity C_max (kg C m-2 of the PFT); > 0 sets it
                  !  directly (e.g. from measured NSC concentrations times
@@ -1139,6 +1156,10 @@ ALLOCATE( phen_psi_tlp(npft))
 ALLOCATE( phen_dfbleaf(npft))
 ALLOCATE( phen_ndays(npft))
 ALLOCATE( phen_fbleaf_min(npft))
+ALLOCATE( phen_bb_doy(npft))
+ALLOCATE( phen_bb_gdd(npft))
+ALLOCATE( phen_bb_tbase(npft))
+ALLOCATE( phen_bb_min_days(npft))
 ALLOCATE( nsc_xylem_type(npft))
 ALLOCATE( nsc_ring_mmdd(npft))
 ALLOCATE( nsc_xylem_replace(npft))
@@ -1220,6 +1241,10 @@ phen_psi_tlp(:) = -1.0e30
 phen_dfbleaf(:) = 0.05
 phen_ndays(:) = 10.0
 phen_fbleaf_min(:) = 0.0
+phen_bb_doy(:) = -1.0e30
+phen_bb_gdd(:) = -1.0e30
+phen_bb_tbase(:) = 0.0
+phen_bb_min_days(:) = 0.0
 nsc_xylem_type(:) = 1
 nsc_ring_mmdd(:) = 401
 nsc_xylem_replace(:) = 0
@@ -1606,6 +1631,14 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_ndays = ',phen_ndays
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_fbleaf_min = ',phen_fbleaf_min
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' phen_bb_doy = ',phen_bb_doy
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' phen_bb_gdd = ',phen_bb_gdd
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' phen_bb_tbase = ',phen_bb_tbase
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' phen_bb_min_days = ',phen_bb_min_days
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_xylem_type = ',nsc_xylem_type
 CALL jules_print('pftparm',lineBuffer)

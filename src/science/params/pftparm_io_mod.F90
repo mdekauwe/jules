@@ -301,7 +301,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
   phen_psi_tlp_io(npft_max) = rmdi,                                            &
   phen_dfbleaf_io(npft_max) = rmdi,                                            &
   phen_ndays_io(npft_max) = rmdi,                                              &
-  phen_fbleaf_min_io(npft_max) = rmdi
+  phen_fbleaf_min_io(npft_max) = rmdi,                                         &
+  phen_bb_doy_io(npft_max) = rmdi,                                             &
+  phen_bb_gdd_io(npft_max) = rmdi,                                             &
+  phen_bb_tbase_io(npft_max) = rmdi,                                           &
+  phen_bb_min_days_io(npft_max) = rmdi
 !---------------------------------------------------------------------
 ! Set up a namelist for reading and writing these arrays
 !---------------------------------------------------------------------
@@ -384,7 +388,8 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_flush_days_io,                                                          &
   nsc_xylem_type_io, nsc_ring_mmdd_io, nsc_cmax_io, phen_psi_tlp_io,           &
   nsc_xylem_replace_io,                                                        &
-  phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io
+  phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io,                         &
+  phen_bb_doy_io, phen_bb_gdd_io, phen_bb_tbase_io, phen_bb_min_days_io
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM_IO'
 
@@ -422,7 +427,7 @@ INTEGER, PARAMETER :: no_of_types = 2
 INTEGER, PARAMETER :: n_int = 12 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
                                            ! impairment + 2 store)
-INTEGER, PARAMETER :: n_real = 177 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 181 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL pftparm arrays incl. xylem
                                              ! impairment; +1 lai_ref_k_io,
                                              ! MDK, 21/10/26)
@@ -618,6 +623,10 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: phen_dfbleaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_ndays_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_fbleaf_min_io(npft_max)
+  REAL(KIND=real_jlslsm) :: phen_bb_doy_io(npft_max)
+  REAL(KIND=real_jlslsm) :: phen_bb_gdd_io(npft_max)
+  REAL(KIND=real_jlslsm) :: phen_bb_tbase_io(npft_max)
+  REAL(KIND=real_jlslsm) :: phen_bb_min_days_io(npft_max)
 END TYPE my_namelist
 
 TYPE (my_namelist) :: my_nml
@@ -825,6 +834,10 @@ IF (mype == 0) THEN
   my_nml % phen_dfbleaf_io = phen_dfbleaf_io
   my_nml % phen_ndays_io = phen_ndays_io
   my_nml % phen_fbleaf_min_io = phen_fbleaf_min_io
+  my_nml % phen_bb_doy_io = phen_bb_doy_io
+  my_nml % phen_bb_gdd_io = phen_bb_gdd_io
+  my_nml % phen_bb_tbase_io = phen_bb_tbase_io
+  my_nml % phen_bb_min_days_io = phen_bb_min_days_io
 END IF
 
 CALL mpl_bcast(my_nml,1,mpl_nml_type,0,my_comm,icode)
@@ -1020,6 +1033,10 @@ IF (mype /= 0) THEN
   phen_dfbleaf_io = my_nml % phen_dfbleaf_io
   phen_ndays_io = my_nml % phen_ndays_io
   phen_fbleaf_min_io = my_nml % phen_fbleaf_min_io
+  phen_bb_doy_io = my_nml % phen_bb_doy_io
+  phen_bb_gdd_io = my_nml % phen_bb_gdd_io
+  phen_bb_tbase_io = my_nml % phen_bb_tbase_io
+  phen_bb_min_days_io = my_nml % phen_bb_min_days_io
 END IF
 
 CALL mpl_type_free(mpl_nml_type,icode)
@@ -1111,7 +1128,8 @@ USE pftparm, ONLY:                                                             &
   nsc_overflow_resp, nsc_xylem_rate_max, nsc_xylem_type, nsc_ring_mmdd,       &
   nsc_xylem_replace,                                                          &
   nsc_grow_start_doy, nsc_grow_end_doy, nsc_flush_start_doy, nsc_flush_days,  &
-  nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min
+  nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min,          &
+  phen_bb_doy, phen_bb_gdd, phen_bb_tbase, phen_bb_min_days
 
 
 
@@ -1471,11 +1489,34 @@ DO i = 1, npft
   IF (ABS(phen_ndays_io(i) - rmdi) > EPSILON(1.0)) phen_ndays(i) = phen_ndays_io(i)
   IF (ABS(phen_fbleaf_min_io(i) - rmdi) > EPSILON(1.0))                        &
     phen_fbleaf_min(i) = phen_fbleaf_min_io(i)
+  ! MDK, 20/10/26
+  IF (ABS(phen_bb_doy_io(i) - rmdi) > EPSILON(1.0))                            &
+    phen_bb_doy(i) = phen_bb_doy_io(i)
+  IF (ABS(phen_bb_gdd_io(i) - rmdi) > EPSILON(1.0))                            &
+    phen_bb_gdd(i) = phen_bb_gdd_io(i)
+  IF (ABS(phen_bb_tbase_io(i) - rmdi) > EPSILON(1.0))                          &
+    phen_bb_tbase(i) = phen_bb_tbase_io(i)
+  IF (ABS(phen_bb_min_days_io(i) - rmdi) > EPSILON(1.0))                       &
+    phen_bb_min_days(i) = phen_bb_min_days_io(i)
   IF (nsc_xylem_type_io(i) /= imdi) nsc_xylem_type(i) = nsc_xylem_type_io(i)
   IF (nsc_ring_mmdd_io(i) /= imdi) nsc_ring_mmdd(i) = nsc_ring_mmdd_io(i)
   IF (nsc_xylem_replace_io(i) /= imdi)                                         &
     nsc_xylem_replace(i) = nsc_xylem_replace_io(i)
 END DO
+
+! Budburst for deciduous phenology: one of a fixed day or degree-days.
+! MDK, 20/10/26
+IF ( ANY(phen_bb_doy(:) > -1.0e29 .AND. phen_bb_gdd(:) > -1.0e29) .OR.       &
+     ANY(phen_bb_doy(:) > -1.0e29 .AND.                                       &
+         (phen_bb_doy(:) < 1.0 .OR. phen_bb_doy(:) > 366.0)) .OR.            &
+     ANY(phen_bb_gdd(:) > -1.0e29 .AND. phen_bb_gdd(:) <= 0.0) .OR.          &
+     ANY(phen_bb_min_days(:) < 0.0) .OR. ANY(phen_bb_min_days(:) > 366.0) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                           &
+               'Set one of phen_bb_doy_io (a day of the year, 1-366) and ' // &
+               'phen_bb_gdd_io (> 0 degC d) per PFT, not both; '        // &
+               'phen_bb_min_days_io 0-366.')
+END IF
 
 ! TRIFFID store (l_triffid_nsc): parameter ranges and switch consistency.
 ! MDK, 17/10/26

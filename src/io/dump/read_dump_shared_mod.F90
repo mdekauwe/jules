@@ -209,6 +209,12 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
              "its 'not yet set' value (store filled at the first step).")
+        CASE ( 'phen_gdd', 'phen_bb_day', 'phen_dormant' )
+          ! Budburst state: dumps written without the budburst gate.
+          ! MDK, 20/10/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
+             "its 'not yet set' value (no budburst yet this year).")
         CASE DEFAULT
           CALL log_fatal("read_dump_shared",                                   &
                          "Failed to find requested variable '" //              &

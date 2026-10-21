@@ -24,6 +24,8 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      
     ximpair_lock_new
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
+USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,           &
+                             phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
@@ -2256,6 +2258,34 @@ CASE ( 'phen_fbleaf' )
     CALL cube_get_data(cube_land, phen_fbleaf(:,:))
   ELSE
     phen_fbleaf(:,:) = const_val
+  END IF
+
+! MDK, 20/10/26
+CASE ( 'phen_gdd' )
+  CALL phen_bb_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, phen_gdd(:,:))
+  ELSE
+    phen_gdd(:,:) = const_val
+  END IF
+
+CASE ( 'phen_bb_day' )
+  CALL phen_bb_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, phen_bb_day(:,:))
+  ELSE
+    phen_bb_day(:,:) = const_val
+  END IF
+
+CASE ( 'phen_dormant' )
+  CALL phen_bb_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, phen_dormant(:,:))
+  ELSE
+    phen_dormant(:,:) = const_val
   END IF
 
 CASE ( 'nsc_regrow_acc' )

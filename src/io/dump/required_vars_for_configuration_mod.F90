@@ -32,7 +32,8 @@ USE jules_soil_ecosse_mod, ONLY: l_soil_N
 
 USE pftparm, ONLY: pft_xylem_impairment_model, nsc_psi_turg_zero,            &
                    nsc_t_grow_zero, nsc_grow_start_doy, nsc_grow_end_doy,     &
-                   nsc_flush_start_doy, nsc_xylem_replace
+                   nsc_flush_start_doy, nsc_xylem_replace, phen_bb_doy,       &
+                   phen_bb_gdd
 
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_triffid, l_phenol, l_veg_compete,            &
@@ -387,6 +388,13 @@ END IF
 IF ( l_triffid_nsc .AND. .NOT. l_phen_psi .AND.                              &
      ANY(nsc_flush_start_doy(:) > -1.0e29) )                                  &
   CALL add_to_list( 'nsc_regrow_acc', nvars, identifiers )
+! Budburst for deciduous phenology: degree-days, budburst day, dormancy.
+! MDK, 20/10/26
+IF ( ANY(phen_bb_doy(:) > -1.0e29) .OR. ANY(phen_bb_gdd(:) > -1.0e29) ) THEN
+  CALL add_to_list( 'phen_gdd', nvars, identifiers )
+  CALL add_to_list( 'phen_bb_day', nvars, identifiers )
+  CALL add_to_list( 'phen_dormant', nvars, identifiers )
+END IF
 
 IF ( stomata_model == stomata_desica ) THEN
   ! DESICA leaf and stem water potentials are prognostic for all PFTs

@@ -10348,4 +10348,46 @@ DATA metadata(797) / var_metadata(                                             &
 ! Units
     "permil"                                                                   &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for phen_gdd
+! MDK, 20/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(798) / var_metadata(                                             &
+! String identifier
+    'phen_gdd',                                                                 &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Growing degree-days since 1 January (budburst)",                           &
+! Units
+    "degC d"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for phen_bb_day
+! MDK, 20/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(799) / var_metadata(                                             &
+! String identifier
+    'phen_bb_day',                                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Budburst day of year this year (-1 = not yet)",                            &
+! Units
+    "1"                                                                         &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for phen_dormant
+! MDK, 20/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(800) / var_metadata(                                             &
+! String identifier
+    'phen_dormant',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Dormant until budburst (1 = dormant)",                                     &
+! Units
+    "1"                                                                         &
+  ) /
 #endif

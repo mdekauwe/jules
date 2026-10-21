@@ -41,6 +41,8 @@ USE jules_vegetation_mod, ONLY: l_trait_phys
 USE jules_surface_mod, ONLY: cmass
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock
 USE trif, ONLY: g_grow
+USE phen_budburst_mod, ONLY: phen_bb_on, phen_bb_blocked, phen_bb_day,         &
+                             phen_dormant, phen_bb_in_leaf
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -171,7 +173,10 @@ END IF
 DO j = 1,veg_pts
   l = veg_index(j)
 
-  IF (g_leaf(l) >  2.0 * g_leaf_0(n)) THEN
+  ! Budburst gate: no cold leaf drop in the first phen_bb_min_days after
+  ! budburst.
+  ! MDK, 20/10/26
+  IF (g_leaf(l) >  2.0 * g_leaf_0(n) .AND. .NOT. phen_bb_in_leaf(l, n)) THEN
     dphen          = -dtime_phen * g_grow(n)
     dphen          = MAX(dphen,(0.01 - phen(l)))
     g_leaf_phen(l) = -dphen / dtime_phen
@@ -187,6 +192,11 @@ DO j = 1,veg_pts
     dphen          = dtime_phen * g_grow(n) * (phen_max(l) - phen(l))
     dphen          = MIN(dphen,(phen_max(l) - phen(l)))
     g_leaf_phen(l) = phen(l) * g_leaf(l)
+
+    ! Budburst gate (phen_bb_doy or phen_bb_gdd): no regrowth while dormant
+    ! or before this year's budburst.
+    ! MDK, 20/10/26
+    IF (phen_bb_blocked(l, n)) dphen = 0.0
 
     ! Drought leaf shedding with the store (l_phen_psi, l_triffid_nsc):
     ! regrowth is paid from the accessible store (queued for the next store
@@ -233,6 +243,14 @@ DO j = 1,veg_pts
   !---------------------------------------------------------------------------
   phen(l) = phen(l) + dphen
   lai(l)  = phen(l) * lai_bal(l)
+
+  ! Budburst gate: the canopy fallen to its floor after this year's
+  ! budburst goes dormant until the next budburst.
+  ! MDK, 20/10/26
+  IF (phen_bb_on(n) .AND. ALLOCATED(phen_dormant)) THEN
+    IF (dphen < 0.0 .AND. phen(l) <= 0.01 + 1.0e-6 .AND.                      &
+        phen_bb_day(l,n) >= 0.0) phen_dormant(l,n) = 1.0
+  END IF
 
   ! Leaf renewal (l_ximpair_rec_leaf_turn): leaves regrown after shedding
   ! arrive intact, so the leaf segment's loss falls by their share.
