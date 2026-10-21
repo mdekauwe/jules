@@ -363,6 +363,7 @@ ELSE
       ! curve. (This used to take supply_lut_f when b and c equalled the
       ! PFT's, which gives the same value for psi <= 0 but built the supply
       ! table even with the Newton solver.)
+      !
       ! MDK, 21/10/26
       k_in = kmax(l) * xylem_f_bc(pft, psi_in(l), conductance_b(l),            &
                                   conductance_c(l))
