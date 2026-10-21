@@ -2066,56 +2066,46 @@ END SUBROUTINE lut_grid
 !
 ! The code here is based on the implementation in Numerical Recipes
 ! in FORTRAN 90, page 211, and makes use of the series representation
-! of the lower incomplete gamma function.
+! of the lower incomplete gamma function. JBaguley
 ! ---------------------------------------------------------------------
 FUNCTION incomplete_gamma( n_x, a, x ) RESULT( gamma )
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) :: n_x ! Size of x array
 
 REAL(KIND=real_jlslsm), INTENT(IN) :: a
+                            ! Shape parameter, 1/c (dimensionless).
 REAL(KIND=real_jlslsm), INTENT(IN) :: x(n_x)
+                            ! Upper limit of the integral, (psi/b)^c
+                            ! (dimensionless).
 
 REAL(KIND=real_jlslsm) :: gamma(n_x)
+                            ! Lower incomplete gamma of each x
+                            ! (dimensionless).
+                            !
+                            ! MDK, 21/10/26
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: step(n_x)
 INTEGER :: i
 
-! Series convergence controls. NOTE: this series solution is only well
-! conditioned for x < a+1 or so (see Numerical Recipes in Fortran 90,
-! section 6.2): for larger x - i.e. deep into the vulnerability curve,
-! close to hydraulic failure - it converges slowly, and the intermediate
-! terms can grow very large before being cancelled by the exp(-x) factor
-! below, risking overflow. If this routine is ever exercised with
-! som_psi_solver = psi_solver_newton under severe water stress and that
-! becomes a problem in practice, this branch should be paired with a
-! continued-fraction evaluation of the upper incomplete gamma function
-! for x >= a+1 (NR's gcf), rather than raising max_terms further.
+! Series convergence controls. NOTE: the series is only well conditioned
+! for x < a+1 or so (Numerical Recipes in Fortran 90, section 6.2). Deep
+! into the vulnerability curve it converges slowly and its terms grow
+! large. If that becomes a problem, pair it with a continued-fraction
+! evaluation for x >= a+1 (NR's gcf) rather than raising max_terms.
+!
+! MDK, 21/10/26
 REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
 INTEGER, PARAMETER :: max_terms = 40
-                            ! Checked numerically against this branch's own
-                            ! kcrit_fractional_loss=0.95 cutoff: with the
-                            ! corrected P50/P88 constants, k/kmax crosses
-                            ! below kcrit at x corresponding to psi ~ -8.2
-                            ! MPa, which needs ~17-21 series terms here. 40
-                            ! terms covers everything up to psi ~ -10.5 MPa
-                            ! with real margin past that cutoff - anything
-                            ! needing more terms than that is already,
-                            ! separately, excluded by the kl_sample > kcrit
-                            ! mask in stom_opt_mod regardless of how
-                            ! precisely this series converges for it, so
-                            ! spending up to 100 terms chasing it (as the
-                            ! psi_solver_newton loop, capped at 4 iterations,
-                            ! calls this every pass) was wasted work. This
-                            ! does not touch the psi_solver_taylor branch or its
-                            ! own convergence tolerance.
-
-! zhook variables
-INTEGER :: errcode
+                            ! Covers psi down to about -10.5 MPa, past the
+                            ! kcrit cut-off (about -8.2 MPa, 17-21 terms).
+                            ! Samples that need more are rejected by the
+                            ! k > kcrit mask anyway.
+                            !
+                            ! MDK, 21/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -2129,10 +2119,10 @@ step(:) = 1/a
 gamma(:) = step
 
 ! Calculate series, iterating until every point's remaining term is
-! negligible relative to its running sum, rather than a fixed number of
-! terms (previously hard-coded to 2 extra terms, which is only accurate
-! for x close to 0 - see max_terms/series_tol comment above for the
-! remaining caveat at large x).
+! negligible relative to its running sum (see max_terms and series_tol
+! above).
+!
+! MDK, 21/10/26
 DO i = 1, max_terms
   step = step * x / (a + i)
   gamma = gamma + step
@@ -2152,16 +2142,23 @@ END FUNCTION incomplete_gamma
 ! ---------------------------------------------------------------------
 FUNCTION incomplete_gamma_different_a( n_x, a, x ) RESULT( gamma )
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) :: n_x ! Size of x array
 
 REAL(KIND=real_jlslsm), INTENT(IN) :: a(n_x)
+                            ! Shape parameter of each value, 1/c
+                            ! (dimensionless).
 REAL(KIND=real_jlslsm), INTENT(IN) :: x(n_x)
+                            ! Upper limit of the integral, (psi/b)^c
+                            ! (dimensionless).
 
 REAL(KIND=real_jlslsm) :: gamma(n_x)
+                            ! Lower incomplete gamma of each x
+                            ! (dimensionless).
+                            !
+                            ! MDK, 21/10/26
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: step(n_x)
@@ -2170,9 +2167,6 @@ INTEGER :: i
 ! Series convergence controls - see incomplete_gamma above.
 REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
 INTEGER, PARAMETER :: max_terms = 40
-
-! zhook variables
-INTEGER :: errcode
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -2193,7 +2187,7 @@ DO i = 1, max_terms
   IF (ALL(ABS(step) < series_tol * ABS(gamma))) EXIT
 END DO
 
-! Multiply by terms outsied the sum
+! Multiply by terms outside the sum
 gamma = gamma * EXP(-x) * x**a
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
