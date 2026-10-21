@@ -4940,7 +4940,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   rn(nc), gh(nc), gbh(nc), a(nc), b(nc), le, dt, h_tot, lai_x(nc), gl_x(nc),   &
   t_old(nc), frad(nc), ff(nc), gbhf, gsw, gbw, gw, den, grashof, ra_x, visc,   &
   sum_a, sum_b
-INTEGER :: ic
+INTEGER :: ic, it_q
+LOGICAL :: l_act(nc), l_neg
 
 cp_mol  = cp * rmol / r
 ra_x    = ra_m(l)
@@ -5007,15 +5008,35 @@ END DO
 ! Canopy humidity: q_c = q1 + c_q sum(LE), c_q = ra / (rho lc); the soil's
 ! LE is rho lc g_soil (qs_soil - q_c), so c_q rho lc = ra multiplies g_soil.
 c_q    = ra_x / ( rho * lc )
-sum_a  = 0.0
-sum_b  = 0.0
-DO ic = 1,nc
-  sum_a = sum_a + a(ic)
-  sum_b = sum_b + b(ic)
+! Only the classes whose LE is positive at the solved q_c take part, as the
+! leaf heat balance below clips each class's LE at 0: a class that would
+! condense (at night) adds no vapour to, and removes none from, the canopy
+! air. Classes are dropped and q_c re-solved until none of those left is
+! negative (at most nc passes; with none negative this is the single solve
+! as before).
+! MDK, 22/10/26
+l_act(:) = .TRUE.
+DO it_q = 1,nc
+  sum_a  = 0.0
+  sum_b  = 0.0
+  DO ic = 1,nc
+    IF ( l_act(ic) ) THEN
+      sum_a = sum_a + a(ic)
+      sum_b = sum_b + b(ic)
+    END IF
+  END DO
+  qc_new = ( q1(l) + c_q * ( sum_a + sum_b * qs0 )                             &
+             + ra_x * g_soil(l) * qs_soil(l) )                                 &
+           / ( 1.0 + c_q * sum_b + ra_x * g_soil(l) )
+  l_neg = .FALSE.
+  DO ic = 1,nc
+    IF ( l_act(ic) .AND. a(ic) + b(ic) * (qs0 - qc_new) < 0.0 ) THEN
+      l_act(ic) = .FALSE.
+      l_neg = .TRUE.
+    END IF
+  END DO
+  IF ( .NOT. l_neg ) EXIT
 END DO
-qc_new = ( q1(l) + c_q * ( sum_a + sum_b * qs0 )                               &
-           + ra_x * g_soil(l) * qs_soil(l) )                                   &
-         / ( 1.0 + c_q * sum_b + ra_x * g_soil(l) )
 
 h_tot  = 0.0
 le_out = 0.0
