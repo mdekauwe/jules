@@ -40,7 +40,8 @@ PUBLIC :: leaf_conductance_CW_jls                                              &
 ,         xylem_f_bc                                                           &
 ,         k_path_zero_flow                                                     &
 ,         set_k_ground_basis                                                   &
-,         seg_kmax_fac
+,         seg_kmax_fac                                                         &
+,         lut_pft_curve   ! MDK, 21/10/26
 
 ! Soil-to-root (rhizosphere) conductance Ksr for l_som_rhizo_series, a
 ! conductance (not the soil conductivity soil_k), kept separate from the
@@ -287,6 +288,38 @@ REAL(KIND=real_jlslsm) :: f
 f = xylem_f_bc( pft, psi, conductance_b_pft(pft), conductance_c_pft(pft) )
 
 END FUNCTION xylem_f
+
+! *****************************************************************************
+! .TRUE. if every open point's curve (b, c) is the PFT's, so the supply
+! table (keyed by PFT) holds for all of them. A point with its own curve
+! (e.g. impaired b and c) must be solved by Newton instead; the table
+! solvers used to ignore b and c.
+!
+! MDK, 21/10/26
+! *****************************************************************************
+LOGICAL FUNCTION lut_pft_curve( pft, land_pts, open_pnts, veg_index,          &
+                                open_index, b, c )
+
+USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: pft, land_pts, open_pnts, veg_index(land_pts),         &
+                       open_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: b(land_pts), c(land_pts)
+INTEGER :: j, l
+
+lut_pft_curve = .TRUE.
+DO j = 1, open_pnts
+  l = veg_index(open_index(j))
+  IF ( b(l) /= conductance_b_pft(pft) .OR.                                    &
+       c(l) /= conductance_c_pft(pft) ) THEN
+    lut_pft_curve = .FALSE.
+    RETURN
+  END IF
+END DO
+
+END FUNCTION lut_pft_curve
 
 ! *****************************************************************************
 ! As xylem_f, on the curve with parameters b (Pa, negative) and c
@@ -717,6 +750,12 @@ INTEGER, PARAMETER :: max_nr_iter = 4
 
 INTEGER :: errcode
 
+INTEGER :: psi_solver
+                            ! som_psi_solver, or Newton where the supply
+                            ! table cannot follow a point's own b and c.
+                            !
+                            ! MDK, 21/10/26
+
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
@@ -724,8 +763,20 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_PSI_CW_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+! The table is keyed by PFT, so a point with its own curve (b, c) is solved
+! by Newton. (The segment solvers take their curves from the PFT's segment
+! parameters, not b and c, so they keep the table.)
+!
+! MDK, 21/10/26
+psi_solver = som_psi_solver
+IF ( psi_solver == psi_solver_lut .AND. .NOT. l_som_plant_segments ) THEN
+  IF ( .NOT. lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,  &
+                            conductance_b, conductance_c ) )                  &
+    psi_solver = psi_solver_newton
+END IF
+
 ! Select the method to approximate the leaf water potential
-SELECT CASE (som_psi_solver)
+SELECT CASE (psi_solver)
 
 ! ---------------------------------------------------------------------
 ! Apply a zeroth order Taylor expansion to simplify the integration

@@ -241,7 +241,8 @@ USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,               &
                                 som_psi_solver, psi_solver_lut,                &
                                 l_som_plant_segments, l_som_rhizo_series
 USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls, leaf_psi_lut_jls,      &
-                                       ksr_path, som_psi_in_min, xylem_f_bc
+                                       ksr_path, som_psi_in_min, xylem_f_bc,   &
+                                       lut_pft_curve   ! MDK, 21/10/26
 USE xylem_hydraulics_SOX_jls_mod, ONLY: leaf_psi_SOX_jls
 USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
 
@@ -395,8 +396,12 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: psi_out(n_e, open_pnts),               &
 SELECT CASE ( pft_conductance_model(pft) )
 
 CASE ( CW_conductance )
+  ! (Only on the PFT's curve: the table cannot follow a point's own b and
+  ! c, which leaf_psi_CW_jls then solves by Newton. MDK, 21/10/26)
   IF ( som_psi_solver == psi_solver_lut .AND.                                 &
-       .NOT. l_som_plant_segments ) THEN
+       .NOT. l_som_plant_segments .AND.                                       &
+       lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,        &
+                      conductance_b, conductance_c ) ) THEN
     ! Direct call: skips leaf_psi_CW_jls's automatic work arrays.
     CALL leaf_psi_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
                            open_index, e_in, psi_root, kmax,                   &
@@ -410,7 +415,9 @@ CASE ( CW_conductance )
   END IF
 
 CASE ( SOX_conductance )
-  IF ( som_psi_solver == psi_solver_lut ) THEN
+  IF ( som_psi_solver == psi_solver_lut .AND.                                 &
+       lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,        &
+                      conductance_b, conductance_c ) ) THEN   ! MDK, 21/10/26
     CALL leaf_psi_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
                            open_index, e_in, psi_root, kmax,                   &
                            psi_out, k_out )

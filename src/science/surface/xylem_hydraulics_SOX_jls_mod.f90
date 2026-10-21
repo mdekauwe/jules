@@ -213,7 +213,8 @@ SUBROUTINE leaf_psi_SOX_jls( pft,                                              &
 
 USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_taylor,            &
                                 psi_solver_newton, psi_solver_lut
-USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_lut_jls
+USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_lut_jls, lut_pft_curve
+                                       ! MDK, 21/10/26
 
 USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
@@ -309,6 +310,12 @@ INTEGER, PARAMETER :: max_nr_iter = 4
 
 INTEGER :: errcode
 
+INTEGER :: psi_solver
+                            ! som_psi_solver, or Newton where the supply
+                            ! table cannot follow a point's own b and c.
+                            !
+                            ! MDK, 21/10/26
+
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
@@ -316,10 +323,21 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+! The table is keyed by PFT, so a point with its own curve (b, c) is solved
+! by Newton.
+!
+! MDK, 21/10/26
+psi_solver = som_psi_solver
+IF ( psi_solver == psi_solver_lut ) THEN
+  IF ( .NOT. lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,  &
+                            conductance_b, conductance_c ) )                  &
+    psi_solver = psi_solver_newton
+END IF
+
 ! Select the method to approximate the leaf water potential
 ! psi is held at <= 0 in (psi/b)**c: a positive psi gave a negative base and
 ! NaN. Unchanged for psi <= 0. MDK, 22/10/26
-SELECT CASE (som_psi_solver)
+SELECT CASE (psi_solver)
 
 ! ---------------------------------------------------------------------
 ! Apply a zeroth order taylor expansion to simplify the integration
