@@ -245,20 +245,22 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 ,t_leaf(land_pts)                                                              &
                             ! Leaf temperature (K)
 ,je_ratio(land_pts)                                                            &
-                            ! Electron transport of this leaf over
-                            ! that of the canopy (dimensionless). Scales J
-                            ! in multilayer calls; 1 otherwise.
+                            ! Electron transport of the sunlit (or shaded)
+                            ! leaves of this call over that of the canopy
+                            ! (dimensionless). Scales J in multilayer calls;
+                            ! 1 otherwise.
                             ! MDK, 21/10/26
 ,fapar_lf(land_pts)                                                            &
                             ! Fraction of the incident PAR absorbed by this
-                            ! layer's leaf (dimensionless). Used in
-                            ! multilayer calls.
+                            ! layer's sunlit (or shaded) leaves
+                            ! (dimensionless). Used in multilayer calls.
                             ! MDK, 21/10/26
 ,kmax(land_pts)                                                                &
                             ! Maximum whole-path (soil-to-leaf) conductance
                             ! (mol m-2 s-1 Pa-1), on the basis of this call
-                            ! (canopy, leaf or leaf). The impaired
-                            ! value with l_xylem_impairment.
+                            ! (whole canopy, the sunlit or shaded leaves, or
+                            ! a layer's leaves). The impaired value with
+                            ! l_xylem_impairment.
                             ! MDK, 21/10/26
 ,kcrit(land_pts)                                                               &
                             ! Critical conductance (mol m-2 s-1 Pa-1, same
