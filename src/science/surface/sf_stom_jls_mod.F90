@@ -896,6 +896,12 @@ REAL(KIND=real_jlslsm) :: r_crit, psi_fl_leaf, psi_fl_stem, c_cut,           &
                             ! relaxation factor and the drop in psi with no
                             ! steady state (Pa).
 LOGICAL :: l_seg_cut
+REAL(KIND=real_jlslsm) :: qs_air_cut(land_pts), dq_cut(land_pts)
+                            ! Saturated humidity at the air temperature and
+                            ! the leaf-to-air deficit driving the leak
+                            ! (kg kg-1).
+                            !
+                            ! MDK, 22/10/26
 REAL(KIND=real_jlslsm) :: gc_opt_cut(land_pts), e_lo, e_soil, k_cut_eff
                             ! The optimiser's gc where the leak binds, the
                             ! flow the path delivers at last step's psi and
@@ -3562,10 +3568,30 @@ IF ( l_cut_ximpair ) THEN
   DO m = 1,open_pts
     lit_cut(open_land_index(m)) = .TRUE.
   END DO
+  ! The leak is driven by the leaf-to-air deficit (as gmin * VPD): with
+  ! leaf temperatures (two-leaf), qs at the sunlit and shaded leaf
+  ! temperatures weighted by leaf area, less q1; otherwise the air deficit,
+  ! qs(tair) - q1. Not dqc, at tstar, which in a drought is the hot tile
+  ! skin, up to 10 K above the leaves (leak ~2x too large). sf_evap takes
+  ! the flux at tstar, so gc is scaled by dq_cut / dqc to give it.
+  !
+  ! MDK, 22/10/26
+  CALL qsat(qs_air_cut, tair, pstar, land_pts)
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    dq_cut(l) = MAX(qs_air_cut(l) - q1(l), 0.0)
+    IF ( l_leaf_temp .AND. can_rad_mod == 7 ) THEN
+      IF ( lai_sun_2l(l) + lai_shd_2l(l) > EPSILON(0.0) )                      &
+        dq_cut(l) = ( lai_sun_2l(l) * MAX(qs_sun_lt(l) - q1(l), 0.0)           &
+                      + lai_shd_2l(l) * MAX(qs_shd_lt(l) - q1(l), 0.0) )       &
+                    / ( lai_sun_2l(l) + lai_shd_2l(l) )
+    END IF
+  END DO
   DO m = 1,veg_pts
     l = veg_index(m)
     ! mmol m-2 leaf s-1 -> m s-1, times LAI for the canopy.
     gl_cut(l) = gcuticular(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
+    IF ( dqc(l) > 0.0 ) gl_cut(l) = gl_cut(l) * dq_cut(l) / dqc(l)
     share_sup(l) = 1.0
   END DO
   CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
@@ -3641,8 +3667,10 @@ IF ( l_cut_ximpair ) THEN
     ! psi falls by (E - E_in(psi_0)) dt / C. psi_0 is last step's psi (the
     ! optimiser's this step if unset). The soil is charged E less the
     ! store's share, C (psi_0 - psi) / dt, and gc is cut to that: no water
-    ! is taken through a path that cannot carry it. (The store's own water
-    ! is not in the soil budget: <= C * 3 MPa, a fraction of a mm.)
+    ! is taken through a path that cannot carry it. (The store's water is
+    ! not in the water budget: the leak it pays is not in ET, and its
+    ! refill, when the state resets, is not charged to the soil; about 2 mm
+    ! over Jul-Aug 2022 at FR-Pue, gcut 3.)
     DO j = 1,n_lk
       l = veg_index(idx_lk(j))
       c_cut = MAX(cap_stem(ft) * lai(l), TINY(1.0_real_jlslsm))
