@@ -16,7 +16,7 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='STOM_OPT_JLS_MOD'
 
 PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_bounded_search, &
         stom_opt_supply_loss, g_eff_e
-PUBLIC stom_opt_mod, g_of_geff
+PUBLIC stom_opt_mod, g_of_geff, som_path_psi
 
 CONTAINS
 
@@ -1795,31 +1795,12 @@ END IF
 !
 ! MDK, 21/10/26
 el_closed(:,:) = 0.0
-IF (l_xylem_impairment .AND. l_som_plant_segments .AND.                      &
-    som_psi_solver == psi_solver_lut) THEN
-  ! MDK, 18/10/26
-  CALL leaf_psi_segments_lut_jls( pft, 1, land_pts, open_pts, veg_index,      &
-                                  open_index, el_closed, psi_root_zone,        &
-                                  kmax_ref, psi_closed, kl_closed,             &
-                                  kcap_frac = kcap_frac_pts )
-ELSE IF (l_xylem_impairment .AND. l_som_plant_segments) THEN
-  CALL leaf_psi_segments_jls( pft, 1, land_pts, open_pts, veg_index,          &
-                              open_index, el_closed, psi_root_zone, kmax_ref,  &
-                              kcrit, psi_closed, kl_closed,                    &
-                              kcap_frac = kcap_frac_pts )
-ELSE IF (l_xylem_impairment) THEN
-  CALL leaf_psi_impaired_jls( pft, 1, land_pts, open_pts, veg_index,          &
-                              open_index, el_closed, psi_root_zone, kmax_ref,  &
-                              kmax, kcrit, conductance_b, conductance_c,       &
-                              psi_leaf_extreme, psi_root_extreme,              &
-                              psi_closed, kl_closed )
-ELSE
-  CALL leaf_psi_jls( pft, 1, land_pts, open_pts, veg_index, open_index,        &
-                     el_closed, psi_root_zone, kmax, kcrit,                    &
-                     conductance_b, conductance_c,                             &
-                   ! INTENT OUT
-                     psi_closed, kl_closed )
-END IF
+CALL som_path_psi( pft, 1, land_pts, open_pts, veg_index, open_index,        &
+                   el_closed, psi_root_zone, kmax_ref, kmax, kcrit,            &
+                   conductance_b, conductance_c, psi_leaf_extreme,             &
+                   psi_root_extreme, l_xylem_impairment,                       &
+                 ! INTENT OUT
+                   psi_closed, kl_closed )
 DO j = 1, open_pts
   l = veg_index(open_index(j))
   al_sample(0,j)  = -rd(l)
@@ -1844,6 +1825,135 @@ END IF
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE stom_opt_mod_ci
+
+!-----------------------------------------------------------------------------
+! Leaf water potential and whole-path conductance -dE/dpsi_leaf for the
+! transpiration e_leaf, on the path the optimiser uses: with xylem
+! impairment and segments, the segments under the memory model's stem and
+! leaf caps (kmax / kmax_ref), which also gives psi_stem; with impairment
+! alone, the impaired curve; otherwise the curve b, c. Used for the
+! closed-stomata state here and for the cuticular loss in sf_stom, so that
+! both solve on the same path as the samples.
+!
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE som_path_psi( pft, n_e_leaf, land_pts, open_pts, veg_index,       &
+                         open_index, e_leaf, psi_root_zone, kmax_ref, kmax,    &
+                         kcrit, conductance_b, conductance_c,                  &
+                         psi_leaf_extreme, psi_root_extreme,                   &
+                         l_xylem_impairment, psi_leaf, leaf_k, psi_stem,      &
+                         l_exact )
+
+USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
+USE xylem_impairment_mod, ONLY: leaf_psi_impaired_jls
+USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_segments_jls,                 &
+                                       leaf_psi_segments_lut_jls
+USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_lut,               &
+                                l_som_plant_segments
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: pft, n_e_leaf, land_pts, open_pts
+INTEGER, INTENT(IN) :: veg_index(land_pts), open_index(land_pts)
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  e_leaf(n_e_leaf, open_pts),                                                  &
+      ! Transpiration (mol H2O m-2 s-1, the units of kmax * psi).
+  psi_root_zone(land_pts),                                                     &
+      ! Source water potential (Pa).
+  kmax_ref(land_pts), kmax(land_pts), kcrit(land_pts),                         &
+      ! Intact and impaired maximum conductance, and the critical
+      ! conductance, as passed to stom_opt_mod.
+  conductance_b(land_pts), conductance_c(land_pts),                            &
+      ! Each point's (impaired) curve.
+  psi_leaf_extreme(land_pts), psi_root_extreme(land_pts)
+      ! Impairment memory, as passed to stom_opt_mod.
+
+LOGICAL, INTENT(IN) :: l_xylem_impairment
+      ! Impairment active for this PFT (not in spin-up), as in stom_opt_mod.
+
+REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  psi_leaf(n_e_leaf, open_pts), leaf_k(n_e_leaf, open_pts)
+      ! Leaf water potential (Pa) and whole-path conductance.
+
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
+  psi_stem(n_e_leaf, open_pts)
+      ! Stem outlet water potential (Pa); with segments and impairment
+      ! only, otherwise left unset.
+
+LOGICAL, INTENT(IN), OPTIONAL :: l_exact
+      ! .TRUE.: with segments, solve each segment exactly (bisection, see
+      ! leaf_psi_segments_jls), also with som_psi_solver = 3.
+
+REAL(KIND=real_jlslsm) :: kcap_frac(land_pts)
+INTEGER :: j, l
+LOGICAL :: l_ex
+
+l_ex = .FALSE.
+IF ( PRESENT(l_exact) ) l_ex = l_exact
+
+IF ( l_xylem_impairment .AND. l_som_plant_segments ) THEN
+  kcap_frac(:) = 1.0
+  DO j = 1, open_pts
+    l = veg_index(open_index(j))
+    kcap_frac(l) = kmax(l) / MAX(kmax_ref(l), TINY(1.0_real_jlslsm))
+  END DO
+  IF ( l_ex ) THEN
+    IF ( PRESENT(psi_stem) ) THEN
+      CALL leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pts,           &
+                                  veg_index, open_index, e_leaf,               &
+                                  psi_root_zone, kmax_ref, kcrit, psi_leaf,    &
+                                  leaf_k, kcap_frac = kcap_frac,               &
+                                  stem_psi = psi_stem, l_exact = .TRUE. )
+    ELSE
+      CALL leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pts,           &
+                                  veg_index, open_index, e_leaf,               &
+                                  psi_root_zone, kmax_ref, kcrit, psi_leaf,    &
+                                  leaf_k, kcap_frac = kcap_frac,               &
+                                  l_exact = .TRUE. )
+    END IF
+  ELSE IF ( som_psi_solver == psi_solver_lut ) THEN
+    IF ( PRESENT(psi_stem) ) THEN
+      CALL leaf_psi_segments_lut_jls( pft, n_e_leaf, land_pts, open_pts,       &
+                                      veg_index, open_index, e_leaf,           &
+                                      psi_root_zone, kmax_ref, psi_leaf,       &
+                                      leaf_k, kcap_frac = kcap_frac,           &
+                                      stem_psi = psi_stem )
+    ELSE
+      CALL leaf_psi_segments_lut_jls( pft, n_e_leaf, land_pts, open_pts,       &
+                                      veg_index, open_index, e_leaf,           &
+                                      psi_root_zone, kmax_ref, psi_leaf,       &
+                                      leaf_k, kcap_frac = kcap_frac )
+    END IF
+  ELSE
+    IF ( PRESENT(psi_stem) ) THEN
+      CALL leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pts,           &
+                                  veg_index, open_index, e_leaf,               &
+                                  psi_root_zone, kmax_ref, kcrit, psi_leaf,    &
+                                  leaf_k, kcap_frac = kcap_frac,               &
+                                  stem_psi = psi_stem )
+    ELSE
+      CALL leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pts,           &
+                                  veg_index, open_index, e_leaf,               &
+                                  psi_root_zone, kmax_ref, kcrit, psi_leaf,    &
+                                  leaf_k, kcap_frac = kcap_frac )
+    END IF
+  END IF
+ELSE IF ( l_xylem_impairment ) THEN
+  CALL leaf_psi_impaired_jls( pft, n_e_leaf, land_pts, open_pts, veg_index,   &
+                              open_index, e_leaf, psi_root_zone, kmax_ref,     &
+                              kmax, kcrit, conductance_b, conductance_c,       &
+                              psi_leaf_extreme, psi_root_extreme,              &
+                              psi_leaf, leaf_k )
+ELSE
+  CALL leaf_psi_jls( pft, n_e_leaf, land_pts, open_pts, veg_index,            &
+                     open_index, e_leaf, psi_root_zone, kmax, kcrit,           &
+                     conductance_b, conductance_c,                             &
+                   ! INTENT OUT
+                     psi_leaf, leaf_k )
+END IF
+
+END SUBROUTINE som_path_psi
 
 !-----------------------------------------------------------------------------
 ! Given a Ci sample grid already evaluated by stom_opt_mod_ci (al_sample,

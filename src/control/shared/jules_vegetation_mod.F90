@@ -504,12 +504,22 @@ LOGICAL ::                                                                     &
 LOGICAL ::                                                                     &
   l_som_cuticular_loss = .FALSE.
       ! When .TRUE., leaf water loss never falls below a cuticular floor:
-      ! after the profit-max search (and for closed stomata, including at
-      ! night) the canopy conductance is MAX(gs, gcuticular_io * LAI). The floor is
+      ! the canopy conductance is MAX(gs, gcuticular_io * LAI). The floor is
       ! an uncontrolled leak, so it is not part of the optimisation and adds
       ! no carbon; the extra water is taken from the soil through the
       ! normal evaporation path (still bounded by the soil-supply cap when
       ! l_som_supply_limit) and psi_leaf is re-solved for the total flux.
+      ! Under the stomatal optimisation: lit points only
+      ! (apar > 0), the full leak (not cut back near kcrit), psi solved on
+      ! the optimiser's path, and the xylem impairment update made after
+      ! the leak, so it drives the loss of conductance. The plant has one
+      ! water store (cap_stem * LAI): the soil gives what the path delivers
+      ! at the plant's psi, the store the rest, so psi falls over time and
+      ! no water is taken through a path that cannot carry it; psi is
+      ! floored at the critical loss of conductance (kcrit_fractional_loss).
+      ! DESICA: at night too, and cut to the largest flux with k > kcrit.
+      !
+      ! MDK, 22/10/26
 
 LOGICAL ::                                                                     &
   l_som_gravity = .FALSE.

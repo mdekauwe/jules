@@ -1484,7 +1484,8 @@ SUBROUTINE leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
                                   veg_index, open_index, e_leaf,               &
                                   root_zone_psi, kmax, kcrit,                  &
                                   leaf_psi, leaf_k,                            &
-                                  kcap_frac, leaf_k_intact, stem_psi )
+                                  kcap_frac, leaf_k_intact, stem_psi,          &
+                                  l_exact )
 
 ! Xylem impairment (memory model, pft_xylem_impairment_model = 3) with
 ! segments: with kcap_frac present, the stem and leaf segments (which use
@@ -1533,6 +1534,15 @@ REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
       ! Whole-plant conductance of the intact segments at leaf_psi.
   stem_psi(n_e_leaf, open_pnts)
       ! Water potential at the outlet of the stem segment (Pa).
+LOGICAL, INTENT(IN), OPTIONAL :: l_exact
+      ! .TRUE.: each segment's outlet psi is refined by bisection on the
+      ! supply integral after the Newton steps, so it is exact (to
+      ! rounding) also near the most the segment can carry, where the few
+      ! Newton steps may not converge; a flow above that most is
+      ! infeasible (leaf_psi = som_psi_in_min, leaf_k = 0). Used for the
+      ! cuticular loss, whose psi is used whatever its k.
+      !
+      ! MDK, 22/10/26
 
 INTEGER, PARAMETER :: n_seg = 3, max_nr_iter = 4
 
@@ -1560,9 +1570,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
   kmx, kcr, bs, cs, fr, psi_cap, a_cap
       ! Segment kmax, kcrit, Weibull b (Pa) and c; cap fraction, the psi
       ! where the intact curve meets the cap and the intact integral there.
-LOGICAL :: l_cap, l_impair
+LOGICAL :: l_cap, l_impair, l_exact_on
 
 l_impair = PRESENT(kcap_frac)
+l_exact_on = .FALSE.
+IF ( PRESENT(l_exact) ) l_exact_on = l_exact
 
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
@@ -1652,6 +1664,11 @@ DO j = 1, open_pnts
       psi_out(:) = MAX(psi_out(:), psi_in(:) - 5.0 * ABS(bs))
       IF ( MAXVAL(ABS(k_cur(:) - k_prev(:))) < 0.1 * kcr ) EXIT
     END DO
+    IF ( l_exact_on ) THEN
+      DO i = 1, n_e_leaf
+        CALL seg_bisect( i )
+      END DO
+    END IF
 
     ! Segment conductances are floored at a tiny fraction of the segment
     ! kmax (not TINY): a collapsed segment has k -> 0 by underflow, and with
@@ -1706,6 +1723,45 @@ CONTAINS
   k(:) = kmx * EXP( -(psi(:)/bs)**cs )
   IF ( l_cap ) k(:) = MIN(k(:), fr * kmx)
   END FUNCTION seg_k
+
+  ! l_exact: the outlet psi of sample i by bisection, seg_a(psi_out) =
+  ! a_in + E (seg_a rises as psi falls), between the inlet and the psi
+  ! where (psi/b)**c = 12 (f = 6e-6: the curve has carried all it can, and
+  ! the series in incomplete_gamma is still converged there; deeper, its
+  ! 40 terms are not enough and seg_a is no longer monotone). A flow above
+  ! that is infeasible.
+  !
+  ! MDK, 22/10/26
+  SUBROUTINE seg_bisect( i )
+  INTEGER, INTENT(IN) :: i
+  INTEGER :: ib
+  REAL(KIND=real_jlslsm) :: lo(1), hi(1), mid(1), a_t, a1(1)
+  a_t   = a_in(i) + e_leaf(i,j)
+  hi(1) = psi_in(i)
+  lo(1) = -ABS(bs) * 12.0**(1.0 / cs)
+  IF ( l_closed(i) ) RETURN
+  IF ( lo(1) >= hi(1) ) THEN
+    l_closed(i) = .TRUE.
+    psi_out(i)  = lo(1)
+    RETURN
+  END IF
+  a1 = seg_a(1, lo)
+  IF ( a1(1) < a_t ) THEN
+    l_closed(i) = .TRUE.
+    psi_out(i)  = lo(1)
+    RETURN
+  END IF
+  DO ib = 1, 60
+    mid(1) = 0.5 * (lo(1) + hi(1))
+    a1 = seg_a(1, mid)
+    IF ( a1(1) < a_t ) THEN
+      hi(1) = mid(1)
+    ELSE
+      lo(1) = mid(1)
+    END IF
+  END DO
+  psi_out(i) = 0.5 * (lo(1) + hi(1))
+  END SUBROUTINE seg_bisect
 
   ! Integral of the segment conductance from psi to 0 (so that the flow
   ! from psi_in to psi_out is seg_a(psi_out) - seg_a(psi_in)).

@@ -147,7 +147,17 @@ USE veg3_field_mod, ONLY: veg_state_type
 USE sugar_mod, ONLY: sugar
 
 
-USE stom_opt_jls_mod, ONLY: stom_opt_mod
+USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_path_psi
+USE cuticular_leak_state_mod, ONLY: cut_psi_leaf, cut_psi_stem,              &
+                                    cut_state_alloc
+USE pftparm, ONLY: cap_stem, kcrit_fractional_loss, conductance_b_seg,        &
+                   conductance_c_seg
+USE xylem_hydraulics_CW_jls_mod, ONLY: som_psi_in_min
+USE model_time_mod, ONLY: is_spinup
+USE jules_vegetation_mod, ONLY: l_som_plant_segments
+USE pftparm, ONLY: pft_xylem_impairment_model
+USE jules_vegetation_mod, ONLY: xylem_impairment_none, SOX_conductance
+USE pftparm, ONLY: pft_conductance_model
 
 USE xylem_impairment_mod, ONLY: update_xylem_impairment
 USE xylem_impairment_memory_mod, ONLY: ximpair_store_npp
@@ -855,7 +865,51 @@ REAL(KIND=real_jlslsm) :: lai_ref_kg(land_pts)
                             ! MDK, 21/10/26
 INTEGER, PARAMETER :: n_cut = 20
                             ! Floor fluxes tried, E_floor * i / n_cut, to
-                            ! find the largest one the xylem can carry.
+                            ! find the largest one the xylem can carry
+                            ! (DESICA).
+LOGICAL :: l_cut_ximpair
+                            ! Cuticular loss under the stomatal
+                            ! optimisation: the leak is applied in full at
+                            ! lit points and the xylem impairment update is
+                            ! made after it, with its water potentials.
+                            !
+                            ! MDK, 22/10/26
+LOGICAL :: lit_cut(land_pts)
+                            ! Lit points (apar > 0), those of the
+                            ! impairment update.
+                            !
+                            ! MDK, 22/10/26
+REAL(KIND=real_jlslsm) :: kmax_ref_cut(land_pts), e_cut1(1, land_pts),       &
+                          psi_cut1(1, land_pts), k_cut1(1, land_pts),          &
+                          psi_stem_cut1(1, land_pts)
+                            ! The leak on the optimiser's path: the intact
+                            ! canopy kmax, the canopy transpiration (mol H2O
+                            ! m-2 s-1) of the points where the leak binds,
+                            ! and their steady-state psi_leaf (Pa),
+                            ! whole-path conductance and psi_stem (Pa).
+REAL(KIND=real_jlslsm) :: r_crit, psi_fl_leaf, psi_fl_stem, c_cut,           &
+                          psi0_leaf, psi0_stem, f_cut, dpsi_cut
+                            ! The conductance left at the critical loss, the
+                            ! floors on psi_leaf and psi_stem there (Pa), the
+                            ! canopy stem capacitance (mol m-2 Pa-1), last
+                            ! step's psi_leaf and psi_stem (Pa), the
+                            ! relaxation factor and the drop in psi with no
+                            ! steady state (Pa).
+LOGICAL :: l_seg_cut
+REAL(KIND=real_jlslsm) :: gc_opt_cut(land_pts), e_lo, e_soil, k_cut_eff
+                            ! The optimiser's gc where the leak binds, the
+                            ! flow the path delivers at last step's psi and
+                            ! the soil's share of the leak (mol H2O m-2 s-1),
+                            ! and the path conductance between last step's
+                            ! psi and the steady state.
+                            ! psi_stem is solved (segments under impairment).
+                            !
+                            ! MDK, 22/10/26
+INTEGER :: n_lk, idx_lk(land_pts)
+                            ! Points where the leak binds, as indices of
+                            ! veg_index.
+                            !
+                            ! MDK, 22/10/26
 REAL(KIND=real_jlslsm) :: e_cut(n_cut, land_pts), psi_cut(n_cut, land_pts),    &
                           k_cut(n_cut, land_pts), el_cut(land_pts)
 LOGICAL :: l_cut(land_pts)
@@ -1037,6 +1091,11 @@ ra_ca_lt(:)   = 0.0
 !-----------------------------------------------------------------------------
 psi_src(:) = psi_root_zone(:)
 psi_stem(:) = psi_root_zone(:)
+! The cuticular loss under the stomatal optimisation moves the xylem
+! impairment update after it (see below).
+!
+! MDK, 22/10/26
+l_cut_ximpair = l_som_cuticular_loss .AND. leaf_flux_mod == leaf_flux_stom_opt
 psi_stem_sun(:) = psi_root_zone(:)
 psi_stem_shd(:) = psi_root_zone(:)
 IF ( l_som_gravity .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
@@ -2902,24 +2961,28 @@ CASE ( 1 )
             open_land_index(m) = veg_index(open_index(m))
           END DO
 
-          CALL update_xylem_impairment(                                          &
-                ! IN
-                  land_pts,                                                      &
-                  open_pts,                                                      &
-                  open_land_index,                                               &
-                  ft,                                                            &
-                  psi_leaf,                                                      &
-                  psi_src,                                                       &
-                  psi_stem,                                                      &
-                ! IN OUT
-                  k_max,                                                         &
-                  psi_leaf_extreme,                                              &
-                  psi_root_extreme,                                              &
-                ! IN (recovery)
-                  lai,                                                           &
-                  canht,                                                         &
-                  anetc                                                          &
-          )
+          ! (With the cuticular loss, the update is made after it, below.
+          ! MDK, 22/10/26)
+          IF ( .NOT. l_cut_ximpair ) THEN
+            CALL update_xylem_impairment(                                        &
+                  ! IN
+                    land_pts,                                                    &
+                    open_pts,                                                    &
+                    open_land_index,                                             &
+                    ft,                                                          &
+                    psi_leaf,                                                    &
+                    psi_src,                                                     &
+                    psi_stem,                                                    &
+                  ! IN OUT
+                    k_max,                                                       &
+                    psi_leaf_extreme,                                            &
+                    psi_root_extreme,                                            &
+                  ! IN (recovery)
+                    lai,                                                         &
+                    canht,                                                       &
+                    anetc                                                        &
+            )
+          END IF
 
         END IF ! k == iter
 
@@ -3352,14 +3415,18 @@ CASE ( 7 )
       open_land_index(open_pts) = l
     END IF
   END DO
-  CALL update_xylem_impairment(                                                &
-        ! IN
-          land_pts, open_pts, open_land_index, ft, psi_leaf, psi_src,          &
-          psi_stem,                                                            &
-        ! IN OUT
-          k_max, psi_leaf_extreme, psi_root_extreme,                                  &
-        ! IN (recovery)
-          lai, canht, anetc )
+  ! (With the cuticular loss, the update is made after it, below.
+  ! MDK, 22/10/26)
+  IF ( .NOT. l_cut_ximpair ) THEN
+    CALL update_xylem_impairment(                                              &
+          ! IN
+            land_pts, open_pts, open_land_index, ft, psi_leaf, psi_src,        &
+            psi_stem,                                                          &
+          ! IN OUT
+            k_max, psi_leaf_extreme, psi_root_extreme,                         &
+          ! IN (recovery)
+            lai, canht, anetc )
+  END IF
 
 CASE DEFAULT
   errcode = 101  !  a hard error
@@ -3393,11 +3460,16 @@ END IF
 ! canopy conductance is not allowed below gcuticular * LAI. This is applied after
 ! the optimisation, so it is not traded against carbon (A is unchanged), but
 ! it is charged to the plant water: the soil-supply cap still bounds it and
-! psi_leaf / leaf_k are re-solved for the total flux. Applies at night too
-! (closed points), as cuticular loss is not stomatal.
+! psi_leaf / leaf_k are re-solved for the total flux.
+!
+! DESICA (here): applies at night too (closed points), and the flux is cut
+! to the largest the xylem can carry with k > kcrit.
+!
+! The stomatal optimisation: see the next block.
+!
+! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-IF ( l_som_cuticular_loss .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
-                                   stomata_model == stomata_desica ) ) THEN
+IF ( l_som_cuticular_loss .AND. stomata_model == stomata_desica ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     ! mmol m-2 leaf s-1 -> m s-1, times LAI for the canopy.
@@ -3457,6 +3529,178 @@ IF ( l_som_cuticular_loss .AND. ( leaf_flux_mod == leaf_flux_stom_opt .OR.  &
       END IF
     END DO
   END IF
+END IF
+
+!-----------------------------------------------------------------------------
+! Cuticular loss under the stomatal optimisation (l_som_cuticular_loss).
+! Where the optimiser has (nearly) shut the stomata, the canopy conductance
+! is raised to gcuticular * LAI. There is no carbon trade at that point, so
+! A is unchanged; the leak is a loss of water from the soil, which goes into
+! the transpiration (and so ET and LE) through gc, bounded only by the
+! soil-supply cap (no water is taken that is not there). Unlike DESICA:
+! - only at lit points (apar > 0), the points of the impairment update, as
+!   no stomatal conductance is computed at night;
+! - the leak is not cut back when the plant nears kcrit, so in a drought
+!   it keeps drying the plant;
+! - psi_leaf (and psi_stem with segments) are solved for the leak on the
+!   optimiser's own path (som_path_psi: segments under the impairment caps,
+!   the impaired curve, or the PFT curve), and the impairment update is
+!   made after this block (below), so the leak drives the loss of
+!   conductance.
+! psi is not allowed below the psi of 99 % loss of conductance on the PFT
+! curve, so where the path cannot carry the leak (no steady state without
+! storage) psi does not fall to the solver's floor and the memory does not
+! go past 99 %. The transpiration is uncoupled at tstar (dqc), as the
+! canopy flux in sf_evap; for a conductance this small the canopy air
+! resistance makes ~1 % difference.
+!
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+IF ( l_cut_ximpair ) THEN
+  CALL cut_state_alloc( land_pts )
+  lit_cut(:) = .FALSE.
+  DO m = 1,open_pts
+    lit_cut(open_land_index(m)) = .TRUE.
+  END DO
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    ! mmol m-2 leaf s-1 -> m s-1, times LAI for the canopy.
+    gl_cut(l) = gcuticular(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
+    share_sup(l) = 1.0
+  END DO
+  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
+                           share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
+  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
+  n_lk = 0
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( .NOT. lit_cut(l) .OR. gl_cut(l) <= 0.0 .OR.                           &
+         gc(l) >= gl_cut_eff(l) ) CYCLE
+    gc_opt_cut(l) = gc(l)
+    gc(l)     = gl_cut_eff(l)
+    gc_som(l) = gc(l)
+    ! Canopy transpiration (mol H2O m-2 s-1), as el elsewhere.
+    el(l)     = MAX(dqc(l), 0.0) * pstar(l) / repsilon * gc(l)                 &
+                / (rmol * tstar(l))
+    n_lk = n_lk + 1
+    idx_lk(n_lk) = m
+    e_cut1(1,n_lk) = el(l)
+  END DO
+  IF ( n_lk > 0 ) THEN
+    ! The canopy path of the optimisation (cf. kmax_bigleaf).
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      kmax_ref_cut(l) = kmax_pft(ft) * lai(l)
+      kmax_cut(l)     = k_max(l) * lai(l)
+      kcrit_cut(l)    = kcrit(ft) * lai(l)
+      IF ( kplant_model == kplant_model_ground ) THEN
+        kmax_ref_cut(l) = kmax_ref_cut(l) * kplant_scale(l)
+        kmax_cut(l)     = kmax_cut(l)     * kplant_scale(l)
+        kcrit_cut(l)    = kcrit_cut(l)    * kplant_scale(l)
+      END IF
+    END DO
+    psi_stem_cut1(:,:) = 0.0
+    CALL som_path_psi( ft, 1, land_pts, n_lk, veg_index, idx_lk,               &
+                       e_cut1, psi_src, kmax_ref_cut, kmax_cut, kcrit_cut,     &
+                       conductance_b, conductance_c, psi_leaf_extreme,         &
+                       psi_root_extreme,                                       &
+                       .NOT. is_spinup .AND.                                   &
+                       pft_xylem_impairment_model(ft) /= xylem_impairment_none,&
+                     ! OUT
+                       psi_cut1, k_cut1, psi_stem = psi_stem_cut1,         &
+                       l_exact = .TRUE. )
+    ! Floors on psi: the psi of the critical loss of conductance
+    ! (kcrit_fractional_loss), where the memory stops, on the curve of the
+    ! leaf and stem segments, or the PFT curve without segments.
+    r_crit = 1.0 - kcrit_fractional_loss(ft)
+    l_seg_cut = l_som_plant_segments .AND. .NOT. is_spinup .AND.               &
+                pft_xylem_impairment_model(ft) /= xylem_impairment_none
+    IF ( l_seg_cut ) THEN
+      psi_fl_leaf = -ABS(conductance_b_seg(ft,3))                              &
+                    * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,3))
+      psi_fl_stem = -ABS(conductance_b_seg(ft,2))                              &
+                    * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,2))
+    ELSE IF ( pft_conductance_model(ft) == SOX_conductance ) THEN
+      psi_fl_leaf = -ABS(conductance_b_pft(ft))                                &
+                    * (1.0 / r_crit - 1.0)**(1.0 / conductance_c_pft(ft))
+      psi_fl_stem = psi_fl_leaf
+    ELSE
+      psi_fl_leaf = -ABS(conductance_b_pft(ft))                                &
+                    * (-LOG(r_crit))**(1.0 / conductance_c_pft(ft))
+      psi_fl_stem = psi_fl_leaf
+    END IF
+    ! The plant has one water store, the stem capacitance C = cap_stem *
+    ! LAI. The leaf loses the leak E to the air; the soil gives what the
+    ! path delivers with the plant at psi, E_in(psi) (0 once the plant is
+    ! wetter than the source); the store pays the difference:
+    !   C dpsi/dt = E_in(psi) - E.
+    ! With a steady state psi_ss (E_in(psi_ss) = E), psi relaxes towards it,
+    !   psi = psi_ss + (psi_0 - psi_ss) exp(-dt k / C),
+    ! with k = (E - E_in(psi_0)) / (psi_0 - psi_ss), the path's conductance
+    ! between the two; without one (E above the most the path can carry),
+    ! psi falls by (E - E_in(psi_0)) dt / C. psi_0 is last step's psi (the
+    ! optimiser's this step if unset). The soil is charged E less the
+    ! store's share, C (psi_0 - psi) / dt, and gc is cut to that: no water
+    ! is taken through a path that cannot carry it. (The store's own water
+    ! is not in the soil budget: <= C * 3 MPa, a fraction of a mm.)
+    DO j = 1,n_lk
+      l = veg_index(idx_lk(j))
+      c_cut = MAX(cap_stem(ft) * lai(l), TINY(1.0_real_jlslsm))
+      psi0_leaf = cut_psi_leaf(l,ft)
+      psi0_stem = cut_psi_stem(l,ft)
+      IF ( psi0_leaf > 0.0 ) psi0_leaf = psi_leaf(l)
+      IF ( psi0_stem > 0.0 ) psi0_stem = psi_stem(l)
+      CALL cut_e_in( idx_lk(j), el(l), psi0_leaf, e_lo )
+      IF ( k_cut1(1,j) > 0.0 .AND. psi_cut1(1,j) > som_psi_in_min ) THEN
+        IF ( ABS(psi0_leaf - psi_cut1(1,j)) > 1.0 ) THEN
+          k_cut_eff = MAX((el(l) - e_lo) / (psi0_leaf - psi_cut1(1,j)), 0.0)
+        ELSE
+          k_cut_eff = k_cut1(1,j)
+        END IF
+        f_cut = EXP(-timestep * k_cut_eff / c_cut)
+        psi_leaf(l) = psi_cut1(1,j) + (psi0_leaf - psi_cut1(1,j)) * f_cut
+        IF ( l_seg_cut ) psi_stem(l) = psi_stem_cut1(1,j)                      &
+                         + (psi0_stem - psi_stem_cut1(1,j)) * f_cut
+      ELSE
+        dpsi_cut = (el(l) - e_lo) * timestep / c_cut
+        psi_leaf(l) = psi0_leaf - dpsi_cut
+        IF ( l_seg_cut ) psi_stem(l) = psi0_stem - dpsi_cut
+      END IF
+      psi_leaf(l) = MAX(psi_leaf(l), psi_fl_leaf)
+      IF ( l_seg_cut ) psi_stem(l) = MAX(psi_stem(l), psi_fl_stem)
+      ! The soil's share, never less than the optimiser's own (feasible)
+      ! flux.
+      e_soil = el(l) - c_cut * MAX(psi0_leaf - psi_leaf(l), 0.0) / timestep
+      e_soil = MIN(MAX(e_soil, 0.0), el(l))
+      gc(l)     = MAX(gc(l) * e_soil / MAX(el(l), TINY(1.0_real_jlslsm)),     &
+                      gc_opt_cut(l))
+      gc_som(l) = gc(l)
+      el(l)     = MAX(dqc(l), 0.0) * pstar(l) / repsilon * gc(l)               &
+                  / (rmol * tstar(l))
+      ! k_cut1 is canopy scale; leaf_k is per unit leaf area.
+      leaf_k(l) = k_cut1(1,j) / MAX(lai(l), TINY(1.0_real_jlslsm))
+    END DO
+  END IF
+
+  ! Carry the state: where the leak did not bind (or at night), the
+  ! step's own psi.
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    cut_psi_leaf(l,ft) = psi_leaf(l)
+    cut_psi_stem(l,ft) = psi_stem(l)
+  END DO
+
+  ! Xylem impairment update, once per timestep, in place of those in the
+  ! big-leaf and two-leaf paths: the same lit points, with the water
+  ! potentials of the total (stomatal plus cuticular) flux.
+  CALL update_xylem_impairment(                                                &
+        ! IN
+          land_pts, open_pts, open_land_index, ft, psi_leaf, psi_src,          &
+          psi_stem,                                                            &
+        ! IN OUT
+          k_max, psi_leaf_extreme, psi_root_extreme,                           &
+        ! IN (recovery)
+          lai, canht, anetc )
 END IF
 
 !-----------------------------------------------------------------------------
@@ -3818,6 +4062,72 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
 
 CONTAINS
+
+!-----------------------------------------------------------------------------
+! Cuticular loss under the stomatal optimisation: the flow e_in (mol H2O m-2
+! s-1) the path delivers to the leaf at psi_t (Pa), for veg point m: the E
+! with psi_leaf(E) = psi_t on the optimiser's path (som_path_psi, exact),
+! by bracketing from e_lk and bisection. 0 if psi_t is at or above the
+! source; at most the most the path can carry.
+!
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE cut_e_in( m_v, e_lk, psi_t, e_in )
+
+INTEGER, INTENT(IN) :: m_v
+REAL(KIND=real_jlslsm), INTENT(IN) :: e_lk, psi_t
+REAL(KIND=real_jlslsm), INTENT(OUT) :: e_in
+
+INTEGER :: it
+REAL(KIND=real_jlslsm) :: lo, hi
+
+e_in = 0.0
+IF ( psi_t >= psi_src(veg_index(m_v)) ) RETURN
+lo = 0.0
+hi = MAX(e_lk, TINY(1.0_real_jlslsm))
+DO it = 1,30
+  IF ( .NOT. cut_above(m_v, hi, psi_t) ) EXIT
+  lo = hi
+  hi = 2.0 * hi
+END DO
+DO it = 1,40
+  IF ( cut_above(m_v, 0.5 * (lo + hi), psi_t) ) THEN
+    lo = 0.5 * (lo + hi)
+  ELSE
+    hi = 0.5 * (lo + hi)
+  END IF
+END DO
+e_in = lo
+
+END SUBROUTINE cut_e_in
+
+!-----------------------------------------------------------------------------
+! cut_e_in: .TRUE. if the optimiser's path carries e (mol H2O m-2 s-1) at
+! veg point m_v with the leaf above psi_t (Pa).
+!
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+LOGICAL FUNCTION cut_above( m_v, e, psi_t )
+
+INTEGER, INTENT(IN) :: m_v
+REAL(KIND=real_jlslsm), INTENT(IN) :: e, psi_t
+
+INTEGER :: idx1(land_pts)
+REAL(KIND=real_jlslsm) :: e1(1,1), p1(1,1), k1(1,1)
+
+idx1(:) = 0
+idx1(1) = m_v
+e1(1,1) = e
+CALL som_path_psi( ft, 1, land_pts, 1, veg_index, idx1, e1, psi_src,           &
+                   kmax_ref_cut, kmax_cut, kcrit_cut, conductance_b,           &
+                   conductance_c, psi_leaf_extreme, psi_root_extreme,          &
+                   .NOT. is_spinup .AND.                                       &
+                   pft_xylem_impairment_model(ft) /= xylem_impairment_none,    &
+                   p1, k1, l_exact = .TRUE. )
+cut_above = k1(1,1) > 0.0 .AND. p1(1,1) > som_psi_in_min .AND.                 &
+            p1(1,1) > psi_t
+
+END FUNCTION cut_above
 
 !-----------------------------------------------------------------------------
 ! Multilayer canopy, one leaf class (sunlit or shaded) of the current layer:
