@@ -149,6 +149,7 @@ USE sugar_mod, ONLY: sugar
 
 USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_path_psi
 USE cuticular_leak_state_mod, ONLY: cut_psi_leaf, cut_psi_stem,              &
+                                    cut_q_store, cut_c_store, cut_m_h2o,       &
                                     cut_state_alloc
 USE pftparm, ONLY: cap_stem, kcrit_fractional_loss, conductance_b_seg,        &
                    conductance_c_seg
@@ -908,6 +909,16 @@ REAL(KIND=real_jlslsm) :: gc_opt_cut(land_pts), e_lo, e_soil, k_cut_eff
                             ! the soil's share of the leak (mol H2O m-2 s-1),
                             ! and the path conductance between last step's
                             ! psi and the steady state.
+REAL(KIND=real_jlslsm) :: q_st, e_fl, psi_tgt, r_st
+LOGICAL :: lk_cut(land_pts)
+                            ! The store's flow out (mol H2O m-2 s-1; < 0 it
+                            ! refills), the flow the path delivers at the
+                            ! floor, the step's psi
+                            ! (Pa), the store's remaining departure from it
+                            ! (fraction), and the points where the leak
+                            ! binds.
+                            !
+                            ! MDK, 22/10/26
                             ! psi_stem is solved (segments under impairment).
                             !
                             ! MDK, 22/10/26
@@ -3564,6 +3575,9 @@ END IF
 !-----------------------------------------------------------------------------
 IF ( l_cut_ximpair ) THEN
   CALL cut_state_alloc( land_pts )
+  cut_q_store(:,ft) = 0.0
+  cut_c_store(:,ft) = 0.0
+  lk_cut(:)  = .FALSE.
   lit_cut(:) = .FALSE.
   DO m = 1,open_pts
     lit_cut(open_land_index(m)) = .TRUE.
@@ -3611,20 +3625,41 @@ IF ( l_cut_ximpair ) THEN
     n_lk = n_lk + 1
     idx_lk(n_lk) = m
     e_cut1(1,n_lk) = el(l)
+    lk_cut(l) = .TRUE.
   END DO
+  ! The canopy path of the optimisation (cf. kmax_bigleaf).
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    kmax_ref_cut(l) = kmax_pft(ft) * lai(l)
+    kmax_cut(l)     = k_max(l) * lai(l)
+    kcrit_cut(l)    = kcrit(ft) * lai(l)
+    IF ( kplant_model == kplant_model_ground ) THEN
+      kmax_ref_cut(l) = kmax_ref_cut(l) * kplant_scale(l)
+      kmax_cut(l)     = kmax_cut(l)     * kplant_scale(l)
+      kcrit_cut(l)    = kcrit_cut(l)    * kplant_scale(l)
+    END IF
+  END DO
+  ! Floors on psi: the psi of the critical loss of conductance
+  ! (kcrit_fractional_loss), where the memory stops, on the curve of the
+  ! leaf and stem segments, or the PFT curve without segments.
+  r_crit = 1.0 - kcrit_fractional_loss(ft)
+  l_seg_cut = l_som_plant_segments .AND. .NOT. is_spinup .AND.                 &
+              pft_xylem_impairment_model(ft) /= xylem_impairment_none
+  IF ( l_seg_cut ) THEN
+    psi_fl_leaf = -ABS(conductance_b_seg(ft,3))                                &
+                  * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,3))
+    psi_fl_stem = -ABS(conductance_b_seg(ft,2))                                &
+                  * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,2))
+  ELSE IF ( pft_conductance_model(ft) == SOX_conductance ) THEN
+    psi_fl_leaf = -ABS(conductance_b_pft(ft))                                  &
+                  * (1.0 / r_crit - 1.0)**(1.0 / conductance_c_pft(ft))
+    psi_fl_stem = psi_fl_leaf
+  ELSE
+    psi_fl_leaf = -ABS(conductance_b_pft(ft))                                  &
+                  * (-LOG(r_crit))**(1.0 / conductance_c_pft(ft))
+    psi_fl_stem = psi_fl_leaf
+  END IF
   IF ( n_lk > 0 ) THEN
-    ! The canopy path of the optimisation (cf. kmax_bigleaf).
-    DO m = 1,veg_pts
-      l = veg_index(m)
-      kmax_ref_cut(l) = kmax_pft(ft) * lai(l)
-      kmax_cut(l)     = k_max(l) * lai(l)
-      kcrit_cut(l)    = kcrit(ft) * lai(l)
-      IF ( kplant_model == kplant_model_ground ) THEN
-        kmax_ref_cut(l) = kmax_ref_cut(l) * kplant_scale(l)
-        kmax_cut(l)     = kmax_cut(l)     * kplant_scale(l)
-        kcrit_cut(l)    = kcrit_cut(l)    * kplant_scale(l)
-      END IF
-    END DO
     psi_stem_cut1(:,:) = 0.0
     CALL som_path_psi( ft, 1, land_pts, n_lk, veg_index, idx_lk,               &
                        e_cut1, psi_src, kmax_ref_cut, kmax_cut, kcrit_cut,     &
@@ -3635,26 +3670,6 @@ IF ( l_cut_ximpair ) THEN
                      ! OUT
                        psi_cut1, k_cut1, psi_stem = psi_stem_cut1,         &
                        l_exact = .TRUE. )
-    ! Floors on psi: the psi of the critical loss of conductance
-    ! (kcrit_fractional_loss), where the memory stops, on the curve of the
-    ! leaf and stem segments, or the PFT curve without segments.
-    r_crit = 1.0 - kcrit_fractional_loss(ft)
-    l_seg_cut = l_som_plant_segments .AND. .NOT. is_spinup .AND.               &
-                pft_xylem_impairment_model(ft) /= xylem_impairment_none
-    IF ( l_seg_cut ) THEN
-      psi_fl_leaf = -ABS(conductance_b_seg(ft,3))                              &
-                    * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,3))
-      psi_fl_stem = -ABS(conductance_b_seg(ft,2))                              &
-                    * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,2))
-    ELSE IF ( pft_conductance_model(ft) == SOX_conductance ) THEN
-      psi_fl_leaf = -ABS(conductance_b_pft(ft))                                &
-                    * (1.0 / r_crit - 1.0)**(1.0 / conductance_c_pft(ft))
-      psi_fl_stem = psi_fl_leaf
-    ELSE
-      psi_fl_leaf = -ABS(conductance_b_pft(ft))                                &
-                    * (-LOG(r_crit))**(1.0 / conductance_c_pft(ft))
-      psi_fl_stem = psi_fl_leaf
-    END IF
     ! The plant has one water store, the stem capacitance C = cap_stem *
     ! LAI. The leaf loses the leak E to the air; the soil gives what the
     ! path delivers with the plant at psi, E_in(psi) (0 once the plant is
@@ -3665,12 +3680,14 @@ IF ( l_cut_ximpair ) THEN
     ! with k = (E - E_in(psi_0)) / (psi_0 - psi_ss), the path's conductance
     ! between the two; without one (E above the most the path can carry),
     ! psi falls by (E - E_in(psi_0)) dt / C. psi_0 is last step's psi (the
-    ! optimiser's this step if unset). The soil is charged E less the
-    ! store's share, C (psi_0 - psi) / dt, and gc is cut to that: no water
-    ! is taken through a path that cannot carry it. (The store's water is
-    ! not in the water budget: the leak it pays is not in ET, and its
-    ! refill, when the state resets, is not charged to the soil; about 2 mm
-    ! over Jul-Aug 2022 at FR-Pue, gcut 3.)
+    ! optimiser's this step if unset). The store gives C (psi_0 - psi) / dt
+    ! (cut_q_store) and the soil the rest; at the floor the soil gives no
+    ! more than the path carries there, and the leak (gc) is cut to what
+    ! the soil and the store give: no water is taken through a path that
+    ! cannot carry it. sf_evap takes the transpiration less the store's
+    ! share from the soil; the store refills on later steps (below).
+    !
+    ! MDK, 22/10/26
     DO j = 1,n_lk
       l = veg_index(idx_lk(j))
       c_cut = MAX(cap_stem(ft) * lai(l), TINY(1.0_real_jlslsm))
@@ -3696,26 +3713,67 @@ IF ( l_cut_ximpair ) THEN
       END IF
       psi_leaf(l) = MAX(psi_leaf(l), psi_fl_leaf)
       IF ( l_seg_cut ) psi_stem(l) = MAX(psi_stem(l), psi_fl_stem)
-      ! The soil's share, never less than the optimiser's own (feasible)
-      ! flux.
-      e_soil = el(l) - c_cut * MAX(psi0_leaf - psi_leaf(l), 0.0) / timestep
-      e_soil = MIN(MAX(e_soil, 0.0), el(l))
-      gc(l)     = MAX(gc(l) * e_soil / MAX(el(l), TINY(1.0_real_jlslsm)),     &
-                      gc_opt_cut(l))
+      ! The store's and the soil's shares; the leak is never less than the
+      ! optimiser's own (feasible) flux.
+      q_st   = c_cut * (psi0_leaf - psi_leaf(l)) / timestep
+      e_soil = el(l) - q_st
+      IF ( psi_leaf(l) <= psi_fl_leaf ) THEN
+        CALL cut_e_in( idx_lk(j), el(l), psi_leaf(l), e_fl )
+        e_soil = MIN(e_soil, e_fl)
+      END IF
+      e_soil = MAX(e_soil, 0.0)
+      gc(l)     = MAX(gc(l) * MIN(MAX(e_soil + q_st, 0.0), el(l))              &
+                      / MAX(el(l), TINY(1.0_real_jlslsm)), gc_opt_cut(l))
       gc_som(l) = gc(l)
       el(l)     = MAX(dqc(l), 0.0) * pstar(l) / repsilon * gc(l)               &
                   / (rmol * tstar(l))
+      cut_q_store(l,ft) = q_st * cut_m_h2o
       ! k_cut1 is canopy scale; leaf_k is per unit leaf area.
       leaf_k(l) = k_cut1(1,j) / MAX(lai(l), TINY(1.0_real_jlslsm))
     END DO
   END IF
 
-  ! Carry the state: where the leak did not bind (or at night), the
-  ! step's own psi.
+  ! Carry the state. Where the leak did not bind (other lit steps and the
+  ! night), the store relaxes towards the step's psi, psi_t, through the
+  ! path:
+  !   psi = psi_t + (psi_0 - psi_t) exp(-dt k / C),
+  ! with k the mean of the canopy conductance at psi_0 and psi_t on the PFT
+  ! curve (kmax under the impairment, floored at the critical loss): a
+  ! cheap stand-in for the exact path solve, which at every step made the
+  ! run ~25x slower. The store moves only a few mm, so the rate matters
+  ! little. It goes on refilling from the soil when it is drier than psi_t (at the rate the
+  ! path delivers) and giving up water to the transpiration when wetter
+  ! (at most the transpiration: no flow back to the soil). The step's psi
+  ! (and E) are those of the optimiser: the store changes only where the
+  ! soil's water goes, not the fluxes.
+  !
+  ! MDK, 22/10/26
   DO m = 1,veg_pts
     l = veg_index(m)
+    psi_tgt   = psi_leaf(l)
+    psi0_leaf = cut_psi_leaf(l,ft)
+    psi0_stem = cut_psi_stem(l,ft)
     cut_psi_leaf(l,ft) = psi_leaf(l)
     cut_psi_stem(l,ft) = psi_stem(l)
+    c_cut = MAX(cap_stem(ft) * lai(l), TINY(1.0_real_jlslsm))
+    cut_c_store(l,ft) = c_cut
+    IF ( lk_cut(l) .OR. psi0_leaf > 0.0 ) CYCLE
+    r_st  = 0.0
+    IF ( ABS(psi0_leaf - psi_tgt) > 1.0 ) THEN
+      k_cut_eff = 0.5 * ( cut_k_curve(kmax_cut(l), psi0_leaf)                  &
+                          + cut_k_curve(kmax_cut(l), psi_tgt) )
+      r_st = EXP(-timestep * k_cut_eff / c_cut)
+      q_st = c_cut * (psi0_leaf - psi_tgt) * (1.0 - r_st) / timestep
+      IF ( q_st > MAX(el(l), 0.0) ) THEN
+        q_st = MAX(el(l), 0.0)
+        r_st = 1.0 - q_st * timestep / (c_cut * (psi0_leaf - psi_tgt))
+      END IF
+      cut_psi_leaf(l,ft) = psi_tgt + (psi0_leaf - psi_tgt) * r_st
+      IF ( l_seg_cut .AND. psi0_stem <= 0.0 .AND. psi_stem(l) < 0.0 )          &
+        cut_psi_stem(l,ft) = psi_stem(l) + (psi0_stem - psi_stem(l)) * r_st
+    END IF
+    cut_q_store(l,ft) = c_cut * (psi0_leaf - cut_psi_leaf(l,ft)) / timestep    &
+                        * cut_m_h2o
   END DO
 
   ! Xylem impairment update, once per timestep, in place of those in the
@@ -4128,6 +4186,29 @@ END DO
 e_in = lo
 
 END SUBROUTINE cut_e_in
+
+!-----------------------------------------------------------------------------
+! Cuticular loss store: the canopy conductance (mol m-2 s-1 Pa-1) at psi
+! (Pa) on the PFT curve, maximum kmx, with psi floored at the critical
+! loss (psi_fl_leaf).
+!
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+REAL(KIND=real_jlslsm) FUNCTION cut_k_curve( kmx, psi )
+
+REAL(KIND=real_jlslsm), INTENT(IN) :: kmx, psi
+
+REAL(KIND=real_jlslsm) :: x
+
+x = (MIN(MAX(psi, psi_fl_leaf), 0.0) / (-ABS(conductance_b_pft(ft))))          &
+    ** conductance_c_pft(ft)
+IF ( pft_conductance_model(ft) == SOX_conductance ) THEN
+  cut_k_curve = kmx / (1.0 + x)
+ELSE
+  cut_k_curve = kmx * EXP(-x)
+END IF
+
+END FUNCTION cut_k_curve
 
 !-----------------------------------------------------------------------------
 ! cut_e_in: .TRUE. if the optimiser's path carries e (mol H2O m-2 s-1) at

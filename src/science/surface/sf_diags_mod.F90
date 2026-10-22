@@ -252,7 +252,9 @@ USE jules_surface_types_mod, ONLY: npft
 USE model_domain_mod, ONLY: model_type, mt_single_column, mt_lfric
 USE nlsizes_namelist_mod, ONLY: ntiles
 USE stash_array_mod, ONLY: sf
-USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
+USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica,               &
+                                l_som_cuticular_loss, leaf_flux_mod,           &
+                                leaf_flux_stom_opt
 USE jules_hydrology_mod, ONLY: l_soil_evap_or
 USE yomhook, ONLY: lhook, dr_hook
 USE parkind1, ONLY: jprb, jpim
@@ -526,9 +528,14 @@ ELSE
 END IF
 ! The stomatal share of the evaporation is also needed by DESICA, which
 ! takes the root uptake rather than the transpiration from the soil, and by
-! the Or soil-evaporation cap in sf_evap, which acts on the soil part alone.
+! the Or soil-evaporation cap in sf_evap, which acts on the soil part alone,
+! and by the plant water store of the cuticular loss under the stomatal
+! optimisation.
+!
+! MDK, 22/10/26
 IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR.                        &
-    stomata_model == stomata_desica .OR. l_soil_evap_or) THEN
+    stomata_model == stomata_desica .OR. l_soil_evap_or .OR.                   &
+    ( l_som_cuticular_loss .AND. leaf_flux_mod == leaf_flux_stom_opt )) THEN
   ALLOCATE(sf_diag%resfs_stom(land_points,ntiles))
 ELSE
   ALLOCATE(sf_diag%resfs_stom(1,1))
