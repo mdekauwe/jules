@@ -30,6 +30,9 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_grow_acc, &
                                        ximpair_fmin_acc
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state   ! MDK, 22/10/26
+USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_w_store,                 &
+                                    cut_psi_stem, cut_m_h2o,                   &
+                                    cut_psi_unset   ! MDK, 22/10/26
 USE phen_budburst_mod, ONLY: phen_gdd, phen_bb_day, phen_dormant
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,   &
                            nsc_repair_pft, nsc_starv_pft, nsc_turg_acc,   &
@@ -3977,6 +3980,41 @@ CASE ( 'cpl_gbw_shd' )
 CASE ( 'cpl_ra_ca' )
   workspace_pft(:,:) = -1.0
   IF ( ALLOCATED(cpl_state) ) workspace_pft(:,:) = cpl_state(:,:,5)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! Plant water store of the cuticular loss (l_som_cuticular_loss): its flow
+! out this timestep (kg m-2 s-1; > 0 it gives water to the transpiration,
+! < 0 it refills from the soil), and its water relative to the full store
+! at psi = 0 (kg m-2, <= 0). 0 where not set.
+!
+! MDK, 22/10/26
+CASE ( 'cut_q_store_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(cut_q_store) ) workspace_pft(:,:) = cut_q_store(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! The store's state as dumped: water (mol m-2) and stem psi (Pa); > 0 not
+! yet set.
+!
+! MDK, 22/10/26
+CASE ( 'cut_w_store' )
+  workspace_pft(:,:) = cut_psi_unset
+  IF ( ALLOCATED(cut_w_store) ) workspace_pft(:,:) = cut_w_store(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'cut_psi_stem' )
+  workspace_pft(:,:) = cut_psi_unset
+  IF ( ALLOCATED(cut_psi_stem) ) workspace_pft(:,:) = cut_psi_stem(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'cut_w_store_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(cut_w_store) )                                                &
+    workspace_pft(:,:) = MIN(cut_w_store(:,:), 0.0) * cut_m_h2o
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

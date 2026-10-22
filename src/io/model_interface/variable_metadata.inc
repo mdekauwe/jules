@@ -10390,4 +10390,48 @@ DATA metadata(800) / var_metadata(                                             &
 ! Units
     "1"                                                                         &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for the plant water store of the cuticular loss
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(801) / var_metadata(                                             &
+! String identifier
+    'cut_q_store_pft',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Cuticular-loss store flow out (> 0 to transpiration, < 0 refill)",        &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
+DATA metadata(802) / var_metadata(                                             &
+! String identifier
+    'cut_w_store_pft',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Cuticular-loss store water relative to full (psi = 0)",                   &
+! Units
+    "kg m-2"                                                                   &
+  ) /
+DATA metadata(803) / var_metadata(                                             &
+! String identifier
+    'cut_w_store',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Cuticular-loss store water, C psi (> 0 = not set; dump)",                 &
+! Units
+    "mol m-2"                                                                  &
+  ) /
+DATA metadata(804) / var_metadata(                                             &
+! String identifier
+    'cut_psi_stem',                                                            &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Cuticular-loss store stem water potential (> 0 = not set; dump)",         &
+! Units
+    "Pa"                                                                       &
+  ) /
 #endif

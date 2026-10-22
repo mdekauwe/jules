@@ -210,7 +210,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,le_surft_old(land_pts,nsurft)                                                  &
 !                            ! Surf latent heat flux before adjustment.
 ,t_stom(land_pts,nsurft)                                                       &
-!                            ! DESICA: stomatal transpiration (kg/m2/s).
+!                            ! DESICA and the cuticular-loss store:
+!                            ! stomatal transpiration (kg/m2/s).
+!                            !
+!                            ! MDK, 22/10/26
 ,esoil_ext(land_pts,nsurft)                                                    &
 !                            ! Flux taken from soil moisture (kg/m2/s):
 !                            !     esoil_surft, except that for DESICA the
@@ -798,7 +801,12 @@ DO l = 1,land_pts
 
   END IF ! l_irrig_dmd
 END DO
-!$OMP END DO NOWAIT
+! No NOWAIT: the SINGLE block below reads esoil_surft, esoil_soilt and
+! des_or at every point, so all threads must have finished the
+! soil-supply cap above.
+!
+! MDK, 22/10/26
+!$OMP END DO
 
 !-----------------------------------------------------------------------
 ! DESICA: advance the plant water state with the actual transpiration and

@@ -16,6 +16,8 @@ SUBROUTINE write_dump()
 
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
+USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,           &
+                                    cut_psi_stem   ! MDK, 22/10/26
 USE jules_fields_mod, ONLY: crop_vars, psparms, ainfo, trif_vars, progs,       &
                             fluxes, lake_vars, rivers, water_resources
 
@@ -468,6 +470,20 @@ DO i = 1,nvars
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(nsc_t_run(:,n), global_data_2d(:,n))
+    END DO
+
+  ! Cuticular-loss store (cuticular_leak_state_mod; > 0 = not yet set).
+  !
+  ! MDK, 22/10/26
+  CASE ( 'cut_w_store' )
+    CALL cut_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(cut_w_store(:,n), global_data_2d(:,n))
+    END DO
+  CASE ( 'cut_psi_stem' )
+    CALL cut_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(cut_psi_stem(:,n), global_data_2d(:,n))
     END DO
 
   ! sf_stom state (sf_stom_state_mod; -1 = not yet set). MDK, 22/10/26
@@ -1287,7 +1303,8 @@ DO i = 1,nvars
            'nsc_turg_acc', 'nsc_t_run',                       &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
            'phen_fbleaf', 'nsc_regrow_acc',                                  &
-           'phen_gdd', 'phen_bb_day', 'phen_dormant' )
+           'phen_gdd', 'phen_bb_day', 'phen_dormant',                         &
+           'cut_w_store', 'cut_psi_stem' )
       CALL file_write_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 
     CASE ( 'cropdvi', 'croprootc', 'cropharvc', 'cropreservec',                &

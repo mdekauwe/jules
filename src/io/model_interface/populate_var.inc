@@ -24,6 +24,8 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      
     ximpair_lock_new
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
+USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,           &
+                                    cut_psi_stem   ! MDK, 22/10/26
 USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,           &
                              phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
@@ -2149,6 +2151,27 @@ CASE ( 'nsc_turg_acc' )
     CALL cube_get_data(cube_land, nsc_turg_acc(:,:))
   ELSE
     nsc_turg_acc(:,:) = const_val
+  END IF
+
+! Cuticular-loss store (cuticular_leak_state_mod; > 0 = not yet set).
+!
+! MDK, 22/10/26
+CASE ( 'cut_w_store' )
+  CALL cut_state_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, cut_w_store(:,:))
+  ELSE
+    cut_w_store(:,:) = const_val
+  END IF
+
+CASE ( 'cut_psi_stem' )
+  CALL cut_state_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, cut_psi_stem(:,:))
+  ELSE
+    cut_psi_stem(:,:) = const_val
   END IF
 
 ! sf_stom state (sf_stom_state_mod). MDK, 22/10/26

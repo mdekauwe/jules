@@ -1061,6 +1061,11 @@ DO i = 1, nvars_required
          'cpl_gbw_shd', 'cpl_ra_ca' )
     ! sf_stom state: not yet set. MDK, 22/10/26
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
+  CASE ( 'cut_w_store', 'cut_psi_stem' )
+    ! Cuticular-loss store: not yet set (> 0), so it starts full.
+    !
+    ! MDK, 22/10/26
+    CALL dict_set(defaults_dict, identifiers(i), 1.0)
   CASE ( 'nsc_ft_mean' )
     ! Not yet set: 1 at the first step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)

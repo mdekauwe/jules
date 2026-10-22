@@ -148,9 +148,9 @@ USE sugar_mod, ONLY: sugar
 
 
 USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_path_psi
-USE cuticular_leak_state_mod, ONLY: cut_psi_leaf, cut_psi_stem,              &
+USE cuticular_leak_state_mod, ONLY: cut_w_store, cut_psi_stem,               &
                                     cut_q_store, cut_c_store, cut_m_h2o,       &
-                                    cut_state_alloc
+                                    cut_state_alloc, cut_psi_unset
 USE pftparm, ONLY: cap_stem, kcrit_fractional_loss, conductance_b_seg,        &
                    conductance_c_seg
 USE xylem_hydraulics_CW_jls_mod, ONLY: som_psi_in_min
@@ -876,8 +876,23 @@ LOGICAL :: l_cut_ximpair
                             !
                             ! MDK, 22/10/26
 LOGICAL :: lit_cut(land_pts)
-                            ! Lit points (apar > 0), those of the
-                            ! impairment update.
+                            ! Points where the leak may apply: lit points
+                            ! (those of the impairment update) with
+                            ! apar >= apar_cut_min.
+                            !
+                            ! MDK, 22/10/26
+REAL(KIND=real_jlslsm), PARAMETER :: apar_cut_min = 2.0
+                            ! Least absorbed PAR (W m-2) for the leak,
+                            ! about 5 W m-2 of shortwave: not apar > 0,
+                            ! as forcing noise at night (SW up to a few
+                            ! W m-2) would turn the leak on in the dark.
+                            !
+                            ! MDK, 22/10/26
+REAL(KIND=real_jlslsm), PARAMETER :: dq_ratio_cut_max = 3.0
+                            ! Most the leak's conductance is scaled up by
+                            ! the ratio of the leaf-to-air deficit to dqc,
+                            ! so that a dqc near 0 (tstar near the dew
+                            ! point) cannot give a burst of transpiration.
                             !
                             ! MDK, 22/10/26
 REAL(KIND=real_jlslsm) :: kmax_ref_cut(land_pts), e_cut1(1, land_pts),       &
@@ -888,6 +903,8 @@ REAL(KIND=real_jlslsm) :: kmax_ref_cut(land_pts), e_cut1(1, land_pts),       &
                             ! m-2 s-1) of the points where the leak binds,
                             ! and their steady-state psi_leaf (Pa),
                             ! whole-path conductance and psi_stem (Pa).
+                            !
+                            ! MDK, 22/10/26
 REAL(KIND=real_jlslsm) :: r_crit, psi_fl_leaf, psi_fl_stem, c_cut,           &
                           psi0_leaf, psi0_stem, f_cut, dpsi_cut
                             ! The conductance left at the critical loss, the
@@ -896,7 +913,13 @@ REAL(KIND=real_jlslsm) :: r_crit, psi_fl_leaf, psi_fl_stem, c_cut,           &
                             ! step's psi_leaf and psi_stem (Pa), the
                             ! relaxation factor and the drop in psi with no
                             ! steady state (Pa).
+                            !
+                            ! MDK, 22/10/26
 LOGICAL :: l_seg_cut
+                            ! psi_stem is solved (plant segments under the
+                            ! impairment).
+                            !
+                            ! MDK, 22/10/26
 REAL(KIND=real_jlslsm) :: qs_air_cut(land_pts), dq_cut(land_pts)
                             ! Saturated humidity at the air temperature and
                             ! the leaf-to-air deficit driving the leak
@@ -909,17 +932,25 @@ REAL(KIND=real_jlslsm) :: gc_opt_cut(land_pts), e_lo, e_soil, k_cut_eff
                             ! the soil's share of the leak (mol H2O m-2 s-1),
                             ! and the path conductance between last step's
                             ! psi and the steady state.
-REAL(KIND=real_jlslsm) :: q_st, e_fl, psi_tgt, r_st
-LOGICAL :: lk_cut(land_pts)
-                            ! The store's flow out (mol H2O m-2 s-1; < 0 it
-                            ! refills), the flow the path delivers at the
-                            ! floor, the step's psi
-                            ! (Pa), the store's remaining departure from it
-                            ! (fraction), and the points where the leak
-                            ! binds.
                             !
                             ! MDK, 22/10/26
-                            ! psi_stem is solved (segments under impairment).
+REAL(KIND=real_jlslsm) :: q_st, e_fl, psi_tgt, r_st, psi_st
+                            ! The store's flow out (mol H2O m-2 s-1; < 0 it
+                            ! refills), the flow the path delivers at the
+                            ! floor (mol H2O m-2 s-1), the step's psi (Pa),
+                            ! the store's remaining departure from it
+                            ! (fraction) and the store's psi at the end of
+                            ! the step (Pa).
+                            !
+                            ! MDK, 22/10/26
+LOGICAL :: lk_cut(land_pts)
+                            ! Points where the leak binds.
+                            !
+                            ! MDK, 22/10/26
+REAL(KIND=real_jlslsm), PARAMETER :: lai_cut_min = 0.01
+                            ! Least LAI (m2 m-2) for the store: below it the
+                            ! store is dropped, as psi = W / C has no
+                            ! meaning as C goes to 0.
                             !
                             ! MDK, 22/10/26
 INTEGER :: n_lk, idx_lk(land_pts)
@@ -1113,6 +1144,16 @@ psi_stem(:) = psi_root_zone(:)
 !
 ! MDK, 22/10/26
 l_cut_ximpair = l_som_cuticular_loss .AND. leaf_flux_mod == leaf_flux_stom_opt
+! The cuticular loss has no lit set or impairment update for the
+! multilayer canopy (can_rad_mod 4, 5, 6), so it stops there.
+!
+! MDK, 22/10/26
+IF ( l_cut_ximpair .AND. can_rad_mod >= 4 .AND. can_rad_mod <= 6 ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                           &
+               'l_som_cuticular_loss is not available with the ' //           &
+               'multilayer canopy (can_rad_mod 4, 5 or 6)')
+END IF
 psi_stem_sun(:) = psi_root_zone(:)
 psi_stem_shd(:) = psi_root_zone(:)
 IF ( l_som_gravity .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
@@ -2966,9 +3007,10 @@ CASE ( 1 )
         ! would otherwise be applied iter times per timestep. JBaguley
         IF (k == iter) THEN
 
-          ! (The leaf and root-zone conductances once computed here for the
+          ! The leaf and root-zone conductances once computed here for the
           ! update were never used by it, so they are no longer computed.
-          ! MDK, 22/10/26)
+          !
+          ! MDK, 22/10/26
 
           ! Apply xylem imapairment to the vulnerability curve.
           ! NOTE: open_index indexes veg_index, while update_xylem_impairment
@@ -2978,8 +3020,9 @@ CASE ( 1 )
             open_land_index(m) = veg_index(open_index(m))
           END DO
 
-          ! (With the cuticular loss, the update is made after it, below.
-          ! MDK, 22/10/26)
+          ! With the cuticular loss, the update is made after it, below.
+          !
+          ! MDK, 22/10/26
           IF ( .NOT. l_cut_ximpair ) THEN
             CALL update_xylem_impairment(                                        &
                   ! IN
@@ -3422,8 +3465,10 @@ CASE ( 7 )
   ! iteration, cf. k == iter in the big-leaf path), driven by the canopy
   ! (leaf-area-weighted) psi_leaf: both classes share the one plant, so
   ! there is a single damage state per point, as for the big leaf.
-  ! (The class and root-zone conductances once computed here for the update
-  ! were never used by it, so they are no longer computed. MDK, 22/10/26)
+  ! The class and root-zone conductances once computed here for the update
+  ! were never used by it, so they are no longer computed.
+  !
+  ! MDK, 22/10/26
   open_pts = 0
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -3432,8 +3477,9 @@ CASE ( 7 )
       open_land_index(open_pts) = l
     END IF
   END DO
-  ! (With the cuticular loss, the update is made after it, below.
-  ! MDK, 22/10/26)
+  ! With the cuticular loss, the update is made after it, below.
+  !
+  ! MDK, 22/10/26
   IF ( .NOT. l_cut_ximpair ) THEN
     CALL update_xylem_impairment(                                              &
           ! IN
@@ -3555,8 +3601,8 @@ END IF
 ! A is unchanged; the leak is a loss of water from the soil, which goes into
 ! the transpiration (and so ET and LE) through gc, bounded only by the
 ! soil-supply cap (no water is taken that is not there). Unlike DESICA:
-! - only at lit points (apar > 0), the points of the impairment update, as
-!   no stomatal conductance is computed at night;
+! - only at lit points with apar >= apar_cut_min (about 5 W m-2 of
+!   shortwave), as no stomatal conductance is computed at night;
 ! - the leak is not cut back when the plant nears kcrit, so in a drought
 !   it keeps drying the plant;
 ! - psi_leaf (and psi_stem with segments) are solved for the leak on the
@@ -3564,12 +3610,13 @@ END IF
 !   the impaired curve, or the PFT curve), and the impairment update is
 !   made after this block (below), so the leak drives the loss of
 !   conductance.
-! psi is not allowed below the psi of 99 % loss of conductance on the PFT
-! curve, so where the path cannot carry the leak (no steady state without
-! storage) psi does not fall to the solver's floor and the memory does not
-! go past 99 %. The transpiration is uncoupled at tstar (dqc), as the
-! canopy flux in sf_evap; for a conductance this small the canopy air
-! resistance makes ~1 % difference.
+! psi is not allowed below the psi of the critical loss of conductance
+! (kcrit_fractional_loss, e.g. 0.95) on the PFT curve (or the leaf
+! and stem segments), so where the path cannot carry the leak (no steady
+! state without storage) psi does not fall to the solver's floor and the
+! memory does not go past that loss. The transpiration is uncoupled at
+! tstar (dqc), as the canopy flux in sf_evap; for a conductance this small
+! the canopy air resistance makes ~1 % difference.
 !
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
@@ -3580,7 +3627,8 @@ IF ( l_cut_ximpair ) THEN
   lk_cut(:)  = .FALSE.
   lit_cut(:) = .FALSE.
   DO m = 1,open_pts
-    lit_cut(open_land_index(m)) = .TRUE.
+    l = open_land_index(m)
+    lit_cut(l) = apar(l) >= apar_cut_min
   END DO
   ! The leak is driven by the leaf-to-air deficit (as gmin * VPD): with
   ! leaf temperatures (two-leaf), qs at the sunlit and shaded leaf
@@ -3605,7 +3653,8 @@ IF ( l_cut_ximpair ) THEN
     l = veg_index(m)
     ! mmol m-2 leaf s-1 -> m s-1, times LAI for the canopy.
     gl_cut(l) = gcuticular(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
-    IF ( dqc(l) > 0.0 ) gl_cut(l) = gl_cut(l) * dq_cut(l) / dqc(l)
+    IF ( dqc(l) > 0.0 ) gl_cut(l) = gl_cut(l)                                 &
+                                    * MIN(dq_cut(l) / dqc(l), dq_ratio_cut_max)
     share_sup(l) = 1.0
   END DO
   CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
@@ -3691,9 +3740,10 @@ IF ( l_cut_ximpair ) THEN
     DO j = 1,n_lk
       l = veg_index(idx_lk(j))
       c_cut = MAX(cap_stem(ft) * lai(l), TINY(1.0_real_jlslsm))
-      psi0_leaf = cut_psi_leaf(l,ft)
+      psi0_leaf = psi_leaf(l)
+      IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min )             &
+        psi0_leaf = cut_w_store(l,ft) / c_cut
       psi0_stem = cut_psi_stem(l,ft)
-      IF ( psi0_leaf > 0.0 ) psi0_leaf = psi_leaf(l)
       IF ( psi0_stem > 0.0 ) psi0_stem = psi_stem(l)
       CALL cut_e_in( idx_lk(j), el(l), psi0_leaf, e_lo )
       IF ( k_cut1(1,j) > 0.0 .AND. psi_cut1(1,j) > som_psi_in_min ) THEN
@@ -3733,32 +3783,44 @@ IF ( l_cut_ximpair ) THEN
     END DO
   END IF
 
-  ! Carry the state. Where the leak did not bind (other lit steps and the
-  ! night), the store relaxes towards the step's psi, psi_t, through the
-  ! path:
+  ! Carry the state, the store's water W = C psi. Where the leak did not
+  ! bind (other lit steps and the night), the store relaxes towards the
+  ! step's psi, psi_t, through the path:
   !   psi = psi_t + (psi_0 - psi_t) exp(-dt k / C),
-  ! with k the mean of the canopy conductance at psi_0 and psi_t on the PFT
-  ! curve (kmax under the impairment, floored at the critical loss): a
-  ! cheap stand-in for the exact path solve, which at every step made the
-  ! run ~25x slower. The store moves only a few mm, so the rate matters
-  ! little. It goes on refilling from the soil when it is drier than psi_t (at the rate the
-  ! path delivers) and giving up water to the transpiration when wetter
-  ! (at most the transpiration: no flow back to the soil). The step's psi
-  ! (and E) are those of the optimiser: the store changes only where the
-  ! soil's water goes, not the fluxes.
+  ! with psi_0 = W / C (C of this step's LAI, so a change of LAI moves psi,
+  ! not the water) and k the mean of the canopy conductance at psi_0 and
+  ! psi_t on the PFT curve (kmax under the impairment, floored at the
+  ! critical loss): a cheap stand-in for the exact path solve, which at
+  ! every step made the run ~25x slower. The store moves only a few mm, so
+  ! the rate matters little. It refills from the soil when it is drier than
+  ! psi_t (at the rate the path delivers) and gives up water to the
+  ! transpiration when wetter (at most the transpiration: no flow back to
+  ! the soil). The fluxes are the optimiser's: the store changes where the
+  ! soil's water goes, and psi_leaf at lit points (below), not E. Below
+  ! lai_cut_min the store is dropped (unset).
   !
   ! MDK, 22/10/26
   DO m = 1,veg_pts
     l = veg_index(m)
-    psi_tgt   = psi_leaf(l)
-    psi0_leaf = cut_psi_leaf(l,ft)
-    psi0_stem = cut_psi_stem(l,ft)
-    cut_psi_leaf(l,ft) = psi_leaf(l)
-    cut_psi_stem(l,ft) = psi_stem(l)
     c_cut = MAX(cap_stem(ft) * lai(l), TINY(1.0_real_jlslsm))
     cut_c_store(l,ft) = c_cut
-    IF ( lk_cut(l) .OR. psi0_leaf > 0.0 ) CYCLE
-    r_st  = 0.0
+    psi_tgt   = psi_leaf(l)
+    psi0_stem = cut_psi_stem(l,ft)
+    cut_psi_stem(l,ft) = psi_stem(l)
+    IF ( lai(l) < lai_cut_min ) THEN
+      cut_w_store(l,ft)  = cut_psi_unset
+      cut_psi_stem(l,ft) = cut_psi_unset
+      cut_q_store(l,ft)  = 0.0
+      CYCLE
+    END IF
+    ! Where the leak binds, psi_leaf is already the store's psi (and
+    ! cut_q_store is set above); where unset, the store starts full.
+    IF ( lk_cut(l) .OR. cut_w_store(l,ft) > 0.0 ) THEN
+      cut_w_store(l,ft) = c_cut * psi_leaf(l)
+      CYCLE
+    END IF
+    psi0_leaf = cut_w_store(l,ft) / c_cut
+    psi_st    = psi_tgt
     IF ( ABS(psi0_leaf - psi_tgt) > 1.0 ) THEN
       k_cut_eff = 0.5 * ( cut_k_curve(kmax_cut(l), psi0_leaf)                  &
                           + cut_k_curve(kmax_cut(l), psi_tgt) )
@@ -3768,12 +3830,27 @@ IF ( l_cut_ximpair ) THEN
         q_st = MAX(el(l), 0.0)
         r_st = 1.0 - q_st * timestep / (c_cut * (psi0_leaf - psi_tgt))
       END IF
-      cut_psi_leaf(l,ft) = psi_tgt + (psi0_leaf - psi_tgt) * r_st
+      psi_st = psi_tgt + (psi0_leaf - psi_tgt) * r_st
       IF ( l_seg_cut .AND. psi0_stem <= 0.0 .AND. psi_stem(l) < 0.0 )          &
         cut_psi_stem(l,ft) = psi_stem(l) + (psi0_stem - psi_stem(l)) * r_st
     END IF
-    cut_q_store(l,ft) = c_cut * (psi0_leaf - cut_psi_leaf(l,ft)) / timestep    &
-                        * cut_m_h2o
+    cut_q_store(l,ft) = c_cut * (psi0_leaf - psi_st) / timestep * cut_m_h2o
+    cut_w_store(l,ft) = c_cut * psi_st
+  END DO
+
+  ! At lit points, those of the impairment update, psi_leaf (and psi_stem
+  ! with segments) is the store's psi on every step, not only where the
+  ! leak binds, so that the plant's psi, and the embolism it drives, does
+  ! not jump between the lagged store and the optimiser's steady state as
+  ! gc crosses gcuticular * LAI. At night psi_leaf is the optimiser's.
+  !
+  ! MDK, 22/10/26
+  DO m = 1,open_pts
+    l = open_land_index(m)
+    IF ( cut_w_store(l,ft) > 0.0 ) CYCLE
+    psi_leaf(l) = cut_w_store(l,ft) / cut_c_store(l,ft)
+    IF ( l_seg_cut .AND. cut_psi_stem(l,ft) <= 0.0 )                           &
+      psi_stem(l) = cut_psi_stem(l,ft)
   END DO
 
   ! Xylem impairment update, once per timestep, in place of those in the
