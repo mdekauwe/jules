@@ -1560,15 +1560,20 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! equation.
 ,beta1p2m4, beta2p2m4                                                          &
                             ! beta[12] ** 2 * 4.
-,vpd(land_pts)                                                                 &
-                            ! Vapour pressure deficit (Pa)
+,vpd                                                                           &
+                            ! Vapour pressure deficit of a point (Pa).
+                            !
+                            ! MDK, 23/10/26
 ,vpd_factor                                                                    &
                             ! Factor used to convert specific humidity to
                             ! vapour pressure.
 ,glco2_sample(0:n_sample, open_pts)                                        &
                             ! Leaf conductance for CO2 (m/s)
-,conv(land_pts)                                                                &
-                            ! Factor for converting mol/m3 into Pa (J/m3)
+,conv                                                                          &
+                            ! Factor for converting mol/m3 into Pa (J/m3), of
+                            ! a point.
+                            !
+                            ! MDK, 23/10/26
 ,psi_stem_work(0:n_sample, open_pts)
                             ! Stem water potential of each sample (Pa).
 
@@ -1771,7 +1776,7 @@ DO j = 1,open_pts
   !---------------------------------------------------------------------------
   ! Calculate the factor for converting mol/m3 into Pa (J/m3).
   !---------------------------------------------------------------------------
-  conv(l) = rmol * t_leaf(l)
+  conv = rmol * t_leaf(l)
 
   !---------------------------------------------------------------------------
   ! Diagnose the leaf conductance
@@ -1787,7 +1792,7 @@ DO j = 1,open_pts
   ! as infeasible rather than an Infinity that can corrupt reductions and
   ! propagate into the canopy-level conductance passed out of this model.
   !---------------------------------------------------------------------------
-  glco2_sample(:,j) = (al_sample(:,j) * conv(l))                             &
+  glco2_sample(:,j) = (al_sample(:,j) * conv)                                &
                      / MAX(ca(l) - ci_sample(:,j), 1.0e-2_real_jlslsm)
   gl_sample(:,j)    = ratio * glco2_sample(:,j)
 
@@ -1808,16 +1813,16 @@ DO j = 1,open_pts
 
   ! Convert the specific humidity to vapour pressure. This formula is taken
   ! from leaf_limits_mod.F90.
-  vpd(l) = dq(l) * pstar(l) * vpd_factor
+  vpd = dq(l) * pstar(l) * vpd_factor
 
   ! Calculate transpiration rate in m/s
-  el_sample(:,j) = vpd(l) * gl_sample(:,j) / pstar(l)
+  el_sample(:,j) = vpd * gl_sample(:,j) / pstar(l)
 
   ! Convert from m/s to mol H2O/m2/s
   el_sample(:,j) = el_sample(:,j) * pstar(l) / (rmol * t_leaf(l))
 
   ! Coupled: E = D g_eff(g), dq the deficit to the level-1 air.
-  IF ( l_som_coupled_e ) el_sample(:,j) = vpd(l)                               &
+  IF ( l_som_coupled_e ) el_sample(:,j) = vpd                                  &
        * g_eff_e(MAX(gl_sample(:,j), 0.0_real_jlslsm), r_bl(l), r_ca(l),     &
                  g_oth(l)) / (rmol * t_leaf(l))
 

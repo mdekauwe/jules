@@ -574,6 +574,11 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
                             ! Xylem conductance for each open point
                             ! (mol m-2 s-1 Pa-1)
 
+INTEGER :: i, j
+                            ! Water potential and open point.
+                            !
+                            ! MDK, 23/10/26
+
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
@@ -581,14 +586,17 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_CW_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-xylem_conductance = SPREAD(kmax, DIM = 1, NCOPIES = n_water_potentials)        &
-     * EXP(-ABS(water_potential                                                &
-                / SPREAD(conductance_b, DIM = 1, NCOPIES = n_water_potentials))&
-                ** SPREAD(conductance_c, DIM = 1, NCOPIES = n_water_potentials))
-
-! Apply minimum conductance limit
-xylem_conductance = MAX(xylem_conductance,                                     &
-                        SPREAD(kcrit, DIM = 1, NCOPIES = n_water_potentials))
+! k(psi) = kmax exp(-|psi/b|^c), floored at kcrit.
+!
+! MDK, 23/10/26
+DO j = 1, open_pnts
+  DO i = 1, n_water_potentials
+    xylem_conductance(i,j) = kmax(j)                                           &
+         * EXP(-ABS(water_potential(i,j) / conductance_b(j))                   &
+               ** conductance_c(j))
+    xylem_conductance(i,j) = MAX(xylem_conductance(i,j), kcrit(j))
+  END DO
+END DO
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
