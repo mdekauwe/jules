@@ -148,7 +148,7 @@ INTEGER, PARAMETER ::                                                          &
     ! fixed, so VPD acts only through the hydraulics, not twice) regulated
     ! by the supply-loss rule of Sperry et al. (2016, Eqn 5) on the
     ! profit-max hydraulics; see stom_opt_supply_loss in stom_opt_jls_mod.
-  stomata_cap = 10
+  stomata_cap = 10,                                                            &
     ! CAP of Dewar et al. (2018, New Phytol 217: 571; Sabot et al. 2022,
     ! Eqs 19-21): no stomatal cost; photosynthesis is limited
     ! nonstomatally by the leaf water potential, gross A x
@@ -158,11 +158,25 @@ INTEGER, PARAMETER ::                                                          &
     ! bounds it). Uses the l_som_nsl machinery, which it switches on;
     ! psi_nsl0_io is the parameter (psi_phi,lim of Sabot et al.). See
     ! stom_opt_bounded_search.
+  stomata_pm2 = 11
+    ! ProfitMax2, the "new model" of Wang et al. (2020, New Phytol 227:
+    ! 311, Eqn 11): maximise
+    !   A_n (1 - E / E_crit),  i.e. Theta = A_n E / E_crit,
+    ! with E_crit the transpiration at which the soil-to-leaf conductance
+    ! falls to kcrit (the edge of the supply function), on the same path
+    ! and basis as the profit max. No cost parameter: the marginal water
+    ! cost A_n / (E_crit - E) is > 0 at any E, without new cavitation (the
+    ! profit max's cost is ~0 in wet soil), scales with the current A_n and
+    ! rises as drought (or drought damage) shrinks E_crit. On the bounded
+    ! Ci search; see stom_opt_bounded_search.
+    !
+    ! MDK, 22/10/26
 !
 ! Renumbered 7 Oct 2026 (branch cmax): SOX_opt 6 -> 5, DESICA 5 -> 8, CMax 6,
 ! CGain 7, supply-loss 9. Namelists from before that use 5 for DESICA or 6
 ! for SOX_opt must be changed.
 ! CAP (10) added 8 Oct 2026 (branch stomata_fixes).
+! ProfitMax2 (11) added 22 Oct 2026 (branch pm_water_cost). MDK, 22/10/26
 !
 ! stomata_model is the one switch for the stomatal scheme. leaf_flux_mod
 ! (fsmc leaf path or stomatal optimisation) and som_profit_model (which
@@ -313,9 +327,15 @@ INTEGER, PARAMETER ::                                                          &
     ! and k_max the plant's unstressed conductance (psi = 0, without the
     ! soil link, so that drying soil adds to the cost rather than shrinking
     ! the reference; Lu et al. 2020: the plant's k_max).
-  cap_profit_model = 6
+  cap_profit_model = 6,                                                        &
     ! CAP (Dewar et al. 2018; set from stomata_model = 10):
     !      Profit(psi) = Anet(psi) with gross A x f(psi_leaf)
+  pm2_profit_model = 7
+    ! ProfitMax2 (Wang et al. 2020, Eqn 11; set from stomata_model = 11),
+    ! mol CO2 m-2 s-1:
+    !      Profit(E) = Anet(E) (1 - E / E_crit)
+    !
+    ! MDK, 22/10/26
 
 !-----------------------------------------------------------------------------
 ! Items set in namelist
@@ -534,7 +554,7 @@ LOGICAL ::                                                                     &
       ! profit max) gave the same parameters and fit as with it off (see
       ! NOTE_coupled_e_handoff_2026-10-08). Where it is not supported (see
       ! the restrictions below) check_jules_vegetation turns it off.
-      ! When .TRUE., the stomatal optimisation (stomata_model = 4 to 7, 10;
+      ! When .TRUE., the stomatal optimisation (stomata_model = 4 to 7, 10, 11;
       ! can_rad_mod = 1 or 7) evaluates the transpiration of each trial
       ! stomatal conductance g with the resistances it passes through,
       !   E = D g' / (1 + r_ca (g' + g'_other)),   g' = g / (1 + g r_bl),
@@ -1148,9 +1168,12 @@ IMPLICIT NONE
 !-----------------------------------------------------------------------------
 SELECT CASE ( stomata_model )
 CASE ( stomata_profit_max, stomata_sox_opt, stomata_cmax, stomata_cgain,       &
-       stomata_supply_loss, stomata_cap )
+       stomata_supply_loss, stomata_cap, stomata_pm2 )
   leaf_flux_mod = leaf_flux_stom_opt
-  IF ( stomata_model == stomata_cap ) THEN
+  IF ( stomata_model == stomata_pm2 ) THEN
+    ! MDK, 22/10/26
+    som_profit_model = pm2_profit_model
+  ELSE IF ( stomata_model == stomata_cap ) THEN
     ! CAP is the nonstomatal limitation without a stomatal cost.
     som_profit_model = cap_profit_model
     l_som_nsl = .TRUE.
@@ -1185,6 +1208,9 @@ CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical,                 &
     ELSE IF ( som_profit_model == cap_profit_model ) THEN
       stomata_model = stomata_cap
       l_som_nsl = .TRUE.
+    ELSE IF ( som_profit_model == pm2_profit_model ) THEN
+      ! MDK, 22/10/26
+      stomata_model = stomata_pm2
     ELSE
       stomata_model = stomata_profit_max
     END IF
@@ -1388,7 +1414,7 @@ END SELECT
 ! Check that the som_profit_model is suitable. JBaguley
 SELECT CASE( som_profit_model)
 CASE ( profit_max_profit_model, sox_opt_profit_model, cmax_profit_model,       &
-       cgain_profit_model, cap_profit_model )
+       cgain_profit_model, cap_profit_model, pm2_profit_model )
   ! Valid values
 CASE ( supply_loss_model )
   ! Valid only as set from stomata_model = 9 (above).
@@ -1401,20 +1427,21 @@ CASE DEFAULT
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'som_profit_model should be profit max (1), SOX (2), ' //       &
-               'CMax (4), CGain (5) or CAP (6)')
+               'CMax (4), CGain (5), CAP (6) or ProfitMax2 (7)')
 END SELECT
 
 ! CMax and CGain: absolute-carbon profit on the bounded Ci search (no
 ! flat-grid or fast-path variant: the cost does not vanish where the
 ! profit max's does).
 IF ( ( stomata_model == stomata_cmax .OR. stomata_model == stomata_cgain     &
-       .OR. stomata_model == stomata_cap )                                     &
+       .OR. stomata_model == stomata_cap .OR. stomata_model == stomata_pm2 )   &
      .AND. ( som_base_parm /= som_base_parm_ci .OR.                            &
              som_ci_search /= som_ci_bounded ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'stomata_model = 6 (CMax), 7 (CGain) or 10 (CAP) ' //           &
-               'requires som_base_parm = 1 and som_ci_search = 2')
+               'stomata_model = 6 (CMax), 7 (CGain), 10 (CAP) or 11 ' //       &
+               '(ProfitMax2) requires som_base_parm = 1 and ' //               &
+               'som_ci_search = 2')
 END IF
 ! Coupled transpiration in the optimisation: big leaf and two-leaf only (the
 ! multilayer canopy and the supply-loss rule keep the fixed-deficit E).
@@ -1428,7 +1455,7 @@ IF ( l_som_coupled_e .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.         &
   IF ( leaf_flux_mod == leaf_flux_stom_opt )                                   &
     CALL jules_print('check_jules_vegetation',                                 &
                      'l_som_coupled_e set to .FALSE.: it applies only to ' //  &
-                     'stomata_model = 4 to 7 or 10 with can_rad_mod = 1 or 7')
+                     'stomata_model = 4 to 7, 10 or 11 with can_rad_mod 1 or 7')
 END IF
 ! Supply-loss stomata: the profit-max hydraulics, on the Ci axis.
 IF ( stomata_model == stomata_supply_loss .AND.                                &
@@ -1688,7 +1715,7 @@ END IF  !  photo_model == photo_farquhar or photo_johnson
 SELECT CASE ( stomata_model )
 CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical, stomata_desica, &
        stomata_profit_max, stomata_sox_opt, stomata_cmax, stomata_cgain,       &
-       stomata_supply_loss, stomata_cap )
+       stomata_supply_loss, stomata_cap, stomata_pm2 )
   ! These are valid, so nothing to do.
 CASE DEFAULT
   errcode = 101
@@ -1946,11 +1973,12 @@ IF ( l_som_vcmax_psi .AND. ( ( stomata_model /= stomata_profit_max .AND.     &
                                stomata_model /= stomata_cmax .AND.             &
                                stomata_model /= stomata_cgain .AND.            &
                                stomata_model /= stomata_supply_loss .AND.      &
-                               stomata_model /= stomata_cap ) .OR.             &
+                               stomata_model /= stomata_cap .AND.              &
+                               stomata_model /= stomata_pm2 ) .OR.             &
                              photo_model /= photo_farquhar ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_vcmax_psi requires stomata_model=4 to 7, 9 or 10 ' //    &
+               'l_som_vcmax_psi requires stomata_model=4 to 7 or 9 to 11 ' // &
                'and ' //                                                       &
                'photo_model=2')
 END IF

@@ -10454,4 +10454,19 @@ DATA metadata(806) / var_metadata(                                             &
 ! Units
     "kg m-2"                                                                   &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for lambda_eff_pft
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(807) / var_metadata(                                             &
+! String identifier
+    'lambda_eff_pft',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Marginal water price dA/dE at the stomatal optimum (bounded Ci " //       &
+    "search, two-leaf canopy; transpiration-weighted; 0 if closed)",           &
+! Units
+    "umol CO2 mmol-1 H2O"                                                      &
+  ) /
 #endif

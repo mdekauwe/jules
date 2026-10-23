@@ -41,6 +41,7 @@ USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,   &
                            phen_fbleaf, phen_nlow, phen_nhigh, nsc_regrow_acc, &
                            phen_psi_acc
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
+USE stom_opt_jls_mod, ONLY: som_lambda_eff_pft   ! MDK, 22/10/26
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
@@ -3741,6 +3742,16 @@ CASE ('carbon_gain_pft')
   ! Hydraulic cost for each plant functional type JBaguley
 CASE ('hydraulic_cost_pft')
   cube_land = cube_from_array(psparms%hydraulic_cost_pft)
+  cube = map_from_land(cube_land)
+
+! Marginal water price at the stomatal optimum (mol/mol -> umol/mmol).
+! MDK, 22/10/26
+CASE ('lambda_eff_pft')
+  IF ( ALLOCATED(som_lambda_eff_pft) ) THEN
+    cube_land = cube_from_array(1.0e3 * som_lambda_eff_pft)
+  ELSE
+    cube_land = cube_from_array(0.0 * psparms%hydraulic_cost_pft)
+  END IF
   cube = map_from_land(cube_land)
 
   ! Percentage loss of conductance at the leaf water potential compared to the

@@ -1142,7 +1142,7 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 l_som_vcmax_psi, stomata_model, stomata_cmax,  &
                                 stomata_cgain, stomata_supply_loss,            &
                                 stomata_profit_max,                            &
-                                stomata_sox_opt,                               &
+                                stomata_sox_opt, stomata_pm2,                  &
                                 xylem_impairment_memory,                       &
                                 ximpair_driver_stem, l_triffid_nsc,            &
                                 l_ximpair_rec_nsc, l_veg_compete,              &
@@ -1830,18 +1830,24 @@ DO i = 1, npft
   IF ( pft_xylem_impairment_model(i) /= 0 .AND.                                &
        stomata_model /= stomata_profit_max .AND.                               &
        stomata_model /= stomata_sox_opt .AND.                                  &
-       stomata_model /= stomata_cmax ) THEN
+       stomata_model /= stomata_cmax .AND.                                     &
+       stomata_model /= stomata_pm2 ) THEN
     ! Xylem impairment is coded and tested for the profit max (4) and CMax
     ! (6) only (SOX_opt is rejected above): CGain, supply-loss and CAP
     ! (from global_change_ecology) do not see the impaired curve
     ! consistently (e.g. CGain's k_max uses the impaired kmax). CMax takes
     ! its supply from the impaired curve and its cost per unit of intact
     ! leaf area (kmax_ref), on the bounded search as the profit max.
+    ! ProfitMax2 (11) takes E_crit from the path the search runs on, so
+    ! damage shrinks E_crit with ximpair_hold_gs (Wang et al. 2020: drought
+    ! history reduces E_crit); with ximpair_hold_psi the search is on the
+    ! intact path, as the profit max.
+    !
     ! MDK, 22/10/26
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'pft_xylem_impairment_model /= 0 needs stomata_model = 4 ' // &
-                 '(profit max) or 6 (CMax).')
+                 '(profit max), 6 (CMax) or 11 (ProfitMax2).')
   END IF
   IF ( ANY(seg_frac(:) <= 0.0) ) THEN
     errcode = 101

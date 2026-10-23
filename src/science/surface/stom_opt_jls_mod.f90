@@ -18,6 +18,19 @@ PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_bounded_search, &
         stom_opt_supply_loss, g_eff_e
 PUBLIC stom_opt_mod, g_of_geff, som_path_psi
 
+! Diagnostic marginal water price at the optimum, lambda_eff = dA/dE
+! (mol CO2 per mol H2O; = umol per mmol x 1e-3), from the bounded Ci
+! search (som_ci_search = 2: profit max, CMax, CGain, CAP, ProfitMax2), by
+! a finite difference about the chosen Ci on the search path; 0 for closed
+! stomata and for the other searches. som_lambda_call: of the latest
+! stom_opt_mod call, by land point; som_lambda_eff_pft: the canopy value
+! per PFT, leaf-area weighted over the sunlit and shaded leaves by sf_stom
+! (can_rad_mod = 7 only), for the output lambda_eff_pft.
+!
+! MDK, 22/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: som_lambda_call(:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: som_lambda_eff_pft(:,:)
+
 CONTAINS
 
 !-----------------------------------------------------------------------------
@@ -134,6 +147,7 @@ USE jules_vegetation_mod, ONLY:                                                &
         profit_max_profit_model, sox_opt_profit_model, som_profit_model,       &
         cmax_profit_model, cgain_profit_model, supply_loss_model,              &
         cap_profit_model, som_ci_search, som_ci_bounded,                       &
+        pm2_profit_model,                                                      &
         som_n_ci_golden_iter,                                                  &
         l_som_skip_search_wellwatered, som_hc_negligible_tol, l_som_nsl
 
@@ -481,9 +495,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,el_bnd(open_pts)                                                              &
 ,carbon_gain_bnd(open_pts)                                                     &
 ,hydraulic_cost_bnd(open_pts)                                                  &
-,psi_stem_bnd(open_pts)
+,psi_stem_bnd(open_pts)                                                        &
                             ! Stem segment outlet psi at the optimum (xylem
                             ! impairment with segments; else psi_root_zone).
+,lambda_bnd(open_pts)
+                            ! dA/dE at the optimum (see som_lambda_call).
+                            !
+                            ! MDK, 22/10/26
 
 ! -- Negligible-hydraulic-cost fast path (profit_max_profit_model only) --
 ! A single-point evaluation at the most water-demanding candidate Ci (near
@@ -592,6 +610,11 @@ IF (PRESENT(psi_stem)) psi_stem(:) = psi_root_zone(:)
 ! with no open points does not return the previous call's values.
 carbon_gain_out(:) = 0.0
 hydraulic_cost_out(:) = 0.0
+! MDK, 22/10/26
+!$OMP CRITICAL (som_lambda_call_alloc)
+IF ( .NOT. ALLOCATED(som_lambda_call) ) ALLOCATE( som_lambda_call(land_pts) )
+!$OMP END CRITICAL (som_lambda_call_alloc)
+som_lambda_call(:) = 0.0
 
 carbon_gain(:,:) = 0.0
 hydraulic_cost(:,:) = 0.0
@@ -834,7 +857,8 @@ SELECT CASE ( som_base_parm )
         END DO
       END IF
 
-    CASE (cmax_profit_model, cgain_profit_model, cap_profit_model)
+    CASE (cmax_profit_model, cgain_profit_model, cap_profit_model,            &
+          pm2_profit_model)
       !-------------------------------------------------------------------
       ! The alternatives to profit max, all on the bounded Ci search for
       ! every open point (no fast path; see stom_opt_bounded_search). Each
@@ -847,6 +871,9 @@ SELECT CASE ( som_base_parm )
       !     cost of losing all of the path's conductance.
       !   CAP (Dewar et al. 2017, stomata_model = 10): A_n with the nonstomatal
       !     limitation (l_som_nsl) and no stomatal cost.
+      !   ProfitMax2 (Wang et al. 2020, Eqn 11; stomata_model = 11):
+      !     A_n (1 - E / E_crit), the cost A_n E / E_crit of the proximity
+      !     to hydraulic failure, with no parameter.
       !
       ! References:
       ! -----------
@@ -863,8 +890,12 @@ SELECT CASE ( som_base_parm )
       !   mesophyll and hydraulic conductances from optimization models
       !   incorporating nonstomatal limitations to photosynthesis. New
       !   Phytologist, 217, 571-585. https://doi.org/10.1111/nph.14848
+      ! - Wang, Y., Sperry, J.S., Anderegg, W.R.L., Venturas, M.D. and
+      !   Trugman, A.T. (2020), A theoretical and empirical assessment of
+      !   stomatal optimization modeling. New Phytol, 227: 311-325.
+      !   https://doi.org/10.1111/nph.16572
       !
-      ! MDK, 21/10/26
+      ! MDK, 22/10/26
       !-------------------------------------------------------------------
       ! psi_stem as the profit-max bounded path, so the per-segment stem
       ! damage (l_ximpair_seg_memory) follows the stem's own water
@@ -1095,7 +1126,7 @@ IF ( l_lai ) THEN
   ! OUT
       ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                                &
       el_bnd, carbon_gain_bnd, hydraulic_cost_bnd,                            &
-      psi_stem_g = psi_stem_bnd,                                              &
+      psi_stem_g = psi_stem_bnd, lambda_g = lambda_bnd,                       &
   ! IN (optional)
       lai_cost = lai_cost                                                     &
           )
@@ -1112,7 +1143,8 @@ ELSE
       psi_root_extreme, l_xylem_impairment, kl_hc_max,                        &
   ! OUT
       ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                                &
-      el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                             &
+      el_bnd, carbon_gain_bnd, hydraulic_cost_bnd,                            &
+      lambda_g = lambda_bnd                                                   &
           )
 END IF
 
@@ -1141,6 +1173,9 @@ DO j = 1, n
   leaf_k(l) = kl_bnd(j)
   carbon_gain_out(l) = carbon_gain_bnd(j)
   hydraulic_cost_out(l) = hydraulic_cost_bnd(j)
+  ! (Not set by the supply-loss rule. MDK, 22/10/26)
+  IF ( som_profit_model /= supply_loss_model )                                &
+    som_lambda_call(l) = lambda_bnd(j)
 END DO
 
 END SUBROUTINE scatter_bnd
@@ -2179,7 +2214,7 @@ SUBROUTINE stom_opt_bounded_search(                                            &
         psi_root_extreme, l_xylem_impairment, kl_hc_max,                       &
 ! OUT
         ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g,  &
-        psi_stem_g,                                                            &
+        psi_stem_g, lambda_g,                                                  &
 ! IN (optional)
         lai_cost                                                               &
 )
@@ -2189,9 +2224,9 @@ USE yomhook, ONLY: lhook, dr_hook
 USE ereport_mod, ONLY: ereport
 USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,          &
                                 cgain_profit_model, sox_opt_profit_model,      &
-                                cap_profit_model,                              &
+                                cap_profit_model, pm2_profit_model,            &
                                 kplant_model, kplant_model_ground
-                                ! MDK, 21/10/26
+                                ! MDK, 22/10/26
 USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 photo_farquhar, photo_johnson, photo_model,    &
                                 CW_conductance,                                &
@@ -2278,6 +2313,12 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: lai_cost(land_pts)
                             ! Leaf area of the call (see stom_opt_mod).
                             !
                             ! MDK, 21/10/26
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: lambda_g(open_pts)
+                            ! Marginal water price dA/dE at the chosen state
+                            ! (mol CO2 per mol H2O; see som_lambda_call), on
+                            ! the search path; 0 if closed.
+                            !
+                            ! MDK, 22/10/26
 REAL(KIND=real_jlslsm) :: el_s1(1,1), psi_s1(1,1), kl_s1(1,1), st_s1(1,1)
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
@@ -2298,6 +2339,13 @@ INTEGER, PARAMETER :: n_nsl_iter = 12
                             ! limitation factor f (l_som_nsl).
 REAL(KIND=real_jlslsm), PARAMETER :: nsl_tol = 1.0e-3
                             ! Tolerance on f - f(psi_leaf(f)) (l_som_nsl).
+INTEGER, PARAMETER :: n_ecrit_iter = 60
+                            ! ProfitMax2: maximum doubling plus bisection
+                            ! steps for E_crit.
+REAL(KIND=real_jlslsm), PARAMETER :: ecrit_rtol = 1.0e-4
+                            ! ProfitMax2: relative tolerance on E_crit.
+                            !
+                            ! MDK, 22/10/26
 INTEGER, PARAMETER :: n_sperry_iter = 40
                             ! Hold leaf psi: maximum bisection steps.
 REAL(KIND=real_jlslsm), PARAMETER :: sperry_psi_tol = 100.0
@@ -2332,15 +2380,24 @@ LOGICAL ::                                                                     &
                             ! The latest evaluation (eval_ci) is feasible.
   l_edge,                                                                      &
                             ! edge_by_gl_cap found the edge.
-  l_cmax, l_cgain, l_sox, l_cap,                                               &
-                            ! The profit model is CMax, CGain, SOX_opt or
-                            ! CAP.
+  l_cmax, l_cgain, l_sox, l_cap, l_pm2,                                        &
+                            ! The profit model is CMax, CGain, SOX_opt, CAP
+                            ! or ProfitMax2.
   l_abs
-                            ! Any of those four: profit in absolute carbon
+                            ! Any of those five: profit in absolute carbon
                             ! units, on net A.
                             !
-                            ! MDK, 21/10/26
+                            ! MDK, 22/10/26
 
+REAL(KIND=real_jlslsm) :: lam_a1, lam_e1
+                            ! lambda_g: A and E at the lower Ci.
+REAL(KIND=real_jlslsm) :: e_crit
+                            ! ProfitMax2: transpiration at which the
+                            ! conductance of the path the search runs on
+                            ! falls to kcrit (mol H2O m-2 s-1, the basis of
+                            ! el_u).
+                            !
+                            ! MDK, 22/10/26
 REAL(KIND=real_jlslsm) :: lai_call, k_unstressed, k_sox_ref
                             ! k_sox_ref: SOX's whole-path k at zero flow
                             ! (psi_bar = psi_root_zone), which normalises
@@ -2415,7 +2472,11 @@ l_sox = som_profit_model == sox_opt_profit_model
 ! CAP (stomata_model = 10): A_n with the nonstomatal limitation (l_som_nsl,
 ! set with it), no stomatal cost.
 l_cap = som_profit_model == cap_profit_model
-l_abs = l_cmax .OR. l_cgain .OR. l_sox .OR. l_cap
+! ProfitMax2 (stomata_model = 11): A_n (1 - E / E_crit) (Wang et al. 2020).
+!
+! MDK, 22/10/26
+l_pm2 = som_profit_model == pm2_profit_model
+l_abs = l_cmax .OR. l_cgain .OR. l_sox .OR. l_cap .OR. l_pm2
 kcap_pts(:) = 1.0
 b_curve(:) = conductance_b_pft(pft)
 c_curve(:) = conductance_c_pft(pft)
@@ -2423,6 +2484,7 @@ c_curve(:) = conductance_c_pft(pft)
 DO j = 1, open_pts
   l = veg_index(open_index(j))
   IF ( PRESENT(psi_stem_g) ) psi_stem_g(j) = psi_root_zone(l)
+  IF ( PRESENT(lambda_g) ) lambda_g(j) = 0.0
   idx1(1) = open_index(j)
   g_off = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
   ! (CMax, CGain, SOX and CAP work on net A, as Wolf et al. 2016 and Lu et
@@ -2524,10 +2586,17 @@ DO j = 1, open_pts
     CYCLE
   END IF
 
+  ! ProfitMax2: E_crit of the point (needs the edge state e_*; overwrites
+  ! the *_u evaluation state, which is not used again before eval_ci).
+  !
+  ! MDK, 22/10/26
+  e_crit = 1.0
+  IF ( l_pm2 ) CALL find_e_crit()
+
   ! Both ends of the feasible range are candidates.
-  best_f = profit(best_al, best_khc, best_psi)
-  IF ( profit(e_al, e_khc, e_psi) > best_f ) THEN
-    best_f = profit(e_al, e_khc, e_psi); best_ci = e_ci; best_al = e_al
+  best_f = profit(best_al, best_khc, best_psi, best_el)
+  IF ( profit(e_al, e_khc, e_psi, e_el) > best_f ) THEN
+    best_f = profit(e_al, e_khc, e_psi, e_el); best_ci = e_ci; best_al = e_al
     best_gl = e_gl; best_el = e_el; best_psi = e_psi; best_kl = e_kl
     best_khc = e_khc
   END IF
@@ -2567,6 +2636,21 @@ DO j = 1, open_pts
     END DO
   END IF
 
+  ! Diagnostic dA/dE at the optimum: central difference over
+  ! +-1e-3 of the range about best_ci, clipped to [ci_lo, e_ci] (one-sided
+  ! at an end). Only *_u is changed, not the chosen state.
+  !
+  ! MDK, 22/10/26
+  IF ( PRESENT(lambda_g) .AND. e_ci > ci_lo ) THEN
+    s_lo = MAX(best_ci - 1.0e-3_real_jlslsm * (e_ci - ci_lo), ci_lo)
+    s_hi = MIN(best_ci + 1.0e-3_real_jlslsm * (e_ci - ci_lo), e_ci)
+    CALL eval_ci(s_lo)
+    lam_a1 = al_u; lam_e1 = el_u
+    CALL eval_ci(s_hi)
+    IF ( ABS(el_u - lam_e1) > TINY(1.0_real_jlslsm) )                          &
+      lambda_g(j) = (al_u - lam_a1) / (el_u - lam_e1)
+  END IF
+
   ci_g(j) = MAX(0.0, best_ci)
   al_g(j) = MAX(-rd(l), best_al)
   gl_g(j) = MAX(0.0, best_gl)
@@ -2581,9 +2665,12 @@ DO j = 1, open_pts
   hydraulic_cost_g(j) = (max_kl - best_khc)                                    &
                         / MAX(max_kl - kcrit(l), TINY(1.0_real_jlslsm))
   ! CMax, CGain: the cost as a fraction of the maximum A on the range.
-  IF ( l_cmax .OR. l_cgain ) hydraulic_cost_g(j) = (best_al - profit(best_al, &
-                                                    best_khc, best_psi))       &
-                                                   / max_al
+  ! ProfitMax2: Theta = A_n E / E_crit, as a fraction of max A.
+  !
+  ! MDK, 22/10/26
+  IF ( l_cmax .OR. l_cgain .OR. l_pm2 )                                        &
+    hydraulic_cost_g(j) = (best_al - profit(best_al, best_khc, best_psi,       &
+                                            best_el)) / max_al
   ! SOX: 1 - the factor on A (as the flat-grid SOX).
   IF ( l_sox ) hydraulic_cost_g(j) = 1.0 - sox_factor(best_psi)
   ! CAP: the nonstomatal loss of A as a fraction of the maximum A.
@@ -2751,7 +2838,6 @@ CONTAINS
   SUBROUTINE hydraulic_state(ci, al)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci, al
   REAL(KIND=real_jlslsm) :: vpd
-  REAL(KIND=real_jlslsm) :: el1(1,1), psi1(1,1), kl1(1,1), khc1(1,1)
 
   al_u = al
   gl_u = ratio * (al_u * rmol * t_leaf(l)) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
@@ -2760,6 +2846,16 @@ CONTAINS
   IF ( l_som_coupled_e ) el_u = vpd * g_eff_e(MAX(gl_u, 0.0_real_jlslsm),     &
                                     r_bl(l), r_ca(l), g_oth(l))                &
                                 / (rmol * t_leaf(l))
+  CALL psi_k_at_e()
+  END SUBROUTINE hydraulic_state
+
+  ! Leaf psi, conductance and the hydraulic-cost conductance (psi_u, kl_u,
+  ! khc_u) at transpiration el_u, on the path the search runs on (split out
+  ! of hydraulic_state for ProfitMax2's E_crit).
+  !
+  ! MDK, 22/10/26
+  SUBROUTINE psi_k_at_e()
+  REAL(KIND=real_jlslsm) :: el1(1,1), psi1(1,1), kl1(1,1), khc1(1,1)
 
   IF ( l_lut ) THEN
     psi_u = supply_lut_psi(pft, psi_root_zone(l),                              &
@@ -2789,7 +2885,45 @@ CONTAINS
   khc_u = kl_u
   IF ( l_xylem_impairment .AND. .NOT. l_intact_search .AND.                  &
        ximpair_stomatal_response == ximpair_hold_gs ) khc_u = khc1(1,1)
-  END SUBROUTINE hydraulic_state
+  END SUBROUTINE psi_k_at_e
+
+  !---------------------------------------------------------------------------
+  ! ProfitMax2: E_crit, the transpiration at which the conductance kl of the
+  ! path the search runs on (psi_k_at_e) falls to kcrit, by doubling from
+  ! the edge transpiration e_el (feasible) and then bisection to
+  ! ecrit_rtol. The upper edge of the Ci range is set by kcrit only when
+  ! gl_max and ci_top do not bind, so e_el is a lower bound, not E_crit.
+  ! E_crit >= e_el > 0 is used; with no transpiration at the edge (no
+  ! demand) a floor keeps E / E_crit finite (the cost is then ~0).
+  !
+  ! MDK, 22/10/26
+  !---------------------------------------------------------------------------
+  SUBROUTINE find_e_crit()
+  REAL(KIND=real_jlslsm) :: e_lo, e_hi
+  INTEGER :: it
+
+  e_lo = MAX(e_el, 0.0_real_jlslsm)
+  ! (kmax x 0.1 MPa: a scale for E when there is no flow at the edge.)
+  e_hi = MAX(2.0 * e_lo, 1.0e5_real_jlslsm * kmax(l), TINY(1.0_real_jlslsm))
+  DO it = 1, n_ecrit_iter
+    el_u = e_hi
+    CALL psi_k_at_e()
+    IF ( .NOT. ( kl_u > kcrit(l) ) ) EXIT
+    e_lo = e_hi
+    e_hi = 2.0 * e_hi
+  END DO
+  DO it = 1, n_ecrit_iter
+    IF ( e_hi - e_lo <= ecrit_rtol * e_hi ) EXIT
+    el_u = 0.5 * (e_lo + e_hi)
+    CALL psi_k_at_e()
+    IF ( kl_u > kcrit(l) ) THEN
+      e_lo = el_u
+    ELSE
+      e_hi = el_u
+    END IF
+  END DO
+  e_crit = MAX(e_lo, e_el, TINY(1.0_real_jlslsm))
+  END SUBROUTINE find_e_crit
 
   !---------------------------------------------------------------------------
   ! Xylem impairment, one transpiration el1 at point l (as stom_opt_mod_ci):
@@ -3045,13 +3179,17 @@ CONTAINS
   !   CGain: A_n - varpi (k_max - k) / k_max (Lu et al. 2020)
   !   SOX:   A_n * the SOX factor (Eller et al. 2018)
   !   CAP:   A_n, which carries the nonstomatal limitation
-  ! The last four are in mol CO2 m-2 s-1, on the basis of the call (whole
+  !   ProfitMax2: A_n (1 - E / E_crit) (Wang et al. 2020, Eqn 11), el_in
+  !          the transpiration E
+  ! The last five are in mol CO2 m-2 s-1, on the basis of the call (whole
   ! canopy, the sunlit or shaded leaves, or a layer's leaves).
   !
-  ! MDK, 21/10/26
-  REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in, psi_in)
-  REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in, psi_in
-  IF ( l_cmax ) THEN
+  ! MDK, 22/10/26
+  REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in, psi_in, el_in)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in, psi_in, el_in
+  IF ( l_pm2 ) THEN
+    profit = al_in * (1.0 - el_in / e_crit)
+  ELSE IF ( l_cmax ) THEN
     profit = al_in - theta_cmax(psi_in)
   ELSE IF ( l_cap ) THEN
     ! CAP: carbon gain only (al_in carries the nonstomatal limitation).
@@ -3094,7 +3232,7 @@ CONTAINS
   ! Profit of the latest evaluation (-HUGE if infeasible), kept if best.
   REAL(KIND=real_jlslsm) FUNCTION profit_u()
   IF ( ok_u ) THEN
-    profit_u = profit(al_u, khc_u, psi_u)
+    profit_u = profit(al_u, khc_u, psi_u, el_u)
   ELSE
     profit_u = -HUGE(1.0_real_jlslsm)
   END IF
