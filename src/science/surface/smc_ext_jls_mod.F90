@@ -297,7 +297,7 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
   ! Calculate the soil moisture availability factor for each layer from
   ! the soil to root resistivity.
   !
-  ! Refrence G. B. Bonan et al 2014
+  ! Reference: Bonan et al. (2014), full citation in soil_to_root_conductance
   ! Note: This implimentation dose not use the root to stem conductance
   !       (equation A24) when calculating the below ground resitivity
   !       (equation A25) only the soil to root conductance (equation A23).
@@ -411,14 +411,17 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
   ! If no layer can supply water (all at or below root_psi_crit), every
   ! weight sits at the 1.0e-9 floor, and normalising would give each layer
   ! the same share whatever its thickness, drying the thin top layers out
-  ! first. Weight by layer thickness instead.
+  ! first. Weight by layer thickness instead, over the rooted layers only
+  ! (as CABLE; with the exponential root profile every layer has roots).
+  ! If no layer has roots, use all layers.
   !
   ! MDK, 23/10/26
   DO j = 1,surft_pts
     i = surft_index(j)
     IF ( MAXVAL(wt_ext(i,:)) <= MERGE(TINY(1.0_real_jlslsm), 1.0e-9,           &
                                       l_som_rhizo_series) ) THEN
-      wt_ext(i,:) = dzsoil(1:nshyd)
+      wt_ext(i,:) = MERGE(dzsoil(1:nshyd), 0.0_real_jlslsm, f_root(i,:) > 0.0)
+      IF ( SUM(wt_ext(i,:)) <= 0.0 ) wt_ext(i,:) = dzsoil(1:nshyd)
     END IF
   END DO
 
@@ -461,12 +464,17 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
     psi_root_zone = calc_weighted_mean(npnts, nshyd, surft_pts, surft_index,   &
                                        psi, wt_ext)
 
-    ! If the root zone water potential is zero then realculate it weighted by
-    ! the layer height. This occurs when fsmc, and subsiquently wt_ext, is zero
-    !for all layers.
-    soil_weights(:) = dzsoil(:) / SUM(dzsoil(:))
+    ! If psi_root_zone is exactly zero (no weights at this point), use the
+    ! thickness-weighted mean over the rooted layers instead (as CABLE),
+    ! or over all layers if no layer has roots.
+    !
+    ! MDK, 23/10/26
     DO i = 1,npnts
       IF (psi_root_zone(i) == 0.0) THEN
+        soil_weights(:) = MERGE(dzsoil(1:nshyd), 0.0_real_jlslsm,              &
+                                f_root(i,:) > 0.0)
+        IF ( SUM(soil_weights(:)) <= 0.0 ) soil_weights(:) = dzsoil(1:nshyd)
+        soil_weights(:) = soil_weights(:) / SUM(soil_weights(:))
         psi_root_zone(i) = SUM(psi(i,:) * soil_weights(:))
       END IF
     END DO
@@ -796,7 +804,14 @@ FUNCTION soil_to_root_conductance(npnts,nshyd,surft_pts,surft_index,ft         &
 !     Calculates the conductance to water between the soil and root
 !     per unit area of soil (kg m-3 s-1).
 
-! Refrence: G.B.Bonan et al, 2014, Geoscientific Model Development
+! Reference:
+! - Bonan, G. B., Williams, M., Fisher, R. A., and Oleson, K. W.
+!   (2014) Modeling stomatal conductance in the earth system: linking leaf
+!   water-use efficiency and water transport along the
+!   soil-plant-atmosphere continuum. Geosci. Model Dev., 7, 2193-2222,
+!   https://doi.org/10.5194/gmd-7-2193-2014
+!
+! MDK, 23/10/26
 !---------------------------------------------------------------------
 ! TODO: Could add OMP to loops
 USE pftparm, ONLY: root_radi_pft, rootc_density_pft
@@ -871,7 +886,7 @@ soil_to_root_k(:,:) = 0.0
 ! root_mass_min, or min_rootc_pft with l_root_mass_fixed (set in physiol).
 rootc_pft_local(:) = root_mass(:)
 
-! The following two loops calcualte equation A23 in Bonan et al 2014
+! The following two loops calculate equation A23 in Bonan et al. (2014)
 ! The first calculates the soil to root conductance per unit root length
 ! (kg m-2 s-1).
 ! Note r_{sj}/r{r} is substituted by:
