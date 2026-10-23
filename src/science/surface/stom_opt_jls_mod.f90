@@ -533,6 +533,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,kl_hc_e_fp(0:1, open_pts)                                                     &
 ,psi_e_fp(0:1, open_pts)                                                       &
 ,el_e_fp(0:1, open_pts)                                                        &
+,psi_stem_e_fp(0:1, open_pts)                                                  &
+                            ! Stem water potential of the fast-path sample
+                            ! (Pa), for psi_stem at fast-path points.
+                            !
+                            ! MDK, 23/10/26
 ,hc_at_maxstress(open_pts)
 
 LOGICAL :: l_fastpath(open_pts)
@@ -556,8 +561,14 @@ INTEGER ::                                                                     &
 
 REAL(KIND=real_jlslsm) :: hc_ref(open_pts)
                             ! Reference conductance for the fast path's
-                            ! hydraulic cost: kmax, or kl_hc_max with
-                            ! l_xylem_impairment.
+                            ! hydraulic cost, as the search's: the zero-
+                            ! flow conductance of the path at the root zone
+                            ! water potential (with the soil link), or
+                            ! kl_hc_max with l_xylem_impairment. (It was
+                            ! kmax, so the cost jumped between fast-path
+                            ! and searched points.)
+                            !
+                            ! MDK, 23/10/26
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
@@ -964,7 +975,8 @@ IF (l_som_skip_search_wellwatered) THEN
       kmax_ref, conductance_b, conductance_c,                                  &
       psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,                  &
   ! OUT
-      ci_e_fp, al_e_fp, gl_e_fp, kl_e_fp, psi_e_fp, el_e_fp, kl_hc_e_fp        &
+      ci_e_fp, al_e_fp, gl_e_fp, kl_e_fp, psi_e_fp, el_e_fp, kl_hc_e_fp,       &
+      psi_stem_sample = psi_stem_e_fp                                          &
           )
 END IF
 
@@ -975,7 +987,7 @@ DO j = 1, open_pts
   IF (l_xylem_impairment) THEN
     hc_ref(j) = kl_hc_max(l)
   ELSE
-    hc_ref(j) = kmax(l)
+    hc_ref(j) = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
   END IF
 
   ! (Not with l_som_nsl: the limitation makes the optimum interior even
@@ -999,6 +1011,12 @@ DO j = 1, open_pts
     psi_leaf(l) = psi_e_fp(1,j)
     el(l) = el_e_fp(1,j)
     leaf_k(l) = kl_e_fp(1,j)
+
+    ! The stem water potential of the sample, as the searches set it, so
+    ! the per-segment stem damage follows the stem, not the root zone.
+    !
+    ! MDK, 23/10/26
+    IF (PRESENT(psi_stem)) psi_stem(l) = psi_stem_e_fp(1,j)
 
     ! The near-ca sample is the max-A one, so A / max A = 1.
     !
