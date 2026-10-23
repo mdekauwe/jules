@@ -3521,7 +3521,10 @@ CONTAINS
     ! Profit max (Sperry et al. 2017): relative carbon gain minus relative
     ! hydraulic cost, both 0-1. g_off = Rd with l_som_gain_gross (gross
     ! gain), else 0; max_al and max_kl are the maxima over the Ci range.
-    profit = (al_in + g_off) / max_al - (max_kl - kl_in) / (max_kl - kcrit(l))
+    ! (max_kl > kcrit at any feasible point; the guard is as for the
+    ! diagnostic cost in stom_opt_bounded_search. MDK, 23/10/26)
+    profit = (al_in + g_off) / max_al - (max_kl - kl_in)                       &
+             / MAX(max_kl - kcrit(l), TINY(1.0_real_jlslsm))
   END IF
   END FUNCTION profit
 

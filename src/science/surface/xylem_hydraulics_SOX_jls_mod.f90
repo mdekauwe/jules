@@ -666,6 +666,15 @@ INTEGER :: i
 ! not too close to 1 (i.e. xf not too large in magnitude - deep into the
 ! vulnerability curve, close to hydraulic failure); very extreme xf would
 ! need more terms than max_terms to converge fully.
+!
+! How far off: z = xf / (xf - 1) tends to 1 as |psi/b|^c grows, and the
+! terms shrink about as z^n. At xf = -25, z = 0.96 and 0.96^100 is about
+! 0.017, so E is a few per cent out near and beyond kcrit for curves with
+! c <= 2. This matters only with the series-based solvers; for SOX
+! curves use the lookup table (som_psi_solver = psi_solver_lut), which
+! integrates k(psi) directly.
+!
+! MDK, 23/10/26
 REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
 INTEGER, PARAMETER :: max_terms = 100
 

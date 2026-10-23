@@ -1299,13 +1299,21 @@ END DO
 ! Initialise variables that are accumulated over layers.
 ! Note that some or all of these variables are also used by the big-leaf
 ! model (can_rad_mod=1) but do not need to be initialised in that case.
+!
+! je_dummy and fapar_dummy are passed to stom_opt_mod by every canopy, but
+! read only by multilayer; set for all, so no canopy passes them undefined.
+!
+! MDK, 23/10/26
 !-----------------------------------------------------------------------------
+je_dummy(:) = 1.0
+fapar_dummy(:) = 1.0
+
 SELECT CASE ( can_rad_mod )
 CASE ( 4,5,6 )
 !$OMP PARALLEL DO IF(land_pts > 1)                                             &
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP SHARED(land_pts,anetc,gc,rdc,rdmean,psi_leaf,el,leaf_k,hydraulic_cost,   &
-!$OMP        carbon_gain,kmax_per_lyr,kcrit_per_lyr,je_dummy,fapar_dummy)      &
+!$OMP        carbon_gain,kmax_per_lyr,kcrit_per_lyr)                           &
 !$OMP PRIVATE(l)                                                               &
 !$OMP SCHEDULE(STATIC)
   DO l = 1, land_pts
@@ -1322,8 +1330,6 @@ CASE ( 4,5,6 )
     carbon_gain(l) = 0.0
     kmax_per_lyr(l) = 0.0
     kcrit_per_lyr(l) = 0.0
-    je_dummy(l) = 1.0
-    fapar_dummy(l) = 1.0
 
   END DO
 !$OMP END PARALLEL DO

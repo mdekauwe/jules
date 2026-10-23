@@ -817,8 +817,13 @@ CASE(psi_solver_taylor)
       DO k = 1,100 ! Iterate until the change in xylem conductance is
                    ! less than k_conversion_limit, or 100 iterations.
 
-        ! Calculate the new leaf water potential.
-        leaf_psi(i,j) = root_zone_psi(l) - e_leaf(i,j) / leaf_k(i,j)
+        ! Calculate the new leaf water potential. leaf_k is floored at TINY,
+        ! as in the Newton solver: deep in the curve kmax exp(-(psi/b)^c)
+        ! underflows to 0, which gave -Inf (E > 0) or NaN (E = 0).
+        !
+        ! MDK, 23/10/26
+        leaf_psi(i,j) = root_zone_psi(l)                                       &
+                        - e_leaf(i,j) / MAX(leaf_k(i,j), TINY(1.0_real_jlslsm))
 
         ! Calculate the reference psi at which to apply the zeroth order
         ! Taylor series expansion.
