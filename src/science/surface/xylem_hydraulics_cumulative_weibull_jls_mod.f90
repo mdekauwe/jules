@@ -2158,6 +2158,28 @@ END SUBROUTINE lut_grid
 ! The code here is based on the implementation in Numerical Recipes
 ! in FORTRAN 90, page 211, and makes use of the series representation
 ! of the lower incomplete gamma function. JBaguley
+!
+! What it is for, in plain terms. The water a plant path can move is the
+! area under its vulnerability curve: conductance k(psi) summed over the
+! drop in water potential from the soil to the leaf (Sperry et al. 2017),
+!
+!   E = integral( k(psi) dpsi, psi_leaf, psi_soil )
+!
+! With the cumulative Weibull curve k(psi) = kmax exp(-(psi/b)^c) this area
+! has no simple formula, but the change of variable t = (psi/b)^c turns it
+! into the standard integral above, with a = 1/c and x = (psi/b)^c:
+!
+!   integral( exp(-(psi'/b)^c) dpsi', psi, 0 ) = (-b/c) gamma(1/c, x)
+!
+! So kmax (-b/c) gamma(1/c, (psi/b)^c) is the water the path can carry from
+! psi = 0 down to psi (the "supply integral"), and E between two water
+! potentials is the difference of two such values. The leaf water
+! potential is then found by asking which psi_leaf gives the required E.
+! gamma rises from 0 (psi = 0) towards Gamma(1/c) as psi falls, so the
+! supply integral levels off: past a point the path cannot carry more
+! water however far psi_leaf falls.
+!
+! MDK, 23/10/26
 ! ---------------------------------------------------------------------
 FUNCTION incomplete_gamma( n_x, a, x ) RESULT( gamma )
 
