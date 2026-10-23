@@ -1538,20 +1538,41 @@ END SUBROUTINE build_supply_lut
 ! stem and leaf segments in series (l_som_plant_segments), as in GDAY
 ! gs_opt.c (setup_plant / plant_supply).
 !
-! Segment s has maximum conductance kmax * seg_kfac(pft,s) (the segments
-! share the whole-plant resistance, so in series they give kmax when well
-! watered) and its own cumulative Weibull curve (conductance_b_seg,
-! conductance_c_seg). For each sampled transpiration the leaf-side water
-! potential of each segment is solved downstream from psi_root_zone with the
-! same Newton-Raphson as the single segment (psi_solver_newton), and becomes the
+! Segment s has maximum conductance
+!
+!     kmax_s = kmax * seg_kfac(pft,s)
+!
+! (the segments share the whole-plant resistance, so in series they give
+! kmax when well watered) and its own cumulative Weibull curve
+! (conductance_b_seg, conductance_c_seg).
+!
+! For each sampled transpiration the leaf-side water potential of each
+! segment is solved downstream from psi_root_zone with the same
+! Newton-Raphson as the single segment (psi_solver_newton), and becomes the
 ! next segment's root-side end. The last leaf-side end is the leaf water
 ! potential.
 !
-! The conductance the hydraulic cost uses is the whole-plant k = -dE/dpsi_leaf
-! (Sperry et al. 2017), from E = int_{psi_out}^{psi_in} k_s dpsi:
-!   dpsi_out/dE = (k_s(psi_in) * dpsi_in/dE - 1) / k_s(psi_out),
-! starting from dpsi_root_zone/dE = 0. With no flow 1/k = sum_s 1/k_s(psi);
-! a single segment gives k = k(psi_leaf) (the default model).
+! The conductance the hydraulic cost uses is the whole-plant conductance
+! (Sperry et al. 2017)
+!
+!     k = -dE / dpsi_leaf
+!
+! Each segment carries the same flow
+!
+!     E = integral from psi_out to psi_in of k_s(psi) dpsi
+!
+! so differentiating with respect to E gives, segment by segment,
+!
+!     dpsi_out/dE = ( k_s(psi_in) * dpsi_in/dE - 1 ) / k_s(psi_out)
+!
+! starting from dpsi_root_zone/dE = 0 at the root end. With no flow the
+! segments add as resistances in series:
+!
+!     1/k = sum over s of 1/k_s(psi)
+!
+! A single segment gives k = k(psi_leaf) (the default model).
+!
+! MDK, 23/10/26
 ! *****************************************************************************
 SUBROUTINE psi_leaf_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
                                   veg_index, open_index, e_leaf,               &
