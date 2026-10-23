@@ -110,6 +110,7 @@ USE jules_surface_types_mod, ONLY:                                             &
    lake, npft, nnpft, ntype, soil, urban_canyon, urban_roof, ncpft
 
 USE nvegparm, ONLY: ch_nvg, emis_nvg, gs_nvg, vf_nvg
+USE cuticular_leak_state_mod, ONLY: cut_q_store   ! MDK, 23/10/26
 
 USE jules_soil_mod, ONLY: dzsoil
 USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
@@ -118,7 +119,8 @@ USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                       &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
-  l_som_rhizo_series, stomata_model, stomata_desica
+  l_som_rhizo_series, stomata_model, stomata_desica,                          &
+  l_som_capacitance_on   ! MDK, 23/10/26
 USE xylem_hydraulics_CW_jls_mod, ONLY: ksr
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: root_psi_crit, fsmc_mod
@@ -725,9 +727,15 @@ REAL(KIND=real_jlslsm) ::                                                      &
   q_rs(sm_levels),                                                             &
       ! Uptake from each layer at the actual root potential (kg m-2 s-1 per
       ! unit of rho_water g, i.e. relative).
-  ksum_rs, psi_root_rs
+  ksum_rs, psi_root_rs,                                                        &
       ! Soil-to-root conductance summed over layers (kg m-3 s-1); root
       ! potential (Pa).
+  e_root_rs
+      ! The flow through the roots (mol H2O m-2 ground s-1): el_pft, or
+      ! with the plant capacitance el_pft less the store's release
+      ! (cut_q_store), floored at 0.
+      !
+      ! MDK, 23/10/26
 LOGICAL, SAVE :: l_warned_ksr = .FALSE.
                             ! Warned once about fsmc_mod /= 2.
 REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_rs = 0.018015
@@ -1600,8 +1608,9 @@ DO n = 1,npft
   !
   ! where
   !   psi_root_zone  conductance-weighted soil psi from smc_ext (Pa)
-  !   E              the optimiser's transpiration (el_pft, mol m-2 s-1,
-  !                  ground area)
+  !   E              the flow through the roots (mol m-2 s-1, ground
+  !                  area): the optimiser's transpiration el_pft, or with
+  !                  the plant capacitance E_root (below)
   !   k_i            soil-to-root conductance of layer i (soil_root_k,
   !                  per metre of head: kg m-3 s-1)
   !   psi_i          soil water potential of layer i (soil_wp, Pa)
@@ -1628,8 +1637,22 @@ DO n = 1,npft
       ! path. E (mol m-2 s-1) x m_h2o_rs (kg mol-1) is a mass flux (kg m-2
       ! s-1); dividing by K_s gives metres of head, and rho_water g turns
       ! head into Pa.
+      !
+      ! With the plant capacitance the roots carry the soil-to-store flow,
+      !
+      !   E_root = E - q_store / M_w,
+      !
+      ! less than E in the morning (the store empties) and more than E in
+      ! the afternoon and at night (it refills, E_root > 0 with E = 0).
+      ! Where the store gives more than E the excess goes back to the soil
+      ! (cut_store_return in sf_evap) and E_root is 0 here.
+      !
+      ! MDK, 23/10/26
+      e_root_rs = el_pft(l,n)
+      IF ( l_som_capacitance_on .AND. n <= npft )                             &
+        e_root_rs = MAX(el_pft(l,n) - cut_q_store(l,n) / m_h2o_rs, 0.0)
       psi_root_rs = psi_root_zone_pft(l,n)                                     &
-                    - el_pft(l,n) * m_h2o_rs * rho_water * g / ksum_rs
+                    - e_root_rs * m_h2o_rs * rho_water * g / ksum_rs
 
       ! Uptake from each layer, q_i = k_i (psi_i - psi_root), in kg m-3 s-1
       ! x Pa. Only the relative sizes matter, so the units cancel in the

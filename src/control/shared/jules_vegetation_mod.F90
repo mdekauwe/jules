@@ -1868,18 +1868,30 @@ IF ( fsmc_shape == 1 .AND. .NOT. l_use_pft_psi ) THEN
                'fsmc_shape=1 requires l_use_pft_psi=T ')
 END IF
 
+! Segments with the multilayer canopy (can_rad_mod 5, 6): each leaf's
+! parallel path is root, stem and leaf in series (MDK, 23/10/26).
 IF ( l_som_plant_segments .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.     &
                                   ( som_psi_solver /= psi_solver_newton .AND.   &
                                     som_psi_solver /= psi_solver_lut ) .OR.     &
-                                  ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) ) THEN
+                                  can_rad_mod == 4 ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_som_plant_segments requires stomata_model=4 to 7 or 9, ' //       &
-               'som_psi_solver=2 or 3 and can_rad_mod=1 or 7')
+               'som_psi_solver=2 or 3 and can_rad_mod=1, 5, 6 or 7')
+END IF
+! kplant_model 1 (root and stem per unit ground area) is not set up for the
+! multilayer canopy, whose leaves' paths are per unit leaf area.
+!
+! MDK, 23/10/26
+IF ( kplant_model == kplant_model_ground .AND.                                 &
+     ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'kplant_model=1 is not available with can_rad_mod=5 or 6')
 END IF
 
 ! kplant_model 1 needs the segments (which imply the profit-max path and
-! can_rad_mod = 1 or 7, checked above; DESICA has no segments).
+! not can_rad_mod 4, checked above; DESICA has no segments).
 ! MDK, 21/10/26
 IF ( ( kplant_model /= kplant_model_param .AND.                                &
        kplant_model /= kplant_model_ground ) .OR.                              &

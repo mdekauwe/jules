@@ -1703,8 +1703,7 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  l_scale_resp_pm, stomata_desica,              &
                                  som_psi_solver, psi_solver_lut,               &
                                  l_ximpair_seg_memory, l_som_plant_segments,   &
-                                 l_ximpair_rec_growth, xylem_impairment_memory,&
-                                 leaf_flux_mod, leaf_flux_stom_opt
+                                 l_ximpair_rec_growth, xylem_impairment_memory
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs, l_snow_albedo
 
@@ -2394,18 +2393,6 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
     CALL ereport(routinename, ERROR,                                           &
     'pft_xylem_impairment_model 1 (kmax) and 4 (kmax refit) are retired; '  // &
     'use 2 or 3 (their code is on branch xylem_impairment at 130a575)')
-  END IF
-  ! The multilayer stomatal optimisation (can_rad_mod 5 or 6 with a
-  ! stomatal optimisation model) uses the intact PFT curve and never calls
-  ! update_xylem_impairment, so impairment would silently do nothing.
-  ! MDK, 18/10/26
-  IF ( leaf_flux_mod == leaf_flux_stom_opt .AND.                              &
-       ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) ) THEN
-    ERROR = 101
-    CALL ereport(routinename, ERROR,                                           &
-    'xylem impairment (pft_xylem_impairment_model /= 0) is not coded for '  // &
-    'the multilayer stomatal optimisation (can_rad_mod = 5 or 6); use '     // &
-    'can_rad_mod = 1 or 7')
   END IF
 END IF
 

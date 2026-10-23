@@ -938,6 +938,20 @@ REAL(KIND=real_jlslsm) :: psi0_store
 REAL(KIND=real_jlslsm) :: psi0_stem
                             ! Last step's psi_stem (Pa).
 LOGICAL :: l_seg_cut
+LOGICAL :: l_ml_ximp
+                            ! Multilayer stomatal optimisation with xylem
+                            ! impairment (not in spin-up).
+REAL(KIND=real_jlslsm) :: ml_kfrac(land_pts), kmax_imp_lyr(land_pts)
+                            ! Multilayer: the impaired fraction of the
+                            ! conductance, k_max / kmax_pft (1 without
+                            ! impairment), and this layer's impaired path
+                            ! conductance per unit leaf area,
+                            !
+                            !   kmax_imp_lyr = kmax_leaf_lyr ml_kfrac
+                            !
+                            ! (mol H2O m-2 leaf s-1 Pa-1).
+                            !
+                            ! MDK, 23/10/26
                             ! psi_stem is solved (plant segments under the
                             ! impairment).
 REAL(KIND=real_jlslsm) :: qs_air_cut(land_pts)
@@ -1901,10 +1915,30 @@ CASE ( 5, 6 )
   ! ---------------------
   IF (leaf_flux_mod == leaf_flux_stom_opt) THEN
 
-    ! Unimpaired PFT vulnerability curve parameters: the multilayer stomatal
-    ! optimisation does not apply the xylem impairment model.
-    b_pft_pts(:) = conductance_b_pft(ft)
-    c_pft_pts(:) = conductance_c_pft(ft)
+    ! Vulnerability curve: the PFT's, or with xylem impairment the
+    ! point's impaired curve (conductance_b, conductance_c), and the
+    ! impaired fraction of the plant conductance, k_max / kmax_pft, which
+    ! scales each layer's path (kmax_imp_lyr) while the intact path
+    ! (kmax_leaf_lyr) is the reference for the hydraulic cost, as the
+    ! two-leaf classes. With plant segments each leaf's parallel path is
+    ! the root, stem and leaf segments in series (stom_opt_mod), with the
+    ! segment memory under impairment model 3, as big-leaf and two-leaf.
+    !
+    ! MDK, 23/10/26
+    l_ml_ximp = .NOT. is_spinup .AND.                                          &
+                pft_xylem_impairment_model(ft) /= xylem_impairment_none
+    ml_kfrac(:) = 1.0
+    IF ( l_ml_ximp ) THEN
+      b_pft_pts(:) = conductance_b(:)
+      c_pft_pts(:) = conductance_c(:)
+      DO m = 1,veg_pts
+        l = veg_index(m)
+        ml_kfrac(l) = k_max(l) / kmax_pft(ft)
+      END DO
+    ELSE
+      b_pft_pts(:) = conductance_b_pft(ft)
+      c_pft_pts(:) = conductance_c_pft(ft)
+    END IF
 
     fsmc_unity(:) = 1.0
     gl_max_lf(:)  = gl_leaf_cap
@@ -2024,6 +2058,9 @@ CASE ( 5, 6 )
         gc(:) = 0.0
         rdc(:) = 0.0
         psi_leaf(:) = 0.0
+        ! With plant segments, the leaf-area-weighted stem psi of the
+        ! leaves' paths (MDK, 23/10/26).
+        IF ( l_som_plant_segments ) psi_stem(:) = 0.0
         leaf_k(:) = 0.0
         carbon_gain(:) = 0.0
         hydraulic_cost(:) = 0.0
@@ -2132,6 +2169,12 @@ CASE ( 5, 6 )
 
             END DO
         !$OMP END PARALLEL DO
+
+            ! This layer's impaired path (MDK, 23/10/26).
+            DO m = 1,veg_pts
+              l = veg_index(m)
+              kmax_imp_lyr(l) = kmax_leaf_lyr(l) * ml_kfrac(l)
+            END DO
 
             !-------------------------------------------------------------------
             ! Calculate photosynthetic parameters.
@@ -2363,13 +2406,15 @@ CASE ( 5, 6 )
                                  je_sun_ml, t_sun_lt, ones_c, fapar_sun(:,n),  &
                                  rd_sun, ci_sun_ml, anetl_sun, el_sun,         &
                                  flux_o3_l_sun, fo3_l_sun, gl_sun,             &
-                                 psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun )
+                                 psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,     &
+                                 psi_stem_sun )
                   CALL ml_class( vcmax_shd_ml, kc_shd_lt, ko_shd_lt,          &
                                  ccp_shd_lt, km_shd_lt, dq_shd_lt, qs_shd_lt,  &
                                  je_shd_ml, t_shd_lt, ones_c, fapar_shd(:,n),  &
                                  rd_shd, ci_shd_ml, anetl_shd, el_shd,         &
                                  flux_o3_l_shd, fo3_l_shd, gl_shd,             &
-                                 psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd )
+                                 psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,     &
+                                 psi_stem_shd )
                 ELSE
                 ! share_sup: this layer's kmax share, set with kmax_leaf_lyr.
                 ! Added gs opt calls for sunlit and shaded, 29 Apr, MGDK
@@ -2377,12 +2422,14 @@ CASE ( 5, 6 )
                                je_sun_ratio, fapar_sun(:,n),                   &
                                rd_sun, ci_sun_ml, anetl_sun, el_sun,           &
                                flux_o3_l_sun, fo3_l_sun, gl_sun,               &
-                               psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun )
+                               psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,       &
+                               psi_stem_sun )
                 CALL ml_class( vcmax, kc, ko, ccp, km, dqc, qs, je, tstar,     &
                                je_shd_ratio, fapar_shd(:,n),                   &
                                rd_shd, ci_shd_ml, anetl_shd, el_shd,           &
                                flux_o3_l_shd, fo3_l_shd, gl_shd,               &
-                               psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd )
+                               psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,       &
+                               psi_stem_shd )
                 END IF
 
                 ! Closed leaves get min_gl_pft from stom_opt_mod, a canopy
@@ -2445,7 +2492,8 @@ CASE ( 5, 6 )
         !$OMP        el,el_sun,el_shd,hydraulic_cost,HC_sun,HC_shd,carbon_gain,        &
         !$OMP        CG_sun,CG_shd,psi_leaf,psi_leaf_sun,psi_leaf_shd,leaf_k,          &
         !$OMP        leaf_k_sun,leaf_k_shd,ci_gl_ml,ci_lai_ml,gl_sun,gl_shd,           &
-        !$OMP        ci_sun_ml,ci_shd_ml)
+        !$OMP        ci_sun_ml,ci_shd_ml,l_som_plant_segments,psi_stem,                &
+        !$OMP        psi_stem_sun,psi_stem_shd)
             DO m = 1,veg_pts
             l = veg_index(m)
 
@@ -2487,6 +2535,12 @@ CASE ( 5, 6 )
             leaf_k(l) = leaf_k(l) + (fsun(l,n) * leaf_k_sun(l) +               &
                                     (1.0 - fsun(l,n)) * leaf_k_shd(l)) *       &
                                     dlai(l)
+
+            ! MDK, 23/10/26
+            IF ( l_som_plant_segments )                                        &
+              psi_stem(l) = psi_stem(l) +                                      &
+                            (fsun(l,n) * psi_stem_sun(l) +                     &
+                            (1.0 - fsun(l,n)) * psi_stem_shd(l)) * dlai(l)
 
             ci_gl_ml(l) = ci_gl_ml(l) +                                        &
                           (fsun(l,n) * gl_sun(l) * ci_sun_ml(l) +              &
@@ -2583,6 +2637,10 @@ CASE ( 5, 6 )
                 leaf_k(l)         = leaf_k(l)         / lai(l)
                 carbon_gain(l)    = carbon_gain(l)    / lai(l)
                 hydraulic_cost(l) = hydraulic_cost(l) / lai(l)
+                IF ( l_som_plant_segments )                                    &
+                  psi_stem(l) = psi_stem(l) / lai(l)   ! MDK, 23/10/26
+            ELSE IF ( l_som_plant_segments ) THEN
+                psi_stem(l) = psi_src(l)               ! MDK, 23/10/26
             END IF
 
             ! gl-weighted canopy ci (as two-leaf); the LAI mean when no
@@ -2647,6 +2705,32 @@ CASE ( 5, 6 )
         IF ( l_lt_lyr ) THEN
           DEALLOCATE( lai_lt_c, sw_lt_c, wlw_lt_c, wlws_lt_c, frad_lt_c,       &
                       ff_lt_c, gl_lt_c, t_lt_c, gbw_lt_c )
+        END IF
+
+        ! Xylem impairment state update, once per timestep (after the
+        ! humidity iteration), as two-leaf: the canopy (leaf-area-weighted)
+        ! psi_leaf and, with segments, psi_stem drive one damage state per
+        ! point, at the lit points. With the plant capacitance the update
+        ! is made after the store, below.
+        !
+        ! MDK, 23/10/26
+        IF ( l_ml_ximp .AND. .NOT. l_cap_store ) THEN
+          open_pts = 0
+          DO m = 1,veg_pts
+            l = veg_index(m)
+            IF ( apar(l) > 0.0 ) THEN
+              open_pts = open_pts + 1
+              open_land_index(open_pts) = l
+            END IF
+          END DO
+          CALL update_xylem_impairment(                                        &
+                ! IN
+                  land_pts, open_pts, open_land_index, ft, psi_leaf, psi_src,  &
+                  psi_stem,                                                    &
+                ! IN OUT
+                  k_max, psi_leaf_extreme, psi_root_extreme,                   &
+                ! IN (recovery)
+                  lai, canht, anetc )
         END IF
 ELSE
 
@@ -4130,12 +4214,10 @@ IF ( l_cap_store ) THEN
 
   ! Xylem impairment update, once per timestep, in place of those in the
   ! big-leaf and two-leaf paths: the same lit points, with the water
-  ! potentials of the total (stomatal plus cuticular) flux. (The
-  ! multilayer stomatal optimisation has no xylem impairment.)
+  ! potentials of the total (stomatal plus cuticular) flux.
   !
   ! MDK, 23/10/26
-  IF ( can_rad_mod /= 5 .AND. can_rad_mod /= 6 )                               &
-    CALL update_xylem_impairment(                                              &
+  CALL update_xylem_impairment(                                                &
           ! IN
             land_pts, open_pts, open_land_index, ft, psi_leaf, psi_src,        &
             psi_stem,                                                          &
@@ -4635,7 +4717,7 @@ END SUBROUTINE store_commit
 SUBROUTINE ml_class( vcmax_x, kc_x, ko_x, ccp_x, km_x, dq_x, qs_x, je_x,      &
                      t_x, je_ratio_x, fapar_x, rd_c, ci_c, anetl_c, el_c,     &
                      flux_o3_c, fo3_c, gl_c, psi_leaf_c, cg_c, hc_c,          &
-                     leaf_k_c )
+                     leaf_k_c, psi_stem_c )
 IMPLICIT NONE
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
@@ -4649,6 +4731,11 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                     &
   hc_c(land_pts), leaf_k_c(land_pts)
                             ! OUT from stom_opt_mod; IN OUT here so that
                             ! points it does not set keep their values.
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: psi_stem_c(land_pts)
+                            ! The stem psi of this leaf's path (Pa; with
+                            ! plant segments).
+                            !
+                            ! MDK, 23/10/26
 
 INTEGER :: i, l
 REAL(KIND=real_jlslsm) :: e_tgt_x(land_pts)
@@ -4666,15 +4753,16 @@ CALL stom_opt_mod (                                                            &
     pft_photo_model, veg_pts, veg_index,                                       &
     ca, psi_src, acr, apar, oa, vcmax_x, kc_x, ko_x, ccp_x, pstar,             &
     km_x, dq_x, qs_x, je_x, t_x, je_ratio_x, fapar_x,                          &
-    kmax_leaf_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,                           &
+    kmax_imp_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,                            &
     l_multilayer, zero_c, zero_c, zero_c,                                      &
     kmax_leaf_lyr, b_pft_pts, c_pft_pts,                                       &
-    psi_leaf_extreme, psi_root_extreme, .FALSE.,                               &
+    psi_leaf_extreme, psi_root_extreme, l_ml_ximp,                             &
     ! IN OUT
     rd_c,                                                                      &
     ! OUT
     ci_c, anetl_c, el_c, flux_o3_c, fo3_c,                                     &
-    gl_c, psi_leaf_c, cg_c, hc_c, leaf_k_c                                     &
+    gl_c, psi_leaf_c, cg_c, hc_c, leaf_k_c,                                    &
+    psi_stem = psi_stem_c                                                      &
 )
 
 ! Plant capacitance (the multilayer store's pass): this leaf at
@@ -4700,10 +4788,11 @@ IF ( ml_tank_pass ) THEN
     CALL stom_opt_at_e( land_pts, ft, n_tgt, idx_tgt, pft_photo_model,         &
                         veg_index, rd_c, ca, psi_src, acr, apar, oa, vcmax_x,  &
                         kc_x, ko_x, ccp_x, pstar, km_x, dq_x, qs_x, je_x, t_x, &
-                        je_ratio_x, fapar_x, ipar, kmax_leaf_lyr,              &
+                        je_ratio_x, fapar_x, ipar, kmax_imp_lyr,               &
                         kcrit_leaf_lyr, gl_max_eff, l_multilayer, zero_c,      &
                         zero_c, zero_c, kmax_leaf_lyr, b_pft_pts, c_pft_pts,   &
-                        psi_leaf_extreme, psi_root_extreme, .FALSE., e_tgt_x,  &
+                        psi_leaf_extreme, psi_root_extreme, l_ml_ximp,         &
+                        e_tgt_x,                                               &
                         ci_c, anetl_c, gl_c, el_c )
 END IF
 
