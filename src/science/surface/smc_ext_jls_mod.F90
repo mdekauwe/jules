@@ -408,14 +408,12 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
   END DO
 !$OMP END PARALLEL
 
-  ! If every layer is at or below root_psi_crit, every raw weight above sits
-  ! at the 1.0e-9 floor, and normalising would give each layer an equal
-  ! share regardless of thickness. That both makes psi_root_zone a plain
-  ! per-layer mean (dominated by the thin, driest top layers) and extracts
-  ! the same absolute amount from a 5 cm layer as a 21 cm one, drying the
-  ! thin layers out first. The psi_root_zone == 0.0 fallback below can
-  ! never fire in that case (the floor keeps the weights non-zero), so
-  ! fall back to thickness weights here instead.
+  ! If no layer can supply water (all at or below root_psi_crit), every
+  ! weight sits at the 1.0e-9 floor, and normalising would give each layer
+  ! the same share whatever its thickness, drying the thin top layers out
+  ! first. Weight by layer thickness instead.
+  !
+  ! MDK, 23/10/26
   DO j = 1,surft_pts
     i = surft_index(j)
     IF ( MAXVAL(wt_ext(i,:)) <= MERGE(TINY(1.0_real_jlslsm), 1.0e-9,           &
@@ -444,9 +442,18 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
 
 
   !---------------------------------------------------------------------
-  ! If needed calculate the root zone water potential. This is the
-  ! average of the water potential in all the layers weighted by the
-  ! fraction of the transpiration taken from each layer.
+  ! Root-zone soil water potential
+  !
+  !   psi_root_zone = sum_n wt_ext_n psi_n
+  !
+  ! the mean of the layer water potentials psi_n weighted by the
+  ! normalised extraction weights wt_ext_n (sum to 1). With profit max
+  ! (l_som_rhizo_series) the weights are the soil-to-root conductances,
+  ! so this is the conductance-weighted source potential sum k psi /
+  ! sum k. Only computed for the stomatal optimisation, DESICA and PFTs
+  ! with calc_rz_psi set, which use it.
+  !
+  ! MDK, 23/10/26
   !---------------------------------------------------------------------
 
   IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft)               &
@@ -660,6 +667,15 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 weighted_mean(:)=0.0
 
+! Weighted mean over the soil layers,
+!
+!   weighted_mean = sum_n norm_weights_n var_n
+!
+! accumulated layer by layer. The weights are already normalised (they sum
+! to 1 at each point, see calc_norm_weights), so no division is needed.
+! Points without this surface type keep 0.
+!
+! MDK, 23/10/26
 DO n = 1,nshyd
   !CDIR NODEP
   DO j = 1,surft_pts
