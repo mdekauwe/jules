@@ -35,12 +35,16 @@ USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_w_store,                 &
                                     cut_psi_unset, cut_c_store,                &
                                     cut_w_shed   ! MDK, 22/10/26
 USE phen_budburst_mod, ONLY: phen_gdd, phen_bb_day, phen_dormant
+USE triffid_hydmort_mod, ONLY: hydmort_g_pft, hydmort_m_pft,                  &
+                               hydmort_dead_pft, hydmort_plc_peak,          &
+                               hydmort_pref   ! MDK, 21/10/26
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,   &
                            nsc_repair_pft, nsc_starv_pft, nsc_turg_acc,   &
                            nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day, &
                            phen_fbleaf, phen_nlow, phen_nhigh, nsc_regrow_acc, &
                            phen_psi_acc
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
+USE stom_opt_jls_mod, ONLY: som_lambda_eff_pft   ! MDK, 22/10/26
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
@@ -3743,6 +3747,16 @@ CASE ('hydraulic_cost_pft')
   cube_land = cube_from_array(psparms%hydraulic_cost_pft)
   cube = map_from_land(cube_land)
 
+! Marginal water price at the stomatal optimum (mol/mol -> umol/mmol).
+! MDK, 22/10/26
+CASE ('lambda_eff_pft')
+  IF ( ALLOCATED(som_lambda_eff_pft) ) THEN
+    cube_land = cube_from_array(1.0e3 * som_lambda_eff_pft)
+  ELSE
+    cube_land = cube_from_array(0.0 * psparms%hydraulic_cost_pft)
+  END IF
+  cube = map_from_land(cube_land)
+
   ! Percentage loss of conductance at the leaf water potential compared to the
   ! maximum conductance JBaguley
   ! DESICA (stomata_model = 8) stem water potential (Pa -> MPa) and root
@@ -4068,6 +4082,41 @@ CASE ( 'ximpair_fmin_acc' )
 CASE ( 'nsc_starv' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(nsc_starv_pft) ) workspace_pft(:,:) = nsc_starv_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! MDK, 21/10/26
+CASE ( 'hydmort_g' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(hydmort_g_pft) ) workspace_pft(:,:) = hydmort_g_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! MDK, 21/10/26
+CASE ( 'hydmort_m' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(hydmort_m_pft) ) workspace_pft(:,:) = hydmort_m_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! MDK, 21/10/26
+CASE ( 'hydmort_dead' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(hydmort_dead_pft) ) workspace_pft(:,:) = hydmort_dead_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! MDK, 21/10/26
+CASE ( 'hydmort_pref' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(hydmort_pref) ) workspace_pft(:,:) = hydmort_pref
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! MDK, 21/10/26
+CASE ( 'hydmort_plc_peak' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(hydmort_plc_peak) ) workspace_pft(:,:) = hydmort_plc_peak
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

@@ -33,6 +33,8 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt,
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf
+USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft, &
+    hydmort_plc_peak   ! MDK, 21/10/26
 
 USE ancil_info, ONLY:                                                          &
   dim_cslayer, land_pts, nsurft, nsoilt
@@ -2345,6 +2347,36 @@ CASE ( 'nsc_npp_mean' )
     CALL cube_get_data(cube_land, nsc_npp_mean(:,:))
   ELSE
     nsc_npp_mean(:,:) = const_val
+  END IF
+
+! MDK, 21/10/26
+CASE ( 'hydmort_pref' )
+  CALL hydmort_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, hydmort_pref(:,:))
+  ELSE
+    hydmort_pref(:,:) = const_val
+  END IF
+
+! MDK, 21/10/26
+CASE ( 'hydmort_dead' )
+  CALL hydmort_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, hydmort_dead_pft(:,:))
+  ELSE
+    hydmort_dead_pft(:,:) = const_val
+  END IF
+
+! MDK, 21/10/26
+CASE ( 'hydmort_plc_peak' )
+  CALL hydmort_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, hydmort_plc_peak(:,:))
+  ELSE
+    hydmort_plc_peak(:,:) = const_val
   END IF
 
 CASE ( 'nsc_npp_wt' )

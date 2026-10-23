@@ -33,6 +33,8 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt,
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf
+USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft, &
+    hydmort_plc_peak   ! MDK, 21/10/26
 
 
 USE model_grid_mod, ONLY:                                                      &
@@ -233,7 +235,7 @@ DO i = 1,nvars
            'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', &
            'ximpair_rebuilt', 'ximpair_lock_new',                     &
            'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc', &
-           'gpp_acc',          &
+           'gpp_acc', 'hydmort_pref', 'hydmort_dead', 'hydmort_plc_peak',     &
            'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',           &
            'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',     &
            'cpl_gbw_shd', 'cpl_ra_ca',                                       &
@@ -254,6 +256,10 @@ DO i = 1,nvars
                'cpl_gbw_sun', 'cpl_gbw_shd', 'cpl_ra_ca',  &
                'phen_bb_day' )
           ! (sf_stom state: -1 = not yet set; MDK, 22/10/26)
+          global_data_2d(:,1:npft) = -1.0
+        ! Hydraulic mortality: not set (the damage at the first TRIFFID
+        ! step). MDK, 22/10/26
+        CASE ( 'hydmort_pref', 'hydmort_plc_peak' )
           global_data_2d(:,1:npft) = -1.0
         CASE ( 'nsc_turg_acc' )
           global_data_2d(:,1:npft) = -1.0e30
@@ -866,6 +872,27 @@ DO i = 1,nvars
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), nsc_npp_mean(:,n))
+    END DO
+
+  ! MDK, 21/10/26
+  CASE ( 'hydmort_pref' )
+    CALL hydmort_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), hydmort_pref(:,n))
+    END DO
+
+  ! MDK, 21/10/26
+  CASE ( 'hydmort_dead' )
+    CALL hydmort_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), hydmort_dead_pft(:,n))
+    END DO
+
+  ! MDK, 21/10/26
+  CASE ( 'hydmort_plc_peak' )
+    CALL hydmort_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), hydmort_plc_peak(:,n))
     END DO
 
   CASE ( 'nsc_npp_wt' )

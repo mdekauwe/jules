@@ -80,7 +80,7 @@ USE bvoc_emissions_mod, ONLY: bvoc_emissions
 USE conversions_mod, ONLY: zerodegc
 USE theta_field_sizes, ONLY: t_i_length
 
-USE jules_surface_types_mod, ONLY: nnpft, ncpft
+USE jules_surface_types_mod, ONLY: nnpft, ncpft, npft
 
 USE pftparm, ONLY:                                                             &
         kmax_pft, conductance_b_pft, conductance_c_pft, kcrit, gcuticular,     &
@@ -93,7 +93,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     stomata_medlyn, stomata_sox_analytical, stomata_desica,                    &
     stomata_profit_max,                                                        &
     stomata_sox_opt, stomata_cmax, stomata_cgain,                              &
-    stomata_supply_loss, stomata_cap,                                          &
+    stomata_supply_loss, stomata_cap, stomata_pm2,                             &
     photo_adapt, photo_acclim, photo_adapt_acclim,                             &
     photo_act_model, photo_act_pft, photo_act_gb, n_photo_coef,                &
 ! imported scalars that are not changed
@@ -148,7 +148,9 @@ USE veg3_field_mod, ONLY: veg_state_type
 USE sugar_mod, ONLY: sugar
 
 
-USE stom_opt_jls_mod, ONLY: stom_opt_mod, stom_opt_at_e
+USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_call,                   &
+                            som_lambda_eff_pft, stom_opt_at_e
+                            ! MDK, 23/10/26
 USE cuticular_leak_state_mod, ONLY: cut_w_store, cut_psi_stem,               &
                                     cut_q_store, cut_c_store, cut_m_h2o,       &
                                     cut_state_alloc, cut_psi_unset,            &
@@ -740,6 +742,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
 
 ! 29 Apr, MGDK
 REAL(KIND=real_jlslsm) :: je_dummy(land_pts), fapar_dummy(land_pts)
+REAL(KIND=real_jlslsm) :: lam_sun(land_pts), lam_shd(land_pts)
+                            ! Two-leaf: dA/dE at the optimum of the sunlit
+                            ! and shaded leaves (som_lambda_call), for the
+                            ! diagnostic som_lambda_eff_pft.
+                            !
+                            ! MDK, 22/10/26
 REAL(KIND=real_jlslsm) :: kmax_per_lyr(land_pts), kcrit_per_lyr(land_pts)
                             ! kcrit_per_lyr scales kcrit(ft) by the same
                             ! fraction of whole-plant kmax that each layer
@@ -1338,7 +1346,8 @@ IF ( ( stomata_model == stomata_medlyn )                                       &
      .OR. ( stomata_model == stomata_cmax )                                    &
      .OR. ( stomata_model == stomata_cgain )                                   &
      .OR. ( stomata_model == stomata_supply_loss )                             &
-     .OR. ( stomata_model == stomata_cap ) ) THEN
+     .OR. ( stomata_model == stomata_cap )                                     &
+     .OR. ( stomata_model == stomata_pm2 ) ) THEN
   ! Avoid dq=0 as this would cause the model to blow up.
   dq_min = 0.0001
 ELSE
@@ -3444,6 +3453,8 @@ CASE ( 7 )
                          rd_sun, ci_sun_2l, anetl_sun, el_sun,                 &
                          flux_o3_l_sun, fo3_l_sun, gl_sun, psi_leaf_sun,       &
                          CG_sun, HC_sun, leaf_k_sun, psi_stem_sun )
+    lam_sun(:) = 0.0
+    IF ( ALLOCATED(som_lambda_call) ) lam_sun(:) = som_lambda_call(:)
     CALL two_leaf_class( apar_shd_2l, lai_shd_2l, kmax_ref_shd_2l,            &
                          qs_shd_lt, dq_shd_lt, gbw_shd_lt, gbw_sun_lt,         &
                          gl_sun, t_shd_lt, gl_max_shd_2l, acr_shd_2l,          &
@@ -3452,6 +3463,8 @@ CASE ( 7 )
                          rd_shd, ci_shd_2l, anetl_shd, el_shd,                 &
                          flux_o3_l_shd, fo3_l_shd, gl_shd, psi_leaf_shd,       &
                          CG_shd, HC_shd, leaf_k_shd, psi_stem_shd )
+    lam_shd(:) = 0.0
+    IF ( ALLOCATED(som_lambda_call) ) lam_shd(:) = som_lambda_call(:)
 
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -3477,6 +3490,25 @@ CASE ( 7 )
   IF ( l_som_coupled_e ) CALL cpl_state_save( ft, land_pts, veg_pts, veg_index,&
                                               gl_sun, gl_shd, gbw_sun_lt,      &
                                               gbw_shd_lt, ra_ca_lt )
+
+  ! Diagnostic marginal water price of the canopy (som_lambda_eff_pft):
+  ! the sunlit and shaded leaves' dA/dE weighted by their transpiration.
+  !
+  ! MDK, 22/10/26
+!$OMP CRITICAL (som_lambda_alloc)
+  IF ( .NOT. ALLOCATED(som_lambda_eff_pft) ) THEN
+    ALLOCATE( som_lambda_eff_pft(land_pts, npft) )
+    som_lambda_eff_pft(:,:) = 0.0
+  END IF
+!$OMP END CRITICAL (som_lambda_alloc)
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    som_lambda_eff_pft(l,ft) = 0.0
+    IF ( el_sun(l) + el_shd(l) > TINY(1.0_real_jlslsm) )                       &
+      som_lambda_eff_pft(l,ft) = ( el_sun(l) * lam_sun(l)                      &
+                                   + el_shd(l) * lam_shd(l) )                  &
+                                 / ( el_sun(l) + el_shd(l) )
+  END DO
 
   ! Plant water store: the transpiration that brings the leaf to the
   ! optimiser's psi_leaf at the end of the step through the plant water

@@ -163,8 +163,7 @@ CONTAINS
 ! *****************************************************************************
 SUBROUTINE set_ksr_path( land_pts, veg_pts, veg_index, share )
 
-USE jules_vegetation_mod, ONLY: l_som_rhizo_series, l_som_rhizo_mfp
-USE rhizo_mfp_mod, ONLY: rz_share
+USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 
 IMPLICIT NONE
 
@@ -180,15 +179,6 @@ DO m = 1,veg_pts
   l = veg_index(m)
   IF ( ksr(l) >= 0.0 ) ksr_path(l) = ksr(l) * share(l)
 END DO
-! l_som_rhizo_mfp: the path's share of the root system (rhizo_mfp_mod).
-IF ( l_som_rhizo_mfp ) THEN
-  IF ( .NOT. ALLOCATED(rz_share) ) ALLOCATE(rz_share(land_pts))
-  rz_share(:) = 0.0
-  DO m = 1,veg_pts
-    l = veg_index(m)
-    rz_share(l) = share(l)
-  END DO
-END IF
 
 END SUBROUTINE set_ksr_path
 
@@ -382,7 +372,6 @@ FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, b, c, kcap_frac, kx,       &
 USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_rhizo_series
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
-USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_k_zero
 
 IMPLICIT NONE
 
@@ -441,11 +430,7 @@ END IF
 
 IF ( l_soil ) THEN
   IF ( ksr_path(l) >= 0.0 ) THEN
-    ! l_som_rhizo_mfp: the marginal soil conductance at zero flow, i.e. at
-    ! the zero-flow root potential (with no redistribution only the
-    ! wettest layer conducts there).
     k_s = ksr_path(l)
-    IF ( rhizo_active(l) ) k_s = rhizo_k_zero(l)
     IF ( k_s <= TINY(1.0_real_jlslsm) ) RETURN
     r = r + 1.0 / k_s
   END IF
@@ -1503,7 +1488,6 @@ SUBROUTINE leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
 USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
-USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
 
 IMPLICIT NONE
 
@@ -1550,11 +1534,10 @@ REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
       ! Floor on a segment's conductance, as a fraction of its kmax.
 
 INTEGER :: j, l, iseg, it, i
-LOGICAL :: l_closed(n_e_leaf), l_ok
+LOGICAL :: l_closed(n_e_leaf)
       ! l_som_rhizo_series: no soil conductance and E > 0 (infeasible).
-REAL(KIND=real_jlslsm) :: k_s, dpsi_s
-      ! l_som_rhizo_series: this path's soil-to-root conductance;
-      ! l_som_rhizo_mfp: the soil drop (Pa).
+REAL(KIND=real_jlslsm) :: k_s
+      ! l_som_rhizo_series: this path's soil-to-root conductance.
 
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_in(n_e_leaf), psi_out(n_e_leaf),                                         &
@@ -1589,32 +1572,14 @@ DO j = 1, open_pnts
   ! (leaf_k_intact, for the hydraulic cost under impairment: the intact
   ! segments at the same water potentials) starts the same way.
   IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
-    IF ( rhizo_active(l) ) THEN
-      ! l_som_rhizo_mfp: nonlinear soil link, dpsi_root/dE = -1/k_s with
-      ! k_s the marginal soil conductance at the root.
-      DO i = 1, n_e_leaf
-        CALL rhizo_path_drop( l, e_leaf(i,j), dpsi_s, k_s, l_ok )
-        IF ( l_ok .AND. k_s > TINY(1.0_real_jlslsm) ) THEN
-          psi_in(i)  = MAX(root_zone_psi(l) - dpsi_s, som_psi_in_min)
-          dpsi_de(i) = -1.0 / k_s
-          dpsi_de_int(i) = -1.0 / k_s
-        ELSE IF ( l_ok .AND. e_leaf(i,j) <= 0.0 ) THEN
-          ! No flow and no conducting layer: the plant alone, as at k_s = 0.
-          CONTINUE
-        ELSE
-          l_closed(i) = .TRUE.
-        END IF
-      END DO
+    k_s = ksr_path(l)
+    IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+      psi_in(:)  = MAX(root_zone_psi(l) - e_leaf(:,j) / k_s,                   &
+                       som_psi_in_min)
+      dpsi_de(:) = -1.0 / k_s
+      dpsi_de_int(:) = -1.0 / k_s
     ELSE
-      k_s = ksr_path(l)
-      IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
-        psi_in(:)  = MAX(root_zone_psi(l) - e_leaf(:,j) / k_s,                 &
-                         som_psi_in_min)
-        dpsi_de(:) = -1.0 / k_s
-        dpsi_de_int(:) = -1.0 / k_s
-      ELSE
-        l_closed(:) = e_leaf(:,j) > 0.0
-      END IF
+      l_closed(:) = e_leaf(:,j) > 0.0
     END IF
   END IF
 
@@ -1819,7 +1784,6 @@ SUBROUTINE leaf_psi_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
 
 USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
-USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
 
 IMPLICIT NONE
@@ -1856,9 +1820,9 @@ REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
       ! leaf_psi_segments_jls).
 
 INTEGER :: i, j, l, iseg
-LOGICAL :: l_ok, l_cap, l_impair
+LOGICAL :: l_cap, l_impair
 REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de, &
-                          k_s, dpsi_s, fr, psi_cap, e_cap, e_pos, dpsi_de_int
+                          k_s, fr, psi_cap, e_cap, e_pos, dpsi_de_int
       ! fr, psi_cap: the segment's cap fraction and where the intact curve
       ! meets it; e_cap the flow the capped part above psi_cap carries;
       ! e_pos the flow (>= 0); dpsi_de_int d(psi)/dE on the intact segments.
@@ -1877,37 +1841,18 @@ DO j = 1, open_pnts
     ! l_som_rhizo_series: soil link ahead of the root segment (as
     ! leaf_psi_segments_jls).
     IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
-      IF ( rhizo_active(l) ) THEN
-        ! l_som_rhizo_mfp: nonlinear soil link (as leaf_psi_segments_jls).
-        CALL rhizo_path_drop( l, e_leaf(i,j), dpsi_s, k_s, l_ok )
-        IF ( l_ok .AND. k_s > TINY(1.0_real_jlslsm) ) THEN
-          psi_in  = MAX(root_zone_psi(l) - dpsi_s, som_psi_in_min)
-          dpsi_de = -1.0 / k_s
-          dpsi_de_int = -1.0 / k_s
-        ELSE IF ( .NOT. ( l_ok .AND. e_leaf(i,j) <= 0.0 ) ) THEN
-          leaf_psi(i,j) = som_psi_in_min
-          leaf_k(i,j)   = 0.0
-          ! (Infeasible: as leaf_psi_segments_jls.)
-          !
-          ! MDK, 18/10/26
-          IF ( PRESENT(leaf_k_intact) ) leaf_k_intact(i,j) = 0.0
-          IF ( PRESENT(stem_psi) ) stem_psi(i,j) = som_psi_in_min
-          CYCLE
-        END IF
-      ELSE
-        k_s = ksr_path(l)
-        IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
-          psi_in  = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
-          dpsi_de = -1.0 / k_s
-          dpsi_de_int = -1.0 / k_s
-        ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
-          leaf_psi(i,j) = som_psi_in_min
-          leaf_k(i,j)   = 0.0
-          ! MDK, 18/10/26
-          IF ( PRESENT(leaf_k_intact) ) leaf_k_intact(i,j) = 0.0
-          IF ( PRESENT(stem_psi) ) stem_psi(i,j) = som_psi_in_min
-          CYCLE
-        END IF
+      k_s = ksr_path(l)
+      IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+        psi_in  = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
+        dpsi_de = -1.0 / k_s
+        dpsi_de_int = -1.0 / k_s
+      ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
+        leaf_psi(i,j) = som_psi_in_min
+        leaf_k(i,j)   = 0.0
+        ! MDK, 18/10/26
+        IF ( PRESENT(leaf_k_intact) ) leaf_k_intact(i,j) = 0.0
+        IF ( PRESENT(stem_psi) ) stem_psi(i,j) = som_psi_in_min
+        CYCLE
       END IF
     END IF
     ! Root, stem then leaf in series. Each segment carries the same E, so its

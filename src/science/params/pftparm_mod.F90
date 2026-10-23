@@ -687,6 +687,22 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  to 0 at C_a = nsc_kc C_max (where loading is half its
                  !  maximum). Trugman et al.: death when the store is below
                  !  10 % of its initial value. 0 = off. Needs l_veg_compete.
+,hydmort_mu(:)                                                                &
+                 ! Hydraulic mortality (l_trif_hydmort): the loss of
+                 !  conductance (ximpair_lock) at which half the trees of
+                 !  the stand are dead. The stand's lethal thresholds are
+                 !  spread logistically about it. ~0.88 (P88) for
+                 !  angiosperms, ~0.5-0.6 (P50) for conifers.
+                 !  MDK, 21/10/26
+,hydmort_width(:)                                                             &
+                 ! Width (in loss of conductance) of the logistic spread of
+                 !  lethal thresholds within the stand (l_trif_hydmort).
+                 !  MDK, 21/10/26
+,hydmort_plc_bg(:)                                                            &
+                 ! Background loss of conductance (native embolism of a
+                 !  normal year) that kills no tree (l_trif_hydmort): the
+                 !  stand mortality curve starts from 0 there.
+                 !  MDK, 21/10/26
 ,nsc_repair_window(:)                                                         &
                  ! E-folding time (days) of the memory of the worst stem
                  !  conductance since a store step (ximpair_fmin_acc): loss
@@ -1137,6 +1153,9 @@ ALLOCATE( nsc_wmax_fac(npft))
 ALLOCATE( nsc_sapwood_frac(npft))
 ALLOCATE( nsc_hold_plc(npft))
 ALLOCATE( nsc_g_starv(npft))
+ALLOCATE( hydmort_mu(npft))
+ALLOCATE( hydmort_width(npft))
+ALLOCATE( hydmort_plc_bg(npft))
 ALLOCATE( nsc_repair_window(npft))
 ALLOCATE( nsc_plc_background(npft))
 ALLOCATE( nsc_la_sa(npft))
@@ -1222,6 +1241,9 @@ nsc_wmax_fac(:) = 1.0
 nsc_sapwood_frac(:) = 0.6
 nsc_hold_plc(:) = 1.0
 nsc_g_starv(:) = 0.0
+hydmort_mu(:) = 0.88
+hydmort_width(:) = 0.08
+hydmort_plc_bg(:) = 0.1
 nsc_repair_window(:) = 60.0
 nsc_plc_background(:) = 0.01
 nsc_la_sa(:) = 0.0
@@ -1593,6 +1615,12 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_hold_plc = ',nsc_hold_plc
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_g_starv = ',nsc_g_starv
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' hydmort_mu = ',hydmort_mu
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' hydmort_width = ',hydmort_width
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' hydmort_plc_bg = ',hydmort_plc_bg
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_repair_window = ',nsc_repair_window
 CALL jules_print('pftparm',lineBuffer)

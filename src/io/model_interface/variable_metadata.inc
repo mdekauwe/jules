@@ -10454,4 +10454,88 @@ DATA metadata(806) / var_metadata(                                             &
 ! Units
     "kg m-2"                                                                   &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for lambda_eff_pft
+! MDK, 22/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(807) / var_metadata(                                             &
+! String identifier
+    'lambda_eff_pft',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Marginal water price dA/dE at the stomatal optimum (bounded Ci " //       &
+    "search, two-leaf canopy; transpiration-weighted; 0 if closed)",           &
+! Units
+    "umol CO2 mmol-1 H2O"                                                      &
+  ) /
+! Metadata for hydmort_g
+! MDK, 21/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(808) / var_metadata(                                             &
+! String identifier
+    'hydmort_g',                                                                &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Hydraulic mortality: area disturbance of the last TRIFFID step (l_trif_hydmort)", &
+! Units
+    "per 360days"                                                               &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for hydmort_m
+! MDK, 21/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(809) / var_metadata(                                             &
+! String identifier
+    'hydmort_m',                                                                &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Hydraulic mortality: fraction of the PFT cover killed in the last TRIFFID step", &
+! Units
+    "1"                                                                         &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for hydmort_dead
+! MDK, 21/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(810) / var_metadata(                                             &
+! String identifier
+    'hydmort_dead',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Hydraulic mortality: fraction of the stand killed since the start of the run", &
+! Units
+    "1"                                                                         &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for hydmort_plc_peak
+! MDK, 21/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(811) / var_metadata(                                             &
+! String identifier
+    'hydmort_plc_peak',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Hydraulic mortality: worst loss of conductance since the last TRIFFID step", &
+! Units
+    "1"                                                                         &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for hydmort_pref
+! MDK, 21/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(812) / var_metadata(                                             &
+! String identifier
+    'hydmort_pref',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Hydraulic mortality: worst damage the surviving stand has withstood",     &
+! Units
+    "1"                                                                         &
+  ) /
 #endif

@@ -35,6 +35,7 @@ USE pftparm, ONLY: pft_xylem_impairment_model, nsc_psi_turg_zero,            &
                    nsc_flush_start_doy, nsc_xylem_replace, phen_bb_doy,       &
                    phen_bb_gdd
 
+USE jules_vegetation_mod, ONLY: l_trif_hydmort   ! MDK, 21/10/26
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_triffid, l_phenol, l_veg_compete,            &
                                 l_crop, l_landuse,                             &
@@ -358,6 +359,15 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   END IF
 END IF
 
+! Hydraulic mortality: the damage the stand has withstood, the stand
+! killed so far and the period's peak damage.
+! MDK, 21/10/26
+IF ( l_trif_hydmort ) THEN
+  CALL add_to_list( 'hydmort_pref', nvars, identifiers )
+  CALL add_to_list( 'hydmort_dead', nvars, identifiers )
+  CALL add_to_list( 'hydmort_plc_peak', nvars, identifiers )
+END IF
+
 ! MDK, 17/10/26
 IF ( l_triffid_nsc ) THEN
   ! TRIFFID storage pool and the running mean of NPP that sets its loading.
@@ -629,7 +639,10 @@ END IF
 ! frac should always be written to the dump
 CALL add_to_list( 'frac', nvars, identifiers )
 
-IF ( l_veg_compete ) THEN
+! Hydraulic mortality changes frac too (fixed fractions lose the killed
+! cover to bare soil), so it is then read as an initial condition as well.
+! MDK, 21/10/26
+IF ( l_veg_compete .OR. l_trif_hydmort ) THEN
   ! With competing veg on, frac is a prognostic and should always be read
   ! as an initial condition
   ancil_dump_read%frac  = .TRUE.

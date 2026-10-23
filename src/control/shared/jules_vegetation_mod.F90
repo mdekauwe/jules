@@ -148,7 +148,7 @@ INTEGER, PARAMETER ::                                                          &
     ! fixed, so VPD acts only through the hydraulics, not twice) regulated
     ! by the supply-loss rule of Sperry et al. (2016, Eqn 5) on the
     ! profit-max hydraulics; see stom_opt_supply_loss in stom_opt_jls_mod.
-  stomata_cap = 10
+  stomata_cap = 10,                                                            &
     ! CAP of Dewar et al. (2018, New Phytol 217: 571; Sabot et al. 2022,
     ! Eqs 19-21): no stomatal cost; photosynthesis is limited
     ! nonstomatally by the leaf water potential, gross A x
@@ -158,11 +158,25 @@ INTEGER, PARAMETER ::                                                          &
     ! bounds it). Uses the l_som_nsl machinery, which it switches on;
     ! psi_nsl0_io is the parameter (psi_phi,lim of Sabot et al.). See
     ! stom_opt_bounded_search.
+  stomata_pm2 = 11
+    ! ProfitMax2, the "new model" of Wang et al. (2020, New Phytol 227:
+    ! 311, Eqn 11): maximise
+    !   A_n (1 - E / E_crit),  i.e. Theta = A_n E / E_crit,
+    ! with E_crit the transpiration at which the soil-to-leaf conductance
+    ! falls to kcrit (the edge of the supply function), on the same path
+    ! and basis as the profit max. No cost parameter: the marginal water
+    ! cost A_n / (E_crit - E) is > 0 at any E, without new cavitation (the
+    ! profit max's cost is ~0 in wet soil), scales with the current A_n and
+    ! rises as drought (or drought damage) shrinks E_crit. On the bounded
+    ! Ci search; see stom_opt_bounded_search.
+    !
+    ! MDK, 22/10/26
 !
 ! Renumbered 7 Oct 2026 (branch cmax): SOX_opt 6 -> 5, DESICA 5 -> 8, CMax 6,
 ! CGain 7, supply-loss 9. Namelists from before that use 5 for DESICA or 6
 ! for SOX_opt must be changed.
 ! CAP (10) added 8 Oct 2026 (branch stomata_fixes).
+! ProfitMax2 (11) added 22 Oct 2026 (branch pm_water_cost). MDK, 22/10/26
 !
 ! stomata_model is the one switch for the stomatal scheme. leaf_flux_mod
 ! (fsmc leaf path or stomatal optimisation) and som_profit_model (which
@@ -313,9 +327,15 @@ INTEGER, PARAMETER ::                                                          &
     ! and k_max the plant's unstressed conductance (psi = 0, without the
     ! soil link, so that drying soil adds to the cost rather than shrinking
     ! the reference; Lu et al. 2020: the plant's k_max).
-  cap_profit_model = 6
+  cap_profit_model = 6,                                                        &
     ! CAP (Dewar et al. 2018; set from stomata_model = 10):
     !      Profit(psi) = Anet(psi) with gross A x f(psi_leaf)
+  pm2_profit_model = 7
+    ! ProfitMax2 (Wang et al. 2020, Eqn 11; set from stomata_model = 11),
+    ! mol CO2 m-2 s-1:
+    !      Profit(E) = Anet(E) (1 - E / E_crit)
+    !
+    ! MDK, 22/10/26
 
 !-----------------------------------------------------------------------------
 ! Items set in namelist
@@ -403,6 +423,16 @@ LOGICAL ::                                                                     &
        ! and height (store and repair only). See triffid_nsc_mod and
        ! NOTES_nsc_storage.md.
        ! MDK, 17/10/26
+   l_trif_hydmort = .FALSE.,                                                   &
+       ! Hydraulic (drought) mortality in TRIFFID: the stand's lethal losses
+       ! of conductance are spread logistically about hydmort_mu (width
+       ! hydmort_width), so the fraction of the stand dead is S(p), with p
+       ! the lasting loss of conductance of the memory impairment model
+       ! (ximpair_lock). A ratchet: each TRIFFID step kills only the part of
+       ! S the stand has not already lost, at the period's peak damage. The
+       ! killed area goes to litter (lotka with l_veg_compete; otherwise it
+       ! becomes bare soil). See triffid_hydmort_mod.
+       ! MDK, 21/10/26
 
 ! Switches for bug fixes.
     l_leaf_n_resp_fix = .FALSE.,                                               &
@@ -571,7 +601,7 @@ LOGICAL ::                                                                     &
       ! profit max) gave the same parameters and fit as with it off (see
       ! NOTE_coupled_e_handoff_2026-10-08). Where it is not supported (see
       ! the restrictions below) check_jules_vegetation turns it off.
-      ! When .TRUE., the stomatal optimisation (stomata_model = 4 to 7, 10;
+      ! When .TRUE., the stomatal optimisation (stomata_model = 4 to 7, 10, 11;
       ! can_rad_mod = 1 or 7) evaluates the transpiration of each trial
       ! stomatal conductance g with the resistances it passes through,
       !   E = D g' / (1 + r_ca (g' + g'_other)),   g' = g / (1 + g r_bl),
@@ -668,27 +698,20 @@ LOGICAL ::                                                                     &
       ! soil_to_root_k only there). It replaces l_som_root_supply.
 LOGICAL ::                                                                     &
   l_som_rhizo_mfp = .FALSE.
-      ! With l_som_rhizo_series: the soil-to-root link is nonlinear, from the
-      ! matric flux potential (Kirchhoff transform) of each layer,
-      !   Phi_i(h) = integral of K_i dh' from h to the driest state,
-      !   E_i = B_i (Phi_i(h_soil,i) - Phi_i(h_root)),
-      ! with B_i = soil_to_root_k / soil_k the Bonan et al. (2014) cylinder
-      ! factor and one root node shared by the layers (rhizo_mfp_mod). The
-      ! soil conductivity then falls towards the root surface as it dries,
-      ! instead of being taken at the bulk soil psi (Carminati & Javaux 2020;
-      ! Abdalla et al. 2021), and the soil supplies at most sum B_i Phi_i.
-      ! Off: the linear link psi_root = psi_src - E / ksr, as before.
+      ! RETIRED: the nonlinear (matric flux potential) soil-to-root link made
+      ! no measurable difference at FR-Pue (recalibration 10 Oct 2026; drought
+      ! tests 22 Oct 2026) and was removed. The code is kept on branch
+      ! rhizo_mfp. Still read so old namelists run; .TRUE. gives a warning
+      ! and is ignored, and the linear link psi_root = psi_src - E / ksr is
+      ! used.
+      !
+      ! MDK, 23/10/26
 LOGICAL ::                                                                     &
   l_som_rhizo_hr = .TRUE.
-      ! With l_som_rhizo_mfp: layers drier than the root still exchange
-      ! water with it in the root balance (hydraulic redistribution), so with
-      ! no flow the root sits between the layers, at
-      ! sum_i B_i (Phi_i(psi_i) - Phi_i(psi_root)) = 0, the nonlinear form of
-      ! the conductance-weighted soil psi of the linear link (which assumes
-      ! the same). Off: drier layers give nothing, so with no flow the root
-      ! sits at the wettest rooted layer. On by default (10 Oct 2026): closest
-      ! to the linear link and the better psi_leaf fit at FR-Pue. Only used
-      ! with l_som_rhizo_mfp. The extraction weights never go negative.
+      ! RETIRED with l_som_rhizo_mfp (hydraulic redistribution in its root
+      ! balance). Still read so old namelists run; ignored.
+      !
+      ! MDK, 23/10/26
 LOGICAL ::                                                                     &
   l_root_mass_fixed = .FALSE.
       ! Root mass in the soil-to-root conductance (soil_to_root_k, Bonan et
@@ -1095,7 +1118,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_fast,                                                               &
     l_ximpair_rec_growth, l_ximpair_leaf_loss, l_ximpair_seg_memory,          &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
-    l_nsc_wmax_norm,                                                           &
+    l_nsc_wmax_norm, l_trif_hydmort,                                           &
     ximpair_stomatal_response,                                                &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,   &
     sl_kfail_frac,                                                             &
@@ -1186,9 +1209,12 @@ IMPLICIT NONE
 !-----------------------------------------------------------------------------
 SELECT CASE ( stomata_model )
 CASE ( stomata_profit_max, stomata_sox_opt, stomata_cmax, stomata_cgain,       &
-       stomata_supply_loss, stomata_cap )
+       stomata_supply_loss, stomata_cap, stomata_pm2 )
   leaf_flux_mod = leaf_flux_stom_opt
-  IF ( stomata_model == stomata_cap ) THEN
+  IF ( stomata_model == stomata_pm2 ) THEN
+    ! MDK, 22/10/26
+    som_profit_model = pm2_profit_model
+  ELSE IF ( stomata_model == stomata_cap ) THEN
     ! CAP is the nonstomatal limitation without a stomatal cost.
     som_profit_model = cap_profit_model
     l_som_nsl = .TRUE.
@@ -1223,6 +1249,9 @@ CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical,                 &
     ELSE IF ( som_profit_model == cap_profit_model ) THEN
       stomata_model = stomata_cap
       l_som_nsl = .TRUE.
+    ELSE IF ( som_profit_model == pm2_profit_model ) THEN
+      ! MDK, 22/10/26
+      stomata_model = stomata_pm2
     ELSE
       stomata_model = stomata_profit_max
     END IF
@@ -1426,7 +1455,7 @@ END SELECT
 ! Check that the som_profit_model is suitable. JBaguley
 SELECT CASE( som_profit_model)
 CASE ( profit_max_profit_model, sox_opt_profit_model, cmax_profit_model,       &
-       cgain_profit_model, cap_profit_model )
+       cgain_profit_model, cap_profit_model, pm2_profit_model )
   ! Valid values
 CASE ( supply_loss_model )
   ! Valid only as set from stomata_model = 9 (above).
@@ -1439,20 +1468,21 @@ CASE DEFAULT
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'som_profit_model should be profit max (1), SOX (2), ' //       &
-               'CMax (4), CGain (5) or CAP (6)')
+               'CMax (4), CGain (5), CAP (6) or ProfitMax2 (7)')
 END SELECT
 
 ! CMax and CGain: absolute-carbon profit on the bounded Ci search (no
 ! flat-grid or fast-path variant: the cost does not vanish where the
 ! profit max's does).
 IF ( ( stomata_model == stomata_cmax .OR. stomata_model == stomata_cgain     &
-       .OR. stomata_model == stomata_cap )                                     &
+       .OR. stomata_model == stomata_cap .OR. stomata_model == stomata_pm2 )   &
      .AND. ( som_base_parm /= som_base_parm_ci .OR.                            &
              som_ci_search /= som_ci_bounded ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'stomata_model = 6 (CMax), 7 (CGain) or 10 (CAP) ' //           &
-               'requires som_base_parm = 1 and som_ci_search = 2')
+               'stomata_model = 6 (CMax), 7 (CGain), 10 (CAP) or 11 ' //       &
+               '(ProfitMax2) requires som_base_parm = 1 and ' //               &
+               'som_ci_search = 2')
 END IF
 ! Coupled transpiration in the optimisation: big leaf and two-leaf only (the
 ! multilayer canopy and the supply-loss rule keep the fixed-deficit E).
@@ -1466,7 +1496,7 @@ IF ( l_som_coupled_e .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.         &
   IF ( leaf_flux_mod == leaf_flux_stom_opt )                                   &
     CALL jules_print('check_jules_vegetation',                                 &
                      'l_som_coupled_e set to .FALSE.: it applies only to ' //  &
-                     'stomata_model = 4 to 7 or 10 with can_rad_mod = 1 or 7')
+                     'stomata_model = 4 to 7, 10 or 11 with can_rad_mod 1 or 7')
 END IF
 ! Supply-loss stomata: the profit-max hydraulics, on the Ci axis.
 IF ( stomata_model == stomata_supply_loss .AND.                                &
@@ -1726,7 +1756,7 @@ END IF  !  photo_model == photo_farquhar or photo_johnson
 SELECT CASE ( stomata_model )
 CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical, stomata_desica, &
        stomata_profit_max, stomata_sox_opt, stomata_cmax, stomata_cgain,       &
-       stomata_supply_loss, stomata_cap )
+       stomata_supply_loss, stomata_cap, stomata_pm2 )
   ! These are valid, so nothing to do.
 CASE DEFAULT
   errcode = 101
@@ -1926,11 +1956,14 @@ END IF
 ! the plant hydraulics of the profit max and DESICA.
 l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt .OR.               &
                        stomata_model == stomata_desica )
-IF ( l_som_rhizo_mfp .AND. .NOT. l_som_rhizo_series ) THEN
-  errcode = 101
+! l_som_rhizo_mfp is retired (see its declaration).
+! MDK, 23/10/26
+IF ( l_som_rhizo_mfp ) THEN
+  errcode = -101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_rhizo_mfp needs the soil-to-root link in series: ' //    &
-               'stomata_model = 4 to 7, 9, 10 or DESICA')
+               'l_som_rhizo_mfp is retired and ignored: the soil-to-root ' //  &
+               'link is linear (code kept on branch rhizo_mfp)')
+  l_som_rhizo_mfp = .FALSE.
 END IF
 
 IF ( .NOT. l_root_mass_fixed .AND. root_mass_min <= 0.0 ) THEN
@@ -2012,11 +2045,12 @@ IF ( l_som_vcmax_psi .AND. ( ( stomata_model /= stomata_profit_max .AND.     &
                                stomata_model /= stomata_cmax .AND.             &
                                stomata_model /= stomata_cgain .AND.            &
                                stomata_model /= stomata_supply_loss .AND.      &
-                               stomata_model /= stomata_cap ) .OR.             &
+                               stomata_model /= stomata_cap .AND.              &
+                               stomata_model /= stomata_pm2 ) .OR.             &
                              photo_model /= photo_farquhar ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_vcmax_psi requires stomata_model=4 to 7, 9 or 10 ' //    &
+               'l_som_vcmax_psi requires stomata_model=4 to 7 or 9 to 11 ' // &
                'and ' //                                                       &
                'photo_model=2')
 END IF
@@ -2074,6 +2108,18 @@ IF ( l_ximpair_rec_leaf_turn .AND.                                             &
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_ximpair_rec_leaf_turn needs the TRIFFID store and the '  //  &
                'per-segment memory (l_triffid_nsc, l_ximpair_seg_memory)')
+END IF
+! MDK, 21/10/26
+IF ( l_trif_hydmort .AND. .NOT. l_triffid ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_trif_hydmort needs TRIFFID (l_triffid=T)')
+END IF
+IF ( l_trif_hydmort .AND. l_triffid .AND. l_trif_eq ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_trif_hydmort is not coded for equilibrium TRIFFID ' //       &
+               '(l_trif_eq=T)')
 END IF
 IF ( l_nsc_wmax_norm .AND. .NOT. l_triffid_nsc ) THEN
   errcode = 101
@@ -2289,6 +2335,8 @@ WRITE(lineBuffer,*) ' l_ximpair_rec_nsc = ', l_ximpair_rec_nsc
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_triffid_nsc = ', l_triffid_nsc
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_trif_hydmort = ', l_trif_hydmort
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_rec_leaf_turn = ', l_ximpair_rec_leaf_turn
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_phen_psi = ', l_phen_psi
@@ -2445,7 +2493,7 @@ INTEGER, PARAMETER :: n_int = 25 ! +1 discrimination_model (MDK, 22/10/26), +1 k
 INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5) ! +1 leaf_wind_ext (MDK, 19/10/26), +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 57 + npft_max ! +2 l_som_plant_store/store_leak_tank (MDK 23/10/26), +1 l_som_cuticular_floor (deprecated name, MDK 21/10/26), +1 l_nsc_wmax_norm, +1 l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
+INTEGER, PARAMETER :: n_log = 58 + npft_max ! +2 l_som_plant_store/store_leak_tank (MDK 23/10/26), +1 l_trif_hydmort, +1 l_som_cuticular_floor (deprecated name, MDK 21/10/26), +1 l_nsc_wmax_norm, +1 l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -2531,6 +2579,7 @@ TYPE :: my_namelist
   LOGICAL :: l_ximpair_seg_memory
   LOGICAL :: l_ximpair_rec_nsc
   LOGICAL :: l_triffid_nsc
+  LOGICAL :: l_trif_hydmort
   LOGICAL :: l_ximpair_rec_leaf_turn
   LOGICAL :: l_phen_psi
   LOGICAL :: l_nsc_wmax_norm
@@ -2656,6 +2705,7 @@ IF (mype == 0) THEN
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
   my_nml % l_ximpair_rec_nsc = l_ximpair_rec_nsc
   my_nml % l_triffid_nsc = l_triffid_nsc
+  my_nml % l_trif_hydmort = l_trif_hydmort
   my_nml % l_ximpair_rec_leaf_turn = l_ximpair_rec_leaf_turn
   my_nml % l_phen_psi = l_phen_psi
   my_nml % l_nsc_wmax_norm = l_nsc_wmax_norm
@@ -2770,6 +2820,7 @@ IF (mype /= 0) THEN
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
   l_ximpair_rec_nsc = my_nml % l_ximpair_rec_nsc
   l_triffid_nsc = my_nml % l_triffid_nsc
+  l_trif_hydmort = my_nml % l_trif_hydmort
   l_ximpair_rec_leaf_turn = my_nml % l_ximpair_rec_leaf_turn
   l_phen_psi = my_nml % l_phen_psi
   l_nsc_wmax_norm = my_nml % l_nsc_wmax_norm

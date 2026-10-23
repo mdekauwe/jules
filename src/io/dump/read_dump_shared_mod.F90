@@ -203,8 +203,11 @@ IF ( is_master_task() ) THEN
                'ximpair_repair_pend', 'ximpair_grow_acc', 'ximpair_fmin_acc',  &
                'ximpair_rebuilt', 'ximpair_lock_new',                          &
                'phen_psi_acc', 'phen_nlow', 'phen_nhigh', 'phen_fbleaf',       &
-               'nsc_regrow_acc' )
+               'nsc_regrow_acc', 'hydmort_pref', 'hydmort_dead',               &
+               'hydmort_plc_peak' )
           ! TRIFFID store state: dumps written without the store.
+          ! Hydraulic mortality state: dumps written without it (the stand
+          ! is taken to have withstood its current damage). MDK, 21/10/26
           ! MDK, 18/10/26
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
