@@ -813,7 +813,6 @@ FUNCTION soil_to_root_conductance(npnts,nshyd,surft_pts,surft_index,ft         &
 !
 ! MDK, 23/10/26
 !---------------------------------------------------------------------
-! TODO: Could add OMP to loops
 USE pftparm, ONLY: root_radi_pft, rootc_density_pft
 
 USE conversions_mod, ONLY: pi
@@ -895,25 +894,27 @@ rootc_pft_local(:) = root_mass(:)
 ! -------- = (--------------) ^ (-1/2)
 !  r_{r}       rho_r dz_{j}
 !
-! Where f_{r,j} is the root fraction in the layer, m_{r} is the total root mass (kg)
-! and rho_{r} is the root density (kg m-3).
+! Where f_{r,j} is the root fraction in the layer, m_{r} is the total root
+! mass (kg) and rho_{r} is the root density (kg m-3).
 DO n = 1,nshyd
   DO j = 1,surft_pts
     i = surft_index(j)
-    soil_to_root_k(i,n) = 4*pi*soil_k(i,n) /                                       &
-                          LOG(rootc_density_pft(ft) * dzsoil(n) /                  &
-                              (f_root(i,n) * rootc_pft_local(i)))
+    soil_to_root_k(i,n) = 4 * pi * soil_k(i,n)                                 &
+                          / LOG(rootc_density_pft(ft) * dzsoil(n)              &
+                                / (f_root(i,n) * rootc_pft_local(i)))
   END DO
 END DO
 
 ! To convert root conductance in each layer from per unit root length to per
-! unit soil area we need to multiply by root length per unit area of soil (m m-2).
+! unit soil area we need to multiply by root length per unit area of soil
+! (m m-2).
 rootc_per_unit_length = rootc_density_pft(ft) * pi * root_radi_pft(ft)**2
 DO n = 1,nshyd
   DO j = 1,surft_pts
     i = surft_index(j)
-    soil_to_root_k(i,n) = soil_to_root_k(i,n) *(f_root(i,n) * rootc_pft_local(i))/ &
-                                                rootc_per_unit_length
+    soil_to_root_k(i,n) = soil_to_root_k(i,n)                                  &
+                          * (f_root(i,n) * rootc_pft_local(i))                 &
+                          / rootc_per_unit_length
   END DO
 END DO
 
