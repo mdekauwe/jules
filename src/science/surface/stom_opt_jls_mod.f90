@@ -604,6 +604,7 @@ ELSE
     leaf_k(l) = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
   END DO
 END IF
+
 IF (PRESENT(psi_stem)) psi_stem(:) = psi_root_zone(:)
 ! Default outputs for points with closed stomata. Overwritten below for
 ! points with open stomata. Set before the early return, so that a call
@@ -1979,12 +1980,27 @@ END IF
 !
 ! MDK, 21/10/26
 el_closed(:,:) = 0.0
-CALL som_path_psi( pft, 1, land_pts, open_pts, veg_index, open_index,        &
+
+CALL som_path_psi( pft, 1, land_pts, open_pts, veg_index, open_index,          &
                    el_closed, psi_root_zone, kmax_ref, kmax, kcrit,            &
                    conductance_b, conductance_c, psi_leaf_extreme,             &
                    psi_root_extreme, l_xylem_impairment,                       &
                  ! INTENT OUT
                    psi_closed, kl_closed )
+
+! Reset entry 0 to the closed-stomata state (the fallback when no Ci sample
+! is worth opening for): net assimilation is dark respiration only (-rd),
+! no conductance and no transpiration, the plant conductance is the zero-
+! flow value from som_path_psi above, and with no flow the leaf sits at the
+! root-zone water potential.
+!
+! Stem water potential samples (only when the caller asks for them): with
+! xylem impairment on the segmented path, each Ci sample keeps the stem
+! (root-stem node) potential from its own path solve; otherwise there is no
+! separate stem node, so it is the root-zone potential. Entry 0 (closed, no
+! flow) is the root-zone potential either way.
+!
+! MDK, 23/10/26
 DO j = 1, open_pts
   l = veg_index(open_index(j))
   al_sample(0,j)  = -rd(l)
@@ -1994,6 +2010,7 @@ DO j = 1, open_pts
   kl_hc_sample(0,j) = kl_sample(0,j)
   psi_sample(0,j) = psi_root_zone(l)
 END DO
+
 IF (PRESENT(psi_stem_sample)) THEN
   DO j = 1, open_pts
     l = veg_index(open_index(j))
@@ -2011,15 +2028,23 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE stom_opt_mod_ci
 
 !-----------------------------------------------------------------------------
-! Leaf water potential and whole-path conductance -dE/dpsi_leaf for the
-! transpiration e_leaf, on the path the optimiser uses: with xylem
-! impairment and segments, the segments under the memory model's stem and
-! leaf caps (kmax / kmax_ref), which also gives psi_stem; with impairment
-! alone, the impaired curve; otherwise the curve b, c. Used for the
-! closed-stomata state here and for the cuticular loss in sf_stom, so that
-! both solve on the same path as the samples.
+! Leaf water potential and whole-path conductance for a given transpiration
+! e_leaf,
 !
-! MDK, 22/10/26
+!   psi_leaf = psi_leaf(e_leaf)
+!   k        = -dE / dpsi_leaf
+!
+! solved on the same path the optimiser uses:
+!   - xylem impairment with segments: the root, stem and leaf segments, with
+!     the stem and leaf capped by the memory model (kmax / kmax_ref); this
+!     also gives psi_stem
+!   - xylem impairment alone: the impaired whole-plant curve
+!   - otherwise: the whole-plant vulnerability curve (b, c)
+!
+! Used for the closed-stomata state here and for the cuticular loss in
+! sf_stom, so both solve on the same path as the Ci samples.
+!
+! MDK, 23/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE som_path_psi( pft, n_e_leaf, land_pts, open_pts, veg_index,       &
                          open_index, e_leaf, psi_root_zone, kmax_ref, kmax,    &
@@ -2082,6 +2107,7 @@ IF ( l_xylem_impairment .AND. l_som_plant_segments ) THEN
     l = veg_index(open_index(j))
     kcap_frac(l) = kmax(l) / MAX(kmax_ref(l), TINY(1.0_real_jlslsm))
   END DO
+
   IF ( l_ex ) THEN
     IF ( PRESENT(psi_stem) ) THEN
       CALL leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pts,           &
@@ -2277,6 +2303,7 @@ DO j = 1, open_pts
   gain_off(j) = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
   max_al(j) = MAXVAL(al_sample(1:,j) + gain_off(j), MASK = l_good_sample(:,j))
 END DO
+
 IF (l_xylem_impairment) THEN
   ! Set the maximum conductance as equal to the current (unimpaired) root
   ! zone conductance. JBaguley
@@ -2694,6 +2721,7 @@ DO j = 1, open_pts
     CALL set_closed()
     CYCLE
   END IF
+
   CALL store_best(-HUGE(1.0_real_jlslsm), ci_lo)
   e_ci = ci_lo; e_al = al_u; e_gl = gl_u; e_el = el_u; e_psi = psi_u
   e_kl = kl_u; e_khc = khc_u; e_g = margin()
@@ -2856,6 +2884,7 @@ DO j = 1, open_pts
           ELSE
             s_hi = s_mid
           END IF
+
           IF ( ABS(psi_u - psi_star) < sperry_psi_tol ) EXIT
         END DO
       END IF
@@ -2871,10 +2900,12 @@ DO j = 1, open_pts
       CALL eval_ci(ci_lo)
       CALL keep_feasible()
     END IF
+
     IF ( .NOT. ok_u .AND. l_h_ok ) THEN
       last_ci = h_ci; al_u = h_al; gl_u = h_gl; el_u = h_el
       psi_u = h_psi; kl_u = h_kl
     END IF
+
     IF ( ok_u .OR. l_h_ok ) THEN
       ci_g(j) = MAX(0.0, last_ci)
       al_g(j) = MAX(-rd(l), al_u)
@@ -3060,6 +3091,7 @@ CONTAINS
     e_lo = e_hi
     e_hi = 2.0 * e_hi
   END DO
+
   DO it = 1, n_ecrit_iter
     IF ( e_hi - e_lo <= ecrit_rtol * e_hi ) EXIT
     el_u = 0.5 * (e_lo + e_hi)
@@ -3217,6 +3249,7 @@ CONTAINS
        / conv_e)
     END IF
   END IF
+
   IF ( g_cap >= HUGE(1.0_real_jlslsm) ) RETURN
 
   rk = ratio * rmol * t_leaf(l)
@@ -3366,6 +3399,7 @@ CONTAINS
   ELSE
     profit_u = -HUGE(1.0_real_jlslsm)
   END IF
+
   IF ( profit_u > best_f ) CALL store_best(profit_u, last_ci)
   END FUNCTION profit_u
 
@@ -3592,6 +3626,7 @@ DO j = 1, open_pts
     CALL set_closed()
     CYCLE
   END IF
+
   IF ( e_d <= TINY(1.0_real_jlslsm) ) THEN
     ! (Next to) no evaporative demand: nothing to regulate.
     CALL set_state(ci_d, al_d, gl_d, e_d, p0, k0)
@@ -3599,6 +3634,7 @@ DO j = 1, open_pts
     hydraulic_cost_g(j) = 0.0
     CYCLE
   END IF
+
   CALL supply(e_d, psi_d, k_d)
   hydraulic_cost_g(j) = MIN(MAX(1.0 - k_d / k0, 0.0), 1.0)
 
@@ -3636,6 +3672,7 @@ DO j = 1, open_pts
       END DO
       e_hi = e_lo
     END IF
+
     IF ( e_hi <= 0.0 ) THEN
       CALL set_closed()
       CYCLE
@@ -3669,12 +3706,15 @@ DO j = 1, open_pts
         fgd = dp_scored(gd_e)
       END IF
     END DO
+
     IF ( fgc > dp_max ) THEN
       e_max = gc_e; dp_max = fgc
     END IF
+
     IF ( fgd > dp_max ) THEN
       e_max = gd_e; dp_max = fgd
     END IF
+
     IF ( dp_max <= 0.0 ) THEN
       ! No point of the supply function below E' is usable.
       CALL set_closed()
@@ -3733,10 +3773,12 @@ DO j = 1, open_pts
     e_reg = conv_e * gl_reg
     CALL supply(e_reg, psi_reg, k_reg)
   END IF
+
   IF ( gl_reg <= 0.0 ) THEN
     CALL set_closed()
     CYCLE
   END IF
+
   IF ( gl_reg >= gl_d ) THEN
     CALL set_state(ci_d, al_d, gl_d, e_reg, psi_reg, k_reg)
     carbon_gain_g(j) = 1.0
