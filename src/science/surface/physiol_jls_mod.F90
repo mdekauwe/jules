@@ -1588,33 +1588,85 @@ DO n = 1,npft
   gc_corr(:,n) = gs_type(:,n)
 
   !-----------------------------------------------------------------------
-  ! Profit max (soil-to-root resistance in series): the layers feed one
-  ! root node, so each layer supplies k_i (psi_i - psi_root) at the actual
-  ! root potential psi_root = psi_root_zone - E / K_s, where psi_root_zone
-  ! is the conductance-weighted soil psi from smc_ext, E the optimiser's
-  ! transpiration (el_pft, mol m-2 s-1, ground) and K_s = sum k_i. The
-  ! extraction weights become those uptakes, normalised, with layers drier
-  ! than the root giving nothing (no hydraulic redistribution). This
-  ! replaces the weights at the fixed root_psi_crit. soil_to_root_k is
-  ! per metre of head (kg m-3 s-1), soil_wp in Pa.
+  ! Profit max (soil-to-root resistance in series)
+  !
+  ! The soil layers feed one root node. Each layer i supplies
+  !
+  !   q_i = k_i (psi_i - psi_root)
+  !
+  ! at the actual root water potential
+  !
+  !   psi_root = psi_root_zone - E / K_s,   K_s = sum_i k_i
+  !
+  ! where
+  !   psi_root_zone  conductance-weighted soil psi from smc_ext (Pa)
+  !   E              the optimiser's transpiration (el_pft, mol m-2 s-1,
+  !                  ground area)
+  !   k_i            soil-to-root conductance of layer i (soil_root_k,
+  !                  per metre of head: kg m-3 s-1)
+  !   psi_i          soil water potential of layer i (soil_wp, Pa)
+  !
+  ! The extraction weights become these uptakes, normalised:
+  !
+  !   wt_ext_i = q_i / sum_i q_i
+  !
+  ! Layers drier than the root give nothing (no hydraulic redistribution).
+  ! This replaces the smc_ext weights, which assume a fixed root_psi_crit.
+  !
+  ! MDK, 23/10/26
   !-----------------------------------------------------------------------
   IF ( l_som_rhizo_series .AND. fsmc_mod(n) == 2 .AND. irrig_tile(n) /= 1 ) THEN
     DO j = 1,surft_pts(n)
       l = surft_index(j,n)
+
+      ! Total soil-to-root conductance, K_s (kg m-3 s-1, per m of head).
+      ! Skip points with no conducting roots: the smc_ext weights stay.
       ksum_rs = SUM(MAX(soil_root_k_soilt(l,m,:), 0.0))
       IF ( ksum_rs <= TINY(1.0_real_jlslsm) ) CYCLE
+
+      ! Root water potential (Pa): the drop E / K_s across the soil-to-root
+      ! path. E (mol m-2 s-1) x m_h2o_rs (kg mol-1) is a mass flux (kg m-2
+      ! s-1); dividing by K_s gives metres of head, and rho_water g turns
+      ! head into Pa.
       psi_root_rs = psi_root_zone_pft(l,n)                                     &
                     - el_pft(l,n) * m_h2o_rs * rho_water * g / ksum_rs
+
+      ! Uptake from each layer, q_i = k_i (psi_i - psi_root), in kg m-3 s-1
+      ! x Pa. Only the relative sizes matter, so the units cancel in the
+      ! weights. Layers drier than the root are set to zero.
       q_rs(:) = MAX(soil_root_k_soilt(l,m,:)                                   &
                     * (soil_wp_soilt(l,m,:) - psi_root_rs), 0.0)
+
+      ! Normalise to extraction weights. If no layer can supply water
+      ! (all at or below psi_root), keep the smc_ext weights.
       IF ( SUM(q_rs(:)) > TINY(1.0_real_jlslsm) ) THEN
         wt_ext_type(l,:,n) = q_rs(:) / SUM(q_rs(:))
       END IF
     END DO
   END IF
 
-  ! The stomatal conductance is also needed, whatever the diagnostics, by
-  ! the Or soil-evaporation limit and by DESICA (via resfs_stom in sf_evap).
+  !-----------------------------------------------------------------------
+  ! Keep the stomatal-only canopy conductance (m s-1)
+  !
+  ! gs_type is still the canopy stomatal conductance here: the soil
+  ! evaporation conductance is added to the surface conductance further
+  ! down. gc_stom_surft saves the stomatal part so that sf_resist can form
+  !
+  !   resfs_stom = g_stom / (g_stom + g_a)
+  !
+  ! which sf_evap uses to split the surface flux into transpiration and
+  ! soil evaporation. It is needed by:
+  !   - the et_stom diagnostics (transpiration alone);
+  !   - the Or soil-evaporation limit (l_soil_evap_or), which caps soil
+  !     evaporation using the transpiration share;
+  !   - DESICA, which takes its transpiration from that share.
+  ! so it is filled whenever any of them is on, not only for diagnostics.
+  !
+  ! With l_aggregate there is one aggregated surface tile (index 1);
+  ! otherwise each surface type n has its own tile.
+  !
+  ! MDK, 23/10/26
+  !-----------------------------------------------------------------------
   IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR. l_soil_evap_or      &
       .OR. stomata_model == stomata_desica) THEN
     IF (l_aggregate) THEN
