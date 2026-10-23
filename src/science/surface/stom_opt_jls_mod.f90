@@ -566,6 +566,7 @@ l_xylem_impairment = l_xylem_impairment_in .AND. .NOT. is_spinup .AND.     &
 !  Parameter setup
 ! ----------------------------------------------------------------------------
 ci(:)      = ca(:)
+
 ! Set to -rd to get net photosynthesis for points with closed stomata. This
 ! is overwritten for points with open stomata.
 al(:)      = -rd(:)
@@ -574,6 +575,7 @@ flux_o3(:) = 0.0
 fo3(:)     = 0.0
 gl(:)      = min_gl_pft(pft)
 psi_leaf(:)= psi_root_zone(:)
+
 ! Closed stomata: the whole-path conductance at zero flow (xylem at
 ! psi_root_zone, in series with the soil-to-root ksr_path), the same
 ! definition as the optimiser's leaf_k for open points.
@@ -606,11 +608,13 @@ ELSE
 END IF
 
 IF (PRESENT(psi_stem)) psi_stem(:) = psi_root_zone(:)
+
 ! Default outputs for points with closed stomata. Overwritten below for
 ! points with open stomata. Set before the early return, so that a call
 ! with no open points does not return the previous call's values.
 carbon_gain_out(:) = 0.0
 hydraulic_cost_out(:) = 0.0
+
 ! MDK, 22/10/26
 !$OMP CRITICAL (som_lambda_call_alloc)
 IF ( .NOT. ALLOCATED(som_lambda_call) ) ALLOCATE( som_lambda_call(land_pts) )
@@ -671,6 +675,7 @@ IF (l_xylem_impairment) THEN
     CALL leaf_conductance_jls( pft, land_pts, psi_root_zone, kmax_ref, kcrit,  &
                                b_ref, c_ref, kl_hc_max )
   END IF
+
   ! The soil-to-root conductance in series (l_som_rhizo_series): the soil is
   ! not damaged, so the stomata see it, as in the unimpaired cost (where
   ! leaf_k is the whole soil-to-leaf path). Zero flow: the series sum.
@@ -743,6 +748,7 @@ SELECT CASE ( som_base_parm )
         ELSE
           hc_ref(j) = kmax(l)
         END IF
+
         ! (Not with l_som_nsl: the limitation makes the optimum interior even
         ! where the hydraulic cost is negligible.)
         IF (l_som_skip_search_wellwatered .AND. .NOT. l_som_nsl .AND.          &
@@ -758,11 +764,13 @@ SELECT CASE ( som_base_parm )
           ci(l) = MAX(0.0, ci_e_fp(1,j))
           al(l) = MAX(-rd(l), al_e_fp(1,j))
           gl(l) = MAX(0.0, gl_e_fp(1,j))
+
           ! gl = 0 means closed: al = -rd, as in set_closed.
           IF (gl(l) <= 0.0) al(l) = -rd(l)
           psi_leaf(l) = psi_e_fp(1,j)
           el(l) = el_e_fp(1,j)
           leaf_k(l) = kl_e_fp(1,j)
+
           ! The near-ca sample is the max-A one, so A / max A = 1.
           !
           ! MDK, 21/10/26
@@ -770,6 +778,7 @@ SELECT CASE ( som_base_parm )
           hydraulic_cost_out(l) = hc_at_maxstress(j)
         ELSE
           open_pts_search = open_pts_search + 1
+
           ! NOTE: open_index_search must stay in the same veg_index-compressed
           ! convention as open_index (i.e. hold open_index(j), not l =
           ! veg_index(open_index(j))) - it is later passed as the open_index
@@ -838,6 +847,7 @@ SELECT CASE ( som_base_parm )
         DO j = 1, open_pts_flat
           l = veg_index(open_index_flat(j))
           ci(l) = MAX(0.0, ci_sample(optimal_index_flat(j),j))
+
           ! Closed state (index 0) keeps al = -rd, as for points that
           ! were never open; an open optimum is clipped at -rd (as closed).
           IF (optimal_index_flat(j) == 0) THEN
@@ -846,6 +856,7 @@ SELECT CASE ( som_base_parm )
             al(l) = MAX(-rd(l), al_sample(optimal_index_flat(j),j))
           END IF
           gl(l) = MAX(0.0, gl_sample(optimal_index_flat(j),j))
+
           ! gl = 0 means closed: al = -rd, as in set_closed.
           IF (gl(l) <= 0.0) al(l) = -rd(l)
           psi_leaf(l) = psi_sample(optimal_index_flat(j),j)
@@ -997,6 +1008,7 @@ SELECT CASE ( som_base_parm )
         ! Loop over land points with open stomata
         DO j = 1, open_pts
           l = veg_index(open_index(j))
+
           ! HC = 1 - (k - kcrit) / (max_k - kcrit)
           !
           ! MDK, 21/10/26
@@ -1025,9 +1037,11 @@ SELECT CASE ( som_base_parm )
             al(l) = MAX(-rd(l), al_sample(optimal_index,j))
           END IF
           gl(l) = MAX(0.0, gl_sample(optimal_index,j))
+
           ! gl = 0 means closed: al = -rd, as in set_closed.
           IF (gl(l) <= 0.0) al(l) = -rd(l)
           psi_leaf(l) = psi_sample(optimal_index,j)
+
           ! psi_stem as the profit-max flat search, so the per-segment stem
           ! damage follows the stem's water potential, not the root zone's.
           !
@@ -1174,6 +1188,7 @@ DO j = 1, n
   leaf_k(l) = kl_bnd(j)
   carbon_gain_out(l) = carbon_gain_bnd(j)
   hydraulic_cost_out(l) = hydraulic_cost_bnd(j)
+
   ! (Not set by the supply-loss rule. MDK, 22/10/26)
   IF ( som_profit_model /= supply_loss_model )                                &
     som_lambda_call(l) = lambda_bnd(j)
@@ -1303,6 +1318,7 @@ DO ipass = 1,2
       ci_s, al_s, gl_s, kl_s, psi_s, el_s, klhc_s )
   DO j = 1,open_pts
     l = veg_index(open_index(j))
+
     ! Usable samples: 1..n_ok (ci rising), those within gl_max.
     n_ok(j) = som_n_sample
     IF ( gl_max(l) > 0.0 ) THEN
@@ -1313,6 +1329,7 @@ DO ipass = 1,2
         END IF
       END DO
     END IF
+
     ! First usable sample at or above the target.
     ib(j) = n_ok(j)
     DO i = 1,n_ok(j)
@@ -1321,6 +1338,7 @@ DO ipass = 1,2
         EXIT
       END IF
     END DO
+
     ! After pass 1: narrow the ci range to the bracket around the target.
     IF ( ipass == 1 ) THEN
       i = MAX(ib(j), 2)
@@ -1379,6 +1397,7 @@ USE xylem_impairment_mod, ONLY: leaf_psi_impaired_jls
 USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_segments_jls, ksr_path,      &
                                        som_psi_in_min, xylem_f,                &
                                        leaf_psi_segments_lut_jls
+
                                        ! MDK, 18/10/26
                                        ! MDK, 21/10/26
 
@@ -1625,6 +1644,7 @@ DO j = 1, open_pts
     ci_sample(i,j) = ci_lo(l) + (i-1) * (ci_hi(l) - ci_lo(l)) / n_sample
   END DO
 END DO
+
 !-----------------------------------------------------------------------------
 ! Calculate photosynthetic rates.
 ! Code based on that in leaf_limits_mod.F90 and leaf.F90 with loops over
@@ -1647,6 +1667,7 @@ CASE ( photo_collatz )
 !$OMP        n_sample,l_multilayer,apar,fapar_lf,ipar)
     DO j = 1,open_pts
       l = veg_index(open_index(j))
+
       ! The numbers in these equations are from Cox, HCTN 24,
       ! "Description ... Vegetation Model", equations 54 and 55.
       wcarb_sample(:,j) = vcmax(l) * (ci_sample(:,j) - ccp(l))                 &
@@ -1655,6 +1676,7 @@ CASE ( photo_collatz )
                           * (ci_sample(:,j) - ccp(l))                          &
                           / (ci_sample(:,j) + 2.0 * ccp(l))
       wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
+
       ! Multilayer calls: rescale the light-limited rate from the canopy's
       ! absorbed PAR (apar) to that of this layer's sunlit or shaded leaves
       ! (fapar_lf * ipar).
@@ -1682,6 +1704,7 @@ CASE ( photo_collatz )
       wcarb_sample(:,j) = vcmax(l)
       wlite_sample(:,j) = alpha(pft) * acr(l)
       wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
+
       ! Multilayer calls: rescale the light-limited rate from the canopy's
       ! absorbed PAR (apar) to that of this layer's sunlit or shaded leaves
       ! (fapar_lf * ipar).
@@ -1859,6 +1882,7 @@ IF (l_xylem_impairment .AND. l_som_plant_segments) THEN
     l = veg_index(open_index(j))
     kcap_frac_pts(l) = kmax(l) / MAX(kmax_ref(l), TINY(1.0_real_jlslsm))
   END DO
+
   ! som_psi_solver = 3: the same capped segments from the supply tables.
   !
   ! MDK, 18/10/26
@@ -2339,7 +2363,7 @@ DO j = 1, open_pts
     ! stops a division by zero.
     !
     ! MDK, 21/10/26
-    hydraulic_cost(:,j) =   (max_kl(j) - kl_hc_sample(:,j))                  &
+    hydraulic_cost(:,j) = (max_kl(j) - kl_hc_sample(:,j))                      &
                           / MAX(max_kl(j) - kcrit(l), TINY(1.0_real_jlslsm))
 
     ! Profit = CG-HC
@@ -2402,6 +2426,7 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,          &
                                 cgain_profit_model, sox_opt_profit_model,      &
                                 cap_profit_model, pm2_profit_model,            &
                                 kplant_model, kplant_model_ground
+
                                 ! MDK, 22/10/26
 USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 photo_farquhar, photo_johnson, photo_model,    &
@@ -2426,6 +2451,7 @@ USE xylem_hydraulics_CW_jls_mod, ONLY: supply_lut_psi, supply_lut_e_crit,      &
                                        supply_lut_f, leaf_psi_segments_jls,    &
                                        ksr_path, som_psi_in_min, xylem_f,      &
                                        leaf_psi_segments_lut_jls
+
                                        ! MDK, 18/10/26
 USE xylem_impairment_mod, ONLY: leaf_psi_impaired_jls
                                        ! MDK, 21/10/26
@@ -2621,6 +2647,7 @@ l_lut = ( pft_conductance_model(pft) == CW_conductance .OR.                    &
 ! edge_by_gl_cap do not apply: use leaf_psi_jls, which adds the soil link, and
 ! the margin-based edge.
 IF ( l_som_rhizo_series .AND. fsmc_mod(pft) == 2 ) l_lut = .FALSE.
+
 ! The table is the intact PFT curve: not for the impaired path. (With
 ! som_psi_solver = 3 and the memory model the impaired path is still solved
 ! from the table, capped, in impaired_state; but the direct lookup and the
@@ -2630,11 +2657,14 @@ IF ( l_som_rhizo_series .AND. fsmc_mod(pft) == 2 ) l_lut = .FALSE.
 ! MDK, 18/10/26
 IF ( l_xylem_impairment ) l_lut = .FALSE.
 idx1(:) = 1
+
 ! CMax (stomata_model = 6): profit A_n - Theta(psi_leaf) in absolute carbon
 ! units instead of CG - HC (see the profit function below).
 l_cmax = som_profit_model == cmax_profit_model
+
 ! CGain (stomata_model = 7): A_n - varpi (k_max - k)/k_max.
 l_cgain = som_profit_model == cgain_profit_model
+
 ! SOX_opt (stomata_model = 5 with som_ci_search = 2): Eller et al. (2018)
 ! solved as Sabot et al. (2022) do,
 !   A_n (k(psi_bar) - kcrit)/(k_ref - kcrit),
@@ -2644,9 +2674,11 @@ l_cgain = som_profit_model == cgain_profit_model
 ! psi_leaf, which we do not. The kcrit subtraction is Sabot et al.'s
 ! (Eller: k/k_max).
 l_sox = som_profit_model == sox_opt_profit_model
+
 ! CAP (stomata_model = 10): A_n with the nonstomatal limitation (l_som_nsl,
 ! set with it), no stomatal cost.
 l_cap = som_profit_model == cap_profit_model
+
 ! ProfitMax2 (stomata_model = 11): A_n (1 - E / E_crit) (Wang et al. 2020).
 !
 ! MDK, 22/10/26
@@ -2662,12 +2694,14 @@ DO j = 1, open_pts
   IF ( PRESENT(lambda_g) ) lambda_g(j) = 0.0
   idx1(1) = open_index(j)
   g_off = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
+
   ! (CMax, CGain, SOX and CAP work on net A, as Wolf et al. 2016 and Lu et
   ! al. 2020.)
   !
   ! MDK, 21/10/26
   IF ( l_abs ) g_off = 0.0
   lai_call = 1.0
+
   ! The leaf area of the call from the intact plant (kmax_ref; = kmax
   ! without xylem impairment), so damage does not shrink the CMax or CGain
   ! cost, and without the kplant_model = 1 ground factor, which is not leaf
@@ -2683,15 +2717,19 @@ DO j = 1, open_pts
   !
   ! MDK, 21/10/26
   IF ( l_abs .AND. PRESENT(lai_cost) ) lai_call = lai_cost(l)
+
   k_unstressed = 1.0
   k_sox_ref = 1.0
+
   IF ( l_sox ) k_sox_ref = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
+
   ! (The plant's k_max: without the soil-to-root link, which would shrink
   ! the reference, and so the cost of a given embolism, as the soil dries.)
-  IF ( l_cgain ) k_unstressed = MAX(k_path_zero_flow(pft, l, kmax(l),         &
+  IF ( l_cgain ) k_unstressed = MAX(k_path_zero_flow(pft, l, kmax(l),          &
                                     0.0_real_jlslsm, l_plant_only = .TRUE.),   &
                                     TINY(1.0_real_jlslsm))
   ci_lo = MAX(ccp(l), 0.0)
+
   ! With the gl_max cap the edge is found to the 1e-2 Pa floor on ca - Ci
   ! used for gl; without it (gl unbounded near ca) stop at the top of the
   ! flat grid, as that search does.
@@ -2712,6 +2750,7 @@ DO j = 1, open_pts
                     ximpair_stomatal_response == ximpair_hold_psi
   CALL eval_ci(ci_lo)
   max_kl = kl_u
+
   ! Impairment, hold gs: the cost is relative to the intact path at zero
   ! flow (as the flat search). Hold leaf psi: the intact path's (kl_u, the
   ! search being on it).
@@ -2727,6 +2766,7 @@ DO j = 1, open_pts
   e_kl = kl_u; e_khc = khc_u; e_g = margin()
 
   CALL eval_ci(ci_top)
+
   ! (al0_u = al_u without the nonstomatal limitation, which can make A at
   ! ci_top <= 0 although the optimum inside the range has A > 0.)
   IF ( al0_u + g_off <= 0.0 ) THEN
@@ -2744,6 +2784,7 @@ DO j = 1, open_pts
     e_kl = kl_u; e_khc = khc_u
   ELSE
     l_edge = .FALSE.
+
     ! (edge_by_gl_cap finds the edge from A without the hydraulics, which
     ! does not hold once A depends on psi_leaf.)
     IF ( l_lut .AND. .NOT. l_som_nsl ) CALL edge_by_gl_cap()
@@ -2753,6 +2794,7 @@ DO j = 1, open_pts
   ! Normalisation; no carbon benefit from opening => closed, as for the flat
   ! search (stom_opt_profit_max_select).
   max_al = e_al + g_off
+
   ! With the nonstomatal limitation, normalise by the unlimited A at the edge
   ! so the gain-to-cost weighting is as without it (and the limitation
   ! lowers the gain fraction).
@@ -2784,25 +2826,41 @@ DO j = 1, open_pts
   !    in low light profit is nearly flat over a wide Ci range and, at this
   !    precision, too noisy for them.)
   !---------------------------------------------------------------------------
+  ! The bracket [a, b] runs from the lowest Ci (ccp) to the feasible edge
+  ! e_ci. tol1 is the target bracket width.
   a = ci_lo
   b = e_ci
   tol1 = (b - a) / opt_resol
+
   IF ( tol1 > 0.0 ) THEN
+    ! Two interior points at the golden-ratio positions (0.382 and 0.618 of
+    ! the bracket), c_ci < d_ci, and their profits fc and fd.
     c_ci = b - golden_ratio * (b - a)
     d_ci = a + golden_ratio * (b - a)
     CALL eval_ci(c_ci)
     fc = profit_u()
     CALL eval_ci(d_ci)
     fd = profit_u()
+
+    ! Each step drops the part of the bracket beyond the worse point, which
+    ! cannot hold the maximum (profit is unimodal in Ci). The kept interior
+    ! point lands on a golden-ratio position of the new bracket, so only one
+    ! new profit evaluation is needed per step, and the bracket shrinks by
+    ! a factor 0.618 each time.
     DO i = 1, n_iter
       IF ( b - a <= tol1 ) EXIT
+
       IF ( fc >= fd ) THEN
+        ! Maximum lies in [a, d_ci]: d_ci becomes the new upper end, c_ci the
+        ! new upper interior point; evaluate a new lower interior point.
         b = d_ci
         d_ci = c_ci; fd = fc
         c_ci = b - golden_ratio * (b - a)
         CALL eval_ci(c_ci)
         fc = profit_u()
       ELSE
+        ! Maximum lies in [c_ci, b]: c_ci becomes the new lower end, d_ci the
+        ! new lower interior point; evaluate a new upper interior point.
         a = c_ci
         c_ci = d_ci; fc = fd
         d_ci = a + golden_ratio * (b - a)
@@ -2830,12 +2888,14 @@ DO j = 1, open_pts
   ci_g(j) = MAX(0.0, best_ci)
   al_g(j) = MAX(-rd(l), best_al)
   gl_g(j) = MAX(0.0, best_gl)
+
   ! gl = 0 means closed: al = -rd, as in set_closed.
   IF (gl_g(j) <= 0.0) al_g(j) = -rd(l)
   psi_g(j) = best_psi
   el_g(j) = best_el
   kl_g(j) = best_kl
   carbon_gain_g(j) = (best_al + g_off) / max_al
+
   ! (Guarded as the flat search: with impairment max_kl is kl_hc_max, not
   ! taken from a sample. MDK, 21/10/26)
   hydraulic_cost_g(j) = (max_kl - best_khc)                                    &
@@ -2849,6 +2909,7 @@ DO j = 1, open_pts
                                             best_el)) / max_al
   ! SOX: 1 - the factor on A (as the flat-grid SOX).
   IF ( l_sox ) hydraulic_cost_g(j) = 1.0 - sox_factor(best_psi)
+
   ! CAP: the nonstomatal loss of A as a fraction of the maximum A.
   IF ( l_cap ) hydraulic_cost_g(j) = (photo_al(best_ci) - best_al) / max_al
 
@@ -2861,20 +2922,39 @@ DO j = 1, open_pts
   !    intact-path optimum.
   !---------------------------------------------------------------------------
   IF ( l_intact_search .AND. gl_g(j) > 0.0 ) THEN
+    ! Keep the intact optimum: its leaf psi is the target, and its gain and
+    ! cost are reported.
     psi_star = best_psi
     cg_star  = carbon_gain_g(j)
     hc_star  = hydraulic_cost_g(j)
+
+    ! From here on eval_ci solves on the impaired path. Reset the record of
+    ! the best feasible evaluation (keep_feasible keeps the largest feasible
+    ! Ci seen).
     l_intact_search = .FALSE.
     l_h_ok = .FALSE.
     h_ci = -HUGE(1.0_real_jlslsm)
+
+    ! Bracket [s_lo, s_hi] = [ci_lo, intact optimum Ci]. At the top end the
+    ! impaired path gives a lower psi_leaf than the intact one at the same
+    ! Ci, so psi_u < psi_star is expected there.
     s_lo = ci_lo
     s_hi = best_ci
     CALL eval_ci(s_hi)
     CALL keep_feasible()
+
     IF ( psi_u < psi_star ) THEN
+      ! Check that the target lies inside the bracket: at ci_lo (stomata
+      ! nearly shut) psi_leaf must be above psi_star. If not, even ci_lo
+      ! cannot hold psi_star and ci_lo is taken (below).
       CALL eval_ci(s_lo)
       CALL keep_feasible()
+
       IF ( psi_u > psi_star ) THEN
+        ! Bisection on Ci for psi_leaf = psi_star: psi_leaf falls as Ci (and
+        ! gl and E) rise, so move the end on the same side of psi_star as
+        ! the midpoint. Stop after n_sperry_iter halvings or within
+        ! sperry_psi_tol (Pa) of the target.
         DO i = 1, n_sperry_iter
           s_mid = 0.5 * (s_lo + s_hi)
           CALL eval_ci(s_mid)
@@ -2889,6 +2969,7 @@ DO j = 1, open_pts
         END DO
       END IF
     END IF
+
     ! On the impaired path the last evaluation can be infeasible (k <=
     ! kcrit, or gl > gl_max). Take instead the feasible evaluation with the
     ! largest Ci (feasibility only falls as Ci rises), else ci_lo if that is
@@ -2927,6 +3008,7 @@ DO j = 1, open_pts
   IF ( PRESENT(psi_stem_g) .AND. l_xylem_impairment .AND.                      &
        l_som_plant_segments .AND. gl_g(j) > 0.0 ) THEN
     el_s1(1,1) = el_g(j)
+
     ! MDK, 18/10/26
     IF ( som_psi_solver == psi_solver_lut ) THEN
       CALL leaf_psi_segments_lut_jls( pft, 1, land_pts, 1, veg_index, idx1,    &
@@ -2998,6 +3080,7 @@ CONTAINS
             side = 1
           END IF
         END DO
+
         ! (The state left by hydraulic_state is that of f_new.)
       END IF
     END IF
@@ -3082,6 +3165,7 @@ CONTAINS
   INTEGER :: it
 
   e_lo = MAX(e_el, 0.0_real_jlslsm)
+
   ! (kmax x 0.1 MPa: a scale for E when there is no flow at the edge.)
   e_hi = MAX(2.0 * e_lo, 1.0e5_real_jlslsm * kmax(l), TINY(1.0_real_jlslsm))
   DO it = 1, n_ecrit_iter
@@ -3428,6 +3512,7 @@ CONTAINS
   END SUBROUTINE keep_feasible
 
   SUBROUTINE set_closed()
+
   ! Closed stomata: zero flow, so the conductance is K(psi_root_zone) on the
   ! same curve as hydraulic_state, not 0 (0 made PLC_pft report 100 %; see
   ! stom_opt_mod_ci).
@@ -3599,6 +3684,7 @@ DO j = 1, open_pts
   idx1(1) = open_index(j)
   rt = rmol * t_leaf(l)
   vpd = dq(l) * pstar(l) / repsilon
+
   ! E (mol m-2 s-1) = conv_e * gl (m s-1), as stom_opt_mod_ci.
   conv_e = vpd / rt
   p0 = psi_root_zone(l)
@@ -3815,6 +3901,7 @@ DO j = 1, open_pts
     END DO
     xc = 0.5 * (xa + xb)
   END IF
+
   ! A consistent with gl and ci (gl = ratio A R T/(ca - ci)).
   CALL set_state(xc,                                                           &
                  gl_reg * MAX(ca(l) - xc, 1.0e-2_real_jlslsm) / (ratio * rt),  &
@@ -3875,6 +3962,7 @@ CONTAINS
   END SUBROUTINE set_state
 
   SUBROUTINE set_closed()
+
   ! Closed stomata: zero flow, so the conductance is k at P0 (see
   ! stom_opt_bounded_search).
   REAL(KIND=real_jlslsm) :: psi0, k0c
