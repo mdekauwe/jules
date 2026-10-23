@@ -318,7 +318,7 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_lut
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
-USE xylem_hydraulics_CW_jls_mod, ONLY: psi_leaf_capped_lut_jls
+USE supply_table_mod, ONLY: psi_leaf_capped_lut_jls
 ! MDK, 18/10/26
 
 INTEGER, INTENT(IN) ::                                                         &

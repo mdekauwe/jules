@@ -644,6 +644,11 @@ INTEGER, PARAMETER ::                                                          &
   kplant_model_ground = 1
       ! Values of kplant_model.
       ! MDK, 21/10/26
+REAL(KIND=real_jlslsm), PARAMETER :: k_ground_ratio_max = 10.0
+      ! Cap on LAI_ref / LAI (kplant_model = 1), also used as LAI -> 0.
+      ! (Was in xylem_hydraulics_CW_jls_mod.)
+      !
+      ! MDK, 23/10/26
 INTEGER ::                                                                     &
   kplant_model = kplant_model_param
       ! Whole-plant hydraulic conductance (needs l_som_plant_segments for 1):

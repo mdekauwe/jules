@@ -218,7 +218,7 @@ SUBROUTINE psi_leaf_SOX_jls( pft,                                              &
 
 USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_taylor,            &
                                 psi_solver_newton, psi_solver_lut
-USE xylem_hydraulics_CW_jls_mod, ONLY: psi_leaf_lut_jls, lut_pft_curve
+USE supply_table_mod, ONLY: psi_leaf_lut_jls, lut_pft_curve
                                        ! MDK, 21/10/26
 
 USE ereport_mod, ONLY: ereport

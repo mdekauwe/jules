@@ -156,7 +156,7 @@ USE cuticular_leak_state_mod, ONLY: cut_w_store, cut_psi_stem,               &
                                     cut_w_shed
 USE pftparm, ONLY: cap_stem, kcrit_fractional_loss, conductance_b_seg,        &
                    conductance_c_seg
-USE xylem_hydraulics_CW_jls_mod, ONLY: som_psi_in_min
+USE plant_hydraulic_path_mod, ONLY: som_psi_in_min
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: l_som_plant_segments
 USE pftparm, ONLY: pft_xylem_impairment_model
@@ -175,9 +175,9 @@ USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft, d13c_disc_alloc, d13c_disc_leaf
 
 
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
-USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow   ! MDK, 23/10/26
-USE xylem_hydraulics_CW_jls_mod, ONLY: set_ksr_path, ksr,                     &
-                                       set_k_ground_basis, kplant_scale
+USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow
+USE plant_hydraulic_path_mod, ONLY: set_ksr_path, ksr, set_k_ground_basis,     &
+                                    kplant_scale
                                        ! MDK, 21/10/26
 
 USE planet_constants_mod, ONLY: repsilon, g, r

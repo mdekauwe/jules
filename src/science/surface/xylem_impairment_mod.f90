@@ -217,7 +217,7 @@ USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls, leaf_conductance_jls
 USE xylem_impairment_whole_trunk_mod, ONLY: psi_leaf_impaired_whole_trunk
 USE xylem_impairment_memory_mod, ONLY: psi_leaf_impaired_memory
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
-USE xylem_hydraulics_CW_jls_mod, ONLY: ksr_path, som_psi_in_min
+USE plant_hydraulic_path_mod, ONLY: ksr_path, som_psi_in_min
                             ! MDK, 21/10/26
 
 USE um_types, ONLY: real_jlslsm
@@ -605,7 +605,7 @@ SUBROUTINE canopy_impaired_psi_jls( land_pts                                   &
 USE jules_surface_types_mod,  ONLY: npft
 USE ancil_info,               ONLY: nsurft
 USE pftparm, ONLY: kmax_pft_ref => kmax_pft, kcrit
-USE xylem_hydraulics_CW_jls_mod, ONLY: ksr_path
+USE plant_hydraulic_path_mod, ONLY: ksr_path
 USE water_constants_mod, ONLY: Water_kg_per_mol
                             ! MDK, 21/10/26
 

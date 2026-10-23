@@ -121,7 +121,7 @@ USE jules_vegetation_mod, ONLY:                                                &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
   l_som_rhizo_series, stomata_model, stomata_desica,                          &
   l_som_capacitance_on   ! MDK, 23/10/26
-USE xylem_hydraulics_CW_jls_mod, ONLY: ksr
+USE plant_hydraulic_path_mod, ONLY: ksr
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: root_psi_crit, fsmc_mod
 

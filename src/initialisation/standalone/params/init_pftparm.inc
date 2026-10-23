@@ -26,7 +26,7 @@ USE pftparm_io, ONLY: jules_pftparm, init_pftparm_allocated,                   &
 USE pftparm, ONLY: print_nlist_jules_pftparm, check_jules_pftparm
 
 USE jules_vegetation_mod, ONLY: leaf_flux_mod, leaf_flux_stom_opt
-USE xylem_hydraulics_CW_jls_mod, ONLY: init_supply_luts
+USE supply_table_mod, ONLY: init_supply_luts
                             ! MDK, 21/10/26
 
 USE errormessagelength_mod, ONLY: errormessagelength

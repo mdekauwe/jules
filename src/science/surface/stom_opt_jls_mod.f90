@@ -178,7 +178,7 @@ USE pftparm, ONLY:                                                             &
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
-USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow, ksr_path
+USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, ksr_path
 
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft,                       &
                    pft_xylem_impairment_model
@@ -1977,9 +1977,10 @@ SUBROUTINE som_path_psi( pft, n_e_leaf, land_pts, open_pts, veg_index,       &
 
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls, xylem_conductance_jls
 USE xylem_impairment_mod, ONLY: psi_leaf_impaired_jls
-USE xylem_hydraulics_CW_jls_mod, ONLY: psi_leaf_segments_jls,                 &
-                                       psi_leaf_segments_lut_jls, ksr_path,   &
-                                       som_psi_in_min, xylem_f
+USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f
+USE plant_hydraulic_path_mod, ONLY: psi_leaf_segments_jls,                     &
+                                    psi_leaf_segments_lut_jls, ksr_path,       &
+                                    som_psi_in_min
 USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_lut,               &
                                 l_som_plant_segments, l_som_rhizo_series
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
@@ -2389,7 +2390,7 @@ USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 ximpair_stomatal_response, ximpair_hold_gs,    &
                                 ximpair_hold_psi,                              &
                                 l_som_rhizo_series, l_som_coupled_e
-USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow, kplant_scale
+USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kplant_scale
                                        ! MDK, 21/10/26
 USE jb_photo_mod, ONLY: jb_eta_scale
 USE pftparm, ONLY: c3, alpha, pft_conductance_model, psi_nsl_onset, psi_nsl0,  &
@@ -2399,10 +2400,10 @@ USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
 USE planet_constants_mod, ONLY: repsilon
 USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls, xylem_conductance_jls
-USE xylem_hydraulics_CW_jls_mod, ONLY: supply_lut_psi, supply_lut_e_crit,      &
-                                       supply_lut_f, psi_leaf_segments_jls,    &
-                                       ksr_path, som_psi_in_min, xylem_f,      &
-                                       psi_leaf_segments_lut_jls
+USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f
+USE supply_table_mod, ONLY: supply_lut_psi, supply_lut_e_crit, supply_lut_f
+USE plant_hydraulic_path_mod, ONLY: psi_leaf_segments_jls, ksr_path,           &
+                                    som_psi_in_min, psi_leaf_segments_lut_jls
 
                                        ! MDK, 18/10/26
 USE xylem_impairment_mod, ONLY: psi_leaf_impaired_jls
@@ -3837,7 +3838,7 @@ USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
 USE planet_constants_mod, ONLY: repsilon
 USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
-USE xylem_hydraulics_CW_jls_mod, ONLY: supply_lut_psi, supply_lut_f
+USE supply_table_mod, ONLY: supply_lut_psi, supply_lut_f
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts, pft, open_pts, open_index(land_pts), pft_photo_model,              &

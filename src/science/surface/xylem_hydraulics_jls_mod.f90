@@ -239,10 +239,13 @@ SUBROUTINE psi_leaf_jls( pft,                                                  &
 USE pftparm, ONLY: pft_conductance_model
 USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,               &
                                 som_psi_solver, psi_solver_lut,                &
-                                l_som_plant_segments, l_som_rhizo_series
-USE xylem_hydraulics_CW_jls_mod, ONLY: psi_leaf_CW_jls, psi_leaf_lut_jls,      &
-                                       ksr_path, som_psi_in_min, xylem_f_bc,   &
-                                       lut_pft_curve   ! MDK, 21/10/26
+                                psi_solver_newton, l_som_plant_segments,       &
+                                l_som_rhizo_series
+USE xylem_hydraulics_CW_jls_mod, ONLY: psi_leaf_CW_jls, xylem_f_bc
+USE supply_table_mod, ONLY: psi_leaf_lut_jls, lut_pft_curve
+USE plant_hydraulic_path_mod, ONLY: ksr_path, som_psi_in_min,                  &
+                                    psi_leaf_segments_jls,                     &
+                                    psi_leaf_segments_lut_jls
 USE xylem_hydraulics_SOX_jls_mod, ONLY: psi_leaf_SOX_jls
 
 USE ereport_mod, ONLY: ereport
@@ -394,10 +397,26 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: psi_out(n_e, open_pnts),               &
 SELECT CASE ( pft_conductance_model(pft) )
 
 CASE ( CW_conductance )
+  ! Root, stem and leaf segments in series (l_som_plant_segments) with the
+  ! Newton or table solver: leaf psi from solving the segments downstream,
+  ! and the whole-plant conductance -dE/dpsi_leaf in k_out. (This choice
+  ! was made inside psi_leaf_CW_jls; it is here so that the Weibull module
+  ! does not depend on the segment module. With the Taylor solver the
+  ! single curve is used, as before.)
+  !
+  ! MDK, 23/10/26
+  IF ( l_som_plant_segments .AND. som_psi_solver == psi_solver_newton ) THEN
+    CALL psi_leaf_segments_jls( pft, n_e, land_pts, open_pnts, veg_index,      &
+                                open_index, e_in, psi_root, kmax, kcrit,       &
+                                psi_out, k_out )
+  ELSE IF ( l_som_plant_segments .AND. som_psi_solver == psi_solver_lut ) THEN
+    CALL psi_leaf_segments_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,  &
+                                    open_index, e_in, psi_root, kmax,          &
+                                    psi_out, k_out )
+
   ! (Only on the PFT's curve: the table cannot follow a point's own b and
   ! c, which psi_leaf_CW_jls then solves by Newton. MDK, 21/10/26)
-  IF ( som_psi_solver == psi_solver_lut .AND.                                 &
-       .NOT. l_som_plant_segments .AND.                                       &
+  ELSE IF ( som_psi_solver == psi_solver_lut .AND.                            &
        lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,        &
                       conductance_b, conductance_c ) ) THEN
     ! Direct call: skips psi_leaf_CW_jls's automatic work arrays.
