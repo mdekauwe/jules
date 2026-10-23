@@ -103,7 +103,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     som_gl_max, l_som_supply_limit,                                            &
     l_som_cuticular_loss, l_som_gravity, l_red, l_som_rhizo_series,           &
     l_som_coupled_e, l_som_capacitance_on, som_leaf_resist_frac,                        &
-    l_som_leak_capacitance_only,                                                     &
+    l_som_leak_capacitance_only,                                               &
     l_som_vcmax_psi, kplant_model, kplant_model_ground,                        &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model,          &
     leaf_wind_ext, ml_leaf_temp_model, ml_leaf_temp_layers
@@ -176,6 +176,7 @@ USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft, d13c_disc_alloc, d13c_disc_leaf
 
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
+USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow   ! MDK, 23/10/26
 USE xylem_hydraulics_CW_jls_mod, ONLY: set_ksr_path, ksr,                     &
                                        set_k_ground_basis, kplant_scale
                                        ! MDK, 21/10/26
@@ -3936,9 +3937,10 @@ IF ( l_cut_ximpair ) THEN
   !      psi_x = psi_t + (psi_x0 - psi_t) exp(-dt k_r / C),
   !
   !    with k_r from the mean of the plant conductance at psi_x0 and psi_t
-  !    on the PFT curve (impaired kmax, floored at the critical loss), in
-  !    series with ksr: a cheap stand-in for the exact path solve, which at
-  !    every step made the run ~25x slower. It refills from the soil when
+  !    on the optimiser's own path (cut_k_path: segments with the
+  !    vulnerable root, or the PFT curve; impaired kmax; ksr in series;
+  !    floored at the critical loss): a cheap stand-in for the exact path
+  !    solve, which at every step made the run ~25x slower. It refills from the soil when
   !    drier than psi_t and gives up water to the transpiration when wetter
   !    (at most the transpiration: no flow back to the soil).
   !
@@ -3973,19 +3975,13 @@ IF ( l_cut_ximpair ) THEN
       psi0_leaf = cut_w_store(l,ft) / c_cut
       ! Where the leak binds at points the optimiser shut, there is no
       ! secant conductance from store_target_e: the root and leaf sides
-      ! come from the plant conductance on the PFT curve (impaired kmax,
-      ! ksr in series), split by som_leaf_resist_frac.
+      ! come from the optimiser's own plant path (cut_k_path: the segments,
+      ! with the vulnerable root, or the PFT curve; impaired kmax; ksr in
+      ! series), the mean of its conductance at the store's psi and the
+      ! source's, split by som_leaf_resist_frac.
       IF ( .NOT. tgt_on(l) ) THEN
-        k_cut_eff = 0.5 * ( cut_k_curve(kmax_cut(l), psi0_leaf)                &
-                            + cut_k_curve(kmax_cut(l), psi_src(l)) )
-        IF ( l_som_rhizo_series .AND. ksr(l) >= 0.0 ) THEN
-          IF ( ksr(l) > TINY(1.0_real_jlslsm) ) THEN
-            k_cut_eff = 1.0 / ( 1.0 / MAX(k_cut_eff, TINY(1.0_real_jlslsm))     &
-                                + 1.0 / ksr(l) )
-          ELSE
-            k_cut_eff = 0.0
-          END IF
-        END IF
+        k_cut_eff = 0.5 * ( cut_k_path(l, kmax_cut(l), psi0_leaf)              &
+                            + cut_k_path(l, kmax_cut(l), psi_src(l)) )
         k_cut_eff = MAX(k_cut_eff, TINY(1.0_real_jlslsm))
         tgt_kl(l) = k_cut_eff / MIN(MAX(som_leaf_resist_frac, 0.01), 0.99)
         tgt_kr(l) = k_cut_eff / (1.0 - MIN(MAX(som_leaf_resist_frac,           &
@@ -4054,23 +4050,12 @@ IF ( l_cut_ximpair ) THEN
     psi0_leaf = cut_w_store(l,ft) / c_cut
     psi_st    = psi_tgt
     IF ( ABS(psi0_leaf - psi_tgt) > 1.0 ) THEN
-      ! The plant conductance between psi_x0 and psi_t on the PFT curve
-      ! (mol m-2 s-1 Pa-1).
-      k_cut_eff = 0.5 * ( cut_k_curve(kmax_cut(l), psi0_leaf)                  &
-                          + cut_k_curve(kmax_cut(l), psi_tgt) )
-      ! The soil-to-root conductance in series (l_som_rhizo_series), as on
-      ! the optimiser's and the leak's path, so a dry rhizosphere slows the
-      ! refill (overnight too) and predawn psi can stay below the soil's.
-      !
-      ! MDK, 22/10/26
-      IF ( l_som_rhizo_series .AND. ksr(l) >= 0.0 ) THEN
-        IF ( ksr(l) > TINY(1.0_real_jlslsm) ) THEN
-          k_cut_eff = 1.0 / ( 1.0 / MAX(k_cut_eff, TINY(1.0_real_jlslsm))       &
-                              + 1.0 / ksr(l) )
-        ELSE
-          k_cut_eff = 0.0
-        END IF
-      END IF
+      ! The plant conductance between psi_x0 and psi_t on the optimiser's
+      ! own path (cut_k_path: the segments, with the vulnerable root, or
+      ! the PFT curve; ksr in series, so a dry rhizosphere slows the
+      ! refill too) (mol m-2 s-1 Pa-1).
+      k_cut_eff = 0.5 * ( cut_k_path(l, kmax_cut(l), psi0_leaf)                &
+                          + cut_k_path(l, kmax_cut(l), psi_tgt) )
       ! With the store at the stem node, only the root side fills it.
       ! MDK, 23/10/26
       k_cut_eff = k_cut_eff / (1.0 - MIN(MAX(som_leaf_resist_frac, 0.01),     &
@@ -4486,27 +4471,38 @@ RETURN
 CONTAINS
 
 !-----------------------------------------------------------------------------
-! Cuticular loss store: the canopy conductance (mol m-2 s-1 Pa-1) at psi
-! (Pa) on the PFT curve, maximum kmx, with psi floored at the critical
-! loss (psi_fl_leaf).
+! Plant capacitance: the canopy plant conductance (mol H2O m-2 ground s-1
+! Pa-1) at psi (Pa) on the optimiser's own path,
 !
-! MDK, 22/10/26
+!   k = k_path_zero_flow(psi)
+!
+! (every element at psi): with plant segments the root, stem and leaf
+! segments in series, so the calibrated (vulnerable) root segment limits the
+! store's exchange with the soil as it does the optimiser's supply, else
+! the PFT curve; maximum kmx (the impaired canopy kmax); the soil-to-root
+! link (ksr) in series. psi is floored at the critical loss (psi_fl_leaf)
+! and capped at 0. This replaces the PFT curve with ksr in series
+! (cut_k_curve), which left out the vulnerable root, so the soil went on
+! feeding the leak and the refill through a near-intact root (60-80 % of
+! the leak in drought summers at FR-Pue).
+!
+! MDK, 23/10/26
 !-----------------------------------------------------------------------------
-REAL(KIND=real_jlslsm) FUNCTION cut_k_curve( kmx, psi )
+REAL(KIND=real_jlslsm) FUNCTION cut_k_path( l_c, kmx, psi )
 
-REAL(KIND=real_jlslsm), INTENT(IN) :: kmx, psi
+INTEGER, INTENT(IN) :: l_c
+                            ! Land point.
+REAL(KIND=real_jlslsm), INTENT(IN) :: kmx
+                            ! Impaired canopy kmax (mol H2O m-2 ground s-1
+                            ! Pa-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+                            ! Water potential (Pa).
+                            !
+                            ! MDK, 23/10/26
 
-REAL(KIND=real_jlslsm) :: x
+cut_k_path = k_path_zero_flow( ft, l_c, kmx, MIN(MAX(psi, psi_fl_leaf), 0.0) )
 
-x = (MIN(MAX(psi, psi_fl_leaf), 0.0) / (-ABS(conductance_b_pft(ft))))          &
-    ** conductance_c_pft(ft)
-IF ( pft_conductance_model(ft) == SOX_conductance ) THEN
-  cut_k_curve = kmx / (1.0 + x)
-ELSE
-  cut_k_curve = kmx * EXP(-x)
-END IF
-
-END FUNCTION cut_k_curve
+END FUNCTION cut_k_path
 
 !-----------------------------------------------------------------------------
 ! Multilayer canopy, one leaf class (sunlit or shaded) of the current layer:

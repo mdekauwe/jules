@@ -252,6 +252,18 @@ REAL(KIND=real_jlslsm) ::                                                      &
   sf_tuzet_io(npft_max) = 2.0,                                                 &
   psi_f_tuzet_io(npft_max) = -2.05e6,                                          &
   cap_leaf_io(npft_max) = 83.3,                                                &
+  ! cap_stem is also the size of the stomatal optimisation's plant
+  ! capacitance (l_som_capacitance): C = cap_stem x L_ref, mmol H2O m-2
+  ! leaf MPa-1 (3000 = 0.11 mm per MPa at LAI 2.1). For Q. ilex at
+  ! Puechabon it lies in 2100-4400, from the whole-tree stem capacitance
+  ! of Salomon et al. (2017, Plant Cell Environ. 40: 1379-1391,
+  ! doi:10.1111/pce.12928, Fig. 6: refilling after the first autumn rains,
+  ! CS = 15.05 exp(0.31 DBH) g MPa-1 per tree) divided by the site leaf
+  ! area, LA = 0.091 DBH^1.875 m2 (Rambal et al. 2004, via Limousin et al.
+  ! 2009), over DBH 4-13 cm (our conversion), and from the site sap-flow
+  ! lag (about 2700 for a store at the stem node).
+  !
+  ! MDK, 23/10/26
   cap_stem_io(npft_max) = 3000.0,                                              &
   q10_leaf_io(npft_max) = rmdi,                                                &
   r_grow_io(npft_max) = rmdi,                                                  &
