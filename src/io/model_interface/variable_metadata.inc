@@ -10434,4 +10434,24 @@ DATA metadata(804) / var_metadata(                                             &
 ! Units
     "Pa"                                                                       &
   ) /
+DATA metadata(805) / var_metadata(                                             &
+! String identifier
+    'cut_c_store',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Cuticular-loss store capacitance (0 = not set; dump)",                    &
+! Units
+    "mol m-2 Pa-1"                                                             &
+  ) /
+DATA metadata(806) / var_metadata(                                             &
+! String identifier
+    'cut_w_shed_pft',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Cuticular-loss store deficit carried away by shed tissue",                &
+! Units
+    "kg m-2"                                                                   &
+  ) /
 #endif

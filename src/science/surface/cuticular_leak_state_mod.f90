@@ -16,8 +16,13 @@ MODULE cuticular_leak_state_mod
 ! psi_leaf is the store's psi. The store's flow, cut_q_store, is taken off
 ! the soil extraction in sf_evap, so the store's water is conserved. The
 ! water, not psi, is carried, so a change of LAI (and so of C) changes the
-! store's psi, not its water. The state is not dumped: a restart starts it
-! full (at the step's psi).
+! store's psi, not its water. C is cap_stem times the leaf area that the
+! plant conductance is scaled by (LAI, or the reference LAI with
+! kplant_model = 1), so the store's time constant C / k does not change
+! with phenology. When C grows the new tissue is born full (the water is
+! kept); when it shrinks (leaf loss) psi is kept and the shed tissue takes
+! its share of the deficit (cut_w_shed), so shedding does not dry the plant.
+! The state (W, psi_stem and C) is dumped.
 !
 ! MDK, 22/10/26
 
@@ -26,7 +31,7 @@ USE um_types, ONLY: real_jlslsm
 IMPLICIT NONE
 
 PRIVATE
-PUBLIC :: cut_w_store, cut_psi_stem, cut_q_store, cut_c_store,               &
+PUBLIC :: cut_w_store, cut_psi_stem, cut_q_store, cut_c_store, cut_w_shed,   &
           cut_state_alloc, cut_psi_unset, cut_m_h2o, cut_store_return
 
 REAL(KIND=real_jlslsm), PARAMETER :: cut_psi_unset = 1.0
@@ -52,8 +57,19 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_psi_stem(:,:)
 ! MDK, 22/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_q_store(:,:)
 
-! Capacitance of the store of each PFT (mol H2O m-2 Pa-1), cap_stem * LAI.
+! Capacitance of the store of each PFT (mol H2O m-2 Pa-1), cap_stem times
+! the reference leaf area of the plant conductance; carried between
+! timesteps (dumped) to apply the rule for a change of C.
+!
+! MDK, 22/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_c_store(:,:)
+
+! Water deficit carried away by shed tissue this timestep (kg m-2, >= 0):
+! the store's water rises by this with no flow, as C falls at fixed psi.
+! A diagnostic for the water budget.
+!
+! MDK, 22/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_w_shed(:,:)
 
 CONTAINS
 
@@ -68,11 +84,13 @@ INTEGER, INTENT(IN) :: n_land_pts
 
 IF (.NOT. ALLOCATED(cut_w_store)) THEN
   ALLOCATE(cut_w_store(n_land_pts, npft), cut_psi_stem(n_land_pts, npft),     &
-           cut_q_store(n_land_pts, npft), cut_c_store(n_land_pts, npft))
+           cut_q_store(n_land_pts, npft), cut_c_store(n_land_pts, npft),      &
+           cut_w_shed(n_land_pts, npft))
   cut_w_store(:,:)  = cut_psi_unset
   cut_psi_stem(:,:) = cut_psi_unset
   cut_q_store(:,:)  = 0.0
   cut_c_store(:,:)  = 0.0
+  cut_w_shed(:,:)   = 0.0
 END IF
 
 END SUBROUTINE cut_state_alloc

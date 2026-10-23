@@ -1066,6 +1066,11 @@ DO i = 1, nvars_required
     !
     ! MDK, 22/10/26
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
+  CASE ( 'cut_c_store' )
+    ! Cuticular-loss store: C not yet set.
+    !
+    ! MDK, 22/10/26
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'nsc_ft_mean' )
     ! Not yet set: 1 at the first step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)

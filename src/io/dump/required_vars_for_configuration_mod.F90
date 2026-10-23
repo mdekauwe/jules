@@ -259,6 +259,7 @@ IF ( l_som_vcmax_psi ) CALL add_to_list( 'fvcmax_psi_state', nvars, identifiers 
 IF ( l_som_cuticular_loss ) THEN
   CALL add_to_list( 'cut_w_store', nvars, identifiers )
   CALL add_to_list( 'cut_psi_stem', nvars, identifiers )
+  CALL add_to_list( 'cut_c_store', nvars, identifiers )
 END IF
 IF ( l_som_coupled_e .AND. can_rad_mod == 7 ) THEN
   CALL add_to_list( 'cpl_gl_sun', nvars, identifiers )

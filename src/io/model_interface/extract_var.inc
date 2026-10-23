@@ -32,7 +32,8 @@ USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state   ! MDK, 22/10/26
 USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_w_store,                 &
                                     cut_psi_stem, cut_m_h2o,                   &
-                                    cut_psi_unset   ! MDK, 22/10/26
+                                    cut_psi_unset, cut_c_store,                &
+                                    cut_w_shed   ! MDK, 22/10/26
 USE phen_budburst_mod, ONLY: phen_gdd, phen_bb_day, phen_dormant
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,   &
                            nsc_repair_pft, nsc_starv_pft, nsc_turg_acc,   &
@@ -4008,6 +4009,22 @@ CASE ( 'cut_w_store' )
 CASE ( 'cut_psi_stem' )
   workspace_pft(:,:) = cut_psi_unset
   IF ( ALLOCATED(cut_psi_stem) ) workspace_pft(:,:) = cut_psi_stem(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'cut_c_store' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(cut_c_store) ) workspace_pft(:,:) = cut_c_store(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! Deficit carried away by shed tissue this timestep (kg m-2), for the
+! water budget.
+!
+! MDK, 22/10/26
+CASE ( 'cut_w_shed_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(cut_w_shed) ) workspace_pft(:,:) = cut_w_shed(:,:)
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

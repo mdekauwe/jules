@@ -150,7 +150,8 @@ USE sugar_mod, ONLY: sugar
 USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_path_psi
 USE cuticular_leak_state_mod, ONLY: cut_w_store, cut_psi_stem,               &
                                     cut_q_store, cut_c_store, cut_m_h2o,       &
-                                    cut_state_alloc, cut_psi_unset
+                                    cut_state_alloc, cut_psi_unset,            &
+                                    cut_w_shed
 USE pftparm, ONLY: cap_stem, kcrit_fractional_loss, conductance_b_seg,        &
                    conductance_c_seg
 USE xylem_hydraulics_CW_jls_mod, ONLY: som_psi_in_min
@@ -934,13 +935,14 @@ REAL(KIND=real_jlslsm) :: gc_opt_cut(land_pts), e_lo, e_soil, k_cut_eff
                             ! psi and the steady state.
                             !
                             ! MDK, 22/10/26
-REAL(KIND=real_jlslsm) :: q_st, e_fl, psi_tgt, r_st, psi_st
+REAL(KIND=real_jlslsm) :: q_st, e_fl, psi_tgt, r_st, psi_st, w_new_cut
                             ! The store's flow out (mol H2O m-2 s-1; < 0 it
                             ! refills), the flow the path delivers at the
                             ! floor (mol H2O m-2 s-1), the step's psi (Pa),
                             ! the store's remaining departure from it
-                            ! (fraction) and the store's psi at the end of
-                            ! the step (Pa).
+                            ! (fraction), the store's psi at the end of
+                            ! the step (Pa) and its water after a fall of C
+                            ! (mol m-2).
                             !
                             ! MDK, 22/10/26
 LOGICAL :: lk_cut(land_pts)
@@ -3623,7 +3625,26 @@ END IF
 IF ( l_cut_ximpair ) THEN
   CALL cut_state_alloc( land_pts )
   cut_q_store(:,ft) = 0.0
-  cut_c_store(:,ft) = 0.0
+  cut_w_shed(:,ft)  = 0.0
+  ! The store's capacitance, C = cap_stem times the leaf area the plant
+  ! conductance is scaled by (lai_ref_kg: LAI, or the reference LAI with
+  ! kplant_model = 1), so C / k does not change with phenology. Where C has
+  ! fallen since last step (leaf loss), psi is kept: W is scaled by the new
+  ! C over the old, and the shed tissue takes the rest of the deficit
+  ! (cut_w_shed), so shedding does not make psi more negative. Where C has
+  ! risen, W is kept: the new tissue is born full.
+  !
+  ! MDK, 22/10/26
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    c_cut = MAX(cap_stem(ft) * lai_ref_kg(l), TINY(1.0_real_jlslsm))
+    IF ( cut_w_store(l,ft) <= 0.0 .AND. cut_c_store(l,ft) > c_cut ) THEN
+      w_new_cut = cut_w_store(l,ft) * c_cut / cut_c_store(l,ft)
+      cut_w_shed(l,ft)  = (w_new_cut - cut_w_store(l,ft)) * cut_m_h2o
+      cut_w_store(l,ft) = w_new_cut
+    END IF
+    cut_c_store(l,ft) = c_cut
+  END DO
   lk_cut(:)  = .FALSE.
   lit_cut(:) = .FALSE.
   DO m = 1,open_pts
@@ -3739,7 +3760,7 @@ IF ( l_cut_ximpair ) THEN
     ! MDK, 22/10/26
     DO j = 1,n_lk
       l = veg_index(idx_lk(j))
-      c_cut = MAX(cap_stem(ft) * lai(l), TINY(1.0_real_jlslsm))
+      c_cut = cut_c_store(l,ft)
       psi0_leaf = psi_leaf(l)
       IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min )             &
         psi0_leaf = cut_w_store(l,ft) / c_cut
@@ -3787,14 +3808,13 @@ IF ( l_cut_ximpair ) THEN
   ! bind (other lit steps and the night), the store relaxes towards the
   ! step's psi, psi_t, through the path:
   !   psi = psi_t + (psi_0 - psi_t) exp(-dt k / C),
-  ! with psi_0 = W / C (C of this step's LAI, so a change of LAI moves psi,
-  ! not the water) and k the mean of the canopy conductance at psi_0 and
-  ! psi_t on the PFT curve (kmax under the impairment, floored at the
-  ! critical loss): a cheap stand-in for the exact path solve, which at
-  ! every step made the run ~25x slower. The store moves only a few mm, so
-  ! the rate matters little. It refills from the soil when it is drier than
-  ! psi_t (at the rate the path delivers) and gives up water to the
-  ! transpiration when wetter (at most the transpiration: no flow back to
+  ! with psi_0 = W / C (C set above) and k the mean of the canopy
+  ! conductance at psi_0 and psi_t on the PFT curve (kmax under the
+  ! impairment, floored at the critical loss), in series with ksr: a cheap
+  ! stand-in for the exact path solve, which at every step made the run
+  ! ~25x slower. It refills from the soil when it is drier than psi_t (at
+  ! the rate the path delivers) and gives up water to the transpiration
+  ! when wetter (at most the transpiration: no flow back to
   ! the soil). The fluxes are the optimiser's: the store changes where the
   ! soil's water goes, and psi_leaf at lit points (below), not E. Below
   ! lai_cut_min the store is dropped (unset).
@@ -3802,8 +3822,7 @@ IF ( l_cut_ximpair ) THEN
   ! MDK, 22/10/26
   DO m = 1,veg_pts
     l = veg_index(m)
-    c_cut = MAX(cap_stem(ft) * lai(l), TINY(1.0_real_jlslsm))
-    cut_c_store(l,ft) = c_cut
+    c_cut = cut_c_store(l,ft)
     psi_tgt   = psi_leaf(l)
     psi0_stem = cut_psi_stem(l,ft)
     cut_psi_stem(l,ft) = psi_stem(l)
@@ -3824,6 +3843,19 @@ IF ( l_cut_ximpair ) THEN
     IF ( ABS(psi0_leaf - psi_tgt) > 1.0 ) THEN
       k_cut_eff = 0.5 * ( cut_k_curve(kmax_cut(l), psi0_leaf)                  &
                           + cut_k_curve(kmax_cut(l), psi_tgt) )
+      ! The soil-to-root conductance in series (l_som_rhizo_series), as on
+      ! the optimiser's and the leak's path, so a dry rhizosphere slows the
+      ! refill (overnight too) and predawn psi can stay below the soil's.
+      !
+      ! MDK, 22/10/26
+      IF ( l_som_rhizo_series .AND. ksr(l) >= 0.0 ) THEN
+        IF ( ksr(l) > TINY(1.0_real_jlslsm) ) THEN
+          k_cut_eff = 1.0 / ( 1.0 / MAX(k_cut_eff, TINY(1.0_real_jlslsm))       &
+                              + 1.0 / ksr(l) )
+        ELSE
+          k_cut_eff = 0.0
+        END IF
+      END IF
       r_st = EXP(-timestep * k_cut_eff / c_cut)
       q_st = c_cut * (psi0_leaf - psi_tgt) * (1.0 - r_st) / timestep
       IF ( q_st > MAX(el(l), 0.0) ) THEN

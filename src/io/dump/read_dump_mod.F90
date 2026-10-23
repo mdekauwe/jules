@@ -16,7 +16,7 @@ SUBROUTINE read_dump(file_name, identifiers)
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
 USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,           &
-                                    cut_psi_stem   ! MDK, 22/10/26
+                                    cut_psi_stem, cut_c_store   ! MDK, 22/10/26
 USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, ainfo, trif_vars,      &
                             soilecosse, progs, progs_data, trifctltype,        &
                             jules_vars, fluxes, rivers, water_resources
@@ -241,7 +241,7 @@ DO i = 1,nvars
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
            'phen_fbleaf', 'nsc_regrow_acc',                                  &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                         &
-           'cut_w_store', 'cut_psi_stem' )
+           'cut_w_store', 'cut_psi_stem', 'cut_c_store' )
       IF ( var_ids(i) > 0 ) THEN
         CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:npft))
       ELSE
@@ -769,6 +769,11 @@ DO i = 1,nvars
     CALL cut_state_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), cut_psi_stem(:,n))
+    END DO
+  CASE ( 'cut_c_store' )
+    CALL cut_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), cut_c_store(:,n))
     END DO
   CASE ( 'cpl_gl_sun' )
     CALL sf_stom_state_alloc( land_pts )

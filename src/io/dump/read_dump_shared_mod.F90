@@ -209,7 +209,7 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
              "its 'not yet set' value (store filled at the first step).")
-        CASE ( 'cut_w_store', 'cut_psi_stem' )
+        CASE ( 'cut_w_store', 'cut_psi_stem', 'cut_c_store' )
           ! Cuticular-loss store: dumps written without it start it full
           ! (the restart is then not exact).
           !
