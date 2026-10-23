@@ -1207,7 +1207,6 @@ USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_segments_jls, ksr_path,      &
                                        som_psi_in_min, xylem_f,                &
                                        leaf_psi_segments_lut_jls
                                        ! MDK, 18/10/26
-USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
                                        ! MDK, 21/10/26
 
 USE jules_vegetation_mod, ONLY:                                                &
@@ -1417,13 +1416,6 @@ REAL(KIND=real_jlslsm) :: k_s, psi_in_s
                             ! l_som_rhizo_series: the path's soil-to-root
                             ! conductance and a sample's root inlet psi (Pa),
                             ! for the impaired hydraulic cost.
-REAL(KIND=real_jlslsm) :: k_s_e, dpsi_s
-LOGICAL :: l_ok
-                            ! l_som_rhizo_mfp: a sample's marginal soil
-                            ! conductance and soil drop (Pa), and whether the
-                            ! soil can carry it, for the impaired cost.
-                            !
-                            ! MDK, 21/10/26
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
@@ -1766,22 +1758,7 @@ ELSE IF (l_xylem_impairment) THEN
       k_s = ksr_path(l)
       IF ( k_s < 0.0 ) CYCLE
       DO i = 1, n_sample
-        IF ( rhizo_active(l) ) THEN
-          ! l_som_rhizo_mfp: the nonlinear soil link, as leaf_psi_jls, with
-          ! K_s the marginal soil conductance at this sample. (This took the
-          ! linear link before.)
-          !
-          ! MDK, 21/10/26
-          CALL rhizo_path_drop( l, el_sample(i,j), dpsi_s, k_s_e, l_ok )
-          IF ( l_ok .AND. k_s_e > TINY(1.0_real_jlslsm) ) THEN
-            psi_in_s = MAX(psi_root_zone(l) - dpsi_s, som_psi_in_min)
-            kl_hc_sample(i,j) = kl_hc_sample(i,j)                              &
-                                / (1.0 + kmax_ref(l) * xylem_f(pft, psi_in_s)  &
-                                         / k_s_e)
-          ELSE
-            kl_hc_sample(i,j) = 0.0
-          END IF
-        ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+        IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
           psi_in_s = MAX(psi_root_zone(l) - el_sample(i,j) / k_s,             &
                          som_psi_in_min)
           kl_hc_sample(i,j) = kl_hc_sample(i,j)                                &
@@ -2252,7 +2229,6 @@ USE xylem_hydraulics_CW_jls_mod, ONLY: supply_lut_psi, supply_lut_e_crit,      &
                                        leaf_psi_segments_lut_jls
                                        ! MDK, 18/10/26
 USE xylem_impairment_mod, ONLY: leaf_psi_impaired_jls
-USE rhizo_mfp_mod, ONLY: rhizo_active, rhizo_path_drop
                                        ! MDK, 21/10/26
 
 INTEGER, INTENT(IN) ::                                                         &
@@ -2937,12 +2913,6 @@ CONTAINS
   REAL(KIND=real_jlslsm), INTENT(IN)  :: el1(1,1)
   REAL(KIND=real_jlslsm), INTENT(OUT) :: psi1(1,1), kl1(1,1), khc1(1,1)
   REAL(KIND=real_jlslsm) :: kmx1(1), kcr1(1), b1(1), c1(1), psi_in1, k_s1
-  REAL(KIND=real_jlslsm) :: k_s1e, dpsi1
-  LOGICAL :: l_ok1
-                            ! l_som_rhizo_mfp: marginal soil conductance, soil
-                            ! drop (Pa) and whether the soil can carry el1.
-                            !
-                            ! MDK, 21/10/26
 
   IF ( l_som_plant_segments .AND. som_psi_solver == psi_solver_lut ) THEN
     ! The capped segments from the supply tables.
@@ -2968,19 +2938,7 @@ CONTAINS
     CALL xylem_conductance_jls( pft, 1, 1, psi1, kmx1, kcr1, b1, c1, khc1 )
     IF ( l_som_rhizo_series ) THEN
       k_s1 = ksr_path(l)
-      IF ( k_s1 >= 0.0 .AND. rhizo_active(l) ) THEN
-        ! l_som_rhizo_mfp: the nonlinear soil link, as stom_opt_mod_ci.
-        !
-        ! MDK, 21/10/26
-        CALL rhizo_path_drop( l, el1(1,1), dpsi1, k_s1e, l_ok1 )
-        IF ( l_ok1 .AND. k_s1e > TINY(1.0_real_jlslsm) ) THEN
-          psi_in1 = MAX(psi_root_zone(l) - dpsi1, som_psi_in_min)
-          khc1(1,1) = khc1(1,1)                                                &
-                      / (1.0 + kmax_ref(l) * xylem_f(pft, psi_in1) / k_s1e)
-        ELSE
-          khc1(1,1) = 0.0
-        END IF
-      ELSE IF ( k_s1 > TINY(1.0_real_jlslsm) ) THEN
+      IF ( k_s1 > TINY(1.0_real_jlslsm) ) THEN
         psi_in1 = MAX(psi_root_zone(l) - el1(1,1) / k_s1, som_psi_in_min)
         khc1(1,1) = khc1(1,1)                                                  &
                     / (1.0 + kmax_ref(l) * xylem_f(pft, psi_in1) / k_s1)

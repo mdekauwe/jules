@@ -651,27 +651,20 @@ LOGICAL ::                                                                     &
       ! soil_to_root_k only there). It replaces l_som_root_supply.
 LOGICAL ::                                                                     &
   l_som_rhizo_mfp = .FALSE.
-      ! With l_som_rhizo_series: the soil-to-root link is nonlinear, from the
-      ! matric flux potential (Kirchhoff transform) of each layer,
-      !   Phi_i(h) = integral of K_i dh' from h to the driest state,
-      !   E_i = B_i (Phi_i(h_soil,i) - Phi_i(h_root)),
-      ! with B_i = soil_to_root_k / soil_k the Bonan et al. (2014) cylinder
-      ! factor and one root node shared by the layers (rhizo_mfp_mod). The
-      ! soil conductivity then falls towards the root surface as it dries,
-      ! instead of being taken at the bulk soil psi (Carminati & Javaux 2020;
-      ! Abdalla et al. 2021), and the soil supplies at most sum B_i Phi_i.
-      ! Off: the linear link psi_root = psi_src - E / ksr, as before.
+      ! RETIRED: the nonlinear (matric flux potential) soil-to-root link made
+      ! no measurable difference at FR-Pue (recalibration 10 Oct 2026; drought
+      ! tests 22 Oct 2026) and was removed. The code is kept on branch
+      ! rhizo_mfp. Still read so old namelists run; .TRUE. gives a warning
+      ! and is ignored, and the linear link psi_root = psi_src - E / ksr is
+      ! used.
+      !
+      ! MDK, 23/10/26
 LOGICAL ::                                                                     &
   l_som_rhizo_hr = .TRUE.
-      ! With l_som_rhizo_mfp: layers drier than the root still exchange
-      ! water with it in the root balance (hydraulic redistribution), so with
-      ! no flow the root sits between the layers, at
-      ! sum_i B_i (Phi_i(psi_i) - Phi_i(psi_root)) = 0, the nonlinear form of
-      ! the conductance-weighted soil psi of the linear link (which assumes
-      ! the same). Off: drier layers give nothing, so with no flow the root
-      ! sits at the wettest rooted layer. On by default (10 Oct 2026): closest
-      ! to the linear link and the better psi_leaf fit at FR-Pue. Only used
-      ! with l_som_rhizo_mfp. The extraction weights never go negative.
+      ! RETIRED with l_som_rhizo_mfp (hydraulic redistribution in its root
+      ! balance). Still read so old namelists run; ignored.
+      !
+      ! MDK, 23/10/26
 LOGICAL ::                                                                     &
   l_root_mass_fixed = .FALSE.
       ! Root mass in the soil-to-root conductance (soil_to_root_k, Bonan et
@@ -1887,11 +1880,14 @@ END IF
 ! the plant hydraulics of the profit max and DESICA.
 l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt .OR.               &
                        stomata_model == stomata_desica )
-IF ( l_som_rhizo_mfp .AND. .NOT. l_som_rhizo_series ) THEN
-  errcode = 101
+! l_som_rhizo_mfp is retired (see its declaration).
+! MDK, 23/10/26
+IF ( l_som_rhizo_mfp ) THEN
+  errcode = -101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_rhizo_mfp needs the soil-to-root link in series: ' //    &
-               'stomata_model = 4 to 7, 9, 10 or DESICA')
+               'l_som_rhizo_mfp is retired and ignored: the soil-to-root ' //  &
+               'link is linear (code kept on branch rhizo_mfp)')
+  l_som_rhizo_mfp = .FALSE.
 END IF
 
 IF ( .NOT. l_root_mass_fixed .AND. root_mass_min <= 0.0 ) THEN
