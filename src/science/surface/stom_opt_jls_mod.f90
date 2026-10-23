@@ -370,8 +370,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
                             ! MDK, 21/10/26
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
  psi_stem(land_pts)
-                            ! Stem water potential (Pa): the outlet of the
-                            ! stem segment of the chosen sample, with
+                            ! Stem water potential (Pa): the leaf-side end of
+                            ! the stem segment of the chosen sample, with
                             ! l_som_plant_segments and xylem impairment;
                             ! psi_root_zone otherwise.
                             !
@@ -496,7 +496,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,carbon_gain_bnd(open_pts)                                                     &
 ,hydraulic_cost_bnd(open_pts)                                                  &
 ,psi_stem_bnd(open_pts)                                                        &
-                            ! Stem segment outlet psi at the optimum (xylem
+                            ! Stem segment leaf-side psi at the optimum (xylem
                             ! impairment with segments; else psi_root_zone).
 ,lambda_bnd(open_pts)
                             ! dA/dE at the optimum (see som_lambda_call).
@@ -1539,7 +1539,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
  psi_stem_sample(0:n_sample, open_pts)
                             ! Stem water potential (Pa) of each sample: the
-                            ! stem segment outlet with segments and
+                            ! stem segment's leaf-side end with segments and
                             ! impairment, else psi_root_zone.
 
 !-----------------------------------------------------------------------------
@@ -1606,8 +1606,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
 
 REAL(KIND=real_jlslsm) :: k_s, psi_in_s
                             ! l_som_rhizo_series: the path's soil-to-root
-                            ! conductance and a sample's root inlet psi (Pa),
-                            ! for the impaired hydraulic cost.
+                            ! conductance and a sample's root water potential
+                            ! (Pa), for the impaired hydraulic cost.
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
@@ -1948,7 +1948,7 @@ ELSE IF (l_xylem_impairment) THEN
   ! at the same water potentials, in series with the soil (which is not
   ! damaged, so the stomata see it). As leaf_psi_jls, the marginal
   ! conductance of the path is k(psi_leaf) / (1 + k(psi_in) / K_s), with the
-  ! root inlet psi_in = psi_src - E / K_s and k the intact curve.
+  ! root water potential_in = psi_src - E / K_s and k the intact curve.
   IF ( l_som_rhizo_series ) THEN
     DO j = 1, open_pts
       l = veg_index(open_index(j))
@@ -2111,8 +2111,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
   psi_stem(n_e_leaf, open_pts)
-      ! Stem outlet water potential (Pa); with segments and impairment
-      ! only, otherwise left unset.
+      ! Stem water potential at its leaf-side end (Pa); with segments and
+      ! impairment only, otherwise left unset.
 
 LOGICAL, INTENT(IN), OPTIONAL :: l_exact
       ! .TRUE.: with segments, solve each segment exactly (bisection, see
@@ -2506,7 +2506,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
                             !
                             ! MDK, 21/10/26
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: psi_stem_g(open_pts)
-                            ! Stem segment outlet water potential at the
+                            ! Stem segment leaf-side water potential at the
                             ! chosen state (xylem impairment with segments,
                             ! for the per-segment stem damage); psi_root_zone
                             ! otherwise and for closed points.
@@ -2642,10 +2642,10 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 l_lut = ( pft_conductance_model(pft) == CW_conductance .OR.                    &
           pft_conductance_model(pft) == SOX_conductance ) .AND.                &
         som_psi_solver == psi_solver_lut .AND. .NOT. l_som_plant_segments
-! With the soil resistance in series the root inlet varies with E, so the
-! direct table lookup (psi_root_zone as the inlet) and the table's e_crit in
-! edge_by_gl_cap do not apply: use leaf_psi_jls, which adds the soil link, and
-! the margin-based edge.
+! With the soil resistance in series the root water potential varies with E, so
+! the direct table lookup (psi_root_zone as the root water potential) and the
+! table's e_crit in edge_by_gl_cap do not apply: use leaf_psi_jls, which adds
+! the soil link, and the margin-based edge.
 IF ( l_som_rhizo_series .AND. fsmc_mod(pft) == 2 ) l_lut = .FALSE.
 
 ! The table is the intact PFT curve: not for the impaired path. (With
@@ -3002,7 +3002,7 @@ DO j = 1, open_pts
     END IF
   END IF
 
-  ! Stem outlet psi at the chosen transpiration on the (impaired) segment
+  ! Stem leaf-side psi at the chosen transpiration on the (impaired) segment
   ! chain, for the per-segment stem damage (diagnostic only: the state is
   ! already chosen).
   IF ( PRESENT(psi_stem_g) .AND. l_xylem_impairment .AND.                      &
@@ -3393,13 +3393,29 @@ CONTAINS
 
   IF ( g_cap >= HUGE(1.0_real_jlslsm) ) RETURN
 
+  ! The leaf conductance a Ci implies is gl = ratio A R T_leaf / (ca - Ci),
+  ! so gl <= g_cap is the same as
+  !
+  !   f(Ci) = g_cap (ca - Ci) - rk A(Ci) >= 0,   rk = ratio R T_leaf
+  !
+  ! which needs only the photosynthesis A(Ci), no hydraulics. (ca - Ci) is
+  ! floored at 1e-2 Pa, as in gl.
   rk = ratio * rmol * t_leaf(l)
+
+  ! Bracket: the current edge e_ci (feasible, f >= 0) and the top of the
+  ! range ci_top (f < 0). Give up if they do not bracket a root.
   ea = e_ci
   fa = g_cap * MAX(ca(l) - ea, 1.0e-2_real_jlslsm) - rk * e_al
   eb = ci_top
   fb = g_cap * MAX(ca(l) - eb, 1.0e-2_real_jlslsm) - rk * t_al
   IF ( fa < 0.0 .OR. fb >= 0.0 ) RETURN
 
+  ! Illinois root find for f = 0 (as in eval_ci): a regula falsi step,
+  ! bisection if it falls outside the bracket, and the end with the same
+  ! sign replaced; if the same end is replaced twice in a row, f at the
+  ! other end is halved so the bracket keeps shrinking from both sides.
+  ! sd records the end replaced last. Stop when the bracket is within
+  ! edge_rtol of the distance to ca.
   sd = 0
   DO it = 1, max_edge_iter
     IF ( eb - ea <= edge_rtol * (ca(l) - ea) ) EXIT
@@ -3417,8 +3433,10 @@ CONTAINS
     END IF
   END DO
 
-  ! Full state at the edge; step back a little if interpolation in the
-  ! table leaves it just outside.
+  ! Full state at the edge (ea, the feasible end): a full evaluation with
+  ! the hydraulics. If interpolation in the supply table leaves it just
+  ! outside, step back towards lower Ci (up to 3 times). The edge is only
+  ! moved if the new point lies above the current e_ci.
   DO it = 1, 3
     IF ( ea <= e_ci ) RETURN
     CALL eval_ci(ea)
@@ -3435,22 +3453,43 @@ CONTAINS
   !---------------------------------------------------------------------------
   ! Edge of the feasible range by an Illinois root find on the feasibility
   ! margin of full evaluations (any hydraulics).
+  !
+  ! The margin (see margin()) is the smaller of the scaled distances to the
+  ! two limits,
+  !
+  !   (kl - kcrit) / kmax   and   (gl_max - gl) / gl_max  (if gl_max set)
+  !
+  ! positive when the Ci is feasible, negative when not. The edge is where
+  ! it crosses zero, between the feasible e_ci and the infeasible ci_top.
   !---------------------------------------------------------------------------
   SUBROUTINE edge_by_margin()
   INTEGER :: it
 
   ! edge_by_gl_cap may have left a different evaluation in *_u.
   IF ( l_lut ) CALL eval_ci(ci_top)
+
+  ! Upper end of the bracket: ci_top (infeasible), and its margin.
   b_ci = ci_top
   b_g = margin()
+
+  ! Illinois root find (as in edge_by_gl_cap). Each step is a full
+  ! evaluation with the hydraulics. Stop when the bracket is within
+  ! edge_rtol of the distance to ca, or once the feasible end is within
+  ! edge_margin of a limit (close enough to the edge).
   side = 0
   DO it = 1, max_edge_iter
     IF ( b_ci - e_ci <= edge_rtol * (ca(l) - e_ci) .OR. e_g < edge_margin )    &
       EXIT
+
+    ! Regula falsi step, or bisection if it falls outside the bracket.
     c_ci = (e_ci * b_g - b_ci * e_g) / (b_g - e_g)
     IF ( .NOT. ( c_ci > e_ci .AND. c_ci < b_ci ) ) c_ci = 0.5 * (e_ci + b_ci)
     CALL eval_ci(c_ci)
     g_u = margin()
+
+    ! A feasible point becomes the new edge (with its full state); an
+    ! infeasible one the new upper end. If the same end moves twice in a
+    ! row, halve the margin at the other end (Illinois).
     IF ( ok_u ) THEN
       e_ci = c_ci; e_al = al_u; e_gl = gl_u; e_el = el_u; e_psi = psi_u
       e_kl = kl_u; e_khc = khc_u; e_g = g_u
@@ -3477,28 +3516,48 @@ CONTAINS
   END FUNCTION margin
 
   ! Profit of a state with net photosynthesis al_in, hydraulic-cost
-  ! conductance kl_in and leaf water potential psi_in:
-  !   profit max: CG - HC, as stom_opt_profit_max_select (dimensionless)
-  !   CMax:  A_n - Theta(psi_leaf) (Wolf et al. 2016, Eq. 8)
-  !   CGain: A_n - varpi (k_max - k) / k_max (Lu et al. 2020)
-  !   SOX:   A_n * the SOX factor (Eller et al. 2018)
-  !   CAP:   A_n, which carries the nonstomatal limitation
-  !   ProfitMax2: A_n (1 - E / E_crit) (Wang et al. 2020, Eqn 11), el_in
-  !          the transpiration E
+  ! conductance kl_in, leaf water potential psi_in and transpiration el_in.
+  ! The search maximises it over Ci.
+  !
+  !   profit max   CG - HC = (A_n + g_off) / A_max
+  !                          - (k_max - k) / (k_max - k_crit)
+  !                (Sperry et al. 2017; as stom_opt_profit_max_select,
+  !                dimensionless)
+  !
+  !   CMax         A_n - Theta(psi_leaf)
+  !                (Wolf et al. 2016, Eq. 8)
+  !
+  !   CGain        A_n - varpi (k_max - k) / k_max
+  !                (Lu et al. 2020)
+  !
+  !   SOX          A_n f_SOX(psi_leaf)
+  !                (Eller et al. 2018)
+  !
+  !   CAP          A_n, which carries the nonstomatal limitation
+  !
+  !   ProfitMax2   A_n (1 - E / E_crit)
+  !                (Wang et al. 2020, Eqn 11)
+  !
   ! The last five are in mol CO2 m-2 s-1, on the basis of the call (whole
   ! canopy, the sunlit or shaded leaves, or a layer's leaves).
   !
-  ! MDK, 22/10/26
+  ! MDK, 23/10/26
   REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in, psi_in, el_in)
   REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in, psi_in, el_in
   IF ( l_pm2 ) THEN
+    ! ProfitMax2 (Wang et al. 2020): no cost parameter; the gain falls to
+    ! zero as E reaches E_crit (find_e_crit).
     profit = al_in * (1.0 - el_in / e_crit)
   ELSE IF ( l_cmax ) THEN
+    ! CMax (Wolf et al. 2016): a carbon cost Theta that rises as psi_leaf
+    ! falls, in the same units as A.
     profit = al_in - theta_cmax(psi_in)
   ELSE IF ( l_cap ) THEN
     ! CAP: carbon gain only (al_in carries the nonstomatal limitation).
     profit = al_in
   ELSE IF ( l_sox ) THEN
+    ! SOX_opt (Eller et al. 2018): A scaled by the hydraulic factor at
+    ! psi_leaf.
     profit = al_in * sox_factor(psi_in)
   ELSE IF ( l_cgain ) THEN
     ! Lu et al. (2020) / Sabot et al. (2022, Eq. 15), varpi per unit leaf
@@ -3506,6 +3565,9 @@ CONTAINS
     profit = al_in - lai_call * 1.0e-6_real_jlslsm * cgain_varpi(pft)          &
                      * MAX(k_unstressed - kl_in, 0.0_real_jlslsm) / k_unstressed
   ELSE
+    ! Profit max (Sperry et al. 2017): relative carbon gain minus relative
+    ! hydraulic cost, both 0-1. g_off = Rd with l_som_gain_gross (gross
+    ! gain), else 0; max_al and max_kl are the maxima over the Ci range.
     profit = (al_in + g_off) / max_al - (max_kl - kl_in) / (max_kl - kcrit(l))
   END IF
   END FUNCTION profit
@@ -3544,10 +3606,12 @@ CONTAINS
   IF ( profit_u > best_f ) CALL store_best(profit_u, last_ci)
   END FUNCTION profit_u
 
-  ! Keep the latest evaluation (*_u) as the best so far, with profit f at
-  ! Ci ci.
+  ! Keep the latest evaluation as the best so far, with profit f at Ci ci:
+  ! copy the state the last eval_ci call left (al_u, gl_u, el_u, psi_u,
+  ! kl_u, khc_u: net photosynthesis, leaf conductance, transpiration, leaf
+  ! psi and the path conductances) into the best_* variables.
   !
-  ! MDK, 21/10/26
+  ! MDK, 23/10/26
   SUBROUTINE store_best(f, ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: f, ci
   best_f = f; best_ci = ci; best_al = al_u; best_gl = gl_u; best_el = el_u
@@ -3563,8 +3627,12 @@ CONTAINS
   SUBROUTINE keep_feasible()
   IF ( ok_u .AND. last_ci >= h_ci ) THEN
     l_h_ok = .TRUE.
-    h_ci = last_ci; h_al = al_u; h_gl = gl_u; h_el = el_u
-    h_psi = psi_u; h_kl = kl_u
+    h_ci  = last_ci
+    h_al  = al_u
+    h_gl  = gl_u
+    h_el  = el_u
+    h_psi = psi_u
+    h_kl  = kl_u
   END IF
   END SUBROUTINE keep_feasible
 
@@ -3603,19 +3671,33 @@ END SUBROUTINE stom_opt_bounded_search
 ! regulation of Sperry et al. (2016, Eqn 5, with its saturation rule) on the
 ! profit-max hydraulics, with a carbon-coupled demand in place of their fixed
 ! G_max.
-!   1. Demand: ci_d = sl_cica_well_watered ca (Medlyn et al. 2011 with the
-!      water price fixed, so VPD acts only through the hydraulics), so
-!      A_d = A(ci_d), gl_d = ratio A_d R T/(ca - ci_d) and the unregulated
-!      transpiration E' = gl_d D. A_d <= 0 => closed.
-!   2. On the supply function of the path (leaf_psi_jls: single curve or
-!      segments, soil-to-root link, gravity in psi_root_zone), P' = psi(E')
-!      and the loss rule
-!        dP = (P0 - P') k(P')/k(P0),   k = -dE/dpsi_leaf,
+!
+!   1. Demand. A fixed ci/ca (Medlyn et al. 2011 with the water price fixed,
+!      so VPD acts only through the hydraulics):
+!
+!        ci_d = sl_cica_well_watered ca
+!        A_d  = A(ci_d)
+!        gl_d = ratio A_d R T / (ca - ci_d)
+!        E'   = gl_d D                     (unregulated transpiration)
+!
+!      A_d <= 0 => closed.
+!
+!   2. Loss rule. On the supply function of the path (leaf_psi_jls: single
+!      curve or segments, soil-to-root link, gravity in psi_root_zone),
+!
+!        P' = psi(E')
+!        dP = (P0 - P') k(P') / k(P0),   k = -dE / dpsi_leaf
+!
 !      with P0 = psi_root_zone (zero flow). dP rises with E' to a maximum
 !      and then falls; past the maximum it is held there (Sperry et al.
 !      2016). A demand beyond E_crit (k(P') <= k_fail) is past the maximum.
-!   3. The regulated E solves psi(E) = P0 - dP, gl = E/D <= gl_d, and ci
-!      solves A(ci) R T ratio = gl (ca - ci) on [ccp, ci_d].
+!
+!   3. Regulated state. The regulated E, gl and ci solve
+!
+!        psi(E) = P0 - dP
+!        gl     = E / D  <= gl_d
+!        A(ci) R T ratio = gl (ca - ci),   ci in [ccp, ci_d]
+!
 ! k_fail is kcrit, or sl_kfail_frac * kmax. No som_gl_max: gl_max carries
 ! only the soil supply limit (l_som_supply_limit), applied to the regulated
 ! gl. Every search here is bracketed (bisection, Illinois or golden section
@@ -3662,16 +3744,18 @@ USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
 USE xylem_hydraulics_CW_jls_mod, ONLY: supply_lut_psi, supply_lut_f
 
 INTEGER, INTENT(IN) ::                                                         &
-  land_pts, pft, open_pts, open_index(land_pts), pft_photo_model,             &
+  land_pts, pft, open_pts, open_index(land_pts), pft_photo_model,              &
   veg_index(land_pts)
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
-  rd(land_pts), ca(land_pts), psi_root_zone(land_pts), acr(land_pts),         &
-  apar(land_pts), oi(land_pts), vcmax(land_pts), kc(land_pts), ko(land_pts),  &
-  ccp(land_pts), pstar(land_pts), km(land_pts), dq(land_pts), je(land_pts),   &
-  t_leaf(land_pts), je_ratio(land_pts), fapar_lf(land_pts), ipar(land_pts),   &
-  kmax(land_pts), kcrit(land_pts), gl_max(land_pts)
-                            ! gl_max: cap on gl (m/s) from sf_stom; with
+  rd(land_pts), ca(land_pts), psi_root_zone(land_pts), acr(land_pts),          &
+  apar(land_pts), oi(land_pts), vcmax(land_pts), kc(land_pts), ko(land_pts),   &
+  ccp(land_pts), pstar(land_pts), km(land_pts), dq(land_pts), je(land_pts),    &
+  t_leaf(land_pts), je_ratio(land_pts), fapar_lf(land_pts), ipar(land_pts),    &
+  kmax(land_pts), kcrit(land_pts)
+
+REAL(KIND=real_jlslsm), INTENT(IN) :: gl_max(land_pts)
+                            ! Cap on gl (m s-1) from sf_stom. With
                             ! stomata_model = 9 only the soil supply limit
                             ! (l_som_supply_limit; apply_supply_limit), as
                             ! som_gl_max is not used. <= 0: no cap.
@@ -3679,25 +3763,36 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 LOGICAL, INTENT(IN) :: l_multilayer
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
-  ci_g(open_pts), al_g(open_pts), gl_g(open_pts), kl_g(open_pts),            &
-  psi_g(open_pts), el_g(open_pts), carbon_gain_g(open_pts),                  &
-  hydraulic_cost_g(open_pts)
-                            ! carbon_gain_g: A/A_d, the fraction of the
-                            ! demand's net photosynthesis kept.
-                            ! hydraulic_cost_g: 1 - k(P')/k(P0), the loss of
-                            ! conductance the unregulated demand would cause.
+  ci_g(open_pts), al_g(open_pts), gl_g(open_pts), kl_g(open_pts),              &
+  psi_g(open_pts), el_g(open_pts)
+
+REAL(KIND=real_jlslsm), INTENT(OUT) :: carbon_gain_g(open_pts)
+                            ! A / A_d, the fraction of the demand's net
+                            ! photosynthesis kept.
+
+REAL(KIND=real_jlslsm), INTENT(OUT) :: hydraulic_cost_g(open_pts)
+                            ! 1 - k(P') / k(P0), the loss of conductance
+                            ! the unregulated demand would cause.
+
+REAL(KIND=real_jlslsm), PARAMETER :: de_slope = 1.0e-2
+                            ! Relative step in E' for the slope of dP(E').
+
+REAL(KIND=real_jlslsm), PARAMETER :: e_rtol = 1.0e-4
+                            ! Regulated E to e_rtol * E' (or dP to e_rtol).
+
+REAL(KIND=real_jlslsm), PARAMETER :: emax_rtol = 1.0e-3
+                            ! E at the maximum of dP to emax_rtol * E'.
+
+REAL(KIND=real_jlslsm), PARAMETER :: ci_rtol = 1.0e-4
+                            ! ci to ci_rtol * (ci_d - ccp).
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
-  de_slope = 1.0e-2,                                                           &
-                            ! Relative step in E' for the slope of dP(E').
-  e_rtol = 1.0e-4,                                                             &
-                            ! Regulated E to e_rtol * E' (or dP to e_rtol).
-  emax_rtol = 1.0e-3,                                                          &
-                            ! E at the maximum of dP to emax_rtol * E'.
-  ci_rtol = 1.0e-4,                                                            &
-                            ! ci to ci_rtol * (ci_d - ccp).
   golden_ratio = 0.6180339887498949_real_jlslsm
+                            ! (sqrt(5) - 1) / 2, for the golden-section search.
+
 INTEGER, PARAMETER :: max_iter = 40
+                            ! Maximum iterations of each root find and search.
+
 INTEGER, PARAMETER :: n_scan = 8
                             ! Samples of dP(E) on [0, E_hi] before the golden
                             ! section, so that it brackets the largest one
@@ -3705,19 +3800,22 @@ INTEGER, PARAMETER :: n_scan = 8
                             ! soil link).
 
 INTEGER :: j, l, it, side, idx1(land_pts)
+INTEGER :: i_scan, i_best
+
 LOGICAL :: l_lut, l_sat
+
 REAL(KIND=real_jlslsm) :: b_curve(land_pts), c_curve(land_pts)
                             ! The PFT's vulnerability curve on land_pts, for
                             ! leaf_psi_jls (no xylem impairment here).
 
 REAL(KIND=real_jlslsm) ::                                                      &
-  rt, vpd, conv_e, k_fail, p0, k0, ci_d, al_d, gl_d, e_d, psi_d, k_d,  &
-  dp, dp_d, psi_t, psi_u, k_u, e_reg, psi_reg, k_reg, gl_reg,                 &
+  rt, vpd, conv_e, k_fail, p0, k0, ci_d, al_d, gl_d, e_d, psi_d, k_d,          &
+  dp, dp_d, psi_t, psi_u, k_u, e_reg, psi_reg, k_reg, gl_reg,                  &
   ! Illinois brackets
   xa, xb, xc, fa, fb, fc,                                                      &
   ! Golden section on dP(E), its upper end and the scan
-  ga, gb, gc_e, gd_e, fgc, fgd, e_max, dp_max, e_hi, e_lo, f_scan, e_tol
-INTEGER :: i_scan, i_best
+  ga, gb, gc_e, gd_e, fgc, fgd, e_max, dp_max, e_hi, e_lo, f_scan,             &
+  e_tol
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -3793,10 +3891,18 @@ DO j = 1, open_pts
 
   IF ( l_sat ) THEN
     !-------------------------------------------------------------------------
-    ! Maximum of dP(E) on [0, E_hi], E_hi = MIN(E', E_crit): dP(0) = 0,
-    ! d(dP)/dE = (1 + dP' dk/dE)/k0 = 1/k0 at E = 0, then falling.
-    !  a. Beyond E_crit (k(E') <= k_fail), E_crit by bisection on k(E), so
-    !     the search and its tolerance scale with the usable range, not E'.
+    ! Maximum of dP(E) on [0, E_hi],
+    !
+    !   E_hi = MIN(E', E_crit)
+    !
+    ! dP starts at zero and rises at first,
+    !
+    !   dP(0) = 0,   d(dP)/dE = (1 + dP' dk/dE) / k0 = 1 / k0  at E = 0
+    !
+    ! then falls.
+    !  a. If E' is beyond E_crit (k(E') <= k_fail), find E_crit by
+    !     bisection on k(E), so the search and its tolerance scale with the
+    !     usable range, not E'.
     !  b. n_scan samples bracket the largest dP (in case of more than one
     !     maximum), then golden section on that bracket to emax_rtol * E_hi.
     !     States beyond E_crit score -1.

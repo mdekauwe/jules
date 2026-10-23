@@ -247,7 +247,7 @@ INTEGER, PARAMETER ::                                                          &
   ximpair_driver_root = 3,                                                     &
     ! Root zone water potential (~ predawn; Mackay et al. 2015).
   ximpair_driver_stem = 4
-    ! Stem water potential: the outlet of the stem segment
+    ! Stem water potential: the leaf-side end of the stem segment
     ! (l_som_plant_segments), i.e. the root zone potential less the drop
     ! through the root and stem segments at the chosen transpiration.
 
@@ -691,19 +691,19 @@ LOGICAL ::                                                                     &
       ! as in SPA, MAESPA (KTOT = 1/(TOTSOILRES + 1/PLANTK)) and Bonan et al.
       ! (2014): ksr is soil_to_root_k summed over the layers (parallel; soil
       ! part only, Bonan eq. A23), kept apart from the xylem kmax (the
-      ! vulnerability curve, and any impairment, act on kmax only). Profit
-      ! max: the root inlet falls with the flux, psi_root = psi_src - E/ksr,
-      ! with ksr shared between the leaf paths by their share of the
-      ! undamaged plant conductance (set_ksr_path); the marginal conductance
-      ! used by the hydraulic cost and kcrit is that of the whole
-      ! soil-to-leaf path (with l_som_plant_segments the soil link comes
-      ! ahead of the root segment). DESICA: ksr is in series with the
-      ! root-side conductance. Root (radial), stem and leaf resistance stay
-      ! in kmax, so nothing is counted twice. psi_root_zone is the
-      ! conductance-weighted soil psi (smc_ext), and the layer extraction
-      ! weights are k_i (psi_i - psi_root) at the actual root potential
-      ! (physiol). Applied for PFTs with fsmc_mod = 2 only (smc_ext computes
-      ! soil_to_root_k only there). It replaces l_som_root_supply.
+      ! vulnerability curve, and any impairment, act on kmax only). Profit max:
+      ! the root water potential falls with the flux,
+      ! psi_root = psi_src - E/ksr, with ksr shared between the leaf paths by
+      ! their share of the undamaged plant conductance (set_ksr_path); the
+      ! marginal conductance used by the hydraulic cost and kcrit is that of the
+      ! whole soil-to-leaf path (with l_som_plant_segments the soil link comes
+      ! ahead of the root segment). DESICA: ksr is in series with the root-side
+      ! conductance. Root (radial), stem and leaf resistance stay in kmax, so
+      ! nothing is counted twice. psi_root_zone is the conductance-weighted soil
+      ! psi (smc_ext), and the layer extraction weights are k_i (psi_i -
+      ! psi_root) at the actual root potential (physiol). Applied for PFTs with
+      ! fsmc_mod = 2 only (smc_ext computes soil_to_root_k only there). It
+      ! replaces l_som_root_supply.
 LOGICAL ::                                                                     &
   l_som_rhizo_mfp = .FALSE.
       ! RETIRED: the nonlinear (matric flux potential) soil-to-root link made
@@ -907,11 +907,12 @@ LOGICAL ::                                                                     &
   l_ximpair_seg_memory = .FALSE.,                                              &
       ! Memory model (pft_xylem_impairment_model = 3) with segments
       ! (l_som_plant_segments): a separate cap for the stem and the leaf
-      ! segment, each damaged by its own outlet water potential (psi_stem,
-      ! psi_leaf) on its own vulnerability curve (conductance_b/c_seg), and
-      ! each recovering with its own timescale (ximpair_tau_stem, sapwood
-      ! turnover; ximpair_tau_leaf, leaf turnover). ximpair_psi_driver is
-      ! then not used. .FALSE.: one cap on both segments (as before).
+      ! segment, each damaged by the water potential at its own leaf-side end
+      ! (psi_stem, psi_leaf) on its own vulnerability curve
+      ! (conductance_b/c_seg), and each recovering with its own timescale
+      ! (ximpair_tau_stem, sapwood turnover; ximpair_tau_leaf, leaf turnover).
+      ! ximpair_psi_driver is then not used. .FALSE.: one cap on both segments
+      ! (as before).
   l_ximpair_rec_nsc = .FALSE.,                                                 &
       ! Memory model (pft_xylem_impairment_model = 3) with the TRIFFID
       ! storage pool (l_triffid_nsc): the stem's lost conductance recovers

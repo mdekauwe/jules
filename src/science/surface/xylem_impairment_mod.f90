@@ -278,14 +278,14 @@ REAL(KIND=real_jlslsm) :: b_ref(land_pnts), c_ref(land_pnts)
                             ! Unimpaired PFT curve parameters.
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_in(land_pnts), k_inlet(land_pnts)                                        &
-                            ! l_som_rhizo_series: root inlet potential (Pa)
+                            ! l_som_rhizo_series: root water potential (Pa)
                             ! and impaired conductance there, one sample.
 , e1(1, open_pnts), psi1(1, open_pnts), k1(1, open_pnts)                       &
                             ! One sample per open point.
 , k_s                                                                          &
                             ! Soil-to-root conductance of the path.
 , psi_k(land_pnts)
-                            ! Whole trunk: inlet potential the inlet
+                            ! Whole trunk: root-end potential the root-end
                             ! conductance is taken at (Pa).
                             !
                             ! MDK, 21/10/26
@@ -333,10 +333,11 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
     ELSE
       !-----------------------------------------------------------------------
       ! Soil-to-root conductance in series ahead of the impaired plant, as
-      ! leaf_psi_jls: the root inlet of each sample is psi_in = psi_src - E/K_s,
-      ! the impaired plant path runs from there, and the whole-path marginal
-      ! conductance is k_p / (1 + k(psi_in) / K_s), k(psi_in) this model's
-      ! impaired conductance at the inlet. The soil is not damaged.
+      ! leaf_psi_jls: the root water potential of each sample is psi_in =
+      ! psi_src - E/K_s, the impaired plant path runs from there, and the
+      ! whole-path marginal conductance is k_p / (1 + k(psi_in) / K_s),
+      ! k(psi_in) this model's impaired conductance at the root. The soil is not
+      ! damaged.
       !-----------------------------------------------------------------------
       DO i = 1, n_e_leaf
         psi_in(:) = root_zone_psi(:)
@@ -355,7 +356,7 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
         CALL impaired_path( 1, e1, psi_in, psi1, k1 )
         IF ( pft_xylem_impairment_model(pft) ==                                &
              xylem_impairment_whole_trunk ) THEN
-          ! Whole trunk: the inlet is the root end of the path, so its
+          ! Whole trunk: the root end of the path is where water enters, so its
           ! conductance is the unimpaired curve at the root's historic
           ! minimum (as leaf_psi_impaired_whole_trunk uses there), not the
           ! leaf's, which leaf_conductance_impaired_jls would use.
@@ -395,7 +396,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 CONTAINS
 
-! The impaired plant path (root inlet to leaf), whole_trunk or memory model.
+! The impaired plant path (root to leaf), whole_trunk or memory model.
 SUBROUTINE impaired_path( n_e, e_in, psi_root, psi_out, k_out )
 
 INTEGER, INTENT(IN) :: n_e

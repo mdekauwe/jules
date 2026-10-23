@@ -294,12 +294,12 @@ INTEGER :: errcode, i, j, l
 
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_in(land_pts)                                                             &
-                            ! Root inlet potential for one sample (Pa).
+                            ! Root water potential for one sample (Pa).
 , e1(1, open_pnts), psi1(1, open_pnts), k1(1, open_pnts)                       &
                             ! One sample per open point.
 , k_s, k_in
                             ! Soil-to-root conductance of the path and the
-                            ! plant conductance at the inlet (kmax units).
+                            ! plant conductance at the root (kmax units).
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -315,15 +315,29 @@ IF ( .NOT. l_som_rhizo_series .OR. l_som_plant_segments ) THEN
 ELSE
   !---------------------------------------------------------------------------
   ! Soil (rhizosphere) resistance in series with the plant (SPA, MAESPA).
-  ! The soil link is linear in E within a step, so each sample has its own
-  ! root inlet psi_in = psi_src - E / K_s, and the plant path runs from
-  ! there. With psi_l(E, psi_in(E)), the marginal conductance of the whole
-  ! path is
-  !   dE/dpsi_l = k_p / (1 + k(psi_in) / K_s),
-  ! with k_p the plant marginal conductance at the leaf (leaf_k of the plant
-  ! path) and k(psi_in) = kmax f(psi_in), using dpsi_l/dpsi_in =
-  ! k(psi_in) / k_p for a single conductance curve. At E = 0 this is the
-  ! series conductance 1 / (1/k(psi_src) + 1/K_s).
+  !
+  ! The soil-to-root drop is linear in E within a step, so each sample has
+  ! its own root water potential (where water enters the plant),
+  !
+  !   psi_in = psi_src - E / K_s
+  !
+  ! and the plant path runs from there to the leaf. With
+  ! psi_l(E, psi_in(E)), the marginal conductance of the whole path is
+  !
+  !   dE / dpsi_l = k_p / (1 + k(psi_in) / K_s)
+  !
+  ! where
+  !   k_p        plant marginal conductance at the leaf (leaf_k of the
+  !              plant path)
+  !   k(psi_in)  = kmax f(psi_in), the plant conductance at the root
+  !   K_s        soil-to-root conductance
+  !
+  ! using dpsi_l / dpsi_in = k(psi_in) / k_p for a single conductance
+  ! curve. At E = 0 this is the series conductance
+  !
+  !   1 / (1 / k(psi_src) + 1 / K_s)
+  !
+  ! MDK, 23/10/26
   !---------------------------------------------------------------------------
   DO i = 1, n_e_leaf
     psi_in(:) = root_zone_psi(:)
@@ -343,7 +357,7 @@ ELSE
     DO j = 1, open_pnts
       l = veg_index(open_index(j))
       k_s  = ksr_path(l)
-      ! The plant conductance at the inlet on this point's curve: the
+      ! The plant conductance at the root on this point's curve: the
       ! impaired one (conductance_b/c) under xylem impairment, else the PFT
       ! curve. (This used to take supply_lut_f when b and c equalled the
       ! PFT's, which gives the same value for psi <= 0 but built the supply
@@ -368,7 +382,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 CONTAINS
 
-! The plant path (root inlet to leaf) for n_e samples per open point.
+! The plant path (root to leaf) for n_e samples per open point.
 SUBROUTINE plant_path( n_e, e_in, psi_root, psi_out, k_out )
 
 INTEGER, INTENT(IN) :: n_e

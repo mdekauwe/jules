@@ -531,7 +531,7 @@ END SUBROUTINE leaf_psi_impaired_memory
 ! Per-segment memory (l_ximpair_seg_memory, with l_som_plant_segments):
 ! kcap is the stem segment's cap and ximpair_kcap_leaf the leaf segment's
 ! (as a fraction of the intact leaf segment). Each is damaged by its own
-! outlet water potential on its own curve (conductance_b/c_seg): the stem
+! leaf-side water potential on its own curve (conductance_b/c_seg): the stem
 ! by psi_stem, the leaf by psi_leaf (ximpair_psi_driver is not used). Each
 ! recovers with its own e-folding time, in typical years of growth with
 ! the growth clock (ximpair_rec_years then only sets the window of the
@@ -597,8 +597,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 , psi_root(n_land_pts)                                                         &
                             ! Root zone water potential (Pa)
 , psi_stem(n_land_pts)                                                         &
-                            ! Stem water potential (Pa; outlet of the stem
-                            ! segment, = psi_root without segments)
+                            ! Stem water potential (Pa; leaf-side end of the
+                            ! stem segment, = psi_root without segments)
 , lai(n_land_pts)                                                              &
                             ! Leaf area index
 , canht(n_land_pts)                                                            &

@@ -30,8 +30,8 @@ PUBLIC :: ximpair_kcap_leaf, ximpair_psi_stem, ximpair_seg_state_alloc,       &
 ! read from dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: ximpair_kcap_leaf(:,:)
 
-! Stem water potential (Pa; outlet of the stem segment) at the last update,
-! for the PLC_pft diagnostic. Not dumped; 0 until the first update.
+! Stem water potential (Pa; leaf-side end of the stem segment) at the last
+! update, for the PLC_pft diagnostic. Not dumped; 0 until the first update.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: ximpair_psi_stem(:,:)
 
 CONTAINS

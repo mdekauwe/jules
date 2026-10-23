@@ -88,7 +88,7 @@ REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: k_ground_ratio_max = 10.0
       ! MDK, 21/10/26
 
 REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: som_psi_in_min = -1.0e9
-      ! Floor on the root inlet potential (Pa) with l_som_rhizo_series when
+      ! Floor on the root water potential (Pa) with l_som_rhizo_series when
       ! the soil conductance is (near) zero.
 
 ! ---------------------------------------------------------------------
@@ -1454,10 +1454,11 @@ END SUBROUTINE build_supply_lut
 ! Segment s has maximum conductance kmax * seg_kfac(pft,s) (the segments
 ! share the whole-plant resistance, so in series they give kmax when well
 ! watered) and its own cumulative Weibull curve (conductance_b_seg,
-! conductance_c_seg). For each sampled transpiration the outlet potential of
-! each segment is solved downstream from psi_root_zone with the same
-! Newton-Raphson as the single segment (psi_solver_newton), and becomes the next
-! segment's inlet. The last outlet is the leaf water potential.
+! conductance_c_seg). For each sampled transpiration the leaf-side water
+! potential of each segment is solved downstream from psi_root_zone with the
+! same Newton-Raphson as the single segment (psi_solver_newton), and becomes the
+! next segment's root-side end. The last leaf-side end is the leaf water
+! potential.
 !
 ! The conductance the hydraulic cost uses is the whole-plant k = -dE/dpsi_leaf
 ! (Sperry et al. 2017), from E = int_{psi_out}^{psi_in} k_s dpsi:
@@ -1517,9 +1518,9 @@ REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
   leaf_k_intact(n_e_leaf, open_pnts),                                          &
       ! Whole-plant conductance of the intact segments at leaf_psi.
   stem_psi(n_e_leaf, open_pnts)
-      ! Water potential at the outlet of the stem segment (Pa).
+      ! Water potential at the leaf-side end of the stem segment (Pa).
 LOGICAL, INTENT(IN), OPTIONAL :: l_exact
-      ! .TRUE.: each segment's outlet psi is refined by bisection on the
+      ! .TRUE.: each segment's leaf-side psi is refined by bisection on the
       ! supply integral after the Newton steps, so it is exact (to
       ! rounding) also near the most the segment can carry, where the few
       ! Newton steps may not converge; a flow above that most is
@@ -1541,15 +1542,18 @@ REAL(KIND=real_jlslsm) :: k_s
 
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_in(n_e_leaf), psi_out(n_e_leaf),                                         &
-      ! Segment inlet / outlet water potential (Pa).
+      ! Segment water potential at the root-side / leaf-side end (Pa).
   k_in(n_e_leaf), k_cur(n_e_leaf), k_prev(n_e_leaf),                           &
-      ! Segment conductance at the inlet / current outlet / previous pass.
+      ! Segment conductance at the root-side end / current leaf-side end /
+      ! previous pass.
   a_in(n_e_leaf), e_cur(n_e_leaf),                                             &
-      ! Supply integral at the inlet; flow for the current outlet.
+      ! Supply integral at the root-side end; flow for the current leaf-side
+      ! end.
   dpsi_de(n_e_leaf), dpsi_de_int(n_e_leaf),                                    &
       ! d(psi_out)/dE carried down the segments (as solved / intact curves).
   a_one(1),                                                                    &
-      ! Supply integral at psi_root_zone (root inlet, same for all samples).
+      ! Supply integral at psi_root_zone (the root water potential, same for all
+      ! samples).
   kmx, kcr, bs, cs, fr, psi_cap, a_cap
       ! Segment kmax, kcrit, Weibull b (Pa) and c; cap fraction, the psi
       ! where the intact curve meets the cap and the intact integral there.
@@ -1606,7 +1610,8 @@ DO j = 1, open_pnts
     k_in(:) = seg_k(psi_in)
     IF ( iseg == 1 .AND. .NOT. ( l_som_rhizo_series .AND.                     &
                                  ksr_path(l) >= 0.0 ) ) THEN
-      ! The root inlet is psi_root_zone for every sample: one evaluation.
+      ! The root water potential is psi_root_zone for every sample: one
+      ! evaluation.
       ! (With l_som_rhizo_series it falls with E, so not here.)
       a_one(:) = seg_a(1, psi_in(1:1))
       a_in(:)  = a_one(1)
@@ -1614,7 +1619,7 @@ DO j = 1, open_pnts
       a_in(:) = seg_a(n_e_leaf, psi_in)
     END IF
 
-    ! First guess: the inlet conductance over the whole drop.
+    ! First guess: the root-side conductance over the whole drop.
     psi_out(:) = psi_in(:) - e_leaf(:,j) / MAX(k_in(:), TINY(1.0_real_jlslsm))
     psi_out(:) = MAX(psi_out(:), psi_in(:) - 5.0 * ABS(bs))
     k_cur(:)   = k_in(:)
@@ -1689,8 +1694,8 @@ CONTAINS
   IF ( l_cap ) k(:) = MIN(k(:), fr * kmx)
   END FUNCTION seg_k
 
-  ! l_exact: the outlet psi of sample i by bisection, seg_a(psi_out) =
-  ! a_in + E (seg_a rises as psi falls), between the inlet and the psi
+  ! l_exact: the leaf-side psi of sample i by bisection, seg_a(psi_out) =
+  ! a_in + E (seg_a rises as psi falls), between the root-side psi and the psi
   ! where (psi/b)**c = 12 (f = 6e-6: the curve has carried all it can, and
   ! the series in incomplete_gamma is still converged there; deeper, its
   ! 40 terms are not enough and seg_a is no longer monotone). A flow above
@@ -1755,8 +1760,8 @@ END SUBROUTINE leaf_psi_segments_jls
 ! psi_root_zone. The whole-plant conductance -dE/dpsi_leaf comes from the
 ! same recursion, dpsi_out/dE = (k_s(psi_in) dpsi_in/dE - 1) / k_s(psi_out),
 ! with the same floor on segment conductances. A demand beyond what a
-! segment can supply puts its outlet at the bottom of its table, where k is
-! ~0, so the state is rejected as infeasible (k <= kcrit).
+! segment can supply puts its leaf-side end at the bottom of its table, where k
+! is ~0, so the state is rejected as infeasible (k <= kcrit).
 !
 ! Xylem impairment (memory model with segments; kcap_frac present): as
 ! leaf_psi_segments_jls, the stem and leaf segments are capped at a fraction
@@ -1765,15 +1770,15 @@ END SUBROUTINE leaf_psi_segments_jls
 !   A_s(psi) = fr kmax_s (-psi)                                psi >= psi_cap
 !            = fr kmax_s (-psi_cap) + kmax_s (S_s(psi) - S_s(psi_cap))  below,
 ! psi_cap where the intact curve meets the cap, f_s(psi_cap) = fr. So for an
-! inlet above psi_cap the flow down to psi_cap, e_cap = fr kmax_s (psi_in -
-! psi_cap), is carried at the constant conductance fr kmax_s: an E <= e_cap
-! gives psi_out = psi_in - E / (fr kmax_s) exactly, and a larger E continues
-! on the intact curve from psi_cap, S_s(psi_out) = S_s(psi_cap) + (E - e_cap)
-! / kmax_s, one inversion of the unchanged table. An inlet below psi_cap is
-! on the intact curve throughout. The caps are per-point numbers, so the
-! tables need no rebuilding. leaf_k uses the capped segment conductances in
+! root-side psi above psi_cap the flow down to psi_cap, e_cap = fr kmax_s
+! (psi_in - psi_cap), is carried at the constant conductance fr kmax_s: an E <=
+! e_cap gives psi_out = psi_in - E / (fr kmax_s) exactly, and a larger E
+! continues on the intact curve from psi_cap, S_s(psi_out) = S_s(psi_cap) + (E -
+! e_cap) / kmax_s, one inversion of the unchanged table. A root-side psi below
+! psi_cap is on the intact curve throughout. The caps are per-point numbers, so
+! the tables need no rebuilding. leaf_k uses the capped segment conductances in
 ! the recursion; leaf_k_intact (if present) the intact ones at the same water
-! potentials (the hydraulic cost), and stem_psi the stem outlet.
+! potentials (the hydraulic cost), and stem_psi the stem's leaf-side psi.
 !
 ! MDK, 18/10/26
 ! *****************************************************************************
@@ -1809,7 +1814,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
   leaf_k_intact(n_e_leaf, open_pnts),                                          &
       ! Whole-plant conductance of the intact segments at leaf_psi.
   stem_psi(n_e_leaf, open_pnts)
-      ! Water potential at the outlet of the stem segment (Pa).
+      ! Water potential at the leaf-side end of the stem segment (Pa).
       !
       ! MDK, 18/10/26
 
@@ -1856,9 +1861,9 @@ DO j = 1, open_pnts
       END IF
     END IF
     ! Root, stem then leaf in series. Each segment carries the same E, so its
-    ! outlet psi comes from its own table with E divided by its own kmax, and
-    ! becomes the next segment's inlet. dpsi_de carries dpsi/dE down the chain:
-    ! from E = integral(k), k_out dpsi_out = k_in dpsi_in - dE.
+    ! leaf-side psi comes from its own table with E divided by its own kmax, and
+    ! becomes the next segment's root-side psi. dpsi_de carries dpsi/dE down the
+    ! chain: from E = integral(k), k_out dpsi_out = k_in dpsi_in - dE.
     !
     ! MDK, 18/10/26
     DO iseg = 1, n_seg
@@ -1918,9 +1923,9 @@ DO j = 1, open_pnts
       psi_in  = psi_out
       IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(i,j) = psi_out
     END DO
-    ! The leaf outlet is the leaf psi. The whole-plant conductance is
-    ! -dE/dpsi_leaf = -1/dpsi_de; it is zero if the chain gave no usable
-    ! slope (e.g. a segment at its conductance floor).
+    ! The leaf segment's leaf-side psi is the leaf psi. The whole-plant
+    ! conductance is -dE/dpsi_leaf = -1/dpsi_de; it is zero if the chain gave no
+    ! usable slope (e.g. a segment at its conductance floor).
     !
     ! MDK, 18/10/26
     leaf_psi(i,j) = psi_in
@@ -1943,7 +1948,7 @@ END DO
 END SUBROUTINE leaf_psi_segments_lut_jls
 
 ! *****************************************************************************
-! Outlet water potential (Pa) of segment iseg for inlet psi_in (Pa) and
+! Leaf-side water potential (Pa) of segment iseg for root-side psi_in (Pa) and
 ! normalised flow e_over_k = E / kmax_s (Pa): S_s(psi_out) = S_s(psi_in) +
 ! e_over_k, by binary search and linear interpolation (as supply_lut_psi).
 ! *****************************************************************************
@@ -1956,9 +1961,10 @@ REAL(KIND=real_jlslsm) :: psi_out
 INTEGER :: lo, hi, mid, i0, n
 REAL(KIND=real_jlslsm) :: dpsi, r, s_in, s_target
 
-! S at the inlet by linear interpolation (as lut_s_at, for this segment's
-! table), plus the normalised flow. A negative flow is treated as zero, so
-! the outlet is never wetter than the inlet. n is the table's node count.
+! S at the root-side end by linear interpolation (as lut_s_at, for this
+! segment's table), plus the normalised flow. A negative flow is treated as
+! zero, so the leaf-side end is never wetter than the root-side end. n is the
+! table's node count.
 !
 ! MDK, 20/10/26
 dpsi = lut_seg_tab(pft,iseg)%dpsi
@@ -1971,8 +1977,8 @@ s_in = lut_seg_tab(pft,iseg)%s(i0)                                             &
 s_target = s_in + MAX(e_over_k, 0.0)
 
 ! Then as supply_lut_psi: the bottom of the table if the flow is beyond all
-! the segment can carry, otherwise a binary search from the inlet's cell and
-! linear interpolation within the cell, capped at the inlet psi.
+! the segment can carry, otherwise a binary search from the root-side cell and
+! linear interpolation within the cell, capped at the root-side psi.
 !
 ! MDK, 18/10/26
 IF ( s_target >= lut_seg_tab(pft,iseg)%s(n) ) THEN

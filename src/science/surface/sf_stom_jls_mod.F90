@@ -680,7 +680,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! WORK Carbon gain for each leaf state
 ,psi_stem(land_pts)                                                            &
                             ! WORK Stem water potential (Pa): the stem
-                            !      segment outlet of the optimum (xylem
+                            !      segment's leaf-side end at the optimum (xylem
                             !      impairment driver 4), else psi_src.
 ,psi_stem_sun(land_pts), psi_stem_shd(land_pts)                                &
                             ! WORK psi_stem of the sunlit / shaded leaves.
