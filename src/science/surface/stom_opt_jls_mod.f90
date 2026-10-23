@@ -3043,33 +3043,71 @@ CONTAINS
   CALL hydraulic_state(ci, al0_u)
 
   !-------------------------------------------------------------------------
-  ! Nonstomatal limitation (l_som_nsl): gross photosynthesis scaled by
-  ! f(psi_leaf), with psi_leaf from the transpiration that f * A gives. For
-  ! fixed Ci, f(psi_leaf(f)) is non-increasing in f, so
-  ! g(f) = f - f(psi_leaf(f)) is increasing with a single root on [0, 1]:
-  ! g(1) > 0 here (the unlimited state, just evaluated), and at f = 0 there
-  ! is no transpiration, psi_leaf = psi_root_zone, so g(0) = -f(psi_root)
-  ! needs no hydraulics. Illinois (regula falsi) to |g| < nsl_tol, usually
-  ! in 3-5 steps. Rd is not scaled.
+  ! Nonstomatal limitation (l_som_nsl)
+  !
+  ! Gross photosynthesis is scaled by a factor of leaf water potential,
+  !
+  !   A = f(psi_leaf) A_unlimited
+  !
+  ! where psi_leaf comes from the transpiration that the scaled A gives.
+  ! So f has to satisfy
+  !
+  !   f = f(psi_leaf(f))
+  !
+  ! For fixed Ci, f(psi_leaf(f)) does not increase with f, so
+  !
+  !   g(f) = f - f(psi_leaf(f))
+  !
+  ! increases with f and has a single root on [0, 1]:
+  !   - g(1) > 0 here (the unlimited state, just evaluated);
+  !   - at f = 0 there is no transpiration, so psi_leaf = psi_root_zone and
+  !     g(0) = -f(psi_root_zone), which needs no hydraulics.
+  !
+  ! The root is found by the Illinois method (regula falsi) to |g| < nsl_tol,
+  ! usually in 3-5 steps. Dark respiration Rd is not scaled. The factor f is
+  ! nsl_factor (Dewar et al. 2022, Eqn 3(b), with an onset).
+  !
+  ! Reference:
+  ! - Dewar, R., Holtta, T. and Salmon, Y. (2022), Exploring optimal
+  !   stomatal control under alternative hypotheses for the regulation of
+  !   plant sources and sinks. New Phytol, 233: 639-654.
+  !   https://doi.org/10.1111/nph.17795
+  !
+  ! MDK, 23/10/26
   !-------------------------------------------------------------------------
   IF ( l_som_nsl ) THEN
+    ! Nothing to do if the unlimited state is not limited (f = 1).
     IF ( nsl_factor(psi_u) < 1.0 ) THEN
+      ! Unlimited gross photosynthesis, and the bracket for f:
+      !   f_hi = 1: g_hi = 1 - f(psi_leaf at full A) > 0
+      !   f_lo = 0: no transpiration, psi_leaf = psi_root_zone,
+      !             g_lo = -f(psi_root_zone) <= 0
       ag0  = al0_u + rd(l)
       f_hi = 1.0
       g_hi = 1.0 - nsl_factor(psi_u)
       f_lo = 0.0
       g_lo = -nsl_factor(psi_root_zone(l))
+
       IF ( g_lo >= 0.0 ) THEN
         ! The soil alone stops photosynthesis (psi_root <= psi_nsl0).
         CALL hydraulic_state(ci, -rd(l))
       ELSE
+        ! side records which end was replaced last (-1 low, +1 high), for
+        ! the Illinois step.
         side = 0
         f_new = f_lo
         DO it = 1, n_nsl_iter
+          ! Regula falsi: the root of the straight line through the two
+          ! bracket ends, then the hydraulics and g at that f.
           f_new = f_lo - g_lo * (f_hi - f_lo) / (g_hi - g_lo)
           CALL hydraulic_state(ci, f_new * ag0 - rd(l))
           g_new = f_new - nsl_factor(psi_u)
           IF ( ABS(g_new) < nsl_tol ) EXIT
+
+          ! Replace the end with the same sign as g_new, so the root stays
+          ! bracketed. Illinois: if the same end is replaced twice in a row,
+          ! halve g at the other end, so that end moves too and the bracket
+          ! does not stall on one side.
           IF ( g_new < 0.0 ) THEN
             f_lo = f_new; g_lo = g_new
             IF ( side == -1 ) g_hi = 0.5 * g_hi
@@ -3086,6 +3124,9 @@ CONTAINS
     END IF
   END IF
 
+  ! A Ci sample is feasible when the leaf is no wetter than the root zone,
+  ! the path conductance is above its critical value kcrit, and the leaf
+  ! conductance is within gl_max (when gl_max is set).
   ok_u = psi_u <= psi_root_zone(l) + TINY(psi_root_zone(l))                    &
          .AND. kl_u > kcrit(l)                                                 &
          .AND. (gl_max(l) <= 0.0 .OR. gl_u <= gl_max(l))
@@ -3150,15 +3191,23 @@ CONTAINS
   END SUBROUTINE psi_k_at_e
 
   !---------------------------------------------------------------------------
-  ! ProfitMax2: E_crit, the transpiration at which the conductance kl of the
-  ! path the search runs on (psi_k_at_e) falls to kcrit, by doubling from
-  ! the edge transpiration e_el (feasible) and then bisection to
-  ! ecrit_rtol. The upper edge of the Ci range is set by kcrit only when
-  ! gl_max and ci_top do not bind, so e_el is a lower bound, not E_crit.
-  ! E_crit >= e_el > 0 is used; with no transpiration at the edge (no
-  ! demand) a floor keeps E / E_crit finite (the cost is then ~0).
+  ! ProfitMax2: find E_crit, the transpiration at which the conductance of
+  ! the path the search runs on (psi_k_at_e) falls to kcrit,
   !
-  ! MDK, 22/10/26
+  !   kl(E_crit) = kcrit
+  !
+  ! Method:
+  !   1. start from the edge transpiration e_el (feasible, kl > kcrit) and
+  !      double E until kl <= kcrit, which brackets E_crit (the first upper
+  !      guess is at least kmax x 0.1 MPa, in case e_el is ~0);
+  !   2. bisect the bracket to a relative tolerance ecrit_rtol.
+  !
+  ! The upper edge of the Ci range is set by kcrit only when gl_max and
+  ! ci_top do not bind, so e_el is a lower bound on E_crit, not E_crit
+  ! itself. E_crit >= e_el > 0 is used. With no transpiration at the edge
+  ! (no demand), a floor keeps E / E_crit finite (the cost is then ~0).
+  !
+  ! MDK, 23/10/26
   !---------------------------------------------------------------------------
   SUBROUTINE find_e_crit()
   REAL(KIND=real_jlslsm) :: e_lo, e_hi
@@ -3168,6 +3217,9 @@ CONTAINS
 
   ! (kmax x 0.1 MPa: a scale for E when there is no flow at the edge.)
   e_hi = MAX(2.0 * e_lo, 1.0e5_real_jlslsm * kmax(l), TINY(1.0_real_jlslsm))
+
+  ! 1. Bracket: double e_hi until the path conductance at that transpiration
+  !    falls to kcrit. e_lo is always a transpiration with kl > kcrit.
   DO it = 1, n_ecrit_iter
     el_u = e_hi
     CALL psi_k_at_e()
@@ -3176,6 +3228,8 @@ CONTAINS
     e_hi = 2.0 * e_hi
   END DO
 
+  ! 2. Bisection: halve [e_lo, e_hi], keeping kl > kcrit at e_lo and
+  !    kl <= kcrit at e_hi, until the bracket is within ecrit_rtol of e_hi.
   DO it = 1, n_ecrit_iter
     IF ( e_hi - e_lo <= ecrit_rtol * e_hi ) EXIT
     el_u = 0.5 * (e_lo + e_hi)
@@ -3186,6 +3240,9 @@ CONTAINS
       e_hi = el_u
     END IF
   END DO
+
+  ! E_crit is the feasible end of the bracket, never below the edge
+  ! transpiration, and above zero so that E / E_crit stays finite.
   e_crit = MAX(e_lo, e_el, TINY(1.0_real_jlslsm))
   END SUBROUTINE find_e_crit
 
