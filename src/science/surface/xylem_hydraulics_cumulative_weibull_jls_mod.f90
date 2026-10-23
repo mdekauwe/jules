@@ -1335,12 +1335,37 @@ END SUBROUTINE init_supply_luts
 
 ! *****************************************************************************
 ! Build (once per PFT) the supply-function table used by psi_solver_lut:
-! lut_tab(pft)%s(i) = integral(f, psi_i, 0) by Simpson's rule on each grid
-! cell, for the PFT's conductance model (see lut_tab at the top of this
-! module). Built by numerical
-! integration rather than the closed forms (incomplete gamma /
-! hypergeometric series), whose series are poorly conditioned deep into the
-! curve.
+!
+!   lut_tab(pft)%s(i) = integral( f(psi) dpsi, psi_i, 0 )
+!
+! by Simpson's rule on each grid cell, for the PFT's conductance model (see
+! lut_tab at the top of this module). Built by numerical integration rather
+! than the closed forms (incomplete gamma / hypergeometric series), whose
+! series are poorly conditioned deep into the curve.
+!
+! In plain terms. The water a plant path can carry depends on how its
+! conductance falls as the water potential drops (the vulnerability curve,
+! f = k / kmax). Adding up f from psi = 0 down to some psi gives S(psi): how
+! much water (per unit kmax) the path can move across that drop. This only
+! depends on the shape of the PFT's curve, not on the weather, the soil or
+! kmax, so it is worked out once, on a fine grid of psi values from 0 down
+! to where the conductance has almost gone, and stored.
+!
+! Every later call then just reads the table:
+!   - transpiration between two water potentials is
+!       E = kmax (S(psi_leaf) - S(psi_soil))
+!   - so for a given E the leaf water potential is the psi where
+!       S(psi_leaf) = S(psi_soil) + E / kmax
+!     found by searching the table and interpolating between grid points
+!     (supply_lut_psi);
+!   - the conductance at any psi is read from the same grid
+!     (supply_lut_f), and so is E_crit (supply_lut_e_crit).
+! S is smooth and only ever increases with depth, so straight-line
+! interpolation between closely spaced grid points is very accurate, and it
+! is far cheaper than solving the integral again for every Ci sample at
+! every timestep.
+!
+! MDK, 23/10/26
 ! *****************************************************************************
 SUBROUTINE build_supply_lut( pft )
 
@@ -1348,12 +1373,47 @@ USE max_dimensions, ONLY: npft_max
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft,                       &
                    pft_conductance_model, kcrit_fractional_loss
 USE jules_vegetation_mod, ONLY: SOX_conductance
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
+IMPLICIT NONE
+
+!-----------------------------------------------------------------------------
+! Subroutine arguments
+!-----------------------------------------------------------------------------
 INTEGER, INTENT(IN) :: pft
+                            ! Plant functional type whose table is built.
 
-INTEGER :: i, n
-REAL(KIND=real_jlslsm) :: b, c, dpsi, p0, pm, p1, f_floor
+!-----------------------------------------------------------------------------
+! Local variables
+!-----------------------------------------------------------------------------
+INTEGER :: i
+                            ! Grid node index.
+INTEGER :: n
+                            ! Number of grid nodes in the table.
+
+REAL(KIND=real_jlslsm) :: b
+                            ! Vulnerability curve parameter b (Pa).
+REAL(KIND=real_jlslsm) :: c
+                            ! Vulnerability curve shape parameter c
+                            ! (dimensionless).
+REAL(KIND=real_jlslsm) :: dpsi
+                            ! Grid spacing in water potential (Pa).
+REAL(KIND=real_jlslsm) :: p0, pm, p1
+                            ! Top, middle and bottom water potential of a
+                            ! grid cell (Pa).
+REAL(KIND=real_jlslsm) :: f_floor
+                            ! Conductance fraction (k / kmax) at the bottom
+                            ! of the table.
+
 LOGICAL :: l_sox
+                            ! .TRUE.: SOX conductance curve; .FALSE.:
+                            ! cumulative Weibull.
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='BUILD_SUPPLY_LUT'
 
 ! Fast exit when this PFT's table is already built. Every supply_lut_*
 ! call passes through here, so after the first call this is the only work
@@ -1364,6 +1424,12 @@ LOGICAL :: l_sox
 IF ( ALLOCATED(lut_ready) ) THEN
   IF ( lut_ready(pft) ) RETURN
 END IF
+
+! (The DrHook calls come after the fast exit, which is taken on almost
+! every call, so that every IN has a matching OUT.)
+!
+! MDK, 23/10/26
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! First call for any PFT: allocate the tables for all PFTs (npft_max) at
 ! once, none of them built yet. Inside the critical section, so two threads
@@ -1429,6 +1495,8 @@ IF ( .NOT. lut_ready(pft) ) THEN
 END IF
 !$OMP END CRITICAL (som_supply_lut)
 
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
 CONTAINS
 
   ! f = k/kmax at psi = p on this PFT's curve (as supply_lut_f), using the
@@ -1437,6 +1505,7 @@ CONTAINS
   ! MDK, 18/10/26
   REAL(KIND=real_jlslsm) FUNCTION f_of(p)
   REAL(KIND=real_jlslsm), INTENT(IN) :: p
+                            ! Water potential (Pa, <= 0).
   IF ( l_sox ) THEN
     f_of = 1.0 / (1.0 + (ABS(p / b))**c)
   ELSE
