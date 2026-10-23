@@ -520,6 +520,11 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Canopy height (m)
 , anetc(n_land_pts)
                             ! Canopy net photosynthesis (mol CO2 m-2 s-1)
+                            ! (lai, canht and anetc are not used since the
+                            ! time-based recovery was retired; kept so the
+                            ! sf_stom calls are unchanged.)
+                            !
+                            ! MDK, 23/10/26
 
 
 INTEGER :: errcode
@@ -560,9 +565,6 @@ SELECT CASE (pft_xylem_impairment_model(pft))
                                          psi_leaf,                             &
                                          psi_root,                             &
                                          psi_stem,                             &
-                                         lai,                                  &
-                                         canht,                                &
-                                         anetc,                                &
                                          impaired_k_max                        &
                                        )
 

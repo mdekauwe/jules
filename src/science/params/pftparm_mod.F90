@@ -452,7 +452,6 @@ ximpair_reset_mmdd(:),                                                         &
                  ! Month and day (month*100 + day, e.g. 401 = 1 April) on
                  !  which the memory impairment model's embolism is reset
                  !  (e.g. new earlywood in ring-porous species). 0 disables.
-ximpair_growth_basis(:),                                                       &
 nsc_xylem_type(:),                                                             &
                  ! Store repair (l_ximpair_rec_nsc): 1 diffuse-porous (repair
                  !  whenever growth is allowed, on all the conducting xylem,
@@ -474,13 +473,6 @@ nsc_ring_mmdd(:)                                                               &
                  !  turnover, as Paschalis et al. 2023 replace the oldest
                  !  xylem), so only that share of the damage is repaired.
                  !  MDK, 20/10/26
-                 ! Carbon supply for the growth recovery term
-                 !  (l_ximpair_rec_growth) of the memory impairment models:
-                 !       1: ximpair_wood_alloc * canopy net photosynthesis
-                 !       2: ximpair_wood_alloc * NPP (previous timestep)
-                 !       3: TRIFFID gross wood production, from the change in
-                 !          allometric wood carbon with canopy height plus
-                 !          wood turnover (g_wood); needs l_triffid
 
 REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
  kmax_pft(:)                                                                   &
@@ -600,16 +592,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! NOTE: This value is not directly input by the user, instead
                  !        it is calculated from the kcrit and the conductance
                  !        model in ptftparm_io_mod.F90.
-,ximpair_tau_rec(:)                                                            &
-                 ! Recovery timescale of embolism in the memory impairment
-                 !  model (days). <= 0 disables recovery.
-,ximpair_psi_refill(:)                                                         &
-                 ! Water potential of the damage driver above which embolism
-                 !  recovers in the memory impairment model (Pa).
-,ximpair_wood_alloc(:)                                                          &
-                 ! Fraction of canopy net assimilation that goes into new
-                 !  conducting xylem, for recovery from xylem impairment with
-                 !  l_ximpair_rec_growth.
 ,ximpair_leaf_sens(:)                                                          &
                  ! Sensitivity of the canopy to lasting xylem damage
                  !  (l_ximpair_leaf_loss): the phenological state is capped
@@ -617,30 +599,24 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  area in proportion to the conducting capacity, 0 disables.
 ,ximpair_psi_growth(:)                                                         &
                  ! Root-zone (~predawn) water potential below which no new
-                 !  conducting xylem grows, for the growth recovery term
-                 !  (l_ximpair_rec_growth; Pa). Stem growth at Puechabon stops
+                 !  conducting xylem grows, the growth gate of the store
+                 !  repair (l_ximpair_rec_nsc; Pa). Stem growth at Puechabon stops
                  !  near predawn -1.1 MPa (Lempereur et al. 2015, New Phytol
                  !  207: 579), so recovery falls in the growth windows (spring
                  !  and autumn), not in summer drought. Default -1e30: no gate.
-,ximpair_rec_years(:)                                                         &
-                 ! Years of typical growth for the growth recovery term
-                 !  (l_ximpair_rec_growth)
-                 !  to recover the loss of conductivity: the loss falls
-                 !  exponentially with growth, e-folding over
-                 !  ximpair_rec_years / 2 years of typical growth. <= 0 applies
-                 !  the renewed fraction directly (fast recovery).
-,ximpair_tau_stem(:)                                                          &
-                 ! Per-segment memory (l_ximpair_seg_memory): e-folding time
-                 !  (years; of typical growth with the growth clock, else of
-                 !  calendar time) of the stem segment's loss of
-                 !  conductivity, i.e. the residence time of conducting
-                 !  sapwood (sapwood -> heartwood turnover; e.g. LPJ-GUESS
-                 !  turnover_sap 0.05-0.1 yr-1, 0.075 for Q. ilex).
-                 !  <= 0: no stem recovery.
+                 ! (ximpair_tau_rec, ximpair_psi_refill, ximpair_wood_alloc,
+                 !  ximpair_growth_basis, ximpair_rec_years and
+                 !  ximpair_tau_stem, the time-based recovery of the memory
+                 !  model, were retired; see l_ximpair_rec_nsc.)
+                 !
+                 ! MDK, 23/10/26
 ,ximpair_tau_leaf(:)                                                          &
-                 ! As ximpair_tau_stem for the leaf (leaf and twig) segment,
-                 !  renewed with the leaves: about the leaf lifespan.
-                 !  <= 0: no leaf recovery.
+                 ! Per-segment memory (l_ximpair_seg_memory): e-folding time
+                 !  (years of calendar time) of the leaf (leaf and twig)
+                 !  segment's loss of conductivity, renewed with the
+                 !  leaves: about the leaf lifespan. <= 0: no leaf recovery.
+                 !
+                 ! MDK, 23/10/26
 ! TRIFFID storage pool (l_triffid_nsc; Trugman et al. 2018, Ecol. Lett. 21:
 ! 1552, Table S2). See triffid_nsc_mod.
 ! MDK, 17/10/26
@@ -1135,14 +1111,8 @@ ALLOCATE( cap_stem(npft))
 ALLOCATE( conductance_b_seg(npft,3))
 ALLOCATE( conductance_c_seg(npft,3))
 ALLOCATE( ximpair_reset_mmdd(npft))
-ALLOCATE( ximpair_growth_basis(npft))
-ALLOCATE( ximpair_tau_rec(npft))
-ALLOCATE( ximpair_psi_refill(npft))
-ALLOCATE( ximpair_wood_alloc(npft))
 ALLOCATE( ximpair_leaf_sens(npft))
 ALLOCATE( ximpair_psi_growth(npft))
-ALLOCATE( ximpair_rec_years(npft))
-ALLOCATE( ximpair_tau_stem(npft))
 ALLOCATE( ximpair_tau_leaf(npft))
 ! MDK, 17/10/26
 ALLOCATE( nsc_flush(npft))
@@ -1223,14 +1193,8 @@ cap_stem(:) = 3000.0e-9
 conductance_b_seg(:,:) = 1.0
 conductance_c_seg(:,:) = 1.0
 ximpair_reset_mmdd(:) = 0
-ximpair_growth_basis(:) = 1
-ximpair_tau_rec(:) = 0.0
-ximpair_psi_refill(:) = -0.5e6
-ximpair_wood_alloc(:) = 0.25
 ximpair_leaf_sens(:) = 0.0
 ximpair_psi_growth(:) = -1.0e30
-ximpair_rec_years(:) = 0.0
-ximpair_tau_stem(:) = 0.0
 ximpair_tau_leaf(:) = 0.0
 ! MDK, 17/10/26
 nsc_flush(:) = 2.0
@@ -1583,19 +1547,9 @@ WRITE(lineBuffer,*)' conductance_c_seg = ',conductance_c_seg
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' pft_xylem_impairment_model = ',pft_xylem_impairment_model
 CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' ximpair_tau_rec = ',ximpair_tau_rec
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' ximpair_psi_refill = ',ximpair_psi_refill
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' ximpair_wood_alloc = ',ximpair_wood_alloc
-CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_leaf_sens = ',ximpair_leaf_sens
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_psi_growth = ',ximpair_psi_growth
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' ximpair_rec_years = ',ximpair_rec_years
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' ximpair_tau_stem = ',ximpair_tau_stem
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_tau_leaf = ',ximpair_tau_leaf
 CALL jules_print('pftparm',lineBuffer)
@@ -1678,8 +1632,6 @@ WRITE(lineBuffer,*)' ximpair_psi_driver = ',ximpair_psi_driver
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_reset_mmdd = ',ximpair_reset_mmdd
 CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' ximpair_growth_basis = ',ximpair_growth_basis
-CALL jules_print('pftparm',lineBuffer)
 
 CALL jules_print('pftparm',                                                    &
     '- - - - - - end of namelist - - - - - -')
@@ -1703,7 +1655,7 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  l_scale_resp_pm, stomata_desica,              &
                                  som_psi_solver, psi_solver_lut,               &
                                  l_ximpair_seg_memory, l_som_plant_segments,   &
-                                 l_ximpair_rec_growth, xylem_impairment_memory
+                                 xylem_impairment_memory
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs, l_snow_albedo
 
@@ -2398,8 +2350,6 @@ END IF
 
 !-----------------------------------------------------------------------------
 ! Per-segment memory: the memory model's caps on the stem and leaf segments.
-! With the growth clock it needs the slow (running-mean) recovery,
-! ximpair_rec_years > 0, which then only sets the averaging window.
 !-----------------------------------------------------------------------------
 IF ( l_ximpair_seg_memory ) THEN
   IF ( .NOT. l_som_plant_segments .OR.                                        &
@@ -2410,14 +2360,6 @@ IF ( l_ximpair_seg_memory ) THEN
     CALL ereport(routinename, ERROR,                                           &
     'l_ximpair_seg_memory needs l_som_plant_segments and '                  // &
     'pft_xylem_impairment_model = 0 or 3 (memory)')
-  END IF
-  IF ( l_ximpair_rec_growth .AND.                                             &
-       ANY( pft_xylem_impairment_model(1:npft) == xylem_impairment_memory   &
-            .AND. ximpair_rec_years(1:npft) <= 0.0 ) ) THEN
-    ERROR = 1
-    CALL ereport(routinename, ERROR,                                           &
-    'l_ximpair_seg_memory with l_ximpair_rec_growth needs '                 // &
-    'ximpair_rec_years > 0 (the growth-clock averaging window)')
   END IF
 END IF
 

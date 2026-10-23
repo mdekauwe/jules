@@ -21,9 +21,7 @@ USE gridbox_mean_mod, ONLY:                                                    &
   surftiles_to_gbm, soiltiles_to_gbm
 
 USE timestep_mod, ONLY: timestep
-USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_npp_prev,         &
-                                       ximpair_wood_prev, ximpair_renew_mean,  &
-                                       ximpair_renew_wt
+USE xylem_impairment_memory_mod, ONLY: ximpair_lock
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf, ximpair_psi_stem
 USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_grow_acc, &
                                        ximpair_rebuilt, ximpair_lock_new,     &
@@ -3817,30 +3815,6 @@ CASE ( 'psi_root_extreme' )
 CASE ( 'ximpair_lock' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(ximpair_lock) ) workspace_pft(:,:) = ximpair_lock
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
-CASE ( 'ximpair_npp_prev' )
-  workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(ximpair_npp_prev) ) workspace_pft(:,:) = ximpair_npp_prev
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
-CASE ( 'ximpair_wood_prev' )
-  workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(ximpair_wood_prev) ) workspace_pft(:,:) = ximpair_wood_prev
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
-CASE ( 'ximpair_renew_mean' )
-  workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(ximpair_renew_mean) ) workspace_pft(:,:) = ximpair_renew_mean
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
-CASE ( 'ximpair_renew_wt' )
-  workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(ximpair_renew_wt) ) workspace_pft(:,:) = ximpair_renew_wt
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

@@ -19,7 +19,6 @@ USE imgn_drive_mod, ONLY: imgn_drive
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
-    ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean, ximpair_renew_wt, &
     ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc, ximpair_rebuilt,  &
     ximpair_lock_new
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
@@ -1994,8 +1993,7 @@ CASE ( 'psi_stem_desica' )
     psi_stem_desica(:,:) = const_val
   END IF
 
-  ! Xylem impairment state (see required_vars_for_configuration). Initial
-  ! values: 0 for all but ximpair_wood_prev (-1).
+  ! Xylem impairment state (see required_vars_for_configuration).
 
 CASE ( 'kmax_impaired' )
   IF ( PRESENT(cube) ) THEN
@@ -2044,42 +2042,6 @@ CASE ( 'ximpair_lock' )
     CALL cube_get_data(cube_land, ximpair_lock(:,:))
   ELSE
     ximpair_lock(:,:) = const_val
-  END IF
-
-CASE ( 'ximpair_npp_prev' )
-  CALL ximpair_memory_alloc( land_pts )
-  IF ( PRESENT(cube) ) THEN
-    cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, ximpair_npp_prev(:,:))
-  ELSE
-    ximpair_npp_prev(:,:) = const_val
-  END IF
-
-CASE ( 'ximpair_wood_prev' )
-  CALL ximpair_memory_alloc( land_pts )
-  IF ( PRESENT(cube) ) THEN
-    cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, ximpair_wood_prev(:,:))
-  ELSE
-    ximpair_wood_prev(:,:) = const_val
-  END IF
-
-CASE ( 'ximpair_renew_mean' )
-  CALL ximpair_memory_alloc( land_pts )
-  IF ( PRESENT(cube) ) THEN
-    cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, ximpair_renew_mean(:,:))
-  ELSE
-    ximpair_renew_mean(:,:) = const_val
-  END IF
-
-CASE ( 'ximpair_renew_wt' )
-  CALL ximpair_memory_alloc( land_pts )
-  IF ( PRESENT(cube) ) THEN
-    cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, ximpair_renew_wt(:,:))
-  ELSE
-    ximpair_renew_wt(:,:) = const_val
   END IF
 
 CASE ( 'ximpair_kcap_leaf' )

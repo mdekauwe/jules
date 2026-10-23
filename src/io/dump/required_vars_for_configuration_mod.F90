@@ -338,10 +338,6 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   CALL add_to_list( 'psi_leaf_extreme', nvars, identifiers )
   CALL add_to_list( 'psi_root_extreme', nvars, identifiers )
   CALL add_to_list( 'ximpair_lock', nvars, identifiers )
-  CALL add_to_list( 'ximpair_npp_prev', nvars, identifiers )
-  CALL add_to_list( 'ximpair_wood_prev', nvars, identifiers )
-  CALL add_to_list( 'ximpair_renew_mean', nvars, identifiers )
-  CALL add_to_list( 'ximpair_renew_wt', nvars, identifiers )
   ! Per-segment memory: the leaf segment's own cap.
   IF ( l_ximpair_seg_memory )                                                  &
     CALL add_to_list( 'ximpair_kcap_leaf', nvars, identifiers )

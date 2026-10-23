@@ -899,10 +899,10 @@ INTEGER ::                                                                     &
   ximpair_stomatal_response = ximpair_hold_gs
       ! See ximpair_hold_*. ximpair_hold_psi needs som_ci_search = 2.
 LOGICAL ::                                                                     &
-  l_ximpair_rec_growth = .FALSE.,                                              &
-      ! Xylem impairment model 3 (memory): recover lost conductance with new
-      ! xylem grown from carbon gain (ximpair_wood_alloc) - see
-      ! update_xylem_impairment_memory.
+      ! (l_ximpair_rec_growth, the memory model's time-based recovery from
+      ! new xylem grown from carbon gain, was retired 23/10/26 in favour of
+      ! the store repair, l_ximpair_rec_nsc; it is in the git history.
+      ! MDK, 23/10/26)
   l_ximpair_leaf_loss = .FALSE.,                                               &
       ! Xylem impairment model 3 (memory) with TRIFFID phenology (l_phenol):
       ! cap the phenological state at what the damaged xylem can supply,
@@ -914,10 +914,10 @@ LOGICAL ::                                                                     &
       ! (l_som_plant_segments): a separate cap for the stem and the leaf
       ! segment, each damaged by the water potential at its own leaf-side end
       ! (psi_stem, psi_leaf) on its own vulnerability curve
-      ! (conductance_b/c_seg), and each recovering with its own timescale
-      ! (ximpair_tau_stem, sapwood turnover; ximpair_tau_leaf, leaf turnover).
+      ! (conductance_b/c_seg). The leaf segment recovers with leaf turnover
+      ! (ximpair_tau_leaf), the stem by the store repair (l_ximpair_rec_nsc).
       ! ximpair_psi_driver is then not used. .FALSE.: one cap on both segments
-      ! (as before).
+      ! (as before). (MDK, 23/10/26: ximpair_tau_stem retired.)
   l_ximpair_rec_nsc = .FALSE.,                                                 &
       ! Memory model (pft_xylem_impairment_model = 3) with the TRIFFID
       ! storage pool (l_triffid_nsc): the stem's lost conductance recovers
@@ -926,10 +926,9 @@ LOGICAL ::                                                                     &
       ! the carbon released from the store rebuilds the lost conducting
       ! sapwood, u = X/(X + L) (1 - m_L L / W) (their Eqn 5, no xylem
       ! turnover), with X the live stemwood and L the leaf and fine-root
-      ! carbon the damaged xylem supports; see triffid_nsc_mod. Replaces
-      ! the stem's other recovery terms (l_ximpair_rec_growth, which it
-      ! excludes, and ximpair_tau_stem); the leaf segment keeps
-      ! ximpair_tau_leaf. Use with l_ximpair_leaf_loss
+      ! carbon the damaged xylem supports; see triffid_nsc_mod. The only
+      ! recovery of the stem (the time-based terms were retired 23/10/26);
+      ! the leaf segment keeps ximpair_tau_leaf. Use with l_ximpair_leaf_loss
       ! (ximpair_leaf_sens = 1) for their leaf area in proportion to the
       ! functional xylem.
       ! MDK, 17/10/26
@@ -1130,7 +1129,7 @@ NAMELIST  / jules_vegetation/                                                  &
     som_base_parm, som_n_sample, som_n_ci_golden_iter,                        &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                     &
     l_som_fast,                                                               &
-    l_ximpair_rec_growth, l_ximpair_leaf_loss, l_ximpair_seg_memory,          &
+    l_ximpair_leaf_loss, l_ximpair_seg_memory,                                &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
     l_nsc_wmax_norm, l_trif_hydmort,                                           &
     ximpair_stomatal_response,                                                &
@@ -2170,11 +2169,6 @@ IF ( l_ximpair_rec_nsc .AND. .NOT. l_triffid_nsc ) THEN
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_ximpair_rec_nsc needs the TRIFFID store (l_triffid_nsc=T)')
 END IF
-IF ( l_ximpair_rec_nsc .AND. l_ximpair_rec_growth ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_ximpair_rec_nsc replaces l_ximpair_rec_growth; use one')
-END IF
 
 END SUBROUTINE check_jules_vegetation
 #endif
@@ -2358,9 +2352,6 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_leak_capacitance_only = ', l_som_leak_capacitance_only   ! MDK, 23/10/26
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' l_ximpair_rec_growth = ', l_ximpair_rec_growth
-CALL jules_print('jules_vegetation_mod',lineBuffer)
-
 WRITE(lineBuffer,*) ' l_ximpair_leaf_loss = ', l_ximpair_leaf_loss
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_seg_memory = ', l_ximpair_seg_memory
@@ -2536,7 +2527,9 @@ INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 59 + npft_max
+INTEGER, PARAMETER :: n_log = 58 + npft_max
+                                  ! -1 l_ximpair_rec_growth retired (MDK,
+                                  ! 23/10/26),
                                   ! +3 l_som_capacitance/plant_store
                                   ! (deprecated)/leak_capacitance_only (MDK
                                   ! 23/10/26), +1 l_trif_hydmort, +1
@@ -2627,7 +2620,6 @@ TYPE :: my_namelist
   LOGICAL :: l_som_cuticular_loss
   LOGICAL :: l_som_cuticular_floor   ! MDK, 21/10/26
   LOGICAL :: l_som_capacitance, l_som_plant_store, l_som_leak_capacitance_only   ! MDK, 23/10/26
-  LOGICAL :: l_ximpair_rec_growth
   LOGICAL :: l_ximpair_leaf_loss
   LOGICAL :: l_ximpair_seg_memory
   LOGICAL :: l_ximpair_rec_nsc
@@ -2754,7 +2746,6 @@ IF (mype == 0) THEN
   my_nml % l_som_capacitance = l_som_capacitance
   my_nml % l_som_plant_store = l_som_plant_store
   my_nml % l_som_leak_capacitance_only = l_som_leak_capacitance_only
-  my_nml % l_ximpair_rec_growth = l_ximpair_rec_growth
   my_nml % l_ximpair_leaf_loss = l_ximpair_leaf_loss
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
   my_nml % l_ximpair_rec_nsc = l_ximpair_rec_nsc
@@ -2870,7 +2861,6 @@ IF (mype /= 0) THEN
   l_som_capacitance = my_nml % l_som_capacitance
   l_som_plant_store = my_nml % l_som_plant_store
   l_som_leak_capacitance_only = my_nml % l_som_leak_capacitance_only
-  l_ximpair_rec_growth = my_nml % l_ximpair_rec_growth
   l_ximpair_leaf_loss = my_nml % l_ximpair_leaf_loss
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
   l_ximpair_rec_nsc = my_nml % l_ximpair_rec_nsc

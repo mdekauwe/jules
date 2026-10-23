@@ -57,7 +57,6 @@ INTEGER ::                                                                     &
   pft_xylem_impairment_model_io(npft_max) = imdi,                              & ! JBaguley
   ximpair_psi_driver_io(npft_max) = imdi,                                      &
   ximpair_reset_mmdd_io(npft_max) = imdi,                                      &
-  ximpair_growth_basis_io(npft_max) = imdi,                                    &
   ! MDK, 18/10/26
   nsc_xylem_type_io(npft_max) = imdi,                                          &
   nsc_ring_mmdd_io(npft_max) = imdi,                                           &
@@ -284,13 +283,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   sox_a_io(npft_max) = rmdi,                                                   &
   sox_p50_io(npft_max) = rmdi,                                                 &
   sox_rp_min_io(npft_max) = rmdi,                                              &
-  ximpair_tau_rec_io(npft_max) = rmdi,                                         &
-  ximpair_psi_refill_io(npft_max) = rmdi,                                      &
-  ximpair_wood_alloc_io(npft_max) = rmdi,                                      &
   ximpair_leaf_sens_io(npft_max) = rmdi,                                       &
   ximpair_psi_growth_io(npft_max) = rmdi,                                      &
-  ximpair_rec_years_io(npft_max) = rmdi,                                       &
-  ximpair_tau_stem_io(npft_max) = rmdi,                                        &
   ximpair_tau_leaf_io(npft_max) = rmdi,                                        &
   ! MDK, 17/10/26
   nsc_flush_io(npft_max) = rmdi,                                               &
@@ -394,11 +388,8 @@ NAMELIST  / jules_pftparm/                                                     &
   z0hm_classic_pft_io,               z0v_io,                                   &
   sox_a_io,        sox_p50_io,       sox_rp_min_io,                            &
   ximpair_psi_driver_io,                                                       &
-  ximpair_reset_mmdd_io,             ximpair_tau_rec_io,                       &
-  ximpair_psi_refill_io,             ximpair_wood_alloc_io,                    &
-  ximpair_growth_basis_io,           ximpair_leaf_sens_io,                     &
-  ximpair_psi_growth_io,             ximpair_rec_years_io,                     &
-  ximpair_tau_stem_io,               ximpair_tau_leaf_io,                      &
+  ximpair_reset_mmdd_io,             ximpair_leaf_sens_io,                     &
+  ximpair_psi_growth_io,             ximpair_tau_leaf_io,                      &
   nsc_flush_io,    nsc_kc_io,        nsc_reserve_frac_io,                      &
   nsc_tau_load_io, nsc_wmax_fac_io,  nsc_sapwood_frac_io,                      &
   nsc_hold_plc_io, nsc_g_starv_io, nsc_repair_window_io,                       &
@@ -446,14 +437,18 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
-INTEGER, PARAMETER :: n_int = 12 * npft_max ! = the INTEGER arrays in
+INTEGER, PARAMETER :: n_int = 11 * npft_max ! = the INTEGER arrays in
                                            ! my_namelist (5 + 4 xylem
-                                           ! impairment + 2 store)
-INTEGER, PARAMETER :: n_real = 184 * npft_max ! = the REAL arrays in
+                                           ! impairment + 2 store; -1
+                                           ! ximpair_growth_basis retired,
+                                           ! MDK, 23/10/26)
+INTEGER, PARAMETER :: n_real = 179 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL pftparm arrays incl. xylem
                                              ! impairment; +1 lai_ref_k_io,
                                              ! +3 hydmort_*;
-                                             ! MDK, 21/10/26)
+                                             ! MDK, 21/10/26; -5 time-based
+                                             ! recovery retired, MDK,
+                                             ! 23/10/26)
 
 TYPE :: my_namelist
   SEQUENCE
@@ -464,7 +459,6 @@ TYPE :: my_namelist
   INTEGER :: pft_xylem_impairment_model_io(npft_max) ! JBaguley
   INTEGER :: ximpair_psi_driver_io(npft_max)
   INTEGER :: ximpair_reset_mmdd_io(npft_max)
-  INTEGER :: ximpair_growth_basis_io(npft_max)
   INTEGER :: nsc_xylem_type_io(npft_max)
   INTEGER :: nsc_ring_mmdd_io(npft_max)
   INTEGER :: nsc_xylem_replace_io(npft_max)
@@ -611,13 +605,8 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: sox_a_io(npft_max)
   REAL(KIND=real_jlslsm) :: sox_p50_io(npft_max)
   REAL(KIND=real_jlslsm) :: sox_rp_min_io(npft_max)
-  REAL(KIND=real_jlslsm) :: ximpair_tau_rec_io(npft_max)
-  REAL(KIND=real_jlslsm) :: ximpair_psi_refill_io(npft_max)
-  REAL(KIND=real_jlslsm) :: ximpair_wood_alloc_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_leaf_sens_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_psi_growth_io(npft_max)
-  REAL(KIND=real_jlslsm) :: ximpair_rec_years_io(npft_max)
-  REAL(KIND=real_jlslsm) :: ximpair_tau_stem_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_tau_leaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_flush_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_kc_io(npft_max)
@@ -703,7 +692,6 @@ IF (mype == 0) THEN
   my_nml % pft_xylem_impairment_model_io = pft_xylem_impairment_model_io ! JBaguley
   my_nml % ximpair_psi_driver_io = ximpair_psi_driver_io
   my_nml % ximpair_reset_mmdd_io = ximpair_reset_mmdd_io
-  my_nml % ximpair_growth_basis_io = ximpair_growth_basis_io
   my_nml % nsc_xylem_type_io = nsc_xylem_type_io
   my_nml % nsc_ring_mmdd_io = nsc_ring_mmdd_io
   my_nml % nsc_xylem_replace_io = nsc_xylem_replace_io
@@ -825,13 +813,8 @@ IF (mype == 0) THEN
   my_nml % sox_a_io       = sox_a_io
   my_nml % sox_p50_io     = sox_p50_io
   my_nml % sox_rp_min_io  = sox_rp_min_io
-  my_nml % ximpair_tau_rec_io = ximpair_tau_rec_io
-  my_nml % ximpair_psi_refill_io = ximpair_psi_refill_io
-  my_nml % ximpair_wood_alloc_io = ximpair_wood_alloc_io
   my_nml % ximpair_leaf_sens_io = ximpair_leaf_sens_io
   my_nml % ximpair_psi_growth_io = ximpair_psi_growth_io
-  my_nml % ximpair_rec_years_io = ximpair_rec_years_io
-  my_nml % ximpair_tau_stem_io = ximpair_tau_stem_io
   my_nml % ximpair_tau_leaf_io = ximpair_tau_leaf_io
   my_nml % nsc_flush_io = nsc_flush_io
   my_nml % nsc_kc_io = nsc_kc_io
@@ -905,7 +888,6 @@ IF (mype /= 0) THEN
   pft_xylem_impairment_model_io = my_nml % pft_xylem_impairment_model_io ! JBaguley
   ximpair_psi_driver_io = my_nml % ximpair_psi_driver_io
   ximpair_reset_mmdd_io = my_nml % ximpair_reset_mmdd_io
-  ximpair_growth_basis_io = my_nml % ximpair_growth_basis_io
   nsc_xylem_type_io = my_nml % nsc_xylem_type_io
   nsc_ring_mmdd_io = my_nml % nsc_ring_mmdd_io
   nsc_xylem_replace_io = my_nml % nsc_xylem_replace_io
@@ -1027,13 +1009,8 @@ IF (mype /= 0) THEN
   sox_a_io        = my_nml % sox_a_io
   sox_p50_io      = my_nml % sox_p50_io
   sox_rp_min_io   = my_nml % sox_rp_min_io
-  ximpair_tau_rec_io = my_nml % ximpair_tau_rec_io
-  ximpair_psi_refill_io = my_nml % ximpair_psi_refill_io
-  ximpair_wood_alloc_io = my_nml % ximpair_wood_alloc_io
   ximpair_leaf_sens_io = my_nml % ximpair_leaf_sens_io
   ximpair_psi_growth_io = my_nml % ximpair_psi_growth_io
-  ximpair_rec_years_io = my_nml % ximpair_rec_years_io
-  ximpair_tau_stem_io = my_nml % ximpair_tau_stem_io
   ximpair_tau_leaf_io = my_nml % ximpair_tau_leaf_io
   nsc_flush_io = my_nml % nsc_flush_io
   nsc_kc_io = my_nml % nsc_kc_io
@@ -1147,10 +1124,7 @@ USE pftparm, ONLY:                                                             &
   leaf_crit,       z0v,                                                        & !JBaguley
   sox_a,           sox_p50,          sox_rp_min,                               &
   ximpair_psi_driver,                ximpair_reset_mmdd,                       &
-  ximpair_tau_rec,                   ximpair_psi_refill,                       &
-  ximpair_wood_alloc,                ximpair_growth_basis,                     &
   ximpair_leaf_sens,                 ximpair_psi_growth,                       &
-  ximpair_rec_years,                 ximpair_tau_stem,                         &
   ximpair_tau_leaf,                                                            &
   nsc_flush,       nsc_kc,           nsc_reserve_frac,                         &
   nsc_tau_load,    nsc_wmax_fac,     nsc_sapwood_frac,                         &
@@ -1179,7 +1153,7 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 xylem_impairment_memory,                       &
                                 ximpair_driver_stem, l_triffid_nsc,            &
                                 l_ximpair_rec_nsc, l_veg_compete,              &
-                                l_ximpair_rec_growth, l_ximpair_seg_memory,    &
+                                l_ximpair_seg_memory,                          &
                                 l_trif_hydmort, l_som_capacitance_on
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
@@ -1461,22 +1435,10 @@ DO i = 1, npft
     ximpair_psi_driver(i) = ximpair_psi_driver_io(i)
   IF (ximpair_reset_mmdd_io(i) /= imdi)                                        &
     ximpair_reset_mmdd(i) = ximpair_reset_mmdd_io(i)
-  IF (ximpair_growth_basis_io(i) /= imdi)                                      &
-    ximpair_growth_basis(i) = ximpair_growth_basis_io(i)
-  IF (ABS(ximpair_tau_rec_io(i) - rmdi) > EPSILON(1.0))                        &
-    ximpair_tau_rec(i) = ximpair_tau_rec_io(i)
-  IF (ABS(ximpair_psi_refill_io(i) - rmdi) > EPSILON(1.0))                     &
-    ximpair_psi_refill(i) = ximpair_psi_refill_io(i)
-  IF (ABS(ximpair_wood_alloc_io(i) - rmdi) > EPSILON(1.0))                     &
-    ximpair_wood_alloc(i) = ximpair_wood_alloc_io(i)
   IF (ABS(ximpair_leaf_sens_io(i) - rmdi) > EPSILON(1.0))                      &
     ximpair_leaf_sens(i) = ximpair_leaf_sens_io(i)
   IF (ABS(ximpair_psi_growth_io(i) - rmdi) > EPSILON(1.0))                     &
     ximpair_psi_growth(i) = ximpair_psi_growth_io(i)
-  IF (ABS(ximpair_rec_years_io(i) - rmdi) > EPSILON(1.0))                      &
-    ximpair_rec_years(i) = ximpair_rec_years_io(i)
-  IF (ABS(ximpair_tau_stem_io(i) - rmdi) > EPSILON(1.0))                       &
-    ximpair_tau_stem(i) = ximpair_tau_stem_io(i)
   IF (ABS(ximpair_tau_leaf_io(i) - rmdi) > EPSILON(1.0))                       &
     ximpair_tau_leaf(i) = ximpair_tau_leaf_io(i)
   ! MDK, 17/10/26
@@ -1656,14 +1618,11 @@ IF ( l_triffid_nsc ) THEN
                  'with nsc_xylem_type_io = 1.')
   END IF
   ! The two pools are kept only by the store's repair: no other recovery
-  ! (refilling, the annual reset, growth recovery) may raise the stem cap.
-  IF ( ANY(nsc_xylem_replace(:) > 0 .AND. (ximpair_tau_rec(:) > 0.0 .OR.      &
-           ximpair_reset_mmdd(:) > 0)) .OR.                                   &
-       (ANY(nsc_xylem_replace(:) > 0) .AND. l_ximpair_rec_growth) ) THEN
+  ! (the annual reset) may raise the stem cap.
+  IF ( ANY(nsc_xylem_replace(:) > 0 .AND. ximpair_reset_mmdd(:) > 0) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
-                 'nsc_xylem_replace_io > 0 needs ximpair_tau_rec_io and '  // &
-                 'ximpair_reset_mmdd_io off and l_ximpair_rec_growth = F.')
+                 'nsc_xylem_replace_io > 0 needs ximpair_reset_mmdd_io off.')
   END IF
   ! Leaf flush: a whole number of days.
   IF ( ANY(nsc_flush_start_doy(:) > -1.0e29 .AND.                             &
@@ -1702,29 +1661,19 @@ IF ( l_ximpair_rec_nsc ) THEN
                  'l_ximpair_rec_nsc needs pft_xylem_impairment_model = 3 ' // &
                  '(memory) for at least one PFT.')
   END IF
-  IF ( ANY(ximpair_tau_rec(:) > 0.0) .OR. ANY(ximpair_reset_mmdd(:) > 0) ) THEN
+  IF ( ANY(ximpair_reset_mmdd(:) > 0) ) THEN
     errcode = -101
     CALL ereport(RoutineName, errcode,                                         &
-                 'ximpair_tau_rec_io > 0 or ximpair_reset_mmdd_io > 0 '     // &
-                 'recover conductance without carbon, alongside the '      // &
-                 'store repair (l_ximpair_rec_nsc).')
+                 'ximpair_reset_mmdd_io > 0 recovers conductance without ' // &
+                 'carbon, alongside the store repair (l_ximpair_rec_nsc).')
   END IF
 END IF
-! Time-based recovery of the memory model (a recovery timescale, not carbon)
-! is retired in favour of the store repair; it still runs, with a warning.
-! MDK, 18/10/26
-IF ( ANY(pft_xylem_impairment_model(:) == xylem_impairment_memory) .AND.    &
-     ( l_ximpair_rec_growth .OR. ANY(ximpair_tau_stem(:) > 0.0) .OR.          &
-       ANY(ximpair_rec_years(:) > 0.0) .OR. ANY(ximpair_tau_rec(:) > 0.0) ) ) &
-THEN
-  errcode = -101
-  CALL ereport(RoutineName, errcode,                                           &
-               'RETIRED: time-based recovery of the memory impairment '    // &
-               'model (l_ximpair_rec_growth, ximpair_tau_stem_io, '        // &
-               'ximpair_rec_years_io, ximpair_tau_rec_io) will be '        // &
-               'removed; use the store repair instead (l_triffid_nsc, '    // &
-               'l_ximpair_rec_nsc, nsc_* parameters).')
-END IF
+! The time-based recovery of the memory model (l_ximpair_rec_growth,
+! ximpair_tau_stem_io, ximpair_rec_years_io, ximpair_tau_rec_io and their
+! helpers) was retired in favour of the store repair; namelists that still
+! set them stop with an unknown-variable error. It is in the git history.
+!
+! MDK, 23/10/26
 
 ! ---------------------------------------------------------------------
 ! The conductance model parameters and critical conductance while not

@@ -167,8 +167,6 @@ USE jules_vegetation_mod, ONLY: xylem_impairment_none, SOX_conductance
 USE pftparm, ONLY: pft_conductance_model
 
 USE xylem_impairment_mod, ONLY: update_xylem_impairment
-USE xylem_impairment_memory_mod, ONLY: ximpair_store_npp
-USE jules_vegetation_mod, ONLY: l_ximpair_rec_growth
 ! MDK, 17/10/26
 USE jules_vegetation_mod, ONLY: l_triffid, l_triffid_nsc, l_phen_psi
 USE triffid_nsc_mod, ONLY: triffid_nsc_daily, triffid_nsc_turgor,             &
@@ -4444,9 +4442,6 @@ IF ( l_bvoc_emis ) THEN
                       !crop_vars_mod (IN)
                       dvi_cpft)
 END IF
-
-! Keep NPP for the growth recovery of the memory xylem impairment models.
-IF (l_ximpair_rec_growth) CALL ximpair_store_npp(land_pts, ft, npp)
 
 ! Turgor-limited sink of the TRIFFID store: water status (and the cold
 ! limit on the daily mean air temperature) over the store period (returns at
