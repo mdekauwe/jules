@@ -1632,12 +1632,22 @@ l_impair = PRESENT(kcap_frac)
 l_exact_on = .FALSE.
 IF ( PRESENT(l_exact) ) l_exact_on = l_exact
 
+! For each open point, walk every sampled transpiration down the chain of
+! segments (root, then stem, then leaf). Each segment takes the water
+! potential at its root-side end (psi_in), solves for the water potential
+! at its leaf-side end (psi_out) that lets it carry E, and hands psi_out on
+! as the next segment's psi_in. Alongside, dpsi_de carries how fast that
+! water potential falls with E, which gives the whole-plant conductance at
+! the end.
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
+
+  ! Start of the chain: the root zone, which does not move with E.
   psi_in(:)  = root_zone_psi(l)
   dpsi_de(:) = 0.0
   dpsi_de_int(:) = 0.0
   l_closed(:) = .FALSE.
+
   ! l_som_rhizo_series: the soil (rhizosphere) link in series ahead of the
   ! root segment. Linear in E: psi_root = psi_src - E / K_s, and the chain
   ! starts from dpsi_root/dE = -1/K_s, so leaf_k is the conductance of the
@@ -1657,12 +1667,22 @@ DO j = 1, open_pnts
   END IF
 
   DO iseg = 1, n_seg
+    ! This segment's maximum and critical conductance (its share of the
+    ! whole-plant values) and its own vulnerability curve (b, c).
     kmx = kmax(l) * seg_kmax_fac(pft,l,iseg)   ! MDK, 21/10/26
     kcr = kcrit(l) * seg_kmax_fac(pft,l,iseg)
     bs  = conductance_b_seg(pft,iseg)
     cs  = conductance_c_seg(pft,iseg)
 
-    ! Cap on the stem and leaf segments (not the root).
+    ! Cap on the stem and leaf segments (not the root) under xylem
+    ! impairment: their conductance cannot exceed fr * kmx. psi_cap is
+    ! where the intact curve falls to the cap,
+    !
+    !   kmx exp(-(psi_cap / b)^c) = fr kmx,   psi_cap = b (-ln fr)^(1/c)
+    !
+    ! so above psi_cap (wetter) the cap binds and below it the intact curve
+    ! does. a_cap is the intact supply integral at psi_cap, used to join the
+    ! two parts of the capped integral (seg_a).
     fr = 1.0
     IF ( l_impair .AND. iseg >= 2 )                                            &
       fr = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor), 1.0)
@@ -1676,6 +1696,7 @@ DO j = 1, open_pnts
       a_cap = 0.0
     END IF
 
+    ! Conductance and supply integral at the root-side end of the segment.
     k_in(:) = seg_k(psi_in)
     IF ( iseg == 1 .AND. .NOT. ( l_som_rhizo_series .AND.                     &
                                  ksr_path(l) >= 0.0 ) ) THEN
@@ -1688,11 +1709,19 @@ DO j = 1, open_pnts
       a_in(:) = seg_a(n_e_leaf, psi_in)
     END IF
 
-    ! First guess: the root-side conductance over the whole drop.
+    ! First guess: the root-side conductance over the whole drop (Ohm's
+    ! law, psi_out = psi_in - E / k_in), no more than 5 |b| below psi_in.
     psi_out(:) = psi_in(:) - e_leaf(:,j) / MAX(k_in(:), TINY(1.0_real_jlslsm))
     psi_out(:) = MAX(psi_out(:), psi_in(:) - 5.0 * ABS(bs))
     k_cur(:)   = k_in(:)
 
+    ! Newton-Raphson for the leaf-side water potential: the segment carries
+    !
+    !   E(psi_out) = seg_a(psi_out) - a_in
+    !
+    ! and dE/dpsi_out = -k(psi_out), so each step moves psi_out by the
+    ! missing flow divided by the conductance there. Stop when k has
+    ! settled (changes by less than 0.1 kcrit) or after max_nr_iter steps.
     DO it = 1, max_nr_iter
       k_prev(:) = k_cur(:)
       k_cur(:)  = seg_k(psi_out)
@@ -1703,6 +1732,8 @@ DO j = 1, open_pnts
       psi_out(:) = MAX(psi_out(:), psi_in(:) - 5.0 * ABS(bs))
       IF ( MAXVAL(ABS(k_cur(:) - k_prev(:))) < 0.1 * kcr ) EXIT
     END DO
+
+    ! Optionally make psi_out exact by bisection (see seg_bisect).
     IF ( l_exact_on ) THEN
       DO i = 1, n_e_leaf
         CALL seg_bisect( i )
@@ -1715,17 +1746,28 @@ DO j = 1, open_pnts
     ! in the next segment, which previously came out as a huge whole-plant k
     ! and let an infeasible state (psi_leaf ~ -70 MPa) pass the k > kcrit
     ! mask. With this floor dpsi_de stays finite and k correctly ~ 0.
+    !
+    ! Carry dpsi/dE down to the leaf-side end of this segment (header):
+    !
+    !   dpsi_out/dE = (k(psi_in) dpsi_in/dE - 1) / k(psi_out)
     k_cur(:)   = MAX(seg_k(psi_out), k_floor * kmx)
     dpsi_de(:) = ( MAX(k_in(:), k_floor * kmx) * dpsi_de(:) - 1.0 ) / k_cur(:)
+
+    ! The same for the intact segments at the same water potentials (the
+    ! conductance the hydraulic cost uses under impairment).
     IF ( PRESENT(leaf_k_intact) ) THEN
       dpsi_de_int(:) = ( MAX(kmx * EXP( -(psi_in(:)/bs)**cs ), k_floor * kmx) &
                          * dpsi_de_int(:) - 1.0 )                              &
                        / MAX(kmx * EXP( -(psi_out(:)/bs)**cs ), k_floor * kmx)
     END IF
+
+    ! Hand on to the next segment; keep the stem segment's leaf-side psi.
     psi_in(:)  = psi_out(:)
     IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(:,j) = psi_out(:)
   END DO
 
+  ! The leaf-side end of the leaf segment is the leaf water potential, and
+  ! the whole-plant conductance is k = -dE/dpsi_leaf = -1 / (dpsi_leaf/dE).
   leaf_psi(:,j) = psi_in(:)
   ! dpsi_de < 0 and finite here; anything else (defensive) is infeasible.
   WHERE ( dpsi_de(:) < 0.0 .AND. ABS(dpsi_de(:)) < HUGE(1.0_real_jlslsm) )
@@ -1741,6 +1783,9 @@ DO j = 1, open_pnts
       leaf_k_intact(:,j) = 0.0
     END WHERE
   END IF
+
+  ! Samples the path cannot carry (no soil conductance, or a flow above the
+  ! most a segment can carry with l_exact): infeasible, k = 0.
   WHERE ( l_closed(:) )
     leaf_psi(:,j) = som_psi_in_min
     leaf_k(:,j)   = 0.0
