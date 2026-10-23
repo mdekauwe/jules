@@ -2308,8 +2308,9 @@ END IF
 END SUBROUTINE lut_grid
 
 ! ---------------------------------------------------------------------
-! Function to calculate the lower incomplete gamma function. The
-! lower incomplete gamma function is defined as;
+! Function to calculate the lower incomplete gamma function, with its own
+! shape parameter a for each x (incomplete_gamma below is the same with
+! one a for all x). The lower incomplete gamma function is defined as;
 !
 ! gamma(a, x) = integral( t^(a-1) * e^(-t) dt, 0, x)
 !
@@ -2346,15 +2347,18 @@ END SUBROUTINE lut_grid
 !
 ! MDK, 23/10/26
 ! ---------------------------------------------------------------------
-FUNCTION incomplete_gamma( n_x, a, x ) RESULT( gamma )
+FUNCTION incomplete_gamma_different_a( n_x, a, x ) RESULT( gamma )
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) :: n_x ! Size of x array
 
-REAL(KIND=real_jlslsm), INTENT(IN) :: a
-                            ! Shape parameter, 1/c (dimensionless).
+REAL(KIND=real_jlslsm), INTENT(IN) :: a(n_x)
+                            ! Shape parameter of each value, 1/c
+                            ! (dimensionless).
+                            !
+                            ! MDK, 23/10/26
 REAL(KIND=real_jlslsm), INTENT(IN) :: x(n_x)
                             ! Upper limit of the integral, (psi/b)^c
                             ! (dimensionless).
@@ -2393,7 +2397,7 @@ INTEGER, PARAMETER :: max_terms = 40
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='INCOMPLETE_GAMMA'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='INCOMPLETE_GAMMA_DIFFERENT_A'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
@@ -2417,22 +2421,24 @@ END DO
 gamma = gamma * EXP(-x) * x**a
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-END FUNCTION incomplete_gamma
+END FUNCTION incomplete_gamma_different_a
 
 ! ---------------------------------------------------------------------
-! The same as the above function but with an array input for a, for use
-! with per-point (e.g. impaired) conductance curves. JBaguley
+! The lower incomplete gamma function with one shape parameter a for all
+! x: incomplete_gamma_different_a with a repeated. (This was a second copy
+! of the series.)
+!
+! MDK, 23/10/26
 ! ---------------------------------------------------------------------
-FUNCTION incomplete_gamma_different_a( n_x, a, x ) RESULT( gamma )
+FUNCTION incomplete_gamma( n_x, a, x ) RESULT( gamma )
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) :: n_x ! Size of x array
 
-REAL(KIND=real_jlslsm), INTENT(IN) :: a(n_x)
-                            ! Shape parameter of each value, 1/c
-                            ! (dimensionless).
+REAL(KIND=real_jlslsm), INTENT(IN) :: a
+                            ! Shape parameter, 1/c (dimensionless).
 REAL(KIND=real_jlslsm), INTENT(IN) :: x(n_x)
                             ! Upper limit of the integral, (psi/b)^c
                             ! (dimensionless).
@@ -2443,37 +2449,16 @@ REAL(KIND=real_jlslsm) :: gamma(n_x)
                             !
                             ! MDK, 21/10/26
 
-! Local variables
-REAL(KIND=real_jlslsm) :: step(n_x)
-INTEGER :: i
-
-! Series convergence controls - see incomplete_gamma above.
-REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
-INTEGER, PARAMETER :: max_terms = 40
-
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='INCOMPLETE_GAMMA_DIFFERENT_A'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='INCOMPLETE_GAMMA'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-! Set initial values (the n=0 term of the series)
-step(:) = 1/a
-gamma(:) = step
-
-! Calculate series until converged - see incomplete_gamma above.
-DO i = 1, max_terms
-  step = step * x / (a + i)
-  gamma = gamma + step
-
-  IF (ALL(ABS(step) < series_tol * ABS(gamma))) EXIT
-END DO
-
-! Multiply by terms outside the sum
-gamma = gamma * EXP(-x) * x**a
+gamma = incomplete_gamma_different_a( n_x, SPREAD(a, 1, n_x), x )
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-END FUNCTION incomplete_gamma_different_a
+END FUNCTION incomplete_gamma
 
 END MODULE xylem_hydraulics_CW_jls_mod

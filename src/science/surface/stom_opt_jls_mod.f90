@@ -178,14 +178,12 @@ USE pftparm, ONLY:                                                             &
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
-USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow, ksr_path,          &
-                                       seg_kmax_fac   ! MDK, 21/10/26
+USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow, ksr_path
 
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft,                       &
                    pft_xylem_impairment_model
 USE jules_vegetation_mod, ONLY: xylem_impairment_none, l_som_plant_segments,  &
                                 l_som_rhizo_series
-USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
 USE model_time_mod, ONLY: is_spinup
 
 LOGICAL, INTENT(IN) :: l_multilayer
@@ -421,7 +419,7 @@ INTEGER ::                                                                     &
                             ! (sox_opt_profit_model).
                             !
                             ! MDK, 21/10/26
-,i,j,l,iseg,m                                                                  &
+,i,j,l,m                                                                       &
                             ! Iterators
 ,errcode
                             ! Error code to pass to ereport.
@@ -662,52 +660,43 @@ IF (l_xylem_impairment) THEN
     ! intact plant when it is not transpiring. With no transpiration there
     ! is no drop in water potential along the plant, so every segment sits
     ! at the root zone water potential, and the segments add in series:
-    !   1 / kl_hc_max = sum over segments of 1 / k_s(psi_root_zone),
-    ! where k_s is the segment's maximum conductance reduced by its own
-    ! vulnerability curve. This is the most the undamaged plant could
-    ! conduct at today's soil water potential; the hydraulic cost of a
-    ! stomatal opening is the loss of conductance from it.
-    ! Vegetated points only (psi_root_zone means nothing elsewhere).
     !
-    ! MDK, 21/10/26
+    !     1 / kl_hc_max = sum over segments of 1 / k_s(psi_root_zone)
+    !
+    ! where k_s is the segment's maximum conductance (kmax_ref times its
+    ! share, seg_kmax_fac) reduced by its own vulnerability curve. This is
+    ! the most the undamaged plant could conduct at today's soil water
+    ! potential; the hydraulic cost of a stomatal opening is the loss of
+    ! conductance from it. k_path_zero_flow does this sum, and adds the
+    ! soil-to-root conductance in series (l_som_rhizo_series): the soil is
+    ! not damaged, so the stomata see it. Vegetated points only
+    ! (psi_root_zone means nothing elsewhere).
+    !
+    ! MDK, 23/10/26
     DO m = 1, veg_pts
       l = veg_index(m)
-      kl_hc_max(l) = 0.0
-      DO iseg = 1, 3
-        ! The segment's maximum conductance is kmax_ref times its share,
-        ! seg_kmax_fac: seg_kfac, and with kplant_model = 1 also the LAI
-        ! scaling seg_kscale.
-        !
-        ! MDK, 21/10/26
-        kl_hc_max(l) = kl_hc_max(l) + 1.0 / MAX(kmax_ref(l)                   &
-                       * seg_kmax_fac(pft,l,iseg)                              &
-                       * EXP( -(psi_root_zone(l)                               &
-                                / conductance_b_seg(pft,iseg))                 &
-                              **conductance_c_seg(pft,iseg) ),                 &
-                       TINY(1.0_real_jlslsm))
-      END DO
-      kl_hc_max(l) = 1.0 / kl_hc_max(l)
+      kl_hc_max(l) = k_path_zero_flow(pft, l, kmax_ref(l), psi_root_zone(l))
     END DO
   ELSE
     CALL leaf_conductance_jls( pft, land_pts, psi_root_zone, kmax_ref, kcrit,  &
                                b_ref, c_ref, kl_hc_max )
-  END IF
 
-  ! The soil-to-root conductance in series (l_som_rhizo_series): the soil is
-  ! not damaged, so the stomata see it, as in the unimpaired cost (where
-  ! leaf_k is the whole soil-to-leaf path). Zero flow: the series sum.
-  IF ( l_som_rhizo_series ) THEN
-    DO m = 1, veg_pts
-      l = veg_index(m)
-      IF ( ksr_path(l) >= 0.0 ) THEN
-        IF ( ksr_path(l) > TINY(1.0_real_jlslsm) .AND.                         &
-             kl_hc_max(l) > TINY(1.0_real_jlslsm) ) THEN
-          kl_hc_max(l) = 1.0 / ( 1.0 / kl_hc_max(l) + 1.0 / ksr_path(l) )
-        ELSE
-          kl_hc_max(l) = 0.0
+    ! The soil-to-root conductance in series (l_som_rhizo_series): the soil is
+    ! not damaged, so the stomata see it, as in the unimpaired cost (where
+    ! leaf_k is the whole soil-to-leaf path). Zero flow: the series sum.
+    IF ( l_som_rhizo_series ) THEN
+      DO m = 1, veg_pts
+        l = veg_index(m)
+        IF ( ksr_path(l) >= 0.0 ) THEN
+          IF ( ksr_path(l) > TINY(1.0_real_jlslsm) .AND.                       &
+               kl_hc_max(l) > TINY(1.0_real_jlslsm) ) THEN
+            kl_hc_max(l) = 1.0 / ( 1.0 / kl_hc_max(l) + 1.0 / ksr_path(l) )
+          ELSE
+            kl_hc_max(l) = 0.0
+          END IF
         END IF
-      END IF
-    END DO
+      END DO
+    END IF
   END IF
 END IF
 
