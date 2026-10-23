@@ -10400,7 +10400,7 @@ DATA metadata(801) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Cuticular-loss store flow out (> 0 to transpiration, < 0 refill)",        &
+    "Capacitance store flow out (> 0 to transpiration, < 0 refill)",           &
 ! Units
     "kg m-2 s-1"                                                               &
   ) /
@@ -10410,7 +10410,7 @@ DATA metadata(802) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Cuticular-loss store water relative to full (psi = 0)",                   &
+    "Capacitance store water relative to full (psi = 0)",                      &
 ! Units
     "kg m-2"                                                                   &
   ) /
@@ -10420,7 +10420,7 @@ DATA metadata(803) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Cuticular-loss store water, C psi (> 0 = not set; dump)",                 &
+    "Capacitance store water, C psi (> 0 = not set; dump)",                    &
 ! Units
     "mol m-2"                                                                  &
   ) /
@@ -10430,7 +10430,7 @@ DATA metadata(804) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Cuticular-loss store stem water potential (> 0 = not set; dump)",         &
+    "Capacitance store stem water potential (> 0 = not set; dump)",            &
 ! Units
     "Pa"                                                                       &
   ) /
@@ -10440,7 +10440,7 @@ DATA metadata(805) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Cuticular-loss store capacitance (0 = not set; dump)",                    &
+    "Capacitance store capacitance C (0 = not set; dump)",                     &
 ! Units
     "mol m-2 Pa-1"                                                             &
   ) /
@@ -10450,7 +10450,7 @@ DATA metadata(806) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Cuticular-loss store deficit carried away by shed tissue",                &
+    "Capacitance store deficit carried away by shed tissue",                   &
 ! Units
     "kg m-2"                                                                   &
   ) /

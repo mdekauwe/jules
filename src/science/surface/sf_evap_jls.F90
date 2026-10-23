@@ -55,7 +55,7 @@ USE jules_hydrology_mod, ONLY: l_soil_evap_or
 USE soil_evap_or_mod, ONLY: w1_or
 USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica,               &
                                 l_som_cuticular_loss, leaf_flux_mod,           &
-                                leaf_flux_stom_opt, l_som_store   ! MDK, 23/10/26
+                                leaf_flux_stom_opt, l_som_capacitance_on   ! MDK, 23/10/26
 USE desica_jls_mod, ONLY: desica_commit, desica_cut_uptake
 USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_store_return
 USE ereport_mod, ONLY: ereport
@@ -277,7 +277,7 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='SF_EVAP'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 l_desica = ( stomata_model == stomata_desica )
-l_cut_store = l_som_store   ! MDK, 23/10/26
+l_cut_store = l_som_capacitance_on   ! MDK, 23/10/26
 IF ( l_cut_store .AND. ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
   errcode = 101
   CALL ereport('sf_evap', errcode, 'The plant water store of the stomatal ' //&
@@ -867,20 +867,30 @@ IF ( l_desica ) THEN
   END DO
 END IF
 
-! Plant water store of the cuticular loss under the stomatal optimisation:
-! the soil gives the transpiration less the store's flow out (cut_q_store,
-! set in sf_stom), so the store's water is conserved: it pays part of the
-! leak and refills from the soil later. The store gives at most the
-! transpiration T (the stomatal share of esoil, as for DESICA), and its
-! refill at most the soil's water; what it does not give, or the soil does
-! not refill, stays in (or out of) the store (cut_store_return).
+! Plant capacitance of the stomatal optimisation (l_som_capacitance, or
+! l_som_cuticular_loss): the soil gives the transpiration less the store's
+! flow out (cut_q_store, set in sf_stom),
 !
-! MDK, 22/10/26
+!   soil extraction = esoil - MIN(q_store, T),
+!
+! so soil + plant + atmosphere water is conserved: the store pays part of
+! the transpiration (and the leak) and refills from the soil later.
+!
+!   1. The store gives at most the transpiration T (the stomatal share of
+!      esoil, as for DESICA); what it cannot give stays in the store.
+!   2. Its refill (q_store < 0) is at most the soil's water in the top
+!      layer; what the soil cannot supply stays out of the store.
+!
+! Both go back to the store through cut_store_return.
+!
+! MDK, 23/10/26
 IF ( l_cut_store ) THEN
   IF ( ALLOCATED(cut_q_store) ) THEN
     DO n = 1,npft
       DO k = 1,surft_pts(n)
         l = surft_index(k,n)
+        ! The stomatal transpiration T (kg m-2 s-1): the stomatal share of
+        ! esoil, by conductance (g_stom / g_c), before the Or limit.
         t_stom(l,n) = 0.0
         IF ( resfs(l,n) > EPSILON(1.0) ) THEN
           IF ( sf_diag%resfs_stom(l,n) < 1.0 ) THEN
@@ -891,6 +901,8 @@ IF ( l_cut_store ) THEN
             t_stom(l,n) = esoil_surft(l,n) + des_or(l,n)
           END IF
         END IF
+        ! Step 1: the soil gives esoil less the store's flow out, which is at
+        ! most T; the rest of the flow out goes back to the store.
         esoil_ext(l,n) = esoil_surft(l,n)                                      &
                          - MIN(cut_q_store(l,n), MAX(t_stom(l,n), 0.0))
         IF ( cut_q_store(l,n) > MAX(t_stom(l,n), 0.0) )                        &
@@ -898,6 +910,9 @@ IF ( l_cut_store ) THEN
                                  cut_q_store(l,n) - MAX(t_stom(l,n), 0.0) )
       END DO
     END DO
+    ! Step 2: the refills (kg m-2 s-1, summed over the tiles) cannot take
+    ! more than the soil water available this step; any excess is taken
+    ! off each refill in proportion and stays out of the store.
     DO l = 1,land_pts
       j = (land_index(l) - 1) / t_i_length + 1
       i = land_index(l) - (j-1) * t_i_length

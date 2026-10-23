@@ -552,9 +552,10 @@ LOGICAL ::                                                                     &
       ! MDK, 22/10/26
 
 LOGICAL ::                                                                     &
-  l_som_plant_store = .FALSE.
-      ! When .TRUE., the stomatal optimisation has a plant water store at the
-      ! stem node (capacitance cap_stem times the reference leaf area of the
+  l_som_capacitance = .FALSE.
+      ! Plant capacitance. When .TRUE., the stomatal optimisation has a plant
+      ! water store (the capacitance) at the
+      ! stem node (cap_stem times the reference leaf area of the
       ! plant conductance), carried and dumped. The store changes the
       ! transpiration: E' is the transpiration that brings the leaf
       ! (psi_stem - E / k_leaf, k_leaf = k_plant / som_leaf_resist_frac) to
@@ -570,7 +571,14 @@ LOGICAL ::                                                                     &
       ! MDK, 23/10/26
 
 LOGICAL ::                                                                     &
-  l_som_store_leak_tank = .FALSE.
+  l_som_plant_store = .FALSE.
+      ! Deprecated name of l_som_capacitance (renamed 23/10/26). Still read;
+      ! .TRUE. sets l_som_capacitance, with a warning.
+      !
+      ! MDK, 23/10/26
+
+LOGICAL ::                                                                     &
+  l_som_leak_capacitance_only = .FALSE.
       ! Experimental (with l_som_cuticular_loss):
       ! where the leak binds (stomata shut), the soil supplies none of it:
       ! the store pays the whole leak, which stops when the leaf reaches the
@@ -581,9 +589,9 @@ LOGICAL ::                                                                     &
       ! MDK, 23/10/26
 
 LOGICAL ::                                                                     &
-  l_som_store = .FALSE.
+  l_som_capacitance_on = .FALSE.
       ! Derived (not in the namelist): the stomatal optimisation's plant
-      ! water store is on (l_som_plant_store or l_som_cuticular_loss, with
+      ! capacitance is on (l_som_capacitance or l_som_cuticular_loss, with
       ! the stomatal optimisation).
       !
       ! MDK, 23/10/26
@@ -1128,7 +1136,7 @@ NAMELIST  / jules_vegetation/                                                  &
     ml_leaf_temp_model, kplant_model,                                          &
     l_som_gain_gross,                                                          &
     l_som_cuticular_loss, l_som_cuticular_floor,                              &
-    l_som_plant_store, l_som_store_leak_tank,                                 &
+    l_som_capacitance, l_som_plant_store, l_som_leak_capacitance_only,         &
     l_som_gravity, l_som_coupled_e,                                           &
     l_som_rhizo_mfp, l_som_rhizo_hr,                                          &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
@@ -1894,22 +1902,30 @@ END IF
 ! The plant water store and its target on the transpiration.
 !
 ! MDK, 23/10/26
-l_som_store = ( l_som_plant_store .OR. l_som_cuticular_loss ) .AND.           &
-              leaf_flux_mod == leaf_flux_stom_opt
-IF ( l_som_plant_store .AND. leaf_flux_mod /= leaf_flux_stom_opt ) THEN
-  errcode = 101
+IF ( l_som_plant_store ) THEN
+  errcode = -101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_plant_store requires the stomatal optimisation')
+               'l_som_plant_store is renamed l_som_capacitance; ' //          &
+               'it sets l_som_capacitance = .TRUE.')
+  l_som_capacitance = .TRUE.
+  l_som_plant_store = .FALSE.
 END IF
-IF ( l_som_store_leak_tank .AND. .NOT. l_som_cuticular_loss ) THEN
+l_som_capacitance_on = ( l_som_capacitance .OR. l_som_cuticular_loss ) .AND.  &
+                       leaf_flux_mod == leaf_flux_stom_opt
+IF ( l_som_capacitance .AND. leaf_flux_mod /= leaf_flux_stom_opt ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_store_leak_tank requires l_som_cuticular_loss')
+               'l_som_capacitance requires the stomatal optimisation')
 END IF
-IF ( l_som_store .AND. can_rad_mod == 4 ) THEN
+IF ( l_som_leak_capacitance_only .AND. .NOT. l_som_cuticular_loss ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'The plant water store (l_som_plant_store or ' //              &
+               'l_som_leak_capacitance_only requires l_som_cuticular_loss')
+END IF
+IF ( l_som_capacitance_on .AND. can_rad_mod == 4 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'Plant capacitance (l_som_capacitance or ' //                  &
                'l_som_cuticular_loss) is not available with can_rad_mod = 4')
 END IF
 
@@ -2318,10 +2334,10 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_cuticular_loss = ', l_som_cuticular_loss
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' l_som_plant_store = ', l_som_plant_store   ! MDK, 23/10/26
+WRITE(lineBuffer,*) ' l_som_capacitance = ', l_som_capacitance   ! MDK, 23/10/26
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' l_som_store_leak_tank = ', l_som_store_leak_tank   ! MDK, 23/10/26
+WRITE(lineBuffer,*) ' l_som_leak_capacitance_only = ', l_som_leak_capacitance_only   ! MDK, 23/10/26
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_ximpair_rec_growth = ', l_ximpair_rec_growth
@@ -2493,7 +2509,7 @@ INTEGER, PARAMETER :: n_int = 25 ! +1 discrimination_model (MDK, 22/10/26), +1 k
 INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5) ! +1 leaf_wind_ext (MDK, 19/10/26), +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 58 + npft_max ! +2 l_som_plant_store/store_leak_tank (MDK 23/10/26), +1 l_trif_hydmort, +1 l_som_cuticular_floor (deprecated name, MDK 21/10/26), +1 l_nsc_wmax_norm, +1 l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
+INTEGER, PARAMETER :: n_log = 59 + npft_max ! +3 l_som_capacitance/plant_store (deprecated)/leak_capacitance_only (MDK 23/10/26), +1 l_trif_hydmort, +1 l_som_cuticular_floor (deprecated name, MDK 21/10/26), +1 l_nsc_wmax_norm, +1 l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for
@@ -2573,7 +2589,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_loss
   LOGICAL :: l_som_cuticular_floor   ! MDK, 21/10/26
-  LOGICAL :: l_som_plant_store, l_som_store_leak_tank   ! MDK, 23/10/26
+  LOGICAL :: l_som_capacitance, l_som_plant_store, l_som_leak_capacitance_only   ! MDK, 23/10/26
   LOGICAL :: l_ximpair_rec_growth
   LOGICAL :: l_ximpair_leaf_loss
   LOGICAL :: l_ximpair_seg_memory
@@ -2698,8 +2714,9 @@ IF (mype == 0) THEN
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_loss = l_som_cuticular_loss
   my_nml % l_som_cuticular_floor = l_som_cuticular_floor
+  my_nml % l_som_capacitance = l_som_capacitance
   my_nml % l_som_plant_store = l_som_plant_store
-  my_nml % l_som_store_leak_tank = l_som_store_leak_tank
+  my_nml % l_som_leak_capacitance_only = l_som_leak_capacitance_only
   my_nml % l_ximpair_rec_growth = l_ximpair_rec_growth
   my_nml % l_ximpair_leaf_loss = l_ximpair_leaf_loss
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
@@ -2813,8 +2830,9 @@ IF (mype /= 0) THEN
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_loss = my_nml % l_som_cuticular_loss
   l_som_cuticular_floor = my_nml % l_som_cuticular_floor
+  l_som_capacitance = my_nml % l_som_capacitance
   l_som_plant_store = my_nml % l_som_plant_store
-  l_som_store_leak_tank = my_nml % l_som_store_leak_tank
+  l_som_leak_capacitance_only = my_nml % l_som_leak_capacitance_only
   l_ximpair_rec_growth = my_nml % l_ximpair_rec_growth
   l_ximpair_leaf_loss = my_nml % l_ximpair_leaf_loss
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory

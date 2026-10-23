@@ -1183,15 +1183,25 @@ END SUBROUTINE scatter_bnd
 END SUBROUTINE stom_opt_mod
 
 !-----------------------------------------------------------------------------
-! Leaf fluxes at a prescribed transpiration (the plant water store): the ci,
-! net assimilation al, conductance gl and transpiration el at which the
-! leaf transpires e_target (mol H2O m-2 s-1, as el), from the same
-! photosynthesis, gl(ci) and coupling as stom_opt_mod_ci. E rises with ci,
-! so the ci grid over [ccp, ca] is searched for the bracket, refined with a
-! second grid inside it, and interpolated linearly in E. Samples above
-! gl_max (when > 0, the soil supply cap) are not used, and above the
-! largest usable E that sample is returned. The hydraulics are not
-! applied: the plant water store pays the difference from the optimiser's
+! Leaf fluxes at a prescribed transpiration (plant capacitance).
+!
+! Returns the
+!
+!   ci, net assimilation al, conductance gl and transpiration el
+!
+! at which the leaf transpires e_target (mol H2O m-2 s-1, as el), from the
+! same photosynthesis, gl(ci) and canopy coupling as stom_opt_mod_ci.
+!
+! E rises with ci, so:
+!
+!   1. the ci grid over [ccp, ca] is searched for the samples either side
+!      of e_target;
+!   2. a second grid inside that bracket refines it;
+!   3. ci, al, gl and el are interpolated linearly in E.
+!
+! Samples above gl_max (when > 0, the soil-supply cap) are not used; above
+! the largest usable E that sample is returned. The hydraulics are not
+! applied: the capacitance store pays the difference from the optimiser's
 ! steady state.
 !
 ! MDK, 23/10/26
@@ -1212,29 +1222,72 @@ USE jules_vegetation_mod, ONLY: som_n_sample
 
 IMPLICIT NONE
 
-LOGICAL, INTENT(IN) :: l_multilayer, l_xylem_impairment
-INTEGER, INTENT(IN) :: land_pts, pft, open_pts, open_index(land_pts),         &
-                       pft_photo_model, veg_index(land_pts)
+LOGICAL, INTENT(IN) :: l_multilayer
+                            ! Called from the multilayer canopy.
+LOGICAL, INTENT(IN) :: l_xylem_impairment
+                            ! The impaired vulnerability curve is used (as
+                            ! stom_opt_mod).
+INTEGER, INTENT(IN) :: land_pts
+                            ! Number of land points.
+INTEGER, INTENT(IN) :: pft
+                            ! Plant functional type.
+INTEGER, INTENT(IN) :: open_pts
+                            ! Number of points to solve.
+INTEGER, INTENT(IN) :: open_index(land_pts)
+                            ! The points to solve, as indices of veg_index.
+INTEGER, INTENT(IN) :: pft_photo_model
+                            ! Photosynthesis model of the PFT.
+INTEGER, INTENT(IN) :: veg_index(land_pts)
+                            ! Land index of each vegetated point.
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   rd(land_pts), ca(land_pts), psi_root_zone(land_pts), acr(land_pts),          &
   apar(land_pts), oi(land_pts), vcmax(land_pts), kc(land_pts), ko(land_pts),   &
   ccp(land_pts), pstar(land_pts), km(land_pts), dq(land_pts), qs(land_pts),    &
   je(land_pts), t_leaf(land_pts), je_ratio(land_pts), fapar_lf(land_pts),      &
-  ipar(land_pts), kmax(land_pts), kcrit(land_pts), gl_max(land_pts),           &
-  r_bl(land_pts), r_ca(land_pts), g_oth(land_pts), kmax_ref(land_pts),         &
+  ipar(land_pts), kmax(land_pts), kcrit(land_pts), r_bl(land_pts),             &
+  r_ca(land_pts), g_oth(land_pts), kmax_ref(land_pts),                         &
   conductance_b(land_pts), conductance_c(land_pts),                            &
-  psi_leaf_extreme(land_pts), psi_root_extreme(land_pts), e_target(land_pts)
-REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
-  ci(land_pts), al(land_pts), gl(land_pts), el(land_pts)
-                            ! Only the open points are set.
+  psi_leaf_extreme(land_pts), psi_root_extreme(land_pts)
+                            ! Photosynthesis, coupling and hydraulic inputs,
+                            ! exactly as passed to stom_opt_mod_ci.
+REAL(KIND=real_jlslsm), INTENT(IN) :: gl_max(land_pts)
+                            ! Soil-supply cap on gl (m s-1; <= 0: none).
+REAL(KIND=real_jlslsm), INTENT(IN) :: e_target(land_pts)
+                            ! Target transpiration (mol H2O m-2 s-1).
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: ci(land_pts)
+                            ! Intercellular CO2 (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: al(land_pts)
+                            ! Net assimilation (mol CO2 m-2 s-1).
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: gl(land_pts)
+                            ! Conductance (m s-1).
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: el(land_pts)
+                            ! Transpiration (mol H2O m-2 s-1). Only the
+                            ! points solved are set.
+                            !
+                            ! MDK, 23/10/26
 
-INTEGER :: ipass, i, j, l, ib(open_pts), n_ok(open_pts)
-REAL(KIND=real_jlslsm) :: ci_lo(land_pts), ci_hi(land_pts), w
+INTEGER :: ipass, i, j, l
+INTEGER :: ib(open_pts)
+                            ! The first usable sample at or above the target
+                            ! E, at each point.
+INTEGER :: n_ok(open_pts)
+                            ! The number of usable samples (within gl_max),
+                            ! at each point.
+REAL(KIND=real_jlslsm) :: ci_lo(land_pts), ci_hi(land_pts)
+                            ! The ci range searched (Pa).
+REAL(KIND=real_jlslsm) :: w
+                            ! Interpolation weight between two samples (-).
 REAL(KIND=real_jlslsm), DIMENSION(0:som_n_sample, open_pts) ::                &
   ci_s, al_s, gl_s, kl_s, psi_s, el_s, klhc_s
+                            ! The ci samples and their A, gl, conductance,
+                            ! psi_leaf and E (as stom_opt_mod_ci).
+                            !
+                            ! MDK, 23/10/26
 
 IF ( open_pts == 0 ) RETURN
 
+! Pass 1 searches the whole ci range [ccp, ca]; pass 2 the bracket around
+! the target E that pass 1 found.
 ci_lo(:) = MAX(ccp(:), 0.0)
 ci_hi(:) = ca(:)
 DO ipass = 1,2
@@ -1267,6 +1320,7 @@ DO ipass = 1,2
         EXIT
       END IF
     END DO
+    ! After pass 1: narrow the ci range to the bracket around the target.
     IF ( ipass == 1 ) THEN
       i = MAX(ib(j), 2)
       ci_lo(l) = ci_s(i-1,j)
@@ -1275,6 +1329,9 @@ DO ipass = 1,2
   END DO
 END DO
 
+! Interpolate linearly in E between the two samples either side of the
+! target. If the target is below the first sample, or above the largest
+! usable E (the soil-supply cap or ci = ca), that sample is returned.
 DO j = 1,open_pts
   l = veg_index(open_index(j))
   i = ib(j)

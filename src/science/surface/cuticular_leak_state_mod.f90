@@ -7,24 +7,35 @@
 ! This file belongs in SURFACE
 
 MODULE cuticular_leak_state_mod
-! Plant water store of the cuticular loss under the stomatal optimisation
-! (l_som_cuticular_loss): the stem capacitance C = cap_stem * LAI, with its
-! water carried between timesteps. Where the leak binds, psi relaxes
-! towards the leak's steady state and the store pays part of the leak; on
-! every other step (and at night) the store relaxes towards the step's psi
-! through the root path, refilling (or giving up) water, and at lit points
-! psi_leaf is the store's psi. The store's flow, cut_q_store, is taken off
-! the soil extraction in sf_evap, so the store's water is conserved. The
-! water, not psi, is carried, so a change of LAI (and so of C) changes the
-! store's psi, not its water. C is cap_stem times the leaf area that the
-! plant conductance is scaled by (LAI, or the reference LAI with
-! kplant_model = 1), so the store's time constant C / k does not change
-! with phenology. When C grows the new tissue is born full (the water is
-! kept); when it shrinks (leaf loss) psi is kept and the shed tissue takes
-! its share of the deficit (cut_w_shed), so shedding does not dry the plant.
-! The state (W, psi_stem and C) is dumped.
+! State of the stomatal optimisation's plant capacitance (l_som_capacitance,
+! or l_som_cuticular_loss): a plant water store at the stem node.
 !
-! MDK, 22/10/26
+! The store's water, relative to the full store (psi = 0),
+!
+!   W = C psi_x      (mol H2O m-2 ground, <= 0),
+!
+! is carried between timesteps and dumped, with its capacitance
+!
+!   C = cap_stem L_ref      (mol H2O m-2 ground Pa-1),
+!
+! (L_ref: LAI, or the reference LAI with kplant_model = 1, so that the
+! store's time constant C / k does not change with phenology) and psi_stem.
+!
+! Each step (sf_stom) the store sets the transpiration, and the leak drains
+! it where it binds; it refills from the soil through the root side. Its
+! flow out, cut_q_store, is taken off the soil extraction in sf_evap, so
+! soil + plant + atmosphere water is conserved. Because W, not psi, is
+! carried, a change of C moves psi, not the water:
+!
+!   C rises (growth):    the new tissue is born full (W kept);
+!   C falls (leaf loss): psi is kept and the shed tissue takes its share of
+!                        the deficit (cut_w_shed), so shedding does not dry
+!                        the plant.
+!
+! (The module and dump names keep "cut", from the cuticular loss, for
+! which the store was first written.)
+!
+! MDK, 23/10/26
 
 USE um_types, ONLY: real_jlslsm
 
@@ -35,38 +46,49 @@ PUBLIC :: cut_w_store, cut_psi_stem, cut_q_store, cut_c_store, cut_w_shed,   &
           cut_state_alloc, cut_psi_unset, cut_m_h2o, cut_store_return
 
 REAL(KIND=real_jlslsm), PARAMETER :: cut_psi_unset = 1.0
-      ! Value of a state not yet set (psi and the store's water are <= 0).
+      ! Value of a state not yet set (psi and the store's water are <= 0)
+      ! (Pa, or mol m-2).
 REAL(KIND=real_jlslsm), PARAMETER :: cut_m_h2o = 0.018015
       ! Molar mass of water (kg mol-1).
 
 ! Water in the store of each PFT at each land point at the end of the last
-! timestep, relative to the store at psi = 0 (mol H2O m-2, <= 0): C times
-! the store's (leaf) psi.
+! timestep, relative to the full store at psi = 0 (mol H2O m-2 ground,
+! <= 0; > 0: not yet set):
+!
+!   W = C psi_x.
 !
 ! MDK, 22/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_w_store(:,:)
 
-! Stem water potential (Pa) of each PFT at each land point at the end of
-! the last timestep (with plant segments).
+! Stem water potential of each PFT at each land point at the end of the
+! last timestep, with plant segments (Pa; > 0: not yet set).
+!
+! MDK, 23/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_psi_stem(:,:)
 
-! Flow out of the store of each PFT this timestep (kg m-2 s-1): > 0 the
-! store gives water to the transpiration, < 0 it refills from the soil.
+! Flow out of the store of each PFT this timestep (kg H2O m-2 ground s-1):
+!
+!   > 0  the store gives water to the transpiration,
+!   < 0  it refills from the soil.
+!
 ! The soil gives the transpiration less this.
 !
 ! MDK, 22/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_q_store(:,:)
 
-! Capacitance of the store of each PFT (mol H2O m-2 Pa-1), cap_stem times
-! the reference leaf area of the plant conductance; carried between
-! timesteps (dumped) to apply the rule for a change of C.
+! Capacitance of the store of each PFT (mol H2O m-2 ground Pa-1; 0: not yet
+! set):
+!
+!   C = cap_stem L_ref,
+!
+! carried between timesteps (dumped) to apply the rule for a change of C.
 !
 ! MDK, 22/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_c_store(:,:)
 
-! Water deficit carried away by shed tissue this timestep (kg m-2, >= 0):
-! the store's water rises by this with no flow, as C falls at fixed psi.
-! A diagnostic for the water budget.
+! Water deficit carried away by shed tissue this timestep (kg H2O m-2
+! ground, >= 0): the store's water rises by this with no flow, as C falls
+! at fixed psi. A diagnostic for the water budget.
 !
 ! MDK, 22/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_w_shed(:,:)
@@ -74,13 +96,18 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_w_shed(:,:)
 CONTAINS
 
 ! ---------------------------------------------------------------------
-! Allocate the state (n_land_pts, npft), unset, if not done.
+! Allocate the state (n_land_pts, npft), not yet set, if not done.
+!
+! MDK, 23/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE cut_state_alloc( n_land_pts )
 
 USE jules_surface_types_mod, ONLY: npft
 
 INTEGER, INTENT(IN) :: n_land_pts
+      ! Number of land points.
+      !
+      ! MDK, 23/10/26
 
 IF (.NOT. ALLOCATED(cut_w_store)) THEN
   ALLOCATE(cut_w_store(n_land_pts, npft), cut_psi_stem(n_land_pts, npft),     &
@@ -96,24 +123,44 @@ END IF
 END SUBROUTINE cut_state_alloc
 
 ! ---------------------------------------------------------------------
-! sf_evap: the soil took dq (kg m-2 s-1) less than the store's flow out
-! implied at point l, PFT ft (dq > 0: the store gave less, as the
-! transpiration was smaller; dq < 0: the soil could not supply the
-! refill). The store keeps that water, dq dt (no more than fills it to
-! psi = 0), and its stem psi moves by dq dt / C.
+! sf_evap: the store's flow out at point l, PFT ft, could not all be
+! applied, by dq (kg H2O m-2 s-1):
 !
-! MDK, 22/10/26
+!   dq > 0  the store gave less (the transpiration was smaller than its
+!           flow out);
+!   dq < 0  the soil could not supply the refill.
+!
+! The store keeps that water,
+!
+!   dW = dq dt / M_w      (mol m-2; no more than fills it to psi = 0),
+!
+! its stem psi moves by dW / C, and its flow out is reduced by dq.
+!
+! MDK, 23/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE cut_store_return( l, ft, timestep, dq )
 
-INTEGER, INTENT(IN) :: l, ft
-REAL(KIND=real_jlslsm), INTENT(IN) :: timestep, dq
+INTEGER, INTENT(IN) :: l
+      ! Land point.
+INTEGER, INTENT(IN) :: ft
+      ! Plant functional type.
+REAL(KIND=real_jlslsm), INTENT(IN) :: timestep
+      ! Timestep (s).
+REAL(KIND=real_jlslsm), INTENT(IN) :: dq
+      ! Flow out that could not be applied (kg H2O m-2 s-1).
 
-REAL(KIND=real_jlslsm) :: dw, dpsi
+REAL(KIND=real_jlslsm) :: dw
+      ! Water the store keeps (mol H2O m-2).
+REAL(KIND=real_jlslsm) :: dpsi
+      ! The change of psi that gives (Pa).
+      !
+      ! MDK, 23/10/26
 
+! Nothing to do where the store is not set.
 IF ( cut_c_store(l,ft) <= 0.0 .OR. cut_w_store(l,ft) > 0.0 ) RETURN
 dw   = dq / cut_m_h2o * timestep
 dpsi = dw / cut_c_store(l,ft)
+! The store's water and stem psi, no wetter than full (psi = 0).
 cut_w_store(l,ft) = MIN(cut_w_store(l,ft) + dw, 0.0)
 IF ( cut_psi_stem(l,ft) <= 0.0 )                                               &
   cut_psi_stem(l,ft) = MIN(cut_psi_stem(l,ft) + dpsi, 0.0)

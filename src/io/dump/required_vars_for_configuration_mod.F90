@@ -48,7 +48,8 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_triffid_nsc, l_ximpair_rec_leaf_turn,        &
                                 l_phen_psi, l_nsc_wmax_norm,                   &
                                 l_som_vcmax_psi, l_som_coupled_e,  &
-                                l_som_cuticular_loss, l_som_plant_store   ! MDK, 23/10/26
+                                l_som_cuticular_loss, l_som_capacitance,      &
+                                l_som_plant_store   ! MDK, 23/10/26
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -257,7 +258,7 @@ IF ( l_som_vcmax_psi ) CALL add_to_list( 'fvcmax_psi_state', nvars, identifiers 
 ! reproduces a continuous run.
 !
 ! MDK, 22/10/26
-IF ( l_som_cuticular_loss .OR. l_som_plant_store ) THEN
+IF ( l_som_cuticular_loss .OR. l_som_capacitance .OR. l_som_plant_store ) THEN
   CALL add_to_list( 'cut_w_store', nvars, identifiers )
   CALL add_to_list( 'cut_psi_stem', nvars, identifiers )
   CALL add_to_list( 'cut_c_store', nvars, identifiers )
