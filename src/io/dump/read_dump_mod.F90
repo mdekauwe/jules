@@ -266,10 +266,10 @@ DO i = 1,nvars
         CASE ( 'ximpair_fmin_acc', 'phen_fbleaf' )
           global_data_2d(:,1:npft) = 1.0
         CASE ( 'cut_w_store', 'cut_psi_stem' )
-          ! Cuticular-loss store: not yet set (> 0), so it starts full at
-          ! the first step's psi.
+          ! Capacitance store: not yet set (> 0), so it starts at the first
+          ! step's psi (in balance with it).
           !
-          ! MDK, 22/10/26
+          ! MDK, 23/10/26
           global_data_2d(:,1:npft) = 1.0
         CASE DEFAULT
           global_data_2d(:,1:npft) = 0.0

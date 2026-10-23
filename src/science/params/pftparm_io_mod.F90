@@ -1180,7 +1180,7 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 ximpair_driver_stem, l_triffid_nsc,            &
                                 l_ximpair_rec_nsc, l_veg_compete,              &
                                 l_ximpair_rec_growth, l_ximpair_seg_memory,    &
-                                l_trif_hydmort
+                                l_trif_hydmort, l_som_capacitance_on
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1365,6 +1365,15 @@ psi_f_tuzet(:)      = psi_f_tuzet_io(1:npft)
 ! mmol m-2 leaf MPa-1 -> mol m-2 leaf Pa-1, as for kmax_pft.
 cap_leaf(:)         = cap_leaf_io(1:npft) * 1.0e-9
 cap_stem(:)         = cap_stem_io(1:npft) * 1.0e-9
+! The plant capacitance needs a store: with cap_stem = 0, psi = W / C is
+! undefined.
+!
+! MDK, 23/10/26
+IF ( l_som_capacitance_on .AND. ANY(cap_stem_io(1:npft) <= 0.0) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                         &
+               'l_som_capacitance needs cap_stem_io > 0.')
+END IF
 min_rootc_pft(:)    = min_rootc_pft_io(1:npft) ! JBaguley
 psi_close(:)        = psi_close_io(1:npft)
 psi_open(:)         = psi_open_io(1:npft)

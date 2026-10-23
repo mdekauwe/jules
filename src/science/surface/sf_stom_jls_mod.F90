@@ -866,10 +866,20 @@ REAL(KIND=real_jlslsm) :: kmax_bigleaf(land_pts), kcrit_bigleaf(land_pts)
 REAL(KIND=real_jlslsm) :: gl_max_eff(land_pts), share_sup(land_pts)
 REAL(KIND=real_jlslsm) :: gl_cut(land_pts), gl_cut_eff(land_pts),              &
                           kmax_cut(land_pts), kcrit_cut(land_pts)
+REAL(KIND=real_jlslsm) :: kmax_ref_cut(land_pts)
+                            ! The intact canopy kmax of the store's path
+                            ! (mol H2O m-2 ground s-1 Pa-1), the optimiser's
+                            ! kmax_ref (cut_k_path).
+                            !
+                            ! MDK, 23/10/26
                             ! Cuticular loss (l_som_cuticular_loss):
                             ! canopy floor conductance (m s-1) before and
                             ! after the soil-supply cap, and the canopy
-                            ! kmax/kcrit used to re-solve psi_leaf.
+                            ! kmax/kcrit (DESICA: to re-solve psi_leaf; the
+                            ! stomatal optimisation: kmax_cut is the kmax of
+                            ! the store's path, cut_k_path).
+                            !
+                            ! MDK, 23/10/26
 REAL(KIND=real_jlslsm) :: lai_ref_kg(land_pts)
                             ! kplant_model = 1: reference LAI of the root
                             ! and stem conductances (lai_ref_k, or the
@@ -879,13 +889,16 @@ INTEGER, PARAMETER :: n_cut = 20
                             ! Floor fluxes tried, E_floor * i / n_cut, to
                             ! find the largest one the xylem can carry
                             ! (DESICA).
-LOGICAL :: l_cut_ximpair
-                            ! Cuticular loss under the stomatal
-                            ! optimisation: the leak is applied in full at
-                            ! lit points and the xylem impairment update is
-                            ! made after it, with its water potentials.
+LOGICAL :: l_cap_store
+                            ! The stomatal optimisation's plant capacitance
+                            ! is on (l_som_capacitance_on: l_som_capacitance
+                            ! or l_som_cuticular_loss): the store sets the
+                            ! transpiration, the leak (if on) drains it, and
+                            ! the xylem impairment update is made after the
+                            ! leak block, with the store's water potentials.
+                            ! (Was l_cut_ximpair.)
                             !
-                            ! MDK, 22/10/26
+                            ! MDK, 23/10/26
 LOGICAL :: lit_cut(land_pts)
                             ! Points where the leak may apply: lit points
                             ! (those of the impairment update) with
@@ -919,7 +932,7 @@ REAL(KIND=real_jlslsm) :: psi_fl_stem
 REAL(KIND=real_jlslsm) :: c_cut
                             ! The store's capacitance C (mol H2O m-2 ground
                             ! Pa-1).
-REAL(KIND=real_jlslsm) :: psi0_leaf
+REAL(KIND=real_jlslsm) :: psi0_store
                             ! The store's (stem node) psi at the start of the
                             ! step, W / C (Pa).
 REAL(KIND=real_jlslsm) :: psi0_stem
@@ -934,8 +947,10 @@ REAL(KIND=real_jlslsm) :: dq_cut(land_pts)
                             ! The leaf-to-air deficit driving the leak
                             ! (kg kg-1).
 REAL(KIND=real_jlslsm) :: k_cut_eff
-                            ! The plant conductance on the PFT curve, in
-                            ! series with ksr (mol H2O m-2 ground s-1 Pa-1).
+                            ! The whole-plant conductance of the store's path
+                            ! (cut_k_path, ksr in series), and in the
+                            ! relaxation its root side (mol H2O m-2 ground
+                            ! s-1 Pa-1).
 REAL(KIND=real_jlslsm) :: q_st
                             ! The store's flow out (mol H2O m-2 ground s-1;
                             ! < 0 it refills).
@@ -990,6 +1005,12 @@ REAL(KIND=real_jlslsm) :: e_new_tgt(land_pts)
                             ! ground s-1).
 REAL(KIND=real_jlslsm) :: r_tgt(land_pts)
                             ! E' / E* (-).
+REAL(KIND=real_jlslsm) :: f_leaf_store
+                            ! Share of the plant resistance on the leaf side
+                            ! of the store: som_leaf_resist_frac kept within
+                            ! [0.01, 0.99], so that neither side has an
+                            ! infinite conductance (-). Set once, used by
+                            ! store_target_e and the carry loop.
                             !
                             ! MDK, 23/10/26
 REAL(KIND=real_jlslsm), PARAMETER :: dpsi_tgt_min = 1.0e4
@@ -1194,7 +1215,7 @@ psi_stem(:) = psi_root_zone(:)
 ! after it (see below).
 !
 ! MDK, 23/10/26
-l_cut_ximpair = l_som_capacitance_on
+l_cap_store = l_som_capacitance_on
 psi_stem_sun(:) = psi_root_zone(:)
 psi_stem_shd(:) = psi_root_zone(:)
 IF ( l_som_gravity .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
@@ -1702,8 +1723,9 @@ CALL set_k_ground_basis( ft, land_pts, veg_pts, veg_index, lai, lai_ref_kg )
 ! MDK, 23/10/26
 ! No point has its transpiration set by the store until store_target_e.
 tgt_on(:) = .FALSE.
-IF ( l_cut_ximpair ) THEN
+IF ( l_cap_store ) THEN
   CALL cut_state_alloc( land_pts )
+  f_leaf_store = MIN(MAX(som_leaf_resist_frac, 0.01), 0.99)
   cut_w_shed(:,ft) = 0.0
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -1972,7 +1994,7 @@ CASE ( 5, 6 )
         !
         ! MDK, 23/10/26
         n_tank_ml = 0
-        IF ( l_cut_ximpair ) n_tank_ml = 1
+        IF ( l_cap_store ) n_tank_ml = 1
         ml_tank_pass = .FALSE.
         DO k = 1,n_pass_ml + n_tank_ml
 
@@ -2513,7 +2535,12 @@ CASE ( 5, 6 )
         END DO                   ! N LAYERS
 
         ! Canopy conductance of this pass, for the next pass's deficit.
-        gc_ml_prev(:) = gc(:)
+        ! Not after the optimiser's last pass when the store's pass
+        ! follows, so that pass solves the same humidity state, and
+        ! E_leaf' = E_leaf E' / E* scales the E_leaf behind E*.
+        !
+        ! MDK, 23/10/26
+        IF ( k /= n_pass_ml .OR. n_tank_ml == 0 ) gc_ml_prev(:) = gc(:)
 
         ! New leaf and canopy air temperatures for the next pass (none after
         ! the last pass, so the temperatures output are those used), as
@@ -3105,7 +3132,7 @@ CASE ( 1 )
         !      the store applies (stom_opt_at_e).
         !
         ! MDK, 23/10/26
-        IF ( l_cut_ximpair .AND. k == iter ) THEN
+        IF ( l_cap_store .AND. k == iter ) THEN
           ! The optimiser's canopy E* and psi_leaf, and the open points.
           DO m = 1,veg_pts
             l = veg_index(m)
@@ -3173,7 +3200,7 @@ CASE ( 1 )
           ! With the cuticular loss, the update is made after it, below.
           !
           ! MDK, 22/10/26
-          IF ( .NOT. l_cut_ximpair ) THEN
+          IF ( .NOT. l_cap_store ) THEN
             CALL update_xylem_impairment(                                        &
                   ! IN
                     land_pts,                                                    &
@@ -3565,7 +3592,7 @@ CASE ( 7 )
   ! store, with A, gl and ci re-solved there (store_target_2l).
   !
   ! MDK, 23/10/26
-  IF ( l_cut_ximpair ) CALL store_target_2l()
+  IF ( l_cap_store ) CALL store_target_2l()
 
   !---------------------------------------------------------------------------
   ! Canopy totals and leaf-area-weighted means.
@@ -3660,7 +3687,7 @@ CASE ( 7 )
   ! With the cuticular loss, the update is made after it, below.
   !
   ! MDK, 22/10/26
-  IF ( .NOT. l_cut_ximpair ) THEN
+  IF ( .NOT. l_cap_store ) THEN
     CALL update_xylem_impairment(                                              &
           ! IN
             land_pts, open_pts, open_land_index, ft, psi_leaf, psi_src,        &
@@ -3814,7 +3841,7 @@ END IF
 !
 ! MDK, 23/10/26
 !-----------------------------------------------------------------------------
-IF ( l_cut_ximpair ) THEN
+IF ( l_cap_store ) THEN
   CALL cut_state_alloc( land_pts )
   cut_q_store(:,ft) = 0.0
   ! The multilayer canopy has no lit set from its own path: the points
@@ -3882,9 +3909,11 @@ IF ( l_cut_ximpair ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     kmax_cut(l)     = k_max(l) * lai(l)
+    kmax_ref_cut(l) = kmax_pft(ft) * lai(l)
     kcrit_cut(l)    = kcrit(ft) * lai(l)
     IF ( kplant_model == kplant_model_ground ) THEN
       kmax_cut(l)     = kmax_cut(l)     * kplant_scale(l)
+      kmax_ref_cut(l) = kmax_ref_cut(l) * kplant_scale(l)
       kcrit_cut(l)    = kcrit_cut(l)    * kplant_scale(l)
     END IF
   END DO
@@ -3928,7 +3957,7 @@ IF ( l_cut_ximpair ) THEN
   !    critical-loss psi.
   !
   ! 3. The store is not yet set (first step, or a dump without it): it
-  !    starts full, at the step's psi.
+  !    starts at the step's psi (in balance with it, not full).
   !
   ! 4. Everywhere else (the night, unlit points, stomata shut with no
   !    leak): the store relaxes towards the step's psi, psi_t, through the
@@ -3940,9 +3969,10 @@ IF ( l_cut_ximpair ) THEN
   !    on the optimiser's own path (cut_k_path: segments with the
   !    vulnerable root, or the PFT curve; impaired kmax; ksr in series;
   !    floored at the critical loss): a cheap stand-in for the exact path
-  !    solve, which at every step made the run ~25x slower. It refills from the soil when
-  !    drier than psi_t and gives up water to the transpiration when wetter
-  !    (at most the transpiration: no flow back to the soil).
+  !    solve, which at every step made the run ~25x slower. It refills from
+  !    the soil when drier than psi_t and gives up water to the
+  !    transpiration when wetter (at most the transpiration: no flow back
+  !    to the soil).
   !
   ! The store's flow out over the step,
   !
@@ -3972,7 +4002,7 @@ IF ( l_cut_ximpair ) THEN
     IF ( tgt_on(l) .OR. ( lk_cut(l) .AND.                                     &
                           cut_w_store(l,ft) <= 0.0 ) ) THEN
       ! The store's psi at the start of the step (Pa).
-      psi0_leaf = cut_w_store(l,ft) / c_cut
+      psi0_store = cut_w_store(l,ft) / c_cut
       ! Where the leak binds at points the optimiser shut, there is no
       ! secant conductance from store_target_e: the root and leaf sides
       ! come from the optimiser's own plant path (cut_k_path: the segments,
@@ -3980,12 +4010,11 @@ IF ( l_cut_ximpair ) THEN
       ! series), the mean of its conductance at the store's psi and the
       ! source's, split by som_leaf_resist_frac.
       IF ( .NOT. tgt_on(l) ) THEN
-        k_cut_eff = 0.5 * ( cut_k_path(l, kmax_cut(l), psi0_leaf)              &
+        k_cut_eff = 0.5 * ( cut_k_path(l, kmax_cut(l), psi0_store)             &
                             + cut_k_path(l, kmax_cut(l), psi_src(l)) )
         k_cut_eff = MAX(k_cut_eff, TINY(1.0_real_jlslsm))
-        tgt_kl(l) = k_cut_eff / MIN(MAX(som_leaf_resist_frac, 0.01), 0.99)
-        tgt_kr(l) = k_cut_eff / (1.0 - MIN(MAX(som_leaf_resist_frac,           &
-                                               0.01), 0.99))
+        tgt_kl(l) = k_cut_eff / f_leaf_store
+        tgt_kr(l) = k_cut_eff / (1.0 - f_leaf_store)
       END IF
       ! The fraction of the store's departure from its steady state left
       ! after the step (-).
@@ -4000,7 +4029,7 @@ IF ( l_cut_ximpair ) THEN
       ! MDK, 23/10/26
       IF ( l_som_leak_capacitance_only .AND. lk_cut(l) ) THEN
         IF ( el(l) > 0.0 ) THEN
-          e_fl = MAX( (psi0_leaf - psi_fl_leaf)                                &
+          e_fl = MAX( (psi0_store - psi_fl_leaf)                               &
                       / (timestep / c_cut + 1.0 / tgt_kl(l)), 0.0 )
           IF ( e_fl < el(l) ) THEN
             gc(l)     = gc(l) * e_fl / el(l)
@@ -4008,9 +4037,8 @@ IF ( l_cut_ximpair ) THEN
             el(l)     = e_fl
           END IF
         END IF
-        psi_st = psi0_leaf - MAX(el(l), 0.0) * timestep / c_cut
-        cut_q_store(l,ft)  = c_cut * (psi0_leaf - psi_st) / timestep * cut_m_h2o
-        cut_w_store(l,ft)  = c_cut * psi_st
+        psi_st = psi0_store - MAX(el(l), 0.0) * timestep / c_cut
+        CALL store_commit( l, c_cut, psi0_store, psi_st )
         cut_psi_stem(l,ft) = psi_st
         psi_leaf(l) = psi_st - MAX(el(l), 0.0) / tgt_kl(l)
         IF ( l_seg_cut ) psi_stem(l) = psi_st
@@ -4020,8 +4048,8 @@ IF ( l_cut_ximpair ) THEN
       ! at the end of the step (the E' equation of store_target_e with the
       ! target psi_fl_leaf), with gc scaled to it.
       IF ( lk_cut(l) .AND. el(l) > 0.0 ) THEN
-        e_fl = ( psi_src(l) * (1.0 - r_st) + psi0_leaf * r_st - psi_fl_leaf ) &
-               / ( (1.0 - r_st) / tgt_kr(l) + 1.0 / tgt_kl(l) )
+        e_fl = e_leaf_end( psi_src(l), psi0_store, r_st, tgt_kr(l),           &
+                           tgt_kl(l), psi_fl_leaf )
         e_fl = MAX(e_fl, 0.0)
         IF ( e_fl < el(l) ) THEN
           gc(l)     = gc(l) * e_fl / el(l)
@@ -4032,62 +4060,69 @@ IF ( l_cut_ximpair ) THEN
       ! The stem node over the step, its flow out and its water, and the
       ! leaf at psi_x - E / k_l.
       psi_st = psi_src(l) - MAX(el(l), 0.0) / tgt_kr(l)
-      psi_st = psi_st + (psi0_leaf - psi_st) * r_st
-      cut_q_store(l,ft)  = c_cut * (psi0_leaf - psi_st) / timestep * cut_m_h2o
-      cut_w_store(l,ft)  = c_cut * psi_st
+      psi_st = psi_st + (psi0_store - psi_st) * r_st
+      CALL store_commit( l, c_cut, psi0_store, psi_st )
       cut_psi_stem(l,ft) = psi_st
       psi_leaf(l) = psi_st - MAX(el(l), 0.0) / tgt_kl(l)
       IF ( l_seg_cut ) psi_stem(l) = psi_st
       CYCLE
     END IF
-    ! Case 3: the store is not yet set: it starts full, at the step's psi.
-    IF ( lk_cut(l) .OR. cut_w_store(l,ft) > 0.0 ) THEN
+    ! Case 3: the store is not yet set: it starts at the step's psi. (Leak
+    ! points with the store set went to case 2, so only the unset test is
+    ! needed here.)
+    !
+    ! MDK, 23/10/26
+    IF ( cut_w_store(l,ft) > 0.0 ) THEN
       cut_w_store(l,ft) = c_cut * psi_leaf(l)
       CYCLE
     END IF
     ! Case 4: the store relaxes towards the step's psi through the root
     ! side (unchanged where it is within 1 Pa of it).
-    psi0_leaf = cut_w_store(l,ft) / c_cut
-    psi_st    = psi_tgt
-    IF ( ABS(psi0_leaf - psi_tgt) > 1.0 ) THEN
+    psi0_store = cut_w_store(l,ft) / c_cut
+    psi_st     = psi_tgt
+    IF ( ABS(psi0_store - psi_tgt) > 1.0 ) THEN
       ! The plant conductance between psi_x0 and psi_t on the optimiser's
       ! own path (cut_k_path: the segments, with the vulnerable root, or
       ! the PFT curve; ksr in series, so a dry rhizosphere slows the
       ! refill too) (mol m-2 s-1 Pa-1).
-      k_cut_eff = 0.5 * ( cut_k_path(l, kmax_cut(l), psi0_leaf)                &
+      k_cut_eff = 0.5 * ( cut_k_path(l, kmax_cut(l), psi0_store)               &
                           + cut_k_path(l, kmax_cut(l), psi_tgt) )
       ! With the store at the stem node, only the root side fills it.
+      !
       ! MDK, 23/10/26
-      k_cut_eff = k_cut_eff / (1.0 - MIN(MAX(som_leaf_resist_frac, 0.01),     &
-                                         0.99))
+      k_cut_eff = k_cut_eff / (1.0 - f_leaf_store)
       ! The relaxation over the step, and the store's flow out (mol m-2
       ! s-1). The store gives at most the transpiration (no flow back to
       ! the soil): where it would give more, the relaxation is slowed.
       r_st = EXP(-timestep * k_cut_eff / c_cut)
-      q_st = c_cut * (psi0_leaf - psi_tgt) * (1.0 - r_st) / timestep
+      q_st = c_cut * (psi0_store - psi_tgt) * (1.0 - r_st) / timestep
       IF ( q_st > MAX(el(l), 0.0) ) THEN
         q_st = MAX(el(l), 0.0)
-        r_st = 1.0 - q_st * timestep / (c_cut * (psi0_leaf - psi_tgt))
+        r_st = 1.0 - q_st * timestep / (c_cut * (psi0_store - psi_tgt))
       END IF
-      psi_st = psi_tgt + (psi0_leaf - psi_tgt) * r_st
+      psi_st = psi_tgt + (psi0_store - psi_tgt) * r_st
       IF ( l_seg_cut .AND. psi0_stem <= 0.0 .AND. psi_stem(l) < 0.0 )          &
         cut_psi_stem(l,ft) = psi_stem(l) + (psi0_stem - psi_stem(l)) * r_st
     END IF
     ! The store's flow out (kg m-2 s-1) and its water at the end of the step.
-    cut_q_store(l,ft) = c_cut * (psi0_leaf - psi_st) / timestep * cut_m_h2o
-    cut_w_store(l,ft) = c_cut * psi_st
+    CALL store_commit( l, c_cut, psi0_store, psi_st )
   END DO
 
-  ! At lit points, those of the impairment update, psi_leaf (and psi_stem
-  ! with segments) is the store's psi on every step, not only where the
-  ! leak binds, so that the plant's psi, and the embolism it drives, does
-  ! not jump between the lagged store and the optimiser's steady state as
-  ! gc crosses gcuticular * LAI. At night psi_leaf is the optimiser's.
+  ! At the other lit points, those of the impairment update, psi_leaf (and
+  ! psi_stem with segments) is the store's psi, so that the plant's psi,
+  ! and the embolism it drives, does not jump between the lagged store and
+  ! the optimiser's steady state. Points where the store sets E (tgt_on)
+  ! or the leak binds (lk_cut) keep the leaf psi of the carry loop,
   !
-  ! MDK, 22/10/26
+  !   psi_leaf = psi_x - E / k_l,
+  !
+  ! below the stem node by the leaf-side drop. At night psi_leaf is the
+  ! optimiser's.
+  !
+  ! MDK, 23/10/26
   DO m = 1,open_pts
     l = open_land_index(m)
-    IF ( cut_w_store(l,ft) > 0.0 .OR. tgt_on(l) ) CYCLE
+    IF ( cut_w_store(l,ft) > 0.0 .OR. tgt_on(l) .OR. lk_cut(l) ) CYCLE
     psi_leaf(l) = cut_w_store(l,ft) / cut_c_store(l,ft)
     IF ( l_seg_cut .AND. cut_psi_stem(l,ft) <= 0.0 )                           &
       psi_stem(l) = cut_psi_stem(l,ft)
@@ -4486,6 +4521,15 @@ CONTAINS
 ! feeding the leak and the refill through a near-intact root (60-80 % of
 ! the leak in drought summers at FR-Pue).
 !
+! With segments and xylem impairment the path is the optimiser's
+! (stom_opt_mod): the intact kmax_ref, with the stem and leaf segments
+! capped at
+!
+!   kcap_frac = kmx / kmax_ref,
+!
+! so the root is not impaired. Without segments the impaired kmx scales
+! the PFT curve.
+!
 ! MDK, 23/10/26
 !-----------------------------------------------------------------------------
 REAL(KIND=real_jlslsm) FUNCTION cut_k_path( l_c, kmx, psi )
@@ -4500,9 +4544,82 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: psi
                             !
                             ! MDK, 23/10/26
 
-cut_k_path = k_path_zero_flow( ft, l_c, kmx, MIN(MAX(psi, psi_fl_leaf), 0.0) )
+IF ( l_seg_cut ) THEN
+  cut_k_path = k_path_zero_flow( ft, l_c, kmax_ref_cut(l_c),                  &
+                 MIN(MAX(psi, psi_fl_leaf), 0.0),                             &
+                 kcap_frac = kmx                                              &
+                             / MAX(kmax_ref_cut(l_c), TINY(1.0_real_jlslsm)) )
+ELSE
+  cut_k_path = k_path_zero_flow( ft, l_c, kmx, MIN(MAX(psi, psi_fl_leaf), 0.0) )
+END IF
 
 END FUNCTION cut_k_path
+
+!-----------------------------------------------------------------------------
+! Plant capacitance: the transpiration, held over the step, that brings the
+! leaf to psi_end at the end of the step, with the store at the stem node
+! (store_target_e, where psi_end is the optimiser's psi_leaf, and the leak's
+! cut in the carry loop, where it is the critical-loss psi):
+!
+!   E = [psi_s (1 - e) + psi_x0 e - psi_end] / [(1 - e) / k_r + 1 / k_l],
+!
+! e the fraction of the store's departure from its steady state left after
+! the step, exp(-dt k_r / C). Not floored at 0 here.
+!
+! MDK, 23/10/26
+!-----------------------------------------------------------------------------
+REAL(KIND=real_jlslsm) FUNCTION e_leaf_end( psi_s, psi_x0, e_r, k_r, k_l,     &
+                                            psi_end )
+
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_s
+                            ! Source (root-zone) psi (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_x0
+                            ! The store's psi at the start of the step (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: e_r
+                            ! exp(-dt k_r / C) (-).
+REAL(KIND=real_jlslsm), INTENT(IN) :: k_r
+                            ! Root-side conductance (mol H2O m-2 ground s-1
+                            ! Pa-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: k_l
+                            ! Leaf-side conductance (mol H2O m-2 ground s-1
+                            ! Pa-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_end
+                            ! The leaf psi at the end of the step (Pa).
+                            !
+                            ! MDK, 23/10/26
+
+e_leaf_end = ( psi_s * (1.0 - e_r) + psi_x0 * e_r - psi_end )                 &
+             / ( (1.0 - e_r) / k_r + 1.0 / k_l )
+
+END FUNCTION e_leaf_end
+
+!-----------------------------------------------------------------------------
+! Plant capacitance: the store at land point l_c ends the step at psi_x1
+! from psi_x0, so its flow out over the step and its water are
+!
+!   cut_q_store = C (psi_x0 - psi_x1) / dt M_w      (kg H2O m-2 s-1),
+!   cut_w_store = C psi_x1                           (mol H2O m-2).
+!
+! MDK, 23/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE store_commit( l_c, c_s, psi_x0, psi_x1 )
+
+INTEGER, INTENT(IN) :: l_c
+                            ! Land point.
+REAL(KIND=real_jlslsm), INTENT(IN) :: c_s
+                            ! The store's capacitance C (mol H2O m-2 ground
+                            ! Pa-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_x0
+                            ! The store's psi at the start of the step (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_x1
+                            ! The store's psi at the end of the step (Pa).
+                            !
+                            ! MDK, 23/10/26
+
+cut_q_store(l_c,ft) = c_s * (psi_x0 - psi_x1) / timestep * cut_m_h2o
+cut_w_store(l_c,ft) = c_s * psi_x1
+
+END SUBROUTINE store_commit
 
 !-----------------------------------------------------------------------------
 ! Multilayer canopy, one leaf class (sunlit or shaded) of the current layer:
@@ -4755,7 +4872,10 @@ END SUBROUTINE two_leaf_class
 !
 ! So E' > E* while the store is fuller than its steady state (morning),
 ! E' < E* while it refills (afternoon), and E' -> E* as dt >> C / k_r.
-! The leaf never goes below psi_t, the optimiser's own risk level.
+! The leaf ends the step at psi_t, the optimiser's own risk level, where the
+! re-solve reaches E' (stom_opt_at_e: within the supply cap and ci <= ca,
+! and E' = 0 gives its smallest sample, not zero) and the leak does not
+! raise E above it.
 !
 ! Points where the optimiser has shut the stomata (E* ~ 0, or a drop
 ! psi_s - psi_t below dpsi_tgt_min, where the secant k is meaningless) are
@@ -4772,9 +4892,6 @@ INTEGER :: m, l
 REAL(KIND=real_jlslsm) :: k_t
                             ! The optimiser's whole-plant secant conductance
                             ! (mol H2O m-2 ground s-1 Pa-1).
-REAL(KIND=real_jlslsm) :: f_l
-                            ! Share of the plant resistance on the leaf side
-                            ! of the store (-).
 REAL(KIND=real_jlslsm) :: c_s
                             ! The store's capacitance C (mol H2O m-2 ground
                             ! Pa-1).
@@ -4791,9 +4908,10 @@ REAL(KIND=real_jlslsm) :: e_new
                             !
                             ! MDK, 23/10/26
 
-! Share of the plant resistance on the leaf side of the store (kept off 0
-! and 1, so that neither side has an infinite conductance).
-f_l = MIN(MAX(som_leaf_resist_frac, 0.01), 0.99)
+! The share of the plant resistance on the leaf side of the store is
+! f_leaf_store (som_leaf_resist_frac kept off 0 and 1, set with the C rule).
+!
+! MDK, 23/10/26
 DO m = 1,veg_pts
   l = veg_index(m)
 
@@ -4818,8 +4936,8 @@ DO m = 1,veg_pts
   ! s-1 Pa-1), split into the leaf side and the root side of the store, in
   ! series (1/k = 1/k_l + 1/k_r).
   k_t = e_star_tgt(l) / (psi_src(l) - psi_t_tgt(l))
-  tgt_kl(l) = k_t / f_l
-  tgt_kr(l) = k_t / (1.0 - f_l)
+  tgt_kl(l) = k_t / f_leaf_store
+  tgt_kr(l) = k_t / (1.0 - f_leaf_store)
 
   ! The store: its capacitance C (mol m-2 Pa-1) and its psi at the start of
   ! the step, psi_x0 = W / C.
@@ -4835,8 +4953,8 @@ DO m = 1,veg_pts
   ! the stem psi at the end of the step, psi_x0 e + psi_s (1 - e)
   ! - E (1 - e) / k_r, less the drop E / k_l across the leaf side, set to
   ! psi_t and solved for E. No negative transpiration.
-  e_new  = ( psi_src(l) * (1.0 - e_x) + psi_x0 * e_x - psi_t_tgt(l) )         &
-           / ( (1.0 - e_x) / tgt_kr(l) + 1.0 / tgt_kl(l) )
+  e_new  = e_leaf_end( psi_src(l), psi_x0, e_x, tgt_kr(l), tgt_kl(l),        &
+                       psi_t_tgt(l) )
   e_new  = MAX(e_new, 0.0)
 
   ! The store sets the transpiration here: E', and its ratio to the
@@ -4979,6 +5097,10 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) :: gl_c(land_pts)
 INTEGER :: i, l, m
 
 ! The open points of this class where the store sets the transpiration.
+! (This reuses the host's open_pts and open_index, as two_leaf_class does:
+! the two-leaf lit set for the leak and the impairment is rebuilt after it.)
+!
+! MDK, 23/10/26
 open_pts = 0
 DO i = 1,veg_pts
   l = veg_index(i)
