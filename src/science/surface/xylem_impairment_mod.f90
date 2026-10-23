@@ -598,10 +598,6 @@ SUBROUTINE canopy_impaired_psi_jls( land_pts                                   &
 ,                                   canopy_psi                                 &
                                   ! INTENT IN OUT
 ,                                   canopy_k                                   &
-                                  ! TMP TESTING PURPOSES ONLY
-,                                   psi_leaf                                   &
-,                                   e_leaf                                     &
-,                                   gs_leaf                                     &
                                   )
 
 USE jules_surface_types_mod,  ONLY: npft
@@ -679,14 +675,6 @@ REAL(KIND=real_jlslsm), PARAMETER :: e_canopy_max = 1.0e-2 / Water_kg_per_mol
                             !
                             ! MDK, 21/10/26
 
-REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
-  psi_leaf(land_pts, npft)                                                     &
-                            ! Leaf water potential for each open point (Pa)
-, e_leaf(land_pts, npft)                                                      &
-                            ! Transpiration rates for each open point (kg/m2/s)
-, gs_leaf(land_pts, npft)
-                            ! Stomatal conductance for each open point (m s-1)
-
 ! Local variables
 INTEGER :: i, n, l, pft
 
@@ -711,7 +699,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Critical xylem conductance (m/s)
 
 ! Local variables
-INTEGER :: errcode
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1

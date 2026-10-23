@@ -190,7 +190,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! open-point index.
 INTEGER :: i, l
 
-INTEGER :: errcode
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -431,7 +430,6 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
                             ! Historic minimum root water potential (Pa)
 
 ! Local variables
-INTEGER :: errcode
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -585,7 +583,6 @@ REAL(KIND=real_jlslsm), PARAMETER :: dpsi_min = 1.0
 
 INTEGER :: i, j, l
 
-INTEGER :: errcode
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -788,7 +785,6 @@ REAL(KIND=real_jlslsm), PARAMETER :: dpsi_min = 1.0
 
 INTEGER :: i, j, l
 
-INTEGER :: errcode
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1

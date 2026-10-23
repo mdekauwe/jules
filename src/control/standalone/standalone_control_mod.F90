@@ -960,9 +960,6 @@ IF (leaf_flux_mod == leaf_flux_stom_opt) THEN
 ,                               psparms%psi_canopy_pft                     &
                               ! INTENT IN OUT
 ,                               psparms%k_canopy_pft                       &
-,                               psparms%psi_leaf_pft                       &
-,                               psparms%som_transpiration_pft              &
-,                               psparms%gc_som_pft                         &
                               )
 
 END IF

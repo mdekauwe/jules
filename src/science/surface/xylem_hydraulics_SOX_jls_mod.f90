@@ -148,7 +148,6 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                        &
                             ! Xylem conductance for each open point (m/s)
 
 ! Local variables
-INTEGER :: i
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -391,7 +390,6 @@ CASE(psi_solver_taylor)
           ! If the change in xylem conductance is less than
           !  k_conversion_limit then break the loop.
           IF (ABS(leaf_k_new - leaf_k(i,j)) < k_conversion_limit) THEN
-            !leaf_k(i,j) = leaf_k_new
             EXIT
           END IF
 
@@ -430,10 +428,16 @@ CASE(psi_solver_taylor)
 !
 !  0 = E(psi_l, psi_r) - e_leaf
 !
-! This means that the updated prediction of the leaf water potential
-! (psi_l') is given by;
+! Newton-Raphson on F(psi_l) = E(psi_l, psi_r) - e_leaf. Since E is the
+! integral of k down to psi_l, dF/dpsi_l = -k(psi_l), so each step moves
+! the current estimate psi_l by the missing flow over the conductance there:
 !
-!  psi_l' = psi_r - (e_leaf - E(psi_l, psi_r))/k(psi_l)
+!  psi_l' = psi_l - (e_leaf - E(psi_l, psi_r)) / k(psi_l)
+!
+! (corrected 23/10/26: this read psi_r - ..., but the code has always
+! stepped from psi_l). The first guess is psi_l = psi_r - e_leaf / k(psi_r);
+! each step is kept no more than 5 |b| below psi_r, and the loop stops when
+! k changes by less than k_conversion_limit (or after max_nr_iter steps).
 !
 ! ---------------------------------------------------------------------
 CASE(psi_solver_newton)
@@ -464,9 +468,6 @@ CASE(psi_solver_newton)
     leaf_psi(:,j) = root_zone_psi(l) - e_leaf(:,j)                             &
                     / MAX(leaf_k(:,j), TINY(1.0_real_jlslsm))
 
-    !WRITE(*,*) ' '
-    !WRITE(*,*) 'root_psi', root_zone_psi(l)
-    !WRITE(*,*) 'leaf_psi', leaf_psi(400,j)
 
     ! Convergence tolerance for this point, matching the psi_solver_taylor
     ! tolerance above (10% of kcrit).
@@ -513,7 +514,6 @@ CASE(psi_solver_newton)
       leaf_psi(:,j) = MAX(leaf_psi(:,j),                                       &
                           root_zone_psi(l) - 5.0 * ABS(conductance_b(l)))
 
-      !WRITE(*,*) 'leaf_psi', leaf_psi(400,j)
 
       IF (MAXVAL(ABS(leaf_k(:,j) - leaf_k_prev(:,j))) < k_conversion_limit) EXIT
 
@@ -660,7 +660,6 @@ REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
 INTEGER, PARAMETER :: max_terms = 100
 
 ! zhook variables
-INTEGER :: errcode
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -721,7 +720,6 @@ REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
 INTEGER, PARAMETER :: max_terms = 100
 
 ! zhook variables
-INTEGER :: errcode
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1

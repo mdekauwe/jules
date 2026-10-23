@@ -102,6 +102,29 @@ END FUNCTION g_of_geff
 ! Contains routines to calculate the optimal stomatal conductance and
 ! net carbon uptake.
 !
+! Profit maximisation in six steps (stomata_model = 4; Sperry et al. 2017).
+! For each open leaf (or sunlit/shaded class, or canopy layer) the stomata
+! choose the internal CO2, Ci, that maximises carbon gain minus hydraulic
+! cost:
+!
+!   1. A(Ci)        net photosynthesis at Ci (Collatz or Farquhar)
+!   2. gl(Ci)       = ratio A R T / (ca - Ci), the leaf conductance that
+!                     supplies that CO2 (ratio = 1.6, water vs CO2)
+!   3. E(Ci)        = gl x the leaf-to-air humidity deficit, the
+!                     transpiration that follows
+!   4. psi_leaf(E)  from the plant's supply function: the integral of its
+!                     vulnerability curve from the soil to the leaf
+!   5. k(E)         = -dE/dpsi_leaf, the plant conductance left at that E
+!   6. profit       = A / A_max - (k_max - k) / (k_max - k_crit)
+!
+! States with k <= k_crit (hydraulic failure) or gl > gl_max are not
+! allowed. Ci rather than gl is the search variable because A and gl are
+! both explicit in Ci. The other stomatal models (CMax, CGain, SOX, CAP,
+! ProfitMax2) keep steps 1-5 and change step 6 (see profit in
+! stom_opt_bounded_search).
+!
+! MDK, 23/10/26
+!
 ! References:
 ! - Sperry, J. S., Venturas, M. D., Anderegg, W. R. L., Mencuccini, M., Mackay,
 !   D. S., Wang, Y., and Love, D. M. (2017) Predicting stomatal responses to
@@ -1081,17 +1104,16 @@ SELECT CASE ( som_base_parm )
       errcode = 101  !  a hard error
       CALL ereport(RoutineName, errcode,                                       &
                  'profit_model should be profit_max, SOX_opt, CMax, CGain, ' //&
-                 'supply-loss or CAP')
+                 'supply-loss, CAP or ProfitMax2')
 
     END SELECT ! som_profit_model
 
-  CASE (som_base_parm_psi)
-    WRITE(*,*) "psi not implemented yet"
-
+  ! (som_base_parm = 2, a search in psi, was never implemented; the check in
+  ! jules_vegetation_mod rejects it, so only the Ci search is left.)
   CASE DEFAULT
     errcode = 101  !  a hard error
     CALL ereport(RoutineName, errcode,                                         &
-               'som_base_parm should be 1 or 2')
+               'som_base_parm should be 1 (2, psi, is not implemented)')
 END SELECT
 
 ! Open points the optimiser closed (gl = 0) get the same minimum

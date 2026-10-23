@@ -1514,9 +1514,6 @@ CASE ( 4:7 )
   DO m  = 1,veg_pts
     l = veg_index(m)
     dlai(l) = lai(l) / REAL(ilayers)
-
-    ! Kmax of the layer - uniform split
-    ! kmax_per_lyr(l) = kmax_pft(ft) / REAL(ilayers)
   END DO
 !$OMP END DO NOWAIT
 END SELECT
@@ -1776,27 +1773,13 @@ CASE ( 4 )
     expkn = EXP( REAL(n-1) / REAL(ilayers) * (-kn(ft)) )
 !$OMP PARALLEL DO IF(veg_pts > 1) DEFAULT(NONE) PRIVATE(l, m)                  &
 !$OMP             SHARED(dlai, expkn, faparv, faparv_layer, gl, nleaf_layer, n,&
-!$OMP                    nleaf_top, veg_index, veg_pts, kmax_per_lyr,          &
-!$OMP                    kmax_pft, ft, ilayers)                                &
+!$OMP                    nleaf_top, veg_index, veg_pts)                        &
 !$OMP             SCHEDULE(STATIC)
     DO m = 1,veg_pts
       l = veg_index(m)
       gl(l)             = 0.0
       nleaf_layer(l)    = nleaf_top(l) * expkn
       faparv_layer(l,n) = faparv(l,n) * dlai(l)
-
-      ! Kmax is assumed to co-vary with leaf nitrogen, so it is scaled using
-      ! the same vertical decay profile as nleaf_layer.
-      !
-      ! Two equivalent formulations are used depending on canopy scheme:
-      ! (i) CASE 4 uses pre-computed expkn
-      ! (ii) CASE 5/6 uses explicit layer-normalised exponential form
-      !
-      ! Note: Kmax is intentionally NOT split by sunlit/shaded fractions (fsun),
-      ! as this represents radiative partitioning rather than structural
-      ! limitation.
-      kmax_per_lyr(l) = (kmax_pft(ft) / REAL(ilayers)) * expkn
-
     END DO
 !$OMP END PARALLEL DO
 
@@ -2101,27 +2084,13 @@ CASE ( 5, 6 )
             ! Note: Kmax is intentionally NOT split by sunlit/shaded fractions
             ! (fsun), as this represents radiative partitioning rather than
             ! structural limitation.
-            ! NOTE: no /REAL(ilayers) here, matching nleaf_layer above
-            ! exactly (same decay profile assumption, same per-leaf-area
-            ! basis). This used to divide by ilayers here despite
-            ! nleaf_layer having no such factor - kmax_per_lyr is used as
-            ! the hydraulic-capacity reference for el_sun/el_shd inside
-            ! this layer's own stom_opt_mod call below, and those are
-            ! per-leaf-area quantities (not yet dlai-integrated - see the
-            ! "ground-area integrated fluxes" comment at their
-            ! accumulation below), the same basis as vcmax/nleaf_layer.
-            ! The spurious /ilayers made kmax_per_lyr ilayers-times too
-            ! small relative to that, i.e. the per-layer hydraulic-cost
-            ! check saw far less conductance capacity than the layer
-            ! actually has, forcing stomata far more closed than warranted
-            ! - very likely the dominant cause of multilayer's GPP running
-            ! well below big-leaf's for the same site/forcing.
-            ! kmax_pft is the leaf-area-basis whole-plant conductance,
-            ! uniform through the canopy (see the big-leaf note below): the
-            ! same value per unit leaf area in every layer, so the canopy
-            ! total (sum of kmax_per_lyr * dlai) is kmax_pft * LAI. It used
-            ! to decay with leaf N like nleaf_layer, which made kmax_pft a
-            ! top-of-canopy value.
+            !
+            ! kmax_per_lyr is per unit leaf area, as vcmax and nleaf_layer
+            ! are, so the canopy total (sum of kmax_per_lyr * dlai) is
+            ! kmax_pft * LAI. (It was once divided by ilayers and decayed
+            ! with leaf N; both removed.)
+            !
+            ! MDK, 23/10/26
             kmax_per_lyr(l) = kmax_pft(ft)
 
             ! Scale kcrit by the same fraction of whole-plant kmax that this
@@ -2328,25 +2297,10 @@ CASE ( 5, 6 )
         !$OMP END DO
         !$OMP END PARALLEL
 
-            ! Added CASE block to do gs_opt on multi-layer canopy, 29 Apr, MGDK
-            SELECT CASE ( leaf_flux_mod)
-                CASE (leaf_flux_fsmc)
-                !-----------------------------------------------------------------------
-                ! Calculate leaf-level fluxes separately for sunlit and shaded leaves.
-                !-----------------------------------------------------------------------
-                CALL leaf (clos_pts, ft, land_pts, open_pts, pft_photo_model   &
-            ,              veg_pts, clos_index, open_index, veg_index          &
-            ,              ca, ci, fsmc, o3mol, ra, tstar                      &
-            ,              wcarb, wexpt, wlitev_sun, rd_sun                    &
-            ,              anetl_sun, flux_o3_l_sun, fo3_l_sun, gl_sun)
-
-                CALL leaf (clos_pts, ft, land_pts, open_pts, pft_photo_model   &
-            ,              veg_pts, clos_index, open_index, veg_index          &
-            ,              ca, ci, fsmc, o3mol, ra, tstar                      &
-            ,              wcarb, wexpt, wlitev_shd, rd_shd                    &
-            ,              anetl_shd, flux_o3_l_shd, fo3_l_shd, gl_shd)
-
-            CASE (leaf_flux_stom_opt)
+            ! Multilayer stomatal optimisation (this branch only runs with
+            ! leaf_flux_mod = leaf_flux_stom_opt; the fsmc case is handled
+            ! below). (Was a SELECT CASE on leaf_flux_mod whose fsmc and default
+            ! branches could not be reached; MDK, 23/10/26.)
 
                 l_multilayer = .TRUE.
                 IF ( l_leaf_temp ) THEN
@@ -2459,11 +2413,6 @@ CASE ( 5, 6 )
                     END IF
                 END DO
 
-            CASE DEFAULT
-                errcode = 101  !  a hard error
-                CALL ereport(RoutineName, errcode,                                     &
-                    'leaf_flux_mod should be 1 fsmc regulated or 2 stomatal optimisation')
-            END SELECT ! leaf_flux_model
             !-----------------------------------------------------------------------
             ! Update layer conductance.
             !-----------------------------------------------------------------------

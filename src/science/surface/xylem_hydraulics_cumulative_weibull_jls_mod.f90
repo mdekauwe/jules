@@ -774,7 +774,19 @@ SELECT CASE (psi_solver)
 ! psi is held at <= 0 in (psi/b)**c: a positive psi gave a negative base
 ! and NaN. Unchanged for psi <= 0.
 !
-! MDK, 21/10/26
+! In plain terms: "zeroth order" means the conductance is treated as
+! constant over the drop from the root zone to the leaf, taken at the
+! midpoint (the midpoint rule for the supply integral). The leaf water
+! potential then follows Ohm's law,
+!
+!   psi_leaf = psi_root - E / k(psi_mid),   psi_mid = (psi_leaf + psi_root) / 2
+!
+! which is repeated (psi_leaf -> psi_mid -> k) until k changes by less than
+! 0.1 kcrit. It is cheap, but on a steep curve it overestimates k (and so
+! underestimates the drop). The k returned is then re-evaluated at
+! psi_leaf and floored at kcrit.
+!
+! MDK, 23/10/26
 ! ---------------------------------------------------------------------
 CASE(psi_solver_taylor)
 
@@ -859,10 +871,16 @@ CASE(psi_solver_taylor)
 !
 !  0 = E(psi_l, psi_r) - e_leaf
 !
-! This means that the updated prediction of the leaf water potential
-! (psi_l') is given by;
+! Newton-Raphson on F(psi_l) = E(psi_l, psi_r) - e_leaf. Since E is the
+! integral of k down to psi_l, dF/dpsi_l = -k(psi_l), so each step moves
+! the current estimate psi_l by the missing flow over the conductance there:
 !
-!  psi_l' = psi_r - (e_leaf - E(psi_l, psi_r))/k(psi_l)
+!  psi_l' = psi_l - (e_leaf - E(psi_l, psi_r)) / k(psi_l)
+!
+! (corrected 23/10/26: this read psi_r - ..., but the code has always
+! stepped from psi_l). The first guess is psi_l = psi_r - e_leaf / k(psi_r);
+! each step is kept no more than 5 |b| below psi_r, and the loop stops when
+! k changes by less than k_conversion_limit (or after max_nr_iter steps).
 !
 ! psi is held at <= 0 in (psi/b)**c, as for the Taylor solver.
 !
@@ -1756,9 +1774,11 @@ DO j = 1, open_pnts
     ! The same for the intact segments at the same water potentials (the
     ! conductance the hydraulic cost uses under impairment).
     IF ( PRESENT(leaf_k_intact) ) THEN
-      dpsi_de_int(:) = ( MAX(kmx * EXP( -(psi_in(:)/bs)**cs ), k_floor * kmx) &
+      dpsi_de_int(:) = ( MAX(kmx * EXP( -(MIN(psi_in(:), 0.0_real_jlslsm)      &
+                                     / bs)**cs ), k_floor * kmx)               &
                          * dpsi_de_int(:) - 1.0 )                              &
-                       / MAX(kmx * EXP( -(psi_out(:)/bs)**cs ), k_floor * kmx)
+                       / MAX(kmx * EXP( -(MIN(psi_out(:), 0.0_real_jlslsm)     &
+                                        / bs)**cs ), k_floor * kmx)
     END IF
 
     ! Hand on to the next segment; keep the stem segment's leaf-side psi.
@@ -1800,11 +1820,13 @@ END DO
 
 CONTAINS
 
-  ! Segment conductance (capped where l_cap).
+  ! Segment conductance (capped where l_cap). psi is held at <= 0 here and in
+  ! seg_a: a root-zone psi a hair above 0 (rounding) gave a negative base to
+  ! a non-integer power, so NaN, and closed a wet point. (MDK, 23/10/26)
   FUNCTION seg_k( psi ) RESULT( k )
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi(n_e_leaf)
   REAL(KIND=real_jlslsm) :: k(n_e_leaf)
-  k(:) = kmx * EXP( -(psi(:)/bs)**cs )
+  k(:) = kmx * EXP( -(MIN(psi(:), 0.0_real_jlslsm)/bs)**cs )
   IF ( l_cap ) k(:) = MIN(k(:), fr * kmx)
   END FUNCTION seg_k
 
@@ -1854,7 +1876,8 @@ CONTAINS
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi(n)
   REAL(KIND=real_jlslsm) :: a(n)
   ! Note: the negative sign is present because bs is negative.
-  a(:) = kmx * (-bs/cs) * incomplete_gamma(n, 1.0/cs, (psi(:)/bs)**cs)
+  a(:) = kmx * (-bs/cs) * incomplete_gamma(n, 1.0/cs,                          &
+                                          (MIN(psi(:), 0.0_real_jlslsm)/bs)**cs)
   IF ( l_cap ) THEN
     WHERE ( psi(:) >= psi_cap )
       a(:) = fr * kmx * (-psi(:))
@@ -2273,6 +2296,13 @@ END SUBROUTINE lut_grid
 ! in FORTRAN 90, page 211, and makes use of the series representation
 ! of the lower incomplete gamma function. JBaguley
 !
+! The series (Numerical Recipes, section 6.2) is
+!
+!   gamma(a, x) = x^a e^-x  SUM_n=0..inf  x^n / ( a (a+1) ... (a+n) )
+!
+! Each term is the previous one times x / (a + n), which is what the loop
+! below accumulates (step), before multiplying by x^a e^-x at the end.
+!
 ! What it is for, in plain terms. The water a plant path can move is the
 ! area under its vulnerability curve: conductance k(psi) summed over the
 ! drop in water potential from the soil to the leaf (Sperry et al. 2017),
@@ -2327,12 +2357,17 @@ INTEGER :: i
 ! MDK, 21/10/26
 REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
 INTEGER, PARAMETER :: max_terms = 40
-                            ! Covers psi down to about -10.5 MPa, past the
-                            ! kcrit cut-off (about -8.2 MPa, 17-21 terms).
-                            ! Samples that need more are rejected by the
-                            ! k > kcrit mask anyway.
+                            ! Enough for the feasible range of any PFT. The
+                            ! terms shrink once n > x, and at the critical
+                            ! conductance x = (psi/b)^c = -ln(k_crit/k_max)
+                            ! whatever b and c are (about 3 for a 95 % loss),
+                            ! so a few tens of terms converge there. Only
+                            ! samples far below kcrit need more, and those
+                            ! are rejected by the k > kcrit test anyway.
+                            ! (For Q. ilex: down to about -10.5 MPa against
+                            ! a kcrit at about -8.2 MPa, 17-21 terms.)
                             !
-                            ! MDK, 21/10/26
+                            ! MDK, 23/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
