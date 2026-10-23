@@ -6,9 +6,9 @@
 
 MODULE phenol_mod
 
-USE um_types, ONLY: real_jlslsm
 
 IMPLICIT NONE
+
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PHENOL_MOD'
 
@@ -23,11 +23,14 @@ CONTAINS
 !
 ! ---------------------------------------------------------------------------
 SUBROUTINE phenol (land_pts, veg_pts, n, veg_index, dtime_phen, g_leaf, ht,    &
-                  lai, g_leaf_phen)
+                   lai, g_leaf_phen,lai_bal_red)
 
+USE um_types, ONLY: real_jlslsm
 USE jules_vegetation_mod, ONLY: l_nitrogen, l_ximpair_leaf_loss,             &
                                 l_ximpair_rec_leaf_turn, l_phen_psi,           &
-                                l_triffid_nsc
+                                l_triffid_nsc,                                 &
+                                ! TEMP RED
+                                l_red
 USE triffid_nsc_mod, ONLY: phen_fbleaf, nsc_pft, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
 USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht   ! MDK, 20/10/26
@@ -73,6 +76,12 @@ REAL(KIND=real_jlslsm) , INTENT(IN) ::                                         &
     ! Rate of leaf turnover (/360days).
   ht(land_pts)
     ! Canopy height (m).
+!-----------------------------------------------------------------------------
+! Optional Arguments with INTENT(IN)
+!-----------------------------------------------------------------------------
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
+  lai_bal_red(land_pts)
+    ! Balanced growth LAI from veg3.
 
 !-----------------------------------------------------------------------------
 ! Arguments with INTENT(INOUT).
@@ -87,6 +96,7 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   g_leaf_phen(land_pts)
     ! Rate of leaf turnover including leaf phenology (/360days).
+
 
 !-----------------------------------------------------------------------------
 ! Local variables.
@@ -130,9 +140,16 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !-----------------------------------------------------------------------------
 ! Diagnose the phenological state
 !-----------------------------------------------------------------------------
+
 DO j = 1,veg_pts
   l = veg_index(j)
-  lai_bal(l) = lai_bal_from_ht(n, ht(l))   ! MDK, 20/10/26
+  ! If we're running l_red we use lai_bal as an input, otherwise estimate the
+  ! classic TRIFFID way.
+  IF (l_red .AND. PRESENT(lai_bal_red)) THEN
+    lai_bal(l) = lai_bal_red(l)
+  ELSE
+    lai_bal(l) = lai_bal_from_ht(n, ht(l))   ! MDK, 20/10/26
+  END IF
   phen(l)    = lai(l) / lai_bal(l)
 END DO
 
