@@ -55,7 +55,7 @@ USE jules_hydrology_mod, ONLY: l_soil_evap_or
 USE soil_evap_or_mod, ONLY: w1_or
 USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica,               &
                                 l_som_cuticular_loss, leaf_flux_mod,           &
-                                leaf_flux_stom_opt
+                                leaf_flux_stom_opt, l_som_store   ! MDK, 23/10/26
 USE desica_jls_mod, ONLY: desica_commit, desica_cut_uptake
 USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_store_return
 USE ereport_mod, ONLY: ereport
@@ -277,11 +277,11 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='SF_EVAP'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 l_desica = ( stomata_model == stomata_desica )
-l_cut_store = l_som_cuticular_loss .AND. leaf_flux_mod == leaf_flux_stom_opt
+l_cut_store = l_som_store   ! MDK, 23/10/26
 IF ( l_cut_store .AND. ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
   errcode = 101
-  CALL ereport('sf_evap', errcode, 'l_som_cuticular_loss with the stomatal ' //&
-               'optimisation (plant water store) is coded for nsoilt = 1, ' // &
+  CALL ereport('sf_evap', errcode, 'The plant water store of the stomatal ' //&
+               'optimisation is coded for nsoilt = 1, ' //                     &
                'no l_irrig_dmd and no l_aggregate')
 END IF
 IF ( l_desica .AND. ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN

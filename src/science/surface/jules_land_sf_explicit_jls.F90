@@ -207,7 +207,8 @@ USE jules_surface_mod, ONLY: l_aggregate, formdrag, l_anthrop_heat_src,        &
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod, ilayers, leaf_flux_mod,&
                                 som_base_parm, l_triffid,  l_vegdrag_surft,   &
                                 stomata_model, stomata_desica,         &
-                                l_som_cuticular_loss, leaf_flux_stom_opt
+                                l_som_cuticular_loss, leaf_flux_stom_opt,     &
+                                l_som_store   ! MDK, 23/10/26
 USE jules_hydrology_mod, ONLY: l_soil_evap_or
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd, irrig_option, tile_based_irrigation
@@ -2317,7 +2318,7 @@ DO n = 1,nsurft
   ! been fully allocated.
   IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR.                      &
       stomata_model == stomata_desica .OR. l_soil_evap_or .OR.                 &
-      ( l_som_cuticular_loss .AND. leaf_flux_mod == leaf_flux_stom_opt )) THEN
+      l_som_store) THEN
     n_diag = n
   ELSE
     n_diag = 1
@@ -2330,7 +2331,7 @@ DO n = 1,nsurft
    tstar_surft(:,n),fracaero_t(:,n),fracaero_s(:,n),resfs(:,n),resft(:,n),     &
    sf_diag%resfs_stom(:,n_diag),                                               &
    sf_diag%l_et_stom .OR. stomata_model == stomata_desica .OR. l_soil_evap_or  &
-   .OR. ( l_som_cuticular_loss .AND. leaf_flux_mod == leaf_flux_stom_opt ),    &
+   .OR. l_som_store,    &
    sf_diag%l_et_stom_surft)
 
 END DO
@@ -2676,7 +2677,7 @@ DO n = 1,nsurft
   ! been fully allocated.
   IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR.                      &
       stomata_model == stomata_desica .OR. l_soil_evap_or .OR.                 &
-      ( l_som_cuticular_loss .AND. leaf_flux_mod == leaf_flux_stom_opt )) THEN
+      l_som_store) THEN
     n_diag = n
   ELSE
     n_diag = 1
@@ -2689,7 +2690,7 @@ DO n = 1,nsurft
    tstar_surft(:,n),fracaero_t(:,n),fracaero_s(:,n),resfs(:,n),resft(:,n),     &
    sf_diag%resfs_stom(:,n_diag),                                               &
    sf_diag%l_et_stom .OR. stomata_model == stomata_desica .OR. l_soil_evap_or  &
-   .OR. ( l_som_cuticular_loss .AND. leaf_flux_mod == leaf_flux_stom_opt ),    &
+   .OR. l_som_store,    &
    sf_diag%l_et_stom_surft)
 
   CALL sf_flux (                                                               &

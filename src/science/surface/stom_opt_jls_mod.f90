@@ -16,7 +16,7 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='STOM_OPT_JLS_MOD'
 
 PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_bounded_search, &
         stom_opt_supply_loss, g_eff_e
-PUBLIC stom_opt_mod, g_of_geff, som_path_psi
+PUBLIC stom_opt_mod, g_of_geff, som_path_psi, stom_opt_at_e
 
 CONTAINS
 
@@ -1146,6 +1146,121 @@ END DO
 END SUBROUTINE scatter_bnd
 
 END SUBROUTINE stom_opt_mod
+
+!-----------------------------------------------------------------------------
+! Leaf fluxes at a prescribed transpiration (the plant water store): the ci,
+! net assimilation al, conductance gl and transpiration el at which the
+! leaf transpires e_target (mol H2O m-2 s-1, as el), from the same
+! photosynthesis, gl(ci) and coupling as stom_opt_mod_ci. E rises with ci,
+! so the ci grid over [ccp, ca] is searched for the bracket, refined with a
+! second grid inside it, and interpolated linearly in E. Samples above
+! gl_max (when > 0, the soil supply cap) are not used, and above the
+! largest usable E that sample is returned. The hydraulics are not
+! applied: the plant water store pays the difference from the optimiser's
+! steady state.
+!
+! MDK, 23/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE stom_opt_at_e(                                                      &
+! IN
+        land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,       &
+        rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp,              &
+        pstar, km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax,         &
+        kcrit, gl_max, l_multilayer, r_bl, r_ca, g_oth,                        &
+        kmax_ref, conductance_b, conductance_c,                                &
+        psi_leaf_extreme, psi_root_extreme, l_xylem_impairment, e_target,      &
+! OUT
+        ci, al, gl, el                                                         &
+)
+
+USE jules_vegetation_mod, ONLY: som_n_sample
+
+IMPLICIT NONE
+
+LOGICAL, INTENT(IN) :: l_multilayer, l_xylem_impairment
+INTEGER, INTENT(IN) :: land_pts, pft, open_pts, open_index(land_pts),         &
+                       pft_photo_model, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  rd(land_pts), ca(land_pts), psi_root_zone(land_pts), acr(land_pts),          &
+  apar(land_pts), oi(land_pts), vcmax(land_pts), kc(land_pts), ko(land_pts),   &
+  ccp(land_pts), pstar(land_pts), km(land_pts), dq(land_pts), qs(land_pts),    &
+  je(land_pts), t_leaf(land_pts), je_ratio(land_pts), fapar_lf(land_pts),      &
+  ipar(land_pts), kmax(land_pts), kcrit(land_pts), gl_max(land_pts),           &
+  r_bl(land_pts), r_ca(land_pts), g_oth(land_pts), kmax_ref(land_pts),         &
+  conductance_b(land_pts), conductance_c(land_pts),                            &
+  psi_leaf_extreme(land_pts), psi_root_extreme(land_pts), e_target(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+  ci(land_pts), al(land_pts), gl(land_pts), el(land_pts)
+                            ! Only the open points are set.
+
+INTEGER :: ipass, i, j, l, ib(open_pts), n_ok(open_pts)
+REAL(KIND=real_jlslsm) :: ci_lo(land_pts), ci_hi(land_pts), w
+REAL(KIND=real_jlslsm), DIMENSION(0:som_n_sample, open_pts) ::                &
+  ci_s, al_s, gl_s, kl_s, psi_s, el_s, klhc_s
+
+IF ( open_pts == 0 ) RETURN
+
+ci_lo(:) = MAX(ccp(:), 0.0)
+ci_hi(:) = ca(:)
+DO ipass = 1,2
+  CALL stom_opt_mod_ci(                                                        &
+      land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,         &
+      som_n_sample, ci_lo, ci_hi,                                              &
+      rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,         &
+      km, dq, qs, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,           &
+      l_multilayer, r_bl, r_ca, g_oth,                                         &
+      kmax_ref, conductance_b, conductance_c,                                  &
+      psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,                  &
+      ci_s, al_s, gl_s, kl_s, psi_s, el_s, klhc_s )
+  DO j = 1,open_pts
+    l = veg_index(open_index(j))
+    ! Usable samples: 1..n_ok (ci rising), those within gl_max.
+    n_ok(j) = som_n_sample
+    IF ( gl_max(l) > 0.0 ) THEN
+      DO i = 1,som_n_sample
+        IF ( gl_s(i,j) > gl_max(l) ) THEN
+          n_ok(j) = MAX(i - 1, 1)
+          EXIT
+        END IF
+      END DO
+    END IF
+    ! First usable sample at or above the target.
+    ib(j) = n_ok(j)
+    DO i = 1,n_ok(j)
+      IF ( el_s(i,j) >= e_target(l) ) THEN
+        ib(j) = i
+        EXIT
+      END IF
+    END DO
+    IF ( ipass == 1 ) THEN
+      i = MAX(ib(j), 2)
+      ci_lo(l) = ci_s(i-1,j)
+      ci_hi(l) = ci_s(i,j)
+    END IF
+  END DO
+END DO
+
+DO j = 1,open_pts
+  l = veg_index(open_index(j))
+  i = ib(j)
+  IF ( i == 1 .OR. el_s(i,j) < e_target(l) ) THEN
+    ci(l) = ci_s(i,j)
+    al(l) = al_s(i,j)
+    gl(l) = gl_s(i,j)
+    el(l) = el_s(i,j)
+  ELSE
+    w = (e_target(l) - el_s(i-1,j))                                            &
+        / MAX(el_s(i,j) - el_s(i-1,j), TINY(1.0_real_jlslsm))
+    ci(l) = ci_s(i-1,j) + w * (ci_s(i,j) - ci_s(i-1,j))
+    al(l) = al_s(i-1,j) + w * (al_s(i,j) - al_s(i-1,j))
+    gl(l) = gl_s(i-1,j) + w * (gl_s(i,j) - gl_s(i-1,j))
+    el(l) = el_s(i-1,j) + w * (el_s(i,j) - el_s(i-1,j))
+  END IF
+  gl(l) = MAX(gl(l), 0.0)
+  al(l) = MAX(al(l), -rd(l))
+END DO
+
+END SUBROUTINE stom_opt_at_e
 
 !-----------------------------------------------------------------------------
 ! Stomatal optimisation model that iterates over leaf ci

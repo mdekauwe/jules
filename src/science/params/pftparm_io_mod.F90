@@ -210,6 +210,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
   lai_ref_k_io(npft_max) = 0.0,                                                &
   ! Cuticular leaf conductance (mmol H2O m-2 leaf s-1), the floor used when
   ! l_som_cuticular_loss (default 3, SurEau-Ecos Q. ilex, Ruffault 2022).
+  ! The residual (minimum, gmin) conductance through the cuticle, leaky
+  ! stomata and bark that goes on drying the plant after stomatal closure
+  ! (Choat et al. 2018, Nature 558: 531-539); measured as gmin (e.g.
+  ! Duursma et al. 2019, New Phytol., database mean ~4.9).
+  !
+  ! MDK, 23/10/26
   gcuticular_io(npft_max) = 3.0,                                               &
   ! Nonstomatal limitation (l_som_nsl): onset and zero point of the
   ! leaf-psi ramp on photosynthesis (Pa; missing = pftparm defaults 0 and
