@@ -389,9 +389,9 @@ CONTAINS
 SUBROUTINE plant_path( n_e, e_in, psi_root, psi_out, k_out )
 
 INTEGER, INTENT(IN) :: n_e
-REAL(KIND=real_jlslsm), INTENT(IN)  :: e_in(n_e, open_pnts),                  &
+REAL(KIND=real_jlslsm), INTENT(IN)  :: e_in(n_e, open_pnts),                   &
                                        psi_root(land_pts)
-REAL(KIND=real_jlslsm), INTENT(OUT) :: psi_out(n_e, open_pnts),               &
+REAL(KIND=real_jlslsm), INTENT(OUT) :: psi_out(n_e, open_pnts),                &
                                        k_out(n_e, open_pnts)
 
 SELECT CASE ( pft_conductance_model(pft) )
@@ -416,8 +416,8 @@ CASE ( CW_conductance )
 
   ! (Only on the PFT's curve: the table cannot follow a point's own b and
   ! c, which psi_leaf_CW_jls then solves by Newton. MDK, 21/10/26)
-  ELSE IF ( som_psi_solver == psi_solver_lut .AND.                            &
-       lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,        &
+  ELSE IF ( som_psi_solver == psi_solver_lut .AND.                             &
+       lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,         &
                       conductance_b, conductance_c ) ) THEN
     ! Direct call: skips psi_leaf_CW_jls's automatic work arrays.
     CALL psi_leaf_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
@@ -432,8 +432,8 @@ CASE ( CW_conductance )
   END IF
 
 CASE ( SOX_conductance )
-  IF ( som_psi_solver == psi_solver_lut .AND.                                 &
-       lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,        &
+  IF ( som_psi_solver == psi_solver_lut .AND.                                  &
+       lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,         &
                       conductance_b, conductance_c ) ) THEN   ! MDK, 21/10/26
     CALL psi_leaf_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
                            open_index, e_in, psi_root, kmax,                   &

@@ -258,15 +258,25 @@ END SUBROUTINE xylem_conductance_CW_jls
 !      equation (psi_solver_newton).
 !   3: Inverts the tabulated supply function (psi_solver_lut; see
 !      psi_leaf_lut_jls).
-! With l_som_plant_segments, methods 2 and 3 hand over to the segment
-! solvers (psi_leaf_segments_jls, psi_leaf_segments_lut_jls); method 1 with
-! segments is rejected by the namelist check.
+! With l_som_plant_segments, methods 2 and 3 are not done here: plant_path
+! (xylem_hydraulics_jls_mod) calls the segment solvers
+! (psi_leaf_segments_jls, psi_leaf_segments_lut_jls) instead; method 1
+! with segments is rejected by the namelist check.
+!
+! The conductance returned, leaf_k, is the curve at the leaf, k(psi_leaf).
+! That is also the plant's marginal conductance, the one the hydraulic
+! cost needs: E(psi_leaf) = integral( k(psi) dpsi, psi_leaf, psi_root ), so
+!
+!   -dE / dpsi_leaf = k(psi_leaf)
+!
+! for one conductance curve. With segments or a soil link in series it is
+! not, and those solvers carry dpsi_leaf/dE down the path instead.
 !
 ! NOTE: This subroutine is designed for the stomatal optimisation model.
 !       It returns an output array that only contains values for points
 !       with open stomata.
 !
-! MDK, 21/10/26
+! MDK, 23/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_CW_jls( pft,                                               &
                             n_e_leaf,                                          &

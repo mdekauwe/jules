@@ -104,14 +104,14 @@ CONTAINS
 !
 ! MDK, 21/10/26
 ! *****************************************************************************
-LOGICAL FUNCTION lut_pft_curve( pft, land_pts, open_pnts, veg_index,          &
+LOGICAL FUNCTION lut_pft_curve( pft, land_pts, open_pnts, veg_index,           &
                                 open_index, b, c )
 
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
 
 IMPLICIT NONE
 
-INTEGER, INTENT(IN) :: pft, land_pts, open_pnts, veg_index(land_pts),         &
+INTEGER, INTENT(IN) :: pft, land_pts, open_pnts, veg_index(land_pts),          &
                        open_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: b(land_pts), c(land_pts)
 INTEGER :: j, l
@@ -119,7 +119,7 @@ INTEGER :: j, l
 lut_pft_curve = .TRUE.
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
-  IF ( b(l) /= conductance_b_pft(pft) .OR.                                    &
+  IF ( b(l) /= conductance_b_pft(pft) .OR.                                     &
        c(l) /= conductance_c_pft(pft) ) THEN
     lut_pft_curve = .FALSE.
     RETURN
@@ -138,7 +138,7 @@ END FUNCTION lut_pft_curve
 ! as for the Newton-Raphson solve. Has no automatic arrays, so it is cheap to
 ! call for a single sample per point.
 ! *****************************************************************************
-SUBROUTINE psi_leaf_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index, &
+SUBROUTINE psi_leaf_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,    &
                                 open_index, e_leaf, root_zone_psi, kmax,       &
                                 leaf_psi, leaf_k )
 
@@ -172,7 +172,7 @@ INTEGER :: i, j, l
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
   DO i = 1, n_e_leaf
-    leaf_psi(i,j) = supply_lut_psi(pft, root_zone_psi(l),                    &
+    leaf_psi(i,j) = supply_lut_psi(pft, root_zone_psi(l),                      &
                     e_leaf(i,j) / MAX(kmax(l), TINY(1.0_real_jlslsm)))
     leaf_k(i,j) = kmax(l) * supply_lut_f(pft, leaf_psi(i,j))
   END DO
@@ -302,7 +302,7 @@ REAL(KIND=real_jlslsm) :: psi_crit, r
 CALL build_supply_lut(pft)
 ! f(psi_crit) = kcrit_frac, kept inside (0, 1) (e.g. kcrit >= kmax would
 ! otherwise give a NaN).
-r = MIN(MAX(kcrit_frac, 1.0e-6_real_jlslsm),                                  &
+r = MIN(MAX(kcrit_frac, 1.0e-6_real_jlslsm),                                   &
         1.0_real_jlslsm - 1.0e-6_real_jlslsm)
 ! psi_crit by inverting the curve exactly (not from the table):
 ! SOX f = 1/(1 + (psi/b)^c) gives psi = b (1/f - 1)^(1/c);
@@ -442,7 +442,7 @@ ELSE
   ! psi_in stops rounding putting the far end above the near end.
   !
   ! MDK, 18/10/26
-  psi_out = -(lo - 1) * dpsi - dpsi * (s_target - tab%s(lo))                  &
+  psi_out = -(lo - 1) * dpsi - dpsi * (s_target - tab%s(lo))                   &
             / (tab%s(hi) - tab%s(lo))
   psi_out = MIN(psi_out, psi_in)
 END IF
@@ -650,7 +650,7 @@ IF ( .NOT. lut_ready(pft) ) THEN
   ELSE
     f_floor = lut_f_floor
   END IF
-  CALL table_build( lut_tab(pft), b, c, l_sox, f_floor,                       &
+  CALL table_build( lut_tab(pft), b, c, l_sox, f_floor,                        &
                     lut_f_crit(1.0 - kcrit_fractional_loss(pft),               &
                                1.0_real_jlslsm) )
   ! Mark the table ready only once it is complete, so the fast exit above

@@ -9,7 +9,8 @@
 MODULE sf_stom_mod
 
 USE um_types, ONLY: real_jlslsm
-USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state, sf_stom_state_alloc   ! MDK, 22/10/26
+USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state, sf_stom_state_alloc
+                            ! MDK, 22/10/26
 
 IMPLICIT NONE
 
@@ -61,7 +62,7 @@ SUBROUTINE sf_stom  (land_pts,land_index                                       &
 ,                    fapar_sun_nir,fapar_shd_nir                               &
 ,                    flux_o3,fo3,fapar_diag,apar_diag,psi_leaf,cica_ratio      &
 ,                    leaf_k                                                    &
-,                    tair,lw_down,u_wind,z1_wind                                &
+,                    tair,lw_down,u_wind,z1_wind                               &
 ,                    t_leaf_sun,t_leaf_shd,t_can,t_leaf_clamp                  &
 ,                    isoprene,terpene,methanol,acetone                         &
 ,                    open_index,open_pts                                       &
@@ -102,7 +103,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_gl_max, l_som_supply_limit,                                            &
     l_som_cuticular_loss, l_som_gravity, l_red, l_som_rhizo_series,           &
-    l_som_coupled_e, l_som_capacitance_on, som_leaf_resist_frac,                        &
+    l_som_coupled_e, l_som_capacitance_on, som_leaf_resist_frac,              &
     l_som_leak_capacitance_only,                                               &
     l_som_vcmax_psi, kplant_model, kplant_model_ground,                        &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model,          &
@@ -112,7 +113,8 @@ USE CN_utils_mod, ONLY:                                                        &
 ! imported procedures
     get_can_ave_fac, nleaf_from_lai
 
-USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht, live_stemwood   ! MDK, 20/10/26
+USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht, live_stemwood
+                            ! MDK, 20/10/26
 
 USE pftparm, ONLY:                                                             &
 ! imported arrays that are not changed

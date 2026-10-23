@@ -1349,14 +1349,15 @@ DO n = 1,npft
           l_warned_ksr = .TRUE.
         END IF
       ELSE
-      ksr(:) = 0.0
-      DO j = 1,surft_pts(n)
-        l = surft_index(j,n)
-        ! No leaves, no leaf path: no soil link either (as before).
-        IF ( kmax_pft(n) * lai_pft(l,n) > 0.0 ) THEN
-          ksr(l) = SUM(soil_root_k_soilt(l,m,:)) / (rho_water * g * m_h2o_rs)
-        END IF
-      END DO
+        ksr(:) = 0.0
+        DO j = 1,surft_pts(n)
+          l = surft_index(j,n)
+          ! No leaves, no leaf path: no soil link either (as before).
+          IF ( kmax_pft(n) * lai_pft(l,n) > 0.0 ) THEN
+            ksr(l) = SUM(soil_root_k_soilt(l,m,:))                             &
+                     / (rho_water * g * m_h2o_rs)
+          END IF
+        END DO
       END IF
     END IF
   END IF

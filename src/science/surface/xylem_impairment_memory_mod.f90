@@ -322,7 +322,7 @@ USE supply_table_mod, ONLY: psi_leaf_capped_lut_jls
 ! MDK, 18/10/26
 
 INTEGER, INTENT(IN) ::                                                         &
-  pft, n_e_leaf, land_pnts, open_pnts, veg_index(land_pnts),                  &
+  pft, n_e_leaf, land_pnts, open_pnts, veg_index(land_pnts),                   &
   open_index(land_pnts)
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
@@ -354,7 +354,7 @@ REAL(KIND=real_jlslsm) :: e_capped
                             ! path when psi_l < psi_s.
 REAL(KIND=real_jlslsm) :: a_top(1)
                             ! A(psi_top).
-REAL(KIND=real_jlslsm) :: psi_vec(n_e_leaf), e_vec(n_e_leaf),               &
+REAL(KIND=real_jlslsm) :: psi_vec(n_e_leaf), e_vec(n_e_leaf),                  &
                           k_vec(n_e_leaf), dpsi_vec(n_e_leaf)
 LOGICAL :: l_capped(n_e_leaf)
                             ! Samples solved within the capped part.
@@ -382,7 +382,7 @@ IF ( som_psi_solver == psi_solver_lut ) THEN
   l_pft_curve = .TRUE.
   DO j = 1, open_pnts
     l = veg_index(open_index(j))
-    IF ( conductance_b(l) /= conductance_b_pft(pft) .OR.                      &
+    IF ( conductance_b(l) /= conductance_b_pft(pft) .OR.                       &
          conductance_c(l) /= conductance_c_pft(pft) ) l_pft_curve = .FALSE.
   END DO
   IF ( l_pft_curve ) THEN
@@ -438,9 +438,9 @@ DO j = 1, open_pnts
     WHERE (.NOT. l_capped) psi_vec(:) = psi_top
 
     DO i = 1, max_nr_iter
-      e_vec(:) = e_capped + antideriv(pft, n_e_leaf, psi_vec, kmx, bb, cc)    &
+      e_vec(:) = e_capped + antideriv(pft, n_e_leaf, psi_vec, kmx, bb, cc)     &
                  - a_top(1)
-      k_vec(:) = MAX(k_intact(pft, n_e_leaf, psi_vec, kmx, bb, cc),           &
+      k_vec(:) = MAX(k_intact(pft, n_e_leaf, psi_vec, kmx, bb, cc),            &
                      TINY(1.0_real_jlslsm))
       dpsi_vec(:) = (e_vec(:) - e_leaf(:,j)) / k_vec(:)
       WHERE (l_capped) dpsi_vec(:) = 0.0
@@ -456,7 +456,7 @@ DO j = 1, open_pnts
   END IF
 
   leaf_psi(:,j) = psi_vec(:)
-  leaf_k(:,j) = MAX(MIN(k_intact(pft, n_e_leaf, psi_vec, kmx, bb, cc), kc),   &
+  leaf_k(:,j) = MAX(MIN(k_intact(pft, n_e_leaf, psi_vec, kmx, bb, cc), kc),    &
                     kcrit(l))
 END DO
 
@@ -559,11 +559,12 @@ SUBROUTINE update_xylem_impairment_memory ( n_land_pts                         &
 ,                                           kcap                               &
                                           )
 
-USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht, live_stemwood   ! MDK, 20/10/26
+USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht, live_stemwood
+                            ! MDK, 20/10/26
 USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
                    eta_sl, ximpair_psi_driver, ximpair_reset_mmdd,             &
                    ximpair_tau_rec, ximpair_psi_refill, ximpair_wood_alloc,    &
-                   ximpair_growth_basis, ximpair_rec_years, a_wl, a_ws, b_wl, &
+                   ximpair_growth_basis, ximpair_rec_years, a_wl, a_ws, b_wl,  &
                    ximpair_psi_growth, ximpair_tau_stem, ximpair_tau_leaf,     &
                    conductance_b_seg, conductance_c_seg, nsc_xylem_replace
 USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
@@ -575,7 +576,8 @@ USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_psi_stem,                    &
                                           ximpair_seg_state_alloc
-USE triffid_hydmort_mod, ONLY: hydmort_accumulate   ! MDK, 21/10/26
+USE triffid_hydmort_mod, ONLY: hydmort_accumulate
+                            ! MDK, 21/10/26
 USE trif, ONLY: g_wood
 USE jules_surface_types_mod, ONLY: npft
 USE model_time_mod, ONLY: current_time, timestep_len
@@ -622,10 +624,10 @@ LOGICAL :: l_two
                             ! Two-pool stem memory (nsc_xylem_replace > 0).
 
 REAL(KIND=real_jlslsm) ::                                                      &
-  psi_x(n_land_pts), k_x(n_land_pts), kmax_pts(n_land_pts),                   &
-  kcrit_pts(n_land_pts), b_pts(n_land_pts), c_pts(n_land_pts),                &
-  f_renew(n_land_pts), c_new(n_land_pts), wood(n_land_pts),                  &
-  f_new(n_land_pts), growth(n_land_pts),                                      &
+  psi_x(n_land_pts), k_x(n_land_pts), kmax_pts(n_land_pts),                    &
+  kcrit_pts(n_land_pts), b_pts(n_land_pts), c_pts(n_land_pts),                 &
+  f_renew(n_land_pts), c_new(n_land_pts), wood(n_land_pts),                    &
+  f_new(n_land_pts), growth(n_land_pts),                                       &
   plc(n_land_pts)
 REAL(KIND=real_jlslsm) :: f_rec, a_mean, frac_crit, store_days
 LOGICAL :: l_slow
@@ -724,7 +726,7 @@ IF (l_ximpair_rec_nsc) THEN
       kcap(l) = kmax_pts(l) * (1.0 - e_old - e_new)
     END DO
   ELSE
-    kcap(:) = MIN(kcap(:) + kmax_pts(:) * ximpair_repair_pend(:,pft),         &
+    kcap(:) = MIN(kcap(:) + kmax_pts(:) * ximpair_repair_pend(:,pft),          &
                   kmax_pts(:))
   END IF
   ximpair_repair_pend(:,pft) = 0.0
@@ -751,7 +753,7 @@ IF (l_ximpair_rec_growth) THEN
     IF (.NOT. ALLOCATED(ximpair_npp_prev)) THEN
       c_new(:) = 0.0
     ELSE
-      c_new(:) = ximpair_wood_alloc(pft) * MAX(ximpair_npp_prev(:,pft), 0.0)          &
+      c_new(:) = ximpair_wood_alloc(pft) * MAX(ximpair_npp_prev(:,pft), 0.0)   &
                  * REAL(timestep_len)
     END IF
   CASE (3)
@@ -772,7 +774,7 @@ IF (l_ximpair_rec_growth) THEN
       ximpair_wood_prev(:,:) = -1.0
     END IF
     WHERE (ximpair_wood_prev(:,pft) < 0.0) ximpair_wood_prev(:,pft) = wood(:)
-    c_new(:) = MAX(wood(:) - ximpair_wood_prev(:,pft)                                  &
+    c_new(:) = MAX(wood(:) - ximpair_wood_prev(:,pft)                          &
                    + g_wood(pft) * wood(:) * REAL(timestep_len)                &
                    / sec_per_trif_year, 0.0)
     ximpair_wood_prev(:,pft) = wood(:)
@@ -801,7 +803,7 @@ END IF
 IF (l_slow .AND. l_ximpair_rec_growth) THEN
   CALL ximpair_memory_alloc( n_land_pts )
   ! Running mean of the renewed fraction (s-1), and its weight.
-  a_mean = MIN(REAL(timestep_len) / (ximpair_rec_years(pft) * sec_per_year), &
+  a_mean = MIN(REAL(timestep_len) / (ximpair_rec_years(pft) * sec_per_year),   &
                1.0)
   ximpair_renew_mean(:,pft) = ximpair_renew_mean(:,pft)                        &
                 + a_mean * (f_new(:) / REAL(timestep_len)                      &
@@ -841,7 +843,7 @@ IF (l_ximpair_seg_memory) THEN
   ! by new leaves instead (triffid_nsc_turgor, phenol).
   ! MDK, 18/10/26
   IF (ximpair_tau_leaf(pft) > 0.0 .AND. .NOT. l_ximpair_rec_leaf_turn) THEN
-    ximpair_kcap_leaf(:,pft) = 1.0 - (1.0 - ximpair_kcap_leaf(:,pft))         &
+    ximpair_kcap_leaf(:,pft) = 1.0 - (1.0 - ximpair_kcap_leaf(:,pft))          &
                                * EXP(-growth(:) / ximpair_tau_leaf(pft))
   END IF
 END IF
@@ -864,7 +866,7 @@ IF (ximpair_tau_rec(pft) > 0.0) THEN
 END IF
 
 IF (ximpair_reset_mmdd(pft) > 0) THEN
-  IF (current_time%month * 100 + current_time%day == ximpair_reset_mmdd(pft)  &
+  IF (current_time%month * 100 + current_time%day == ximpair_reset_mmdd(pft)   &
       .AND. current_time%time < timestep_len) THEN
     kcap(:) = kmax_pts(:)
     IF (l_ximpair_seg_memory) ximpair_kcap_leaf(:,pft) = 1.0
@@ -941,7 +943,7 @@ CONTAINS
   REAL(KIND=real_jlslsm), INTENT(IN) :: plc_x
   r_n   = ximpair_rebuilt(l,pft)
   m_n   = MAX(ximpair_lock_new(l,pft), plc_x)
-  e_old = MAX(1.0 - kcap(l) / kmax_pts(l) - r_n * ximpair_lock_new(l,pft),   &
+  e_old = MAX(1.0 - kcap(l) / kmax_pts(l) - r_n * ximpair_lock_new(l,pft),     &
               0.0)
   e_old = MAX(e_old, (1.0 - r_n) * plc_x)
   ximpair_lock_new(l,pft) = m_n
@@ -953,7 +955,7 @@ CONTAINS
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
   INTEGER, INTENT(IN) :: iseg
   REAL(KIND=real_jlslsm) :: f
-  f = EXP(-( ABS(MIN(psi, 0.0) / conductance_b_seg(pft,iseg)) )               &
+  f = EXP(-( ABS(MIN(psi, 0.0) / conductance_b_seg(pft,iseg)) )                &
           **conductance_c_seg(pft,iseg))
   END FUNCTION seg_f
 

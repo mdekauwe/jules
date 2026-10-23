@@ -143,29 +143,29 @@ END IF
 SELECT CASE ( pft_xylem_impairment_model(pft) )
 
 CASE ( xylem_impairment_whole_trunk )
-  CALL leaf_conductance_impaired_whole_trunk_jls( pft,                        &
-                                                 land_pnts,                  &
-                                                 water_potential,            &
-                                                 kmax,                       &
-                                                 kcrit,                      &
-                                                 conductance_b,              &
-                                                 conductance_c,              &
-                                                 psi_leaf_extreme,           &
+  CALL leaf_conductance_impaired_whole_trunk_jls( pft,                         &
+                                                 land_pnts,                    &
+                                                 water_potential,              &
+                                                 kmax,                         &
+                                                 kcrit,                        &
+                                                 conductance_b,                &
+                                                 conductance_c,                &
+                                                 psi_leaf_extreme,             &
                                                ! INTENT OUT
-                                                 leaf_conductance            &
+                                                 leaf_conductance              &
                                                  )
 
 CASE ( xylem_impairment_memory )
-  CALL leaf_conductance_impaired_memory_jls( pft,                             &
-                                             land_pnts,                       &
-                                             water_potential,                 &
-                                             kmax_ref,                        &
-                                             kmax,                            &
-                                             kcrit,                           &
-                                             conductance_b,                   &
-                                             conductance_c,                   &
+  CALL leaf_conductance_impaired_memory_jls( pft,                              &
+                                             land_pnts,                        &
+                                             water_potential,                  &
+                                             kmax_ref,                         &
+                                             kmax,                             &
+                                             kcrit,                            &
+                                             conductance_b,                    &
+                                             conductance_c,                    &
                                            ! INTENT OUT
-                                             leaf_conductance                 &
+                                             leaf_conductance                  &
                                              )
 
 CASE DEFAULT
@@ -402,9 +402,9 @@ CONTAINS
 SUBROUTINE impaired_path( n_e, e_in, psi_root, psi_out, k_out )
 
 INTEGER, INTENT(IN) :: n_e
-REAL(KIND=real_jlslsm), INTENT(IN)  :: e_in(n_e, open_pnts),                  &
+REAL(KIND=real_jlslsm), INTENT(IN)  :: e_in(n_e, open_pnts),                   &
                                        psi_root(land_pnts)
-REAL(KIND=real_jlslsm), INTENT(OUT) :: psi_out(n_e, open_pnts),               &
+REAL(KIND=real_jlslsm), INTENT(OUT) :: psi_out(n_e, open_pnts),                &
                                        k_out(n_e, open_pnts)
 
 SELECT CASE ( pft_xylem_impairment_model(pft) )
@@ -616,14 +616,14 @@ USE yomhook, ONLY: lhook, dr_hook
 INTEGER, INTENT(IN) ::                                                         &
   land_pts                                                                     &
                             ! Number of land points
-, n_surface_pts(nsurft)                                                      &
+, n_surface_pts(nsurft)                                                        &
                             ! Number of surface points for each surface type
 , surface_index(land_pts, nsurft)
                             ! Index for each surface type contained by each land
                             ! point. Starts with vegetation types.
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
-  e_canopy(land_pts, nsurft)                                                     &
+  e_canopy(land_pts, nsurft)                                                   &
                             ! Transpiration of each tile (mol m-2 ground
                             ! s-1; et_stom_surft / Water_kg_per_mol).
                             !

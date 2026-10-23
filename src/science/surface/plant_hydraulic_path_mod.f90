@@ -68,7 +68,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
 !   seg_kscale   : r_s / g (land_pts, 3).
 !
 ! MDK, 21/10/26
-REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: kplant_scale(:),               &
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: kplant_scale(:),                &
                                                seg_kscale(:,:)
 
 REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: som_psi_in_min = -1.0e9
@@ -114,7 +114,7 @@ END SUBROUTINE set_ksr_path
 !
 ! MDK, 21/10/26
 ! *****************************************************************************
-SUBROUTINE set_k_ground_basis( pft, land_pts, veg_pts, veg_index, lai,        &
+SUBROUTINE set_k_ground_basis( pft, land_pts, veg_pts, veg_index, lai,         &
                                lai_ref )
 
 USE pftparm, ONLY: seg_kfac
@@ -211,7 +211,7 @@ END FUNCTION seg_kmax_fac
 !
 ! MDK, 21/10/26
 ! *****************************************************************************
-FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, b, c, kcap_frac, kx,       &
+FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, b, c, kcap_frac, kx,        &
                            l_plant_only ) RESULT( k0 )
 
 USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
@@ -489,7 +489,7 @@ DO j = 1, open_pnts
 
     ! Conductance and supply integral at the root-side end of the segment.
     k_in(:) = seg_k(psi_in)
-    IF ( iseg == 1 .AND. .NOT. ( l_som_rhizo_series .AND.                     &
+    IF ( iseg == 1 .AND. .NOT. ( l_som_rhizo_series .AND.                      &
                                  ksr_path(l) >= 0.0 ) ) THEN
       ! The root water potential is psi_root_zone for every sample: one
       ! evaluation.
@@ -736,7 +736,7 @@ REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
 
 INTEGER :: i, j, l, iseg
 LOGICAL :: l_cap, l_impair
-REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de, &
+REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de,  &
                           k_s, fr, psi_cap, e_cap, e_pos, dpsi_de_int
       ! fr, psi_cap: the segment's cap fraction and where the intact curve
       ! meets it; e_cap the flow the capped part above psi_cap carries;
@@ -787,7 +787,7 @@ DO j = 1, open_pnts
       l_cap = .FALSE.
       fr = 1.0
       IF ( l_impair .AND. iseg >= 2 ) THEN
-        fr = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor),  &
+        fr = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor),   &
                  1.0)
         l_cap = fr < 1.0 - 1.0e-6
       END IF
@@ -826,7 +826,7 @@ DO j = 1, open_pnts
       !
       ! MDK, 18/10/26
       IF ( PRESENT(leaf_k_intact) )                                            &
-        dpsi_de_int = ( MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ),              &
+        dpsi_de_int = ( MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ),               &
                             k_floor * kmx)                                     &
                         * dpsi_de_int - 1.0 )                                  &
                       / MAX(kmx * EXP( -(ABS(psi_out/bs))**cs ), k_floor * kmx)
