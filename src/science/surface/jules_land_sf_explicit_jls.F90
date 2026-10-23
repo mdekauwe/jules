@@ -205,7 +205,7 @@ USE jules_surface_mod, ONLY: l_aggregate, formdrag, l_anthrop_heat_src,        &
                              l_vary_z0m_soil, l_elev_land_ice, ls
 
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod, ilayers, leaf_flux_mod,&
-                                som_base_parm, l_triffid,  l_vegdrag_surft,   &
+                                l_triffid,  l_vegdrag_surft,                   &
                                 stomata_model, stomata_desica,         &
                                 l_som_cuticular_loss, leaf_flux_stom_opt,     &
                                 l_som_capacitance_on   ! MDK, 23/10/26
@@ -1280,7 +1280,7 @@ CALL physiol (                                                                 &
   n_root,n_stem,lai_bal,                                                       &
   smc_soilt,wt_ext_surft,fsmc_pft,                                             &
   albsoil_soilt,cos_zenith_angle,                                              &
-  can_rad_mod,ilayers,leaf_flux_mod,som_base_parm,                             &
+  can_rad_mod,ilayers,leaf_flux_mod,                                           &
   flux_o3_pft,fo3_pft,sf_diag,asteps_since_triffid,                            &
   non_lake_frac,                                                               &
   !SUGAR variables

@@ -12,11 +12,12 @@ USE um_types, ONLY: real_jlslsm
 
 IMPLICIT NONE
 
-CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_IMPAIRMENT_MOD'
+CHARACTER(LEN=*), PARAMETER, PRIVATE ::                                        &
+  ModuleName = 'XYLEM_IMPAIRMENT_WHOLE_TRUNK_MOD'
 
 PUBLIC :: leaf_conductance_impaired_whole_trunk_jls,                           &
           xylem_conductance_impaired_whole_trunk_stom_opt_jls,                 &
-          leaf_psi_impaired_whole_trunk,                                       &
+          psi_leaf_impaired_whole_trunk,                                       &
           update_xylem_impairment_whole_trunk
 
 CONTAINS
@@ -27,7 +28,7 @@ CONTAINS
 ! *********************************************************************
 
 ! ---------------------------------------------------------------------
-! Function to calcualte leaf conductance
+! Function to calculate leaf conductance
 ! ---------------------------------------------------------------------
 SUBROUTINE leaf_conductance_impaired_whole_trunk_jls( pft,                    &
                                                       land_pnts,              &
@@ -58,10 +59,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Leaf water potential for each land point (Pa)
 , kmax(land_pnts)                                                              &
                             ! Maximum xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , kcrit(land_pnts)                                                             &
                             ! Critical xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , conductance_b(land_pnts)                                                     &
                             ! Conductance parameter b for each land point
                             ! (Pa)
@@ -73,7 +74,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_k(land_pnts)
-                            ! Leaf conductance for each land point (m/s)
+                            ! Leaf conductance for each land point
+                            ! (mol m-2 s-1 Pa-1)
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: new_psi_leaf_extreme(land_pnts)
@@ -161,10 +163,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Water potentials for each open point (Pa)
 , kmax(land_pnts)                                                              &
                             ! Maximum xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , kcrit(land_pnts)                                                             &
                             ! Critical xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , conductance_b(land_pnts)                                                     &
                             ! Conductance parameter b for each land point
                             ! (Pa)
@@ -179,7 +181,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   xylem_conductance(n_water_potentials, open_pnts)
-                            ! Xylem conductance for each open point (m/s)
+                            ! Xylem conductance for each open point
+                            ! (mol m-2 s-1 Pa-1)
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: new_psi_extreme(n_water_potentials, open_pnts)
@@ -239,7 +242,7 @@ END SUBROUTINE xylem_conductance_impaired_whole_trunk_stom_opt_jls
 !       It returns an output array that only contain values for points
 !       with open stomata.
 ! ---------------------------------------------------------------------
-SUBROUTINE leaf_psi_impaired_whole_trunk( pft,                                 &
+SUBROUTINE psi_leaf_impaired_whole_trunk( pft,                                 &
                                           n_e_leaf,                            &
                                           land_pnts,                           &
                                           open_pnts,                           &
@@ -286,10 +289,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Water potential in the root zone (Pa)
 , kmax(land_pnts)                                                              &
                             ! Maximum xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , kcrit(land_pnts)                                                             &
                             ! Critical xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , conductance_b(land_pnts)                                                     &
                             ! Conductance parameter b for each land point
                             ! (Pa)
@@ -304,9 +307,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_psi(n_e_leaf, open_pnts)                                                &
-                            ! Leaf water potential for each open point (m/s)
+                            ! Leaf water potential for each open point (Pa)
 , leaf_k(n_e_leaf, open_pnts)
-                            ! Leaf conductance for each open point (m/s)
+                            ! Leaf conductance for each open point
+                            ! (mol m-2 s-1 Pa-1)
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: new_psi_root_extreme(land_pnts)
@@ -321,7 +325,7 @@ INTEGER :: errcode
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_PSI_IMPAIRED_WHOLE_TRUNK'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='PSI_LEAF_IMPAIRED_WHOLE_TRUNK'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
@@ -340,7 +344,7 @@ new_psi_leaf_extreme = MIN(psi_leaf_extreme, new_psi_root_extreme)
 SELECT CASE ( pft_conductance_model(pft) )
 
 CASE ( CW_conductance )
-  CALL leaf_psi_impaired_CW_jls(pft,                                         &
+  CALL psi_leaf_impaired_CW_jls(pft,                                         &
                                 n_e_leaf,                                    &
                                 land_pnts,                                   &
                                 open_pnts,                                   &
@@ -360,7 +364,7 @@ CASE ( CW_conductance )
                                )
 
 CASE ( SOX_conductance )
-  CALL leaf_psi_impaired_SOX_jls(pft,                                        &
+  CALL psi_leaf_impaired_SOX_jls(pft,                                        &
                                  n_e_leaf,                                   &
                                  land_pnts,                                  &
                                  open_pnts,                                  &
@@ -388,7 +392,7 @@ END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
-END SUBROUTINE leaf_psi_impaired_whole_trunk
+END SUBROUTINE psi_leaf_impaired_whole_trunk
 
 ! ------------------------------------------------------------------------
 ! Subroutine to update the historic minimum leaf and root water potentials
@@ -481,7 +485,7 @@ END SUBROUTINE update_xylem_impairment_whole_trunk
 ! Weibull model.
 ! ---------------------------------------------------------------------
 
-SUBROUTINE leaf_psi_impaired_CW_jls( pft,                                      &
+SUBROUTINE psi_leaf_impaired_CW_jls( pft,                                      &
                                      n_e_leaf,                                 &
                                      land_pnts,                                &
                                      open_pnts,                                &
@@ -527,10 +531,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Water potential in the root zone (Pa)
 , kmax_pft(land_pnts)                                                          &
                             ! Maximum xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , kcrit(land_pnts)                                                             &
                             ! Critical xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , conductance_b(land_pnts)                                                     &
                             ! Conductance parameter b for each land point
                             ! (Pa)
@@ -545,9 +549,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_psi(n_e_leaf, open_pnts)                                                &
-                            ! Leaf water potential for each open point (m/s)
+                            ! Leaf water potential for each open point (Pa)
 , leaf_k(n_e_leaf, open_pnts)
-                            ! Leaf conductance for each open point (m/s)
+                            ! Leaf conductance for each open point
+                            ! (mol m-2 s-1 Pa-1)
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: gamma_re
@@ -587,7 +592,7 @@ INTEGER :: i, j, l
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_PSI_IMPAIRED_CW_JLS'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='PSI_LEAF_IMPAIRED_CW_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
@@ -676,13 +681,13 @@ CALL xylem_conductance_impaired_whole_trunk_stom_opt_jls(pft,                  &
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
-END SUBROUTINE leaf_psi_impaired_CW_jls
+END SUBROUTINE psi_leaf_impaired_CW_jls
 
 ! ---------------------------------------------------------------------
 ! Subroutine to calculate the leaf water potential for the SOX model.
 ! ---------------------------------------------------------------------
 
-SUBROUTINE leaf_psi_impaired_SOX_jls( pft,                                    &
+SUBROUTINE psi_leaf_impaired_SOX_jls( pft,                                    &
                                       n_e_leaf,                               &
                                       land_pnts,                              &
                                       open_pnts,                              &
@@ -728,10 +733,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Water potential in the root zone (Pa)
 , kmax_pft(land_pnts)                                                          &
                             ! Maximum xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , kcrit(land_pnts)                                                             &
                             ! Critical xylem conductance for each land point
-                            ! (m/s)
+                            ! (mol m-2 s-1 Pa-1)
 , conductance_b(land_pnts)                                                     &
                             ! Conductance parameter b for each land point
                             ! (Pa)
@@ -746,9 +751,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_psi(n_e_leaf, open_pnts)                                                &
-                            ! Leaf water potential for each open point (m/s)
+                            ! Leaf water potential for each open point (Pa)
 , leaf_k(n_e_leaf, open_pnts)
-                            ! Leaf conductance for each open point (m/s)
+                            ! Leaf conductance for each open point
+                            ! (mol m-2 s-1 Pa-1)
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: gamma_re
@@ -789,7 +795,7 @@ INTEGER :: i, j, l
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_PSI_IMPAIRED_SOX_JLS'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='PSI_LEAF_IMPAIRED_SOX_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
@@ -879,7 +885,7 @@ CALL xylem_conductance_impaired_whole_trunk_stom_opt_jls(                       
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
-END SUBROUTINE leaf_psi_impaired_SOX_jls
+END SUBROUTINE psi_leaf_impaired_SOX_jls
 
 ! ---------------------------------------------------------------------
 ! Scalar wrappers around the array series functions used by the

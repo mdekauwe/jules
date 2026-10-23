@@ -25,16 +25,16 @@ CHARACTER(LEN=*),PARAMETER,PRIVATE :: ModuleName='XYLEM_HYDRAULICS_CW_JLS_MOD'
 
 PUBLIC :: leaf_conductance_CW_jls                                              &
 ,         xylem_conductance_CW_jls                                             &
-,         leaf_psi_CW_jls                                                      &
+,         psi_leaf_CW_jls                                                      &
 ,         incomplete_gamma                                                     &
 ,         incomplete_gamma_different_a                                         &
-,         leaf_psi_lut_jls                                                     &
-,         leaf_psi_capped_lut_jls                                              &
+,         psi_leaf_lut_jls                                                     &
+,         psi_leaf_capped_lut_jls                                              &
 ,         supply_lut_psi                                                       &
 ,         supply_lut_e_crit                                                    &
 ,         supply_lut_f                                                         &
-,         leaf_psi_segments_jls                                                &
-,         leaf_psi_segments_lut_jls                                            &
+,         psi_leaf_segments_jls                                                &
+,         psi_leaf_segments_lut_jls                                            &
 ,         set_ksr_path                                                         &
 ,         xylem_f                                                              &
 ,         xylem_f_bc                                                           &
@@ -57,7 +57,7 @@ PUBLIC :: leaf_conductance_CW_jls                                              &
 !              solver is given. Set by sf_stom (set_ksr_path) before each
 !              solver call, from the path's share of the undamaged plant
 !              conductance (share_sup). < 0: no soil link.
-! Used by leaf_psi_jls (single conductance curve) and the segment solvers
+! Used by psi_leaf_jls (single conductance curve) and the segment solvers
 ! below.
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
 
@@ -145,7 +145,7 @@ LOGICAL, ALLOCATABLE, SAVE, PRIVATE :: lut_sox(:)
 ! Root / stem / leaf segment tables (l_som_plant_segments with
 ! psi_solver_lut): the same S(psi) for each segment's own Weibull
 ! (conductance_b_seg, conductance_c_seg), so the segments in series are
-! solved by three table inversions (leaf_psi_segments_lut_jls).
+! solved by three table inversions (psi_leaf_segments_lut_jls).
 TYPE(supply_table), ALLOCATABLE, SAVE, PRIVATE :: lut_seg_tab(:,:)
                             ! Table for (pft, segment).
                             !
@@ -356,7 +356,7 @@ END FUNCTION xylem_f_bc
 !   one element on the PFT curve, or on the curve b, c if given (a point's
 !   impaired curve).
 ! - kcap_frac (xylem impairment, memory model with segments): caps the stem
-!   and leaf segments, as leaf_psi_segments_jls; kmax is then the intact
+!   and leaf segments, as psi_leaf_segments_jls; kmax is then the intact
 !   value. With l_ximpair_seg_memory the leaf segment has its own cap.
 ! - kx: the plant (xylem) conductance at psi_root, if already known (e.g.
 !   from an impairment model); replaces the curve.
@@ -608,9 +608,9 @@ END SUBROUTINE xylem_conductance_CW_jls
 !   2: Uses a Newton-Raphson solve of the integrated conductance
 !      equation (psi_solver_newton).
 !   3: Inverts the tabulated supply function (psi_solver_lut; see
-!      leaf_psi_lut_jls).
+!      psi_leaf_lut_jls).
 ! With l_som_plant_segments, methods 2 and 3 hand over to the segment
-! solvers (leaf_psi_segments_jls, leaf_psi_segments_lut_jls); method 1 with
+! solvers (psi_leaf_segments_jls, psi_leaf_segments_lut_jls); method 1 with
 ! segments is rejected by the namelist check.
 !
 ! NOTE: This subroutine is designed for the stomatal optimisation model.
@@ -619,7 +619,7 @@ END SUBROUTINE xylem_conductance_CW_jls
 !
 ! MDK, 21/10/26
 ! ---------------------------------------------------------------------
-SUBROUTINE leaf_psi_CW_jls( pft,                                               &
+SUBROUTINE psi_leaf_CW_jls( pft,                                               &
                             n_e_leaf,                                          &
                             land_pts,                                          &
                             open_pnts,                                         &
@@ -745,7 +745,7 @@ INTEGER :: psi_solver
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_PSI_CW_JLS'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='PSI_LEAF_CW_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
@@ -892,7 +892,7 @@ CASE(psi_solver_newton)
   ! -dE/dpsi_leaf returned in leaf_k. The single-segment code below is left
   ! unchanged for the default case.
   IF ( l_som_plant_segments ) THEN
-    CALL leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts,           &
+    CALL psi_leaf_segments_jls( pft, n_e_leaf, land_pts, open_pnts,           &
                                 veg_index, open_index, e_leaf, root_zone_psi,  &
                                 kmax, kcrit, leaf_psi, leaf_k )
   ELSE
@@ -992,15 +992,15 @@ CASE(psi_solver_newton)
   END IF  ! l_som_plant_segments
 
 ! ---------------------------------------------------------------------
-! Invert the tabulated supply function; see leaf_psi_lut_jls.
+! Invert the tabulated supply function; see psi_leaf_lut_jls.
 ! ---------------------------------------------------------------------
 CASE(psi_solver_lut)
   IF ( l_som_plant_segments ) THEN
-    CALL leaf_psi_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,       &
+    CALL psi_leaf_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,       &
                                     veg_index, open_index, e_leaf,            &
                                     root_zone_psi, kmax, leaf_psi, leaf_k )
   ELSE
-    CALL leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,     &
+    CALL psi_leaf_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,     &
                            open_index, e_leaf, root_zone_psi, kmax,           &
                            leaf_psi, leaf_k )
   END IF  ! l_som_plant_segments
@@ -1014,7 +1014,7 @@ END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
-END SUBROUTINE leaf_psi_CW_jls
+END SUBROUTINE psi_leaf_CW_jls
 
 
 ! *****************************************************************************
@@ -1027,7 +1027,7 @@ END SUBROUTINE leaf_psi_CW_jls
 ! as for the Newton-Raphson solve. Has no automatic arrays, so it is cheap to
 ! call for a single sample per point.
 ! *****************************************************************************
-SUBROUTINE leaf_psi_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index, &
+SUBROUTINE psi_leaf_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index, &
                                 open_index, e_leaf, root_zone_psi, kmax,       &
                                 leaf_psi, leaf_k )
 
@@ -1067,12 +1067,12 @@ DO j = 1, open_pnts
   END DO
 END DO
 
-END SUBROUTINE leaf_psi_lut_jls
+END SUBROUTINE psi_leaf_lut_jls
 
 ! *****************************************************************************
 ! Memory xylem impairment model (pft_xylem_impairment_model = 3) without
 ! segments, from the supply-function table (psi_solver_lut): the capped
-! curve k(psi) = MIN(kmax f(psi), kc) of leaf_psi_impaired_memory, inverted
+! curve k(psi) = MIN(kmax f(psi), kc) of psi_leaf_impaired_memory, inverted
 ! exactly from the intact PFT table. With psi_s where the intact curve
 ! meets the cap (f(psi_s) = kc/kmax), the flow from psi_r is carried at the
 ! constant conductance kc down to psi_s, e_cap = kc (psi_r - psi_s) if
@@ -1080,13 +1080,13 @@ END SUBROUTINE leaf_psi_lut_jls
 !   E <= e_cap:  psi_l = psi_r - E / kc                     (exact)
 !   E >  e_cap:  S(psi_l) = S(psi_top) + (E - e_cap) / kmax, psi_top =
 !                MIN(psi_r, psi_s)                          (one inversion)
-! as the Newton-Raphson of leaf_psi_impaired_memory solves. leaf_k is the
+! as the Newton-Raphson of psi_leaf_impaired_memory solves. leaf_k is the
 ! capped conductance at psi_l floored at kcrit, as there. The curve must be
 ! the PFT's (the table's): b and c are not changed by the memory model.
 !
 ! MDK, 18/10/26
 ! *****************************************************************************
-SUBROUTINE leaf_psi_capped_lut_jls( pft, n_e_leaf, land_pts, open_pnts,        &
+SUBROUTINE psi_leaf_capped_lut_jls( pft, n_e_leaf, land_pts, open_pnts,        &
                                     veg_index, open_index, e_leaf,             &
                                     root_zone_psi, kmax_ref, kcap, kcrit,      &
                                     leaf_psi, leaf_k )
@@ -1154,12 +1154,12 @@ DO j = 1, open_pnts
   END DO
 END DO
 
-END SUBROUTINE leaf_psi_capped_lut_jls
+END SUBROUTINE psi_leaf_capped_lut_jls
 
 ! *****************************************************************************
 ! Leaf water potential (Pa) from the supply-function table, for root zone
 ! potential psi_root (Pa) and normalised demand e_over_kmax = e_leaf/kmax (Pa):
-! solves S(psi_l) = S(psi_r) + e_over_kmax. See leaf_psi_lut_jls.
+! solves S(psi_l) = S(psi_r) + e_over_kmax. See psi_leaf_lut_jls.
 ! *****************************************************************************
 FUNCTION supply_lut_psi( pft, psi_root, e_over_kmax ) RESULT( psi_l )
 
@@ -1553,7 +1553,7 @@ END SUBROUTINE build_supply_lut
 ! starting from dpsi_root_zone/dE = 0. With no flow 1/k = sum_s 1/k_s(psi);
 ! a single segment gives k = k(psi_leaf) (the default model).
 ! *****************************************************************************
-SUBROUTINE leaf_psi_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
+SUBROUTINE psi_leaf_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
                                   veg_index, open_index, e_leaf,               &
                                   root_zone_psi, kmax, kcrit,                  &
                                   leaf_psi, leaf_k,                            &
@@ -1887,10 +1887,10 @@ CONTAINS
   END IF
   END FUNCTION seg_a
 
-END SUBROUTINE leaf_psi_segments_jls
+END SUBROUTINE psi_leaf_segments_jls
 
 ! *****************************************************************************
-! As leaf_psi_segments_jls, with each segment solved from its supply-function
+! As psi_leaf_segments_jls, with each segment solved from its supply-function
 ! table instead of Newton-Raphson (psi_solver_lut): segment s carries
 !   E = kmax_s * ( S_s(psi_out) - S_s(psi_in) ),  kmax_s = kmax * seg_kfac,
 ! so psi_out = S_s^-1( S_s(psi_in) + E / kmax_s ), downstream from
@@ -1901,7 +1901,7 @@ END SUBROUTINE leaf_psi_segments_jls
 ! is ~0, so the state is rejected as infeasible (k <= kcrit).
 !
 ! Xylem impairment (memory model with segments; kcap_frac present): as
-! leaf_psi_segments_jls, the stem and leaf segments are capped at a fraction
+! psi_leaf_segments_jls, the stem and leaf segments are capped at a fraction
 ! fr of their kmax_s (ximpair_seg_frac), the root is intact. The capped
 ! integral is
 !   A_s(psi) = fr kmax_s (-psi)                                psi >= psi_cap
@@ -1919,7 +1919,7 @@ END SUBROUTINE leaf_psi_segments_jls
 !
 ! MDK, 18/10/26
 ! *****************************************************************************
-SUBROUTINE leaf_psi_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
+SUBROUTINE psi_leaf_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
                                       veg_index, open_index, e_leaf,           &
                                       root_zone_psi, kmax, leaf_psi, leaf_k,   &
                                       kcap_frac, leaf_k_intact, stem_psi )
@@ -1935,7 +1935,7 @@ INTEGER, INTENT(IN) :: veg_index(land_pts), open_index(land_pts)
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   e_leaf(n_e_leaf, open_pnts), root_zone_psi(land_pts), kmax(land_pts)
-      ! As leaf_psi_segments_jls.
+      ! As psi_leaf_segments_jls.
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_psi(n_e_leaf, open_pnts), leaf_k(n_e_leaf, open_pnts)
@@ -1944,7 +1944,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
   kcap_frac(land_pts)
       ! Impaired / intact maximum conductance of the stem (and leaf) segment,
-      ! as leaf_psi_segments_jls (kmax is then the intact value).
+      ! as psi_leaf_segments_jls (kmax is then the intact value).
       !
       ! MDK, 18/10/26
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
@@ -1959,7 +1959,7 @@ INTEGER, PARAMETER :: n_seg = 3
 
 REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
       ! Floor on a segment's conductance, as a fraction of its kmax (as
-      ! leaf_psi_segments_jls).
+      ! psi_leaf_segments_jls).
 
 INTEGER :: i, j, l, iseg
 LOGICAL :: l_cap, l_impair
@@ -1981,7 +1981,7 @@ DO j = 1, open_pnts
     dpsi_de = 0.0
     dpsi_de_int = 0.0
     ! l_som_rhizo_series: soil link ahead of the root segment (as
-    ! leaf_psi_segments_jls).
+    ! psi_leaf_segments_jls).
     IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
       k_s = ksr_path(l)
       IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
@@ -2008,7 +2008,7 @@ DO j = 1, open_pnts
       bs  = conductance_b_seg(pft,iseg)
       cs  = conductance_c_seg(pft,iseg)
       ! Cap on the stem and leaf segments (not the root), as
-      ! leaf_psi_segments_jls.
+      ! psi_leaf_segments_jls.
       !
       ! MDK, 18/10/26
       l_cap = .FALSE.
@@ -2082,7 +2082,7 @@ DO j = 1, open_pnts
   END DO
 END DO
 
-END SUBROUTINE leaf_psi_segments_lut_jls
+END SUBROUTINE psi_leaf_segments_lut_jls
 
 ! *****************************************************************************
 ! Leaf-side water potential (Pa) of segment iseg for root-side psi_in (Pa) and

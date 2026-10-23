@@ -32,7 +32,7 @@ SUBROUTINE physiol (                                                           &
   n_root,n_stem,lai_bal,                                                       &
   smc_soilt,wt_ext_surft,fsmc_pft,                                             &
   albsoil_soilt,cos_zenith_angle,                                              &
-  can_rad_mod,ilayers,leaf_flux_mod,som_base_parm,                             &
+  can_rad_mod,ilayers,leaf_flux_mod,                                           &
   flux_o3_pft,fo3_pft,sf_diag,asteps_since_triffid,                            &
   non_lake_frac,                                                               &
   !SUGAR variables
@@ -460,9 +460,6 @@ INTEGER ::                                                                     &
 !                                !No of layers in canopy radiation model
 ,leaf_flux_mod                                                                 &
 !                                !Switch for leaf flux model JBaguley
-,som_base_parm                                                                 &
-!                                !Switch for stomatal optimisation base
-!                                !  physical parameter.
 ,albpft_call = imdi
 !                                !Flag for albpft, scaling to obs
 
@@ -1336,7 +1333,7 @@ DO n = 1,npft
     ! ground area per metre of head (kg m-3 s-1); / (rho_water g) gives
     ! kg m-2 s-1 Pa-1 and / m_h2o mol m-2 s-1 Pa-1, the units of
     ! kmax_pft * LAI. It is kept apart from kmax: sf_stom shares it between
-    ! the leaf paths (set_ksr_path) and leaf_psi_jls puts it in series.
+    ! the leaf paths (set_ksr_path) and psi_leaf_jls puts it in series.
     !-------------------------------------------------------------------------
     IF ( l_som_rhizo_series ) THEN
       IF ( .NOT. ALLOCATED(ksr) ) ALLOCATE(ksr(land_pts))
@@ -1565,7 +1562,7 @@ DO n = 1,npft
 ,               canht_pft(:,n),pstar_land                                      &
 ,               q1_land,ra,tstar,o3,t_home_gb,t_growth_gb                      &
 ,               psi_root_zone_pft(:,n),e_supply,gsoil_can_air                  &
-,               can_rad_mod,ilayers,leaf_flux_mod,som_base_parm,faparv         &
+,               can_rad_mod,ilayers,leaf_flux_mod,faparv                       &
 ,               lwp_c_pft(:,n)                                                 &
 ,               el_pft(:,n),gpp_pft(:,n),npp_pft(:,n),resp_p_pft(:,n)          &
 ,               resp_l_pft(:,n),resp_r_pft(:,n),resp_w_pft(:,n)                &

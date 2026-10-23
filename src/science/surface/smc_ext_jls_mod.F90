@@ -298,8 +298,8 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
   ! the soil to root resistivity.
   !
   ! Reference: Bonan et al. (2014), full citation in soil_to_root_conductance
-  ! Note: This implimentation dose not use the root to stem conductance
-  !       (equation A24) when calculating the below ground resitivity
+  ! Note: This implementation does not use the root to stem conductance
+  !       (equation A24) when calculating the below ground resistivity
   !       (equation A25) only the soil to root conductance (equation A23).
   !
   ! Jake Baguley 16/11/23
@@ -543,8 +543,8 @@ ELSE
     psi_root_zone = calc_weighted_mean(npnts, nshyd, surft_pts, surft_index,   &
                                        psi, wt_ext)
 
-    ! If the root zone water potential is zero then realculate it weighted by
-    ! the layer height. This occurs when fsmc, and subsiquently wt_ext, is zero
+    ! If the root zone water potential is zero then recalculate it weighted by
+    ! the layer height. This occurs when fsmc, and subsequently wt_ext, is zero
     !for all layers.
     soil_weights(:) = dzsoil(:) / SUM(dzsoil(:))
     DO i = 1,npnts

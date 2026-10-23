@@ -52,7 +52,7 @@ SUBROUTINE sf_stom  (land_pts,land_index                                       &
 ,                    canht,pstar                                               &
 ,                    q1,ra,tstar,o3,t_home_gb,t_growth_gb,psi_root_zone        &
 ,                    e_supply,gsoil_can                                        &
-,                    can_rad_mod,ilayers,leaf_flux_mod,som_base_parm,faparv    &
+,                    can_rad_mod,ilayers,leaf_flux_mod,faparv                  &
 ,                    lwp_c                                                     &
 ,                    el,gpp,npp,resp_p,resp_l,resp_r,resp_w                    &
 ,                    growth_sug, f_nsc                                         &
@@ -148,8 +148,7 @@ USE veg3_field_mod, ONLY: veg_state_type
 USE sugar_mod, ONLY: sugar
 
 
-USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_call,                   &
-                            som_lambda_eff_pft, stom_opt_at_e
+USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_eff_pft, stom_opt_at_e
                             ! MDK, 23/10/26
 USE cuticular_leak_state_mod, ONLY: cut_w_store, cut_psi_stem,               &
                                     cut_q_store, cut_c_store, cut_m_h2o,       &
@@ -175,7 +174,7 @@ USE jules_vegetation_mod, ONLY: discrimination_model, discrimination_off
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft, d13c_disc_alloc, d13c_disc_leaf
 
 
-USE xylem_hydraulics_jls_mod, ONLY: leaf_psi_jls
+USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
 USE xylem_hydraulics_CW_jls_mod, ONLY: k_path_zero_flow   ! MDK, 23/10/26
 USE xylem_hydraulics_CW_jls_mod, ONLY: set_ksr_path, ksr,                     &
                                        set_k_ground_basis, kplant_scale
@@ -221,11 +220,8 @@ INTEGER, INTENT(IN) ::                                                         &
 !                           !Switch for canopy radiation model
  ,ilayers                                                                      &
 !                           !No of layers in canopy radiation model
- ,leaf_flux_mod                                                                &
+ ,leaf_flux_mod
 !                           !Switch for leaf flux model
- ,som_base_parm
-!                           !Switch for stomatal optimisation model base
-!                           !   physical parameter.
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
  co2                                                                           &
@@ -745,10 +741,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
 REAL(KIND=real_jlslsm) :: je_dummy(land_pts), fapar_dummy(land_pts)
 REAL(KIND=real_jlslsm) :: lam_sun(land_pts), lam_shd(land_pts)
                             ! Two-leaf: dA/dE at the optimum of the sunlit
-                            ! and shaded leaves (som_lambda_call), for the
-                            ! diagnostic som_lambda_eff_pft.
+                            ! and shaded leaves (lambda_eff of stom_opt_mod),
+                            ! for the diagnostic som_lambda_eff_pft.
                             !
-                            ! MDK, 22/10/26
+                            ! MDK, 23/10/26
 REAL(KIND=real_jlslsm) :: kmax_per_lyr(land_pts), kcrit_per_lyr(land_pts)
                             ! kcrit_per_lyr scales kcrit(ft) by the same
                             ! fraction of whole-plant kmax that each layer
@@ -1170,7 +1166,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                             ! association and could read out of bounds.
 LOGICAL :: l_multilayer
 ! veg_pts_index is the trivial (1,2,3,...) map into veg_index that makes
-! leaf_psi_jls's veg_index(open_index(j)) indexing select veg_index(j)
+! psi_leaf_jls's veg_index(open_index(j)) indexing select veg_index(j)
 ! directly, i.e. every vegetated point.
 INTEGER :: veg_pts_index(land_pts)
 REAL(KIND=real_jlslsm) :: k_eff(land_pts)
@@ -2356,14 +2352,14 @@ CASE ( 5, 6 )
                   ! Sunlit, then shaded leaf of the layer, each at its own
                   ! leaf temperature (MDK, 21/10/26).
                   CALL ml_class( vcmax_sun_ml, kc_sun_lt, ko_sun_lt,          &
-                                 ccp_sun_lt, km_sun_lt, dq_sun_lt, qs_sun_lt,  &
+                                 ccp_sun_lt, km_sun_lt, dq_sun_lt,             &
                                  je_sun_ml, t_sun_lt, ones_c, fapar_sun(:,n),  &
                                  rd_sun, ci_sun_ml, anetl_sun, el_sun,         &
                                  flux_o3_l_sun, fo3_l_sun, gl_sun,             &
                                  psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,     &
                                  psi_stem_sun )
                   CALL ml_class( vcmax_shd_ml, kc_shd_lt, ko_shd_lt,          &
-                                 ccp_shd_lt, km_shd_lt, dq_shd_lt, qs_shd_lt,  &
+                                 ccp_shd_lt, km_shd_lt, dq_shd_lt,             &
                                  je_shd_ml, t_shd_lt, ones_c, fapar_shd(:,n),  &
                                  rd_shd, ci_shd_ml, anetl_shd, el_shd,         &
                                  flux_o3_l_shd, fo3_l_shd, gl_shd,             &
@@ -2372,13 +2368,13 @@ CASE ( 5, 6 )
                 ELSE
                 ! share_sup: this layer's kmax share, set with kmax_leaf_lyr.
                 ! Added gs opt calls for sunlit and shaded, 29 Apr, MGDK
-                CALL ml_class( vcmax, kc, ko, ccp, km, dqc, qs, je, tstar,     &
+                CALL ml_class( vcmax, kc, ko, ccp, km, dqc, je, tstar,         &
                                je_sun_ratio, fapar_sun(:,n),                   &
                                rd_sun, ci_sun_ml, anetl_sun, el_sun,           &
                                flux_o3_l_sun, fo3_l_sun, gl_sun,               &
                                psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,       &
                                psi_stem_sun )
-                CALL ml_class( vcmax, kc, ko, ccp, km, dqc, qs, je, tstar,     &
+                CALL ml_class( vcmax, kc, ko, ccp, km, dqc, je, tstar,         &
                                je_shd_ratio, fapar_shd(:,n),                   &
                                rd_shd, ci_shd_ml, anetl_shd, el_shd,           &
                                flux_o3_l_shd, fo3_l_shd, gl_shd,               &
@@ -3093,7 +3089,7 @@ CASE ( 1 )
        ! leaf area (mol m-2 s-1 Pa-1), as estimated from site data
        ! (E / (LAI * (psi_predawn - psi_midday)) on well-watered days) and
        ! as used by CABLE. e_leaf passed into stom_opt_mod is canopy scale
-       ! (per m2 ground), so the conductance must be too, or leaf_psi_jls
+       ! (per m2 ground), so the conductance must be too, or psi_leaf_jls
        ! solves psi_leaf = psi_root - e_leaf/k against too small a k. All
        ! leaves draw on the plant's conductance in parallel, so the canopy
        ! value is kmax_pft * LAI. This used to be kmax_pft * fpar, the
@@ -3140,10 +3136,10 @@ CASE ( 1 )
 
        CALL stom_opt_mod (                                                  &
               ! IN
-                land_pts, som_base_parm, ft, open_pts, open_index,           &
+                land_pts, ft, open_pts, open_index,                            &
                 pft_photo_model, veg_pts, veg_index,                         &
                 ca, psi_src, acrc, apar, oa, vcmaxc, kc, ko, ccp, pstar,      &
-                km, dq_opt, qs, je, tstar, je_dummy, fapar_dummy,            &
+                km, dq_opt, je, tstar, je_dummy, fapar_dummy,                  &
                 kmax_bigleaf, kcrit_bigleaf, gl_max_eff, ipar,               &
                 l_multilayer, zero_c, r_ca_c, g_soil_c,                      &
                 kmax_ref_bigleaf, conductance_b, conductance_c,              &
@@ -3189,7 +3185,7 @@ CASE ( 1 )
           IF ( n_tgt > 0 )                                                     &
             CALL stom_opt_at_e( land_pts, ft, n_tgt, idx_tgt, pft_photo_model, &
                                 veg_index, rdc, ca, psi_src, acrc, apar, oa,   &
-                                vcmaxc, kc, ko, ccp, pstar, km, dq_opt, qs,    &
+                                vcmaxc, kc, ko, ccp, pstar, km, dq_opt,        &
                                 je, tstar, je_dummy, fapar_dummy, ipar,        &
                                 kmax_bigleaf, kcrit_bigleaf, gl_max_eff,       &
                                 l_multilayer, zero_c, r_ca_c, g_soil_c,        &
@@ -3562,9 +3558,7 @@ CASE ( 7 )
                          km_sun_lt, je_sun, kmax_sun_2l, kcrit_sun_2l,         &
                          rd_sun, ci_sun_2l, anetl_sun, el_sun,                 &
                          flux_o3_l_sun, fo3_l_sun, gl_sun, psi_leaf_sun,       &
-                         CG_sun, HC_sun, leaf_k_sun, psi_stem_sun )
-    lam_sun(:) = 0.0
-    IF ( ALLOCATED(som_lambda_call) ) lam_sun(:) = som_lambda_call(:)
+                         CG_sun, HC_sun, leaf_k_sun, psi_stem_sun, lam_sun )
     CALL two_leaf_class( apar_shd_2l, lai_shd_2l, kmax_ref_shd_2l,            &
                          qs_shd_lt, dq_shd_lt, gbw_shd_lt, gbw_sun_lt,         &
                          gl_sun, t_shd_lt, gl_max_shd_2l, acr_shd_2l,          &
@@ -3572,9 +3566,7 @@ CASE ( 7 )
                          km_shd_lt, je_shd, kmax_shd_2l, kcrit_shd_2l,         &
                          rd_shd, ci_shd_2l, anetl_shd, el_shd,                 &
                          flux_o3_l_shd, fo3_l_shd, gl_shd, psi_leaf_shd,       &
-                         CG_shd, HC_shd, leaf_k_shd, psi_stem_shd )
-    lam_shd(:) = 0.0
-    IF ( ALLOCATED(som_lambda_call) ) lam_shd(:) = som_lambda_call(:)
+                         CG_shd, HC_shd, leaf_k_shd, psi_stem_shd, lam_shd )
 
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -3806,7 +3798,7 @@ IF ( l_som_cuticular_loss .AND. stomata_model == stomata_desica ) THEN
     END DO
   END DO
   IF ( ANY(l_cut(veg_index(1:veg_pts))) ) THEN
-    CALL leaf_psi_jls( ft, n_cut, land_pts, veg_pts, veg_index,                &
+    CALL psi_leaf_jls( ft, n_cut, land_pts, veg_pts, veg_index,                &
                        veg_pts_index, e_cut, psi_src,                          &
                        kmax_cut, kcrit_cut, conductance_b, conductance_c,      &
                      ! OUT
@@ -4663,7 +4655,7 @@ END SUBROUTINE store_commit
 !
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
-SUBROUTINE ml_class( vcmax_x, kc_x, ko_x, ccp_x, km_x, dq_x, qs_x, je_x,      &
+SUBROUTINE ml_class( vcmax_x, kc_x, ko_x, ccp_x, km_x, dq_x, je_x,             &
                      t_x, je_ratio_x, fapar_x, rd_c, ci_c, anetl_c, el_c,     &
                      flux_o3_c, fo3_c, gl_c, psi_leaf_c, cg_c, hc_c,          &
                      leaf_k_c, psi_stem_c )
@@ -4671,7 +4663,7 @@ IMPLICIT NONE
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
   vcmax_x(land_pts), kc_x(land_pts), ko_x(land_pts), ccp_x(land_pts),         &
-  km_x(land_pts), dq_x(land_pts), qs_x(land_pts), je_x(land_pts),             &
+  km_x(land_pts), dq_x(land_pts), je_x(land_pts),                              &
   t_x(land_pts), je_ratio_x(land_pts), fapar_x(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: rd_c(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                     &
@@ -4698,10 +4690,10 @@ CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply, share_sup,  &
 CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 CALL stom_opt_mod (                                                            &
     ! IN
-    land_pts, som_base_parm, ft, open_pts, open_index,                         &
+    land_pts, ft, open_pts, open_index,                                        &
     pft_photo_model, veg_pts, veg_index,                                       &
     ca, psi_src, acr, apar, oa, vcmax_x, kc_x, ko_x, ccp_x, pstar,             &
-    km_x, dq_x, qs_x, je_x, t_x, je_ratio_x, fapar_x,                          &
+    km_x, dq_x, je_x, t_x, je_ratio_x, fapar_x,                                &
     kmax_imp_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,                            &
     l_multilayer, zero_c, zero_c, zero_c,                                      &
     kmax_leaf_lyr, b_pft_pts, c_pft_pts,                                       &
@@ -4736,7 +4728,7 @@ IF ( ml_tank_pass ) THEN
   IF ( n_tgt > 0 )                                                             &
     CALL stom_opt_at_e( land_pts, ft, n_tgt, idx_tgt, pft_photo_model,         &
                         veg_index, rd_c, ca, psi_src, acr, apar, oa, vcmax_x,  &
-                        kc_x, ko_x, ccp_x, pstar, km_x, dq_x, qs_x, je_x, t_x, &
+                        kc_x, ko_x, ccp_x, pstar, km_x, dq_x, je_x, t_x,       &
                         je_ratio_x, fapar_x, ipar, kmax_imp_lyr,               &
                         kcrit_leaf_lyr, gl_max_eff, l_multilayer, zero_c,      &
                         zero_c, zero_c, kmax_leaf_lyr, b_pft_pts, c_pft_pts,   &
@@ -4763,7 +4755,7 @@ SUBROUTINE two_leaf_class( apar_c, lai_c, kmax_ref_c, qs_lt_c, dq_lt_c,       &
                            vcmax_c, kc_lt_c, ko_lt_c, ccp_lt_c, km_lt_c,      &
                            je_c, kmax_c, kcrit_c, rd_c, ci_c, anetl_c, el_c,  &
                            flux_o3_c, fo3_c, gl_c, psi_leaf_c, cg_c, hc_c,    &
-                           leaf_k_c, psi_stem_c )
+                           leaf_k_c, psi_stem_c, lam_c )
 IMPLICIT NONE
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                         &
@@ -4781,6 +4773,11 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                     &
                             ! OUT from stom_opt_mod; IN OUT here so that
                             ! points it does not set keep their values, as
                             ! with the arrays passed directly before.
+REAL(KIND=real_jlslsm), INTENT(OUT) :: lam_c(land_pts)
+                            ! dA/dE at the optimum (lambda_eff of
+                            ! stom_opt_mod; 0 where not set).
+                            !
+                            ! MDK, 23/10/26
 
 INTEGER :: i, l, m
 
@@ -4819,11 +4816,11 @@ IF ( l_leaf_temp ) THEN
   CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
   CALL stom_opt_mod (                                                          &
           ! IN
-            land_pts, som_base_parm, ft, open_pts, open_index,                 &
+            land_pts, ft, open_pts, open_index,                                &
             pft_photo_model, veg_pts, veg_index,                               &
             ca, psi_src, acr_c, apar_c, oa, vcmax_c,                           &
             kc_lt_c, ko_lt_c, ccp_lt_c, pstar,                                 &
-            km_lt_c, dq_opt, qs_lt_c, je_c, t_lt_c, je_dummy,                  &
+            km_lt_c, dq_opt, je_c, t_lt_c, je_dummy,                           &
             fapar_dummy,                                                       &
             kmax_c, kcrit_c, gl_max_eff, ipar,                                 &
             l_multilayer, r_bl_c, r_ca_c, g_oth_c,                             &
@@ -4834,7 +4831,7 @@ IF ( l_leaf_temp ) THEN
           ! OUT
             ci_c, anetl_c, el_c, flux_o3_c, fo3_c,                             &
             gl_c, psi_leaf_c, cg_c, hc_c, leaf_k_c,                            &
-            psi_stem = psi_stem_c,                                             &
+            psi_stem = psi_stem_c, lambda_eff = lam_c,                         &
             lai_cost = lai_c                                                   &
     )
 ELSE
@@ -4844,11 +4841,11 @@ ELSE
   CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
   CALL stom_opt_mod (                                                          &
           ! IN
-            land_pts, som_base_parm, ft, open_pts, open_index,                 &
+            land_pts, ft, open_pts, open_index,                                &
             pft_photo_model, veg_pts, veg_index,                               &
             ca, psi_src, acr_c, apar_c, oa, vcmax_c,                           &
             kc, ko, ccp, pstar,                                                &
-            km, dq_opt, qs, je_c, tstar, je_dummy, fapar_dummy,                &
+            km, dq_opt, je_c, tstar, je_dummy, fapar_dummy,                    &
             kmax_c, kcrit_c, gl_max_eff, ipar,                                 &
             l_multilayer, r_bl_c, r_ca_c, g_oth_c,                             &
             kmax_ref_c, conductance_b, conductance_c,                          &
@@ -4858,7 +4855,7 @@ ELSE
           ! OUT
             ci_c, anetl_c, el_c, flux_o3_c, fo3_c, gl_c,                       &
             psi_leaf_c, cg_c, hc_c, leaf_k_c,                                  &
-            psi_stem = psi_stem_c,                                             &
+            psi_stem = psi_stem_c, lambda_eff = lam_c,                         &
             lai_cost = lai_c                                                   &
     )
 END IF
@@ -5174,7 +5171,7 @@ IF ( l_leaf_temp ) THEN
   CALL stom_opt_at_e( land_pts, ft, open_pts, open_index, pft_photo_model,    &
                       veg_index, rd_c, ca, psi_src, acr_c, apar_c, oa,        &
                       vcmax_c, kc_lt_c, ko_lt_c, ccp_lt_c, pstar, km_lt_c,    &
-                      dq_opt, qs_lt_c, je_c, t_lt_c, je_dummy, fapar_dummy,   &
+                      dq_opt, je_c, t_lt_c, je_dummy, fapar_dummy,             &
                       ipar, kmax_c, kcrit_c, gl_max_eff, l_multilayer,        &
                       r_bl_c, r_ca_c, g_oth_c, kmax_ref_c, conductance_b,     &
                       conductance_c, psi_leaf_extreme, psi_root_extreme,      &
@@ -5186,7 +5183,7 @@ ELSE
   CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
   CALL stom_opt_at_e( land_pts, ft, open_pts, open_index, pft_photo_model,    &
                       veg_index, rd_c, ca, psi_src, acr_c, apar_c, oa,        &
-                      vcmax_c, kc, ko, ccp, pstar, km, dq_opt, qs, je_c,      &
+                      vcmax_c, kc, ko, ccp, pstar, km, dq_opt, je_c,           &
                       tstar, je_dummy, fapar_dummy, ipar, kmax_c, kcrit_c,    &
                       gl_max_eff, l_multilayer, r_bl_c, r_ca_c, g_oth_c,      &
                       kmax_ref_c, conductance_b, conductance_c,               &

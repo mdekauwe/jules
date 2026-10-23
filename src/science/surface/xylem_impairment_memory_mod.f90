@@ -16,7 +16,7 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_IMPAIRMENT_MEMORY_MOD'
 
 PUBLIC :: ximpair_memory_alloc,                                                &
           leaf_conductance_impaired_memory_jls,                                &
-          leaf_psi_impaired_memory,                                            &
+          psi_leaf_impaired_memory,                                            &
           update_xylem_impairment_memory,                                      &
           ximpair_store_npp
 
@@ -184,8 +184,8 @@ END FUNCTION k_intact
 
 ! ---------------------------------------------------------------------
 ! A(psi) such that the intact-curve integral of k from psi_1 to psi_2 is
-! A(psi_1) - A(psi_2) (see the psi_aprox_NR branches of leaf_psi_CW_jls /
-! leaf_psi_SOX_jls).
+! A(psi_1) - A(psi_2) (see the psi_aprox_NR branches of psi_leaf_CW_jls /
+! psi_leaf_SOX_jls).
 ! ---------------------------------------------------------------------
 FUNCTION antideriv( pft, n, psi, kmax, b, c ) RESULT( a )
 
@@ -257,11 +257,13 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   water_potential(land_pnts)                                                   &
                             ! Water potential for each land point (Pa)
 , kmax_ref(land_pnts)                                                          &
-                            ! Unimpaired maximum xylem conductance (m/s)
+                            ! Unimpaired maximum xylem conductance
+                            ! (mol m-2 s-1 Pa-1)
 , kcap(land_pnts)                                                              &
-                            ! Conductance cap, kmax * (1 - PLC_mem) (m/s)
+                            ! Conductance cap, kmax * (1 - PLC_mem)
+                            ! (mol m-2 s-1 Pa-1)
 , kcrit(land_pnts)                                                             &
-                            ! Critical xylem conductance (m/s)
+                            ! Critical xylem conductance (mol m-2 s-1 Pa-1)
 , conductance_b(land_pnts)                                                     &
                             ! Conductance parameter b (Pa)
 , conductance_c(land_pnts)
@@ -269,7 +271,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_k(land_pnts)
-                            ! Leaf conductance for each land point (m/s)
+                            ! Leaf conductance for each land point
+                            ! (mol m-2 s-1 Pa-1)
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -293,7 +296,7 @@ END SUBROUTINE leaf_conductance_impaired_memory_jls
 ! evaluated exactly (see the module header) and solved by Newton-Raphson,
 ! independently of som_psi_aprox_method.
 ! ---------------------------------------------------------------------
-SUBROUTINE leaf_psi_impaired_memory( pft,                                      &
+SUBROUTINE psi_leaf_impaired_memory( pft,                                      &
                                      n_e_leaf,                                 &
                                      land_pnts,                                &
                                      open_pnts,                                &
@@ -315,7 +318,7 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_lut
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
-USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_capped_lut_jls
+USE xylem_hydraulics_CW_jls_mod, ONLY: psi_leaf_capped_lut_jls
 ! MDK, 18/10/26
 
 INTEGER, INTENT(IN) ::                                                         &
@@ -335,7 +338,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_psi(n_e_leaf, open_pnts)                                                &
                             ! Leaf water potential for each open point (Pa)
 , leaf_k(n_e_leaf, open_pnts)
-                            ! Leaf conductance for each open point (m/s)
+                            ! Leaf conductance for each open point
+                            ! (mol m-2 s-1 Pa-1)
 
 ! Local variables
 INTEGER :: i, j, l
@@ -366,12 +370,12 @@ REAL(KIND=real_jlslsm), PARAMETER :: psi_tol = 1.0
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_PSI_IMPAIRED_MEMORY'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='PSI_LEAF_IMPAIRED_MEMORY'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! som_psi_solver = 3: the same capped curve inverted exactly from the PFT's
-! supply table (leaf_psi_capped_lut_jls), when every open point is on the
+! supply table (psi_leaf_capped_lut_jls), when every open point is on the
 ! PFT curve (b, c), which the memory model does not change.
 ! MDK, 18/10/26
 IF ( som_psi_solver == psi_solver_lut ) THEN
@@ -382,7 +386,7 @@ IF ( som_psi_solver == psi_solver_lut ) THEN
          conductance_c(l) /= conductance_c_pft(pft) ) l_pft_curve = .FALSE.
   END DO
   IF ( l_pft_curve ) THEN
-    CALL leaf_psi_capped_lut_jls( pft, n_e_leaf, land_pnts, open_pnts,         &
+    CALL psi_leaf_capped_lut_jls( pft, n_e_leaf, land_pnts, open_pnts,         &
                                   veg_index, open_index, e_leaf,               &
                                   root_zone_psi, kmax_ref, kcap, kcrit,        &
                                   leaf_psi, leaf_k )
@@ -458,7 +462,7 @@ END DO
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
-END SUBROUTINE leaf_psi_impaired_memory
+END SUBROUTINE psi_leaf_impaired_memory
 
 ! ---------------------------------------------------------------------
 ! Update the conductance cap (leaf basis): recovery, then damage.

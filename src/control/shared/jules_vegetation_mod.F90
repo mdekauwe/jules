@@ -256,9 +256,9 @@ INTEGER, PARAMETER ::                                                          &
 INTEGER, PARAMETER ::                                                          &
   psi_solver_taylor = 1,                                                       &
     ! Use a zeroth order Taylor series expansion of the xylem conductence
-    ! model to aproximate leaf water potential from transpiration rate.
+    ! model to approximate leaf water potential from transpiration rate.
   psi_solver_newton = 2,                                                       &
-    ! Use the Newton Raphson method to aproximate leaf water potential
+    ! Use the Newton-Raphson method to approximate leaf water potential
      ! from transpiration rate.
   psi_solver_lut = 3
     ! Invert a per-PFT lookup table of the supply function (the integral
@@ -2517,12 +2517,31 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 25 ! +1 discrimination_model (MDK, 22/10/26), +1 kplant_model (MDK, 21/10/26), +1 ml_leaf_temp_model (MDK, 19/10/26), +1 ximpair_stomatal_response, +2 leaf_temp_iter/leaf_aero_model, was 16, +1 for som_n_ci_golden_iter,
+INTEGER, PARAMETER :: n_int = 25
+                                  ! +1 discrimination_model (MDK, 22/10/26), +1
+                                  ! kplant_model (MDK, 21/10/26), +1
+                                  ! ml_leaf_temp_model (MDK, 19/10/26), +1
+                                  ! ximpair_stomatal_response, +2
+                                  ! leaf_temp_iter/leaf_aero_model, was 16, +1
+                                  ! for som_n_ci_golden_iter,
                                  ! +2 for som_psi_solver/som_ci_search
-INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5) ! +1 leaf_wind_ext (MDK, 19/10/26), +1 sl_kfail_frac, +1 root_mass_min, +2 leaf_width/shelter, +4 for
+INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
+                                  ! +1 leaf_wind_ext (MDK, 19/10/26), +1
+                                  ! sl_kfail_frac, +1 root_mass_min, +2
+                                  ! leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 59 + npft_max ! +3 l_som_capacitance/plant_store (deprecated)/leak_capacitance_only (MDK 23/10/26), +1 l_trif_hydmort, +1 l_som_cuticular_floor (deprecated name, MDK 21/10/26), +1 l_nsc_wmax_norm, +1 l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2 l_ximpair_rec_nsc/l_triffid_nsc, +1 l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr, +1 l_som_coupled_e, +1 l_root_mass_fixed, +1 l_som_vcmax_psi, +1 l_leaf_coexp_lai,
+INTEGER, PARAMETER :: n_log = 59 + npft_max
+                                  ! +3 l_som_capacitance/plant_store
+                                  ! (deprecated)/leak_capacitance_only (MDK
+                                  ! 23/10/26), +1 l_trif_hydmort, +1
+                                  ! l_som_cuticular_floor (deprecated name, MDK
+                                  ! 21/10/26), +1 l_nsc_wmax_norm, +1
+                                  ! l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2
+                                  ! l_ximpair_rec_nsc/l_triffid_nsc, +1
+                                  ! l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr,
+                                  ! +1 l_som_coupled_e, +1 l_root_mass_fixed, +1
+                                  ! l_som_vcmax_psi, +1 l_leaf_coexp_lai,
                                   ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
                                   ! +1 for
                                   ! l_som_gain_gross, +1 for

@@ -14,7 +14,7 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_HYDRAULICS_JLS_MOD'
 
-PUBLIC :: leaf_conductance_jls, xylem_conductance_jls, leaf_psi_jls
+PUBLIC :: leaf_conductance_jls, xylem_conductance_jls, psi_leaf_jls
 
 CONTAINS
 
@@ -219,7 +219,7 @@ END SUBROUTINE xylem_conductance_jls
 !       It returns an output array that only contains values for points
 !       with open stomata.
 ! ---------------------------------------------------------------------
-SUBROUTINE leaf_psi_jls( pft,                                                  &
+SUBROUTINE psi_leaf_jls( pft,                                                  &
                          n_e_leaf,                                             &
                          land_pts,                                             &
                          open_pnts,                                            &
@@ -240,10 +240,10 @@ USE pftparm, ONLY: pft_conductance_model
 USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,               &
                                 som_psi_solver, psi_solver_lut,                &
                                 l_som_plant_segments, l_som_rhizo_series
-USE xylem_hydraulics_CW_jls_mod, ONLY: leaf_psi_CW_jls, leaf_psi_lut_jls,      &
+USE xylem_hydraulics_CW_jls_mod, ONLY: psi_leaf_CW_jls, psi_leaf_lut_jls,      &
                                        ksr_path, som_psi_in_min, xylem_f_bc,   &
                                        lut_pft_curve   ! MDK, 21/10/26
-USE xylem_hydraulics_SOX_jls_mod, ONLY: leaf_psi_SOX_jls
+USE xylem_hydraulics_SOX_jls_mod, ONLY: psi_leaf_SOX_jls
 
 USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
@@ -304,7 +304,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_PSI_JLS'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='PSI_LEAF_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
@@ -395,17 +395,17 @@ SELECT CASE ( pft_conductance_model(pft) )
 
 CASE ( CW_conductance )
   ! (Only on the PFT's curve: the table cannot follow a point's own b and
-  ! c, which leaf_psi_CW_jls then solves by Newton. MDK, 21/10/26)
+  ! c, which psi_leaf_CW_jls then solves by Newton. MDK, 21/10/26)
   IF ( som_psi_solver == psi_solver_lut .AND.                                 &
        .NOT. l_som_plant_segments .AND.                                       &
        lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,        &
                       conductance_b, conductance_c ) ) THEN
-    ! Direct call: skips leaf_psi_CW_jls's automatic work arrays.
-    CALL leaf_psi_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
+    ! Direct call: skips psi_leaf_CW_jls's automatic work arrays.
+    CALL psi_leaf_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
                            open_index, e_in, psi_root, kmax,                   &
                            psi_out, k_out )
   ELSE
-    CALL leaf_psi_CW_jls( pft, n_e, land_pts, open_pnts, veg_index,            &
+    CALL psi_leaf_CW_jls( pft, n_e, land_pts, open_pnts, veg_index,            &
                           open_index, e_in, psi_root, kmax, kcrit,             &
                           conductance_b, conductance_c,                        &
                        ! INTENT OUT
@@ -416,11 +416,11 @@ CASE ( SOX_conductance )
   IF ( som_psi_solver == psi_solver_lut .AND.                                 &
        lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,        &
                       conductance_b, conductance_c ) ) THEN   ! MDK, 21/10/26
-    CALL leaf_psi_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
+    CALL psi_leaf_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
                            open_index, e_in, psi_root, kmax,                   &
                            psi_out, k_out )
   ELSE
-    CALL leaf_psi_SOX_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
+    CALL psi_leaf_SOX_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
                            open_index, e_in, psi_root, kmax, kcrit,            &
                            conductance_b, conductance_c,                       &
                         ! INTENT OUT
@@ -436,6 +436,6 @@ END SELECT
 
 END SUBROUTINE plant_path
 
-END SUBROUTINE leaf_psi_jls
+END SUBROUTINE psi_leaf_jls
 
 END MODULE xylem_hydraulics_jls_mod
