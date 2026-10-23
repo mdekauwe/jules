@@ -663,6 +663,11 @@ REAL(KIND=real_jlslsm) :: sum(n_xf)
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: current_term(n_xf)
+LOGICAL :: l_active(n_xf)
+                            ! .TRUE. while this value's own series has not
+                            ! converged (as incomplete_gamma).
+                            !
+                            ! MDK, 23/10/26
 REAL(KIND=real_jlslsm) :: z(n_xf)
 INTEGER :: i
 
@@ -700,13 +705,17 @@ current_term = 1.0
 sum = 1.0
 
 ! Iterate over the sum: Tn = [n / (n-1+cf)] * z * Tn-1 (see derivation
-! above), until each point's remaining term is negligible relative to its
-! running sum.
+! above), each point until its own remaining term is negligible relative
+! to its running sum (as incomplete_gamma; MDK, 23/10/26).
+l_active(:) = .TRUE.
 DO i = 1, max_terms
-  current_term = current_term * i * z / (i - 1 + cf)
-  sum = sum + current_term
+  WHERE ( l_active )
+    current_term = current_term * i * z / (i - 1 + cf)
+    sum = sum + current_term
+    l_active = ABS(current_term) >= series_tol * ABS(sum)
+  END WHERE
 
-  IF (ALL(ABS(current_term) < series_tol * ABS(sum))) EXIT
+  IF ( .NOT. ANY(l_active) ) EXIT
 END DO
 
 ! Apply the (1-xf)^(-1) prefactor from the analytic continuation identity
@@ -737,6 +746,11 @@ REAL(KIND=real_jlslsm) :: sum(n_xf)
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: current_term(n_xf)
+LOGICAL :: l_active(n_xf)
+                            ! .TRUE. while this value's own series has not
+                            ! converged (as incomplete_gamma).
+                            !
+                            ! MDK, 23/10/26
 REAL(KIND=real_jlslsm) :: z(n_xf)
 INTEGER :: i
 
@@ -760,11 +774,15 @@ current_term = 1.0
 sum = 1.0
 
 ! Tn = [n / (n-1+cf)] * z * Tn-1 - see the derivation above SOX_2F1.
+l_active(:) = .TRUE.
 DO i = 1, max_terms
-  current_term = current_term * i * z / (i - 1 + cf)
-  sum = sum + current_term
+  WHERE ( l_active )
+    current_term = current_term * i * z / (i - 1 + cf)
+    sum = sum + current_term
+    l_active = ABS(current_term) >= series_tol * ABS(sum)
+  END WHERE
 
-  IF (ALL(ABS(current_term) < series_tol * ABS(sum))) EXIT
+  IF ( .NOT. ANY(l_active) ) EXIT
 END DO
 
 ! Apply the (1-xf)^(-1) prefactor - see SOX_2F1 above.

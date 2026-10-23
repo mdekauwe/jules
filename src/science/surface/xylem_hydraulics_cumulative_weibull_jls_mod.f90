@@ -727,6 +727,10 @@ REAL(KIND=real_jlslsm) :: gamma(n_x)
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: step(n_x)
+LOGICAL :: l_active(n_x)
+                            ! .TRUE. while x's own series has not converged.
+                            !
+                            ! MDK, 23/10/26
 INTEGER :: i
 
 ! Series convergence controls. NOTE: the series is only well conditioned
@@ -761,16 +765,23 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 step(:) = 1/a
 gamma(:) = step
 
-! Calculate series, iterating until every point's remaining term is
-! negligible relative to its running sum (see max_terms and series_tol
-! above).
+! Calculate the series. Each x stops adding terms once its own remaining
+! term is negligible relative to its running sum (see max_terms and
+! series_tol above), so its value does not depend on which other values
+! share the call. (It used to stop all of them together, when the last
+! had converged, so the same x could differ in the last bits between
+! calls.)
 !
-! MDK, 21/10/26
+! MDK, 23/10/26
+l_active(:) = .TRUE.
 DO i = 1, max_terms
-  step = step * x / (a + i)
-  gamma = gamma + step
+  WHERE ( l_active )
+    step = step * x / (a + i)
+    gamma = gamma + step
+    l_active = ABS(step) >= series_tol * ABS(gamma)
+  END WHERE
 
-  IF (ALL(ABS(step) < series_tol * ABS(gamma))) EXIT
+  IF ( .NOT. ANY(l_active) ) EXIT
 END DO
 
 ! Multiply by terms outside the sum

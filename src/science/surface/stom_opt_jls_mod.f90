@@ -16,7 +16,7 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='STOM_OPT_JLS_MOD'
 
 PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_bounded_search,  &
         stom_opt_supply_loss, g_eff_e
-PUBLIC stom_opt_mod, g_of_geff, som_path_psi, stom_opt_at_e
+PUBLIC stom_opt_mod, g_of_geff, som_path_psi, stom_opt_at_e, e_of_g
 
 ! Diagnostic marginal water price at the optimum, lambda_eff = dA/dE
 ! (mol CO2 per mol H2O; = umol per mmol x 1e-3), from the bounded Ci
@@ -1420,6 +1420,41 @@ END DO
 END SUBROUTINE stom_opt_at_e
 
 !-----------------------------------------------------------------------------
+! Transpiration E (mol H2O m-2 s-1) through conductance g (m s-1) at
+! specific-humidity deficit dq (kg kg-1), surface pressure pstar (Pa) and
+! temperature t (K): the molar density of air times the mole-fraction
+! deficit,
+!
+!   E = g (P / (R T)) (vpd / P) = g vpd / (R T),   vpd = dq P / repsilon
+!
+! The one copy used by the Ci searches and sf_stom (it was written four
+! ways, one dividing by pstar and multiplying it back).
+!
+! MDK, 23/10/26
+!-----------------------------------------------------------------------------
+ELEMENTAL FUNCTION e_of_g( g, dq, pstar, t ) RESULT( e )
+
+USE planet_constants_mod, ONLY: repsilon
+USE c_rmol, ONLY: rmol
+
+IMPLICIT NONE
+
+REAL(KIND=real_jlslsm), INTENT(IN) :: g
+                            ! Conductance (m s-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: dq
+                            ! Specific-humidity deficit (kg kg-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: pstar
+                            ! Surface pressure (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: t
+                            ! Temperature (K).
+REAL(KIND=real_jlslsm) :: e
+                            ! Transpiration (mol H2O m-2 s-1).
+
+e = dq * pstar / repsilon * g / (rmol * t)
+
+END FUNCTION e_of_g
+
+!-----------------------------------------------------------------------------
 ! Net photosynthesis A_n = W - rd (mol CO2 m-2 s-1) of one leaf state at
 ! internal CO2 ci (Pa): the one copy used by every Ci search
 ! (stom_opt_mod_ci, stom_opt_bounded_search, stom_opt_supply_loss). Based
@@ -1540,7 +1575,6 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_coupled_e
 
 USE jules_surface_mod, ONLY: ratio
 
-USE planet_constants_mod, ONLY: repsilon
 
 USE c_rmol, ONLY: rmol
 
@@ -1682,13 +1716,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! (entry 0): transpiration, leaf water
                             ! potential and xylem conductance.
 
-,vpd                                                                           &
-                            ! Vapour pressure deficit of a point (Pa).
-                            !
-                            ! MDK, 23/10/26
-,vpd_factor                                                                    &
-                            ! Factor used to convert specific humidity to
-                            ! vapour pressure.
 ,glco2_sample(0:n_sample, open_pts)                                            &
                             ! Leaf conductance for CO2 (m/s)
 ,conv                                                                          &
@@ -1788,40 +1815,18 @@ DO j = 1,open_pts
 END DO
 
 ! ----------------------------------------------------------------------------
-! Calculate transpiration rate.
-!   E = vpd * gl / pstar
+! Calculate transpiration rate (e_of_g): E = gl vpd / (R T).
+!
+! MDK, 23/10/26
 ! ----------------------------------------------------------------------------
-
-! Calculate the factor for converting specific humidity to vapour pressure.
-! Taken from leaf_limits_mod.F90, the 1.0e3 has been removed to give vpd
-! in Pa.
-vpd_factor = 1.0 / repsilon
-
 DO j = 1,open_pts
   l = veg_index(open_index(j))
-
-  ! Convert the specific humidity to vapour pressure. This formula is taken
-  ! from leaf_limits_mod.F90.
-  vpd = dq(l) * pstar(l) * vpd_factor
-
-  ! E (mol H2O m-2 s-1) = gl x molar density of air x mole-fraction
-  ! deficit:
-  !
-  !   E = gl (P / (R T)) (vpd / P) = gl vpd / (R T)
-  !
-  ! (The two lines below divide by pstar and multiply it back; the two
-  ! cancel.)
-  !
-  ! MDK, 23/10/26
-  el_sample(:,j) = vpd * gl_sample(:,j) / pstar(l)
-
-  el_sample(:,j) = el_sample(:,j) * pstar(l) / (rmol * t_leaf(l))
+  el_sample(:,j) = e_of_g(gl_sample(:,j), dq(l), pstar(l), t_leaf(l))
 
   ! Coupled: E = D g_eff(g), dq the deficit to the level-1 air.
-  IF ( l_som_coupled_e ) el_sample(:,j) = vpd                                  &
-       * g_eff_e(MAX(gl_sample(:,j), 0.0_real_jlslsm), r_bl(l), r_ca(l),       &
-                 g_oth(l)) / (rmol * t_leaf(l))
-
+  IF ( l_som_coupled_e ) el_sample(:,j) = e_of_g(                             &
+       g_eff_e(MAX(gl_sample(:,j), 0.0_real_jlslsm), r_bl(l), r_ca(l),       &
+               g_oth(l)), dq(l), pstar(l), t_leaf(l))
 END DO
 
 ! Transpiration can't be negative
@@ -2363,7 +2368,6 @@ USE pftparm, ONLY: pft_conductance_model, psi_nsl_onset, psi_nsl0,             &
                    fsmc_mod, cmax_a, cmax_b, kmax_pft, cgain_varpi,            &
                    conductance_b_pft, conductance_c_pft
 USE jules_surface_mod, ONLY: ratio
-USE planet_constants_mod, ONLY: repsilon
 USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls, xylem_conductance_jls
 USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f
@@ -3200,15 +3204,13 @@ CONTAINS
   ! MDK, 21/10/26
   SUBROUTINE hydraulic_state(ci, al)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci, al
-  REAL(KIND=real_jlslsm) :: vpd
 
   al_u = al
   gl_u = ratio * (al_u * rmol * t_leaf(l)) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
-  vpd = dq(l) * pstar(l) / repsilon
-  el_u = MAX(0.0, vpd * gl_u / pstar(l) * pstar(l) / (rmol * t_leaf(l)))
-  IF ( l_som_coupled_e ) el_u = vpd * g_eff_e(MAX(gl_u, 0.0_real_jlslsm),      &
-                                    r_bl(l), r_ca(l), g_oth(l))                &
-                                / (rmol * t_leaf(l))
+  el_u = MAX(0.0, e_of_g(gl_u, dq(l), pstar(l), t_leaf(l)))
+  IF ( l_som_coupled_e ) el_u = e_of_g(g_eff_e(MAX(gl_u, 0.0_real_jlslsm),     &
+                                               r_bl(l), r_ca(l), g_oth(l)),    &
+                                       dq(l), pstar(l), t_leaf(l))
   CALL psi_k_at_e()
   END SUBROUTINE hydraulic_state
 
@@ -3401,7 +3403,7 @@ CONTAINS
   REAL(KIND=real_jlslsm) :: conv_e, g_cap, rk, fa, fb, fc_e, ea, eb, ec
   INTEGER :: it, sd
 
-  conv_e = dq(l) * pstar(l) / repsilon / (rmol * t_leaf(l))
+  conv_e = e_of_g(1.0_real_jlslsm, dq(l), pstar(l), t_leaf(l))
   g_cap = HUGE(1.0_real_jlslsm)
   IF ( gl_max(l) > 0.0 ) g_cap = gl_max(l)
   IF ( conv_e > 0.0 ) THEN
@@ -3788,7 +3790,6 @@ USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,               &
 USE pftparm, ONLY: pft_conductance_model, fsmc_mod,                            &
                    sl_cica_well_watered, conductance_b_pft, conductance_c_pft
 USE jules_surface_mod, ONLY: ratio
-USE planet_constants_mod, ONLY: repsilon
 USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
 USE supply_table_mod, ONLY: supply_lut_psi, supply_lut_f
@@ -3859,7 +3860,7 @@ REAL(KIND=real_jlslsm) :: b_curve(land_pts), c_curve(land_pts)
                             ! psi_leaf_jls (no xylem impairment here).
 
 REAL(KIND=real_jlslsm) ::                                                      &
-  rt, vpd, conv_e, k_fail, p0, k0, ci_d, al_d, gl_d, e_d, psi_d, k_d,          &
+  rt, conv_e, k_fail, p0, k0, ci_d, al_d, gl_d, e_d, psi_d, k_d,          &
   dp, dp_d, psi_t, psi_u, k_u, e_reg, psi_reg, k_reg, gl_reg,                  &
   ! Illinois brackets
   xa, xb, xc, fa, fb, fc,                                                      &
@@ -3888,10 +3889,9 @@ DO j = 1, open_pts
   l = veg_index(open_index(j))
   idx1(1) = open_index(j)
   rt = rmol * t_leaf(l)
-  vpd = dq(l) * pstar(l) / repsilon
 
   ! E (mol m-2 s-1) = conv_e * gl (m s-1), as stom_opt_mod_ci.
-  conv_e = vpd / rt
+  conv_e = e_of_g(1.0_real_jlslsm, dq(l), pstar(l), t_leaf(l))
   p0 = psi_root_zone(l)
   k_fail = kcrit(l)
   IF ( sl_kfail_frac > 0.0 ) k_fail = sl_kfail_frac * kmax(l)

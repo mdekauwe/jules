@@ -150,7 +150,8 @@ USE veg3_field_mod, ONLY: veg_state_type
 USE sugar_mod, ONLY: sugar
 
 
-USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_eff_pft, stom_opt_at_e
+USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_eff_pft, stom_opt_at_e,   &
+                            e_of_g
                             ! MDK, 23/10/26
 USE cuticular_leak_state_mod, ONLY: cut_w_store, cut_psi_stem,               &
                                     cut_q_store, cut_c_store, cut_m_h2o,       &
@@ -177,12 +178,12 @@ USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft, d13c_disc_alloc, d13c_disc_leaf
 
 
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
-USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow
+USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kcrit_of_path
 USE plant_hydraulic_path_mod, ONLY: set_ksr_path, ksr, set_k_ground_basis,     &
                                     kplant_scale
                                        ! MDK, 21/10/26
 
-USE planet_constants_mod, ONLY: repsilon, g, r
+USE planet_constants_mod, ONLY: g, r
 USE water_constants_mod, ONLY: rho_water
 USE desica_jls_mod, ONLY: desica_fw, desica_hydraulics, tuzet_fw,             &
                           desica_store_inputs
@@ -2101,7 +2102,7 @@ CASE ( 5, 6 )
             ! layer received, so the critical-conductance threshold stays
             ! calibrated at (1 - kcrit_fractional_loss) of THIS layer's own
             ! capacity (Brodribb & Cochard, 2009; Sabot et al., 2020).
-            kcrit_per_lyr(l) = kmax_per_lyr(l) * (kcrit(ft) / kmax_pft(ft))
+            kcrit_per_lyr(l) = kcrit_of_path(ft, kmax_per_lyr(l))
 
             ! This layer's whole soil-to-leaf path, on its own parallel path
             ! from psi_src (no shared canopy node). kcrit keeps the same
@@ -3105,7 +3106,7 @@ CASE ( 1 )
        ! value and understated canopy conductance by LAI / fpar (1.3-1.7
        ! for LAI 1.5-2.3, kpar 0.5) for a data-derived kmax_pft.
        kmax_bigleaf(:) = kmax_pft(ft) * lai(:)
-       kcrit_bigleaf(:) = kcrit(ft) * lai(:)
+       kcrit_bigleaf(:) = kcrit_of_path(ft, kmax_bigleaf(:))
        ! som_gl_max is per unit leaf area, so the canopy cap is x LAI, as
        ! kmax_bigleaf (and the multilayer and two-leaf totals).
        gl_max_bigleaf(:) = gl_leaf_cap * lai(:)
@@ -3314,8 +3315,8 @@ CASE ( 1 )
       gl_cut_ds = 0.0
       IF ( l_som_cuticular_loss ) gl_cut_ds = gcuticular(ft) * 1.0e-3 * rmol  &
                                                * tstar(l) / pstar(l) * lai(l)
-      el_try(l) = MAX(dqc(l), 0.0) * pstar(l) / repsilon                     &
-                  * MAX(gc(l), gl_cut_ds) / (rmol * tstar(l))
+      el_try(l) = e_of_g(MAX(gc(l), gl_cut_ds), MAX(dqc(l), 0.0), pstar(l),  &
+                         tstar(l))
     END DO
     CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,       &
                             lai, ht, psi_root_zone, ksr_ds, el_try, .FALSE., &
@@ -3433,8 +3434,8 @@ CASE ( 7 )
                      / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
     kmax_shd_2l(l) = k_max(l) * lai(l) * nw_shd_2l(l)                          &
                      / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
-    kcrit_sun_2l(l) = kmax_ref_sun_2l(l) * (kcrit(ft) / kmax_pft(ft))
-    kcrit_shd_2l(l) = kmax_ref_shd_2l(l) * (kcrit(ft) / kmax_pft(ft))
+    kcrit_sun_2l(l) = kcrit_of_path(ft, kmax_ref_sun_2l(l))
+    kcrit_shd_2l(l) = kcrit_of_path(ft, kmax_ref_shd_2l(l))
     ! kplant_model = 1: root and stem per unit ground area, each class's
     ! path in series. One factor for both classes (so the shares are
     ! unchanged) and for the impaired, intact and critical conductances
@@ -3750,8 +3751,7 @@ IF ( stomata_model == stomata_desica ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( apar(l) == 0.0 ) gc(l) = min_gl_pft(ft)
-    el(l)       = MAX(dqc(l), 0.0) * pstar(l) / repsilon * gc(l)               &
-                  / (rmol * tstar(l))
+    el(l)       = e_of_g(gc(l), MAX(dqc(l), 0.0), pstar(l), tstar(l))
     psi_leaf(l) = psi_root_zone(l)
     leaf_k(l)   = kmax_pft(ft)   ! per unit leaf area, as the other paths
   END DO
@@ -3790,7 +3790,7 @@ IF ( l_som_cuticular_loss .AND. stomata_model == stomata_desica ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     kmax_cut(l)  = MAX(k_max(l) * lai(l), TINY(1.0_real_jlslsm))
-    kcrit_cut(l) = kcrit(ft) * lai(l)
+    kcrit_cut(l) = kcrit_of_path(ft, kmax_pft(ft) * lai(l))
     IF ( kplant_model == kplant_model_ground ) THEN   ! MDK, 21/10/26
       kmax_cut(l)  = kmax_cut(l)  * kplant_scale(l)
       kcrit_cut(l) = kcrit_cut(l) * kplant_scale(l)
@@ -3799,8 +3799,8 @@ IF ( l_som_cuticular_loss .AND. stomata_model == stomata_desica ) THEN
     ! Canopy transpiration (mol H2O m-2 s-1) at the floor, as in
     ! stom_opt_mod_ci.
     el_cut(l) = 0.0
-    IF ( l_cut(l) ) el_cut(l) = MAX(dqc(l), 0.0) * pstar(l) / repsilon         &
-                                * gl_cut_eff(l) / (rmol * tstar(l))
+    IF ( l_cut(l) ) el_cut(l) = e_of_g(gl_cut_eff(l), MAX(dqc(l), 0.0),        &
+                                       pstar(l), tstar(l))
     DO i_cut = 1,n_cut
       e_cut(i_cut,m) = el_cut(l) * REAL(i_cut) / REAL(n_cut)
     END DO
@@ -3934,8 +3934,7 @@ IF ( l_cap_store ) THEN
     gc(l)     = gl_cut_eff(l)
     gc_som(l) = gc(l)
     ! Canopy transpiration (mol H2O m-2 s-1), as el elsewhere.
-    el(l)     = MAX(dqc(l), 0.0) * pstar(l) / repsilon * gc(l)                 &
-                / (rmol * tstar(l))
+    el(l)     = e_of_g(gc(l), MAX(dqc(l), 0.0), pstar(l), tstar(l))
     lk_cut(l) = .TRUE.
   END DO
   ! The canopy path of the optimisation (cf. kmax_bigleaf).
@@ -3943,7 +3942,7 @@ IF ( l_cap_store ) THEN
     l = veg_index(m)
     kmax_cut(l)     = k_max(l) * lai(l)
     kmax_ref_cut(l) = kmax_pft(ft) * lai(l)
-    kcrit_cut(l)    = kcrit(ft) * lai(l)
+    kcrit_cut(l)    = kcrit_of_path(ft, kmax_ref_cut(l))
     IF ( kplant_model == kplant_model_ground ) THEN
       kmax_cut(l)     = kmax_cut(l)     * kplant_scale(l)
       kmax_ref_cut(l) = kmax_ref_cut(l) * kplant_scale(l)

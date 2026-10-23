@@ -31,7 +31,8 @@ PUBLIC :: set_ksr_path                                                         &
 ,         seg_kmax_fac                                                         &
 ,         k_path_zero_flow                                                     &
 ,         psi_leaf_segments_jls                                                &
-,         psi_leaf_segments_lut_jls
+,         psi_leaf_segments_lut_jls                                            &
+,         kcrit_of_path
 
 ! Soil-to-root (rhizosphere) conductance Ksr for l_som_rhizo_series, a
 ! conductance (not the soil conductivity soil_k), kept separate from the
@@ -856,5 +857,32 @@ DO j = 1, open_pnts
 END DO
 
 END SUBROUTINE psi_leaf_segments_lut_jls
+
+! *****************************************************************************
+! Critical conductance of a leaf path (mol m-2 s-1 Pa-1, the units of
+! kmax_ref): the PFT's critical fraction kcrit/kmax_pft of the path's
+! intact maximum conductance kmax_ref. One rule for every canopy (big leaf,
+! two-leaf, multilayer and the cuticular floor), which wrote it as
+! kcrit * LAI or kmax_ref * (kcrit / kmax_pft): equal, but not to the last
+! bit.
+!
+! MDK, 23/10/26
+! *****************************************************************************
+ELEMENTAL FUNCTION kcrit_of_path( ft, kmax_ref ) RESULT( kc )
+
+USE pftparm, ONLY: kcrit, kmax_pft
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: ft
+                            ! Plant functional type.
+REAL(KIND=real_jlslsm), INTENT(IN) :: kmax_ref
+                            ! Intact maximum conductance of the path.
+REAL(KIND=real_jlslsm) :: kc
+                            ! Critical conductance of the path.
+
+kc = kmax_ref * (kcrit(ft) / kmax_pft(ft))
+
+END FUNCTION kcrit_of_path
 
 END MODULE plant_hydraulic_path_mod
