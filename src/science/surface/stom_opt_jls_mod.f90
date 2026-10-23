@@ -1403,6 +1403,104 @@ END DO
 END SUBROUTINE stom_opt_at_e
 
 !-----------------------------------------------------------------------------
+! Net photosynthesis A_n = W - rd (mol CO2 m-2 s-1) of one leaf state at
+! internal CO2 ci (Pa): the one copy used by every Ci search
+! (stom_opt_mod_ci, stom_opt_bounded_search, stom_opt_supply_loss). Based
+! on leaf_limits_mod.F90 and leaf.F90.
+!
+!   Collatz (C3 or C4): the Rubisco (wcarb), light (wlite) and export
+!     (wexpt) limited rates co-limited by two quadratics, the smaller roots
+!     of  beta1 W^2 - (wcarb + wlite) W + wcarb wlite = 0, then
+!         beta2 A^2 - (W + wexpt) A + W wexpt = 0
+!     (Cox, HCTN 24, equations 54 and 55).
+!   Farquhar (C3): W = MIN(wcarb, wlite); with Johnson-Berry (photo_model)
+!     the light-limited rate is scaled by jb_eta_scale(ccp, ci).
+!
+! Multilayer calls (l_multilayer) rescale the light-limited rate to this
+! layer's sunlit or shaded leaves: by fapar_lf * ipar / apar (Collatz), or
+! je_ratio (Farquhar). The arithmetic is as in the three copies it replaces
+! (bit-for-bit).
+!
+! MDK, 23/10/26
+!-----------------------------------------------------------------------------
+FUNCTION leaf_net_photo( pft, pft_photo_model, l_multilayer, ci, vcmax, kc,    &
+                         ko, oi, ccp, km, je, acr, apar, fapar_lf, ipar,       &
+                         je_ratio, pstar, rd ) RESULT( al )
+
+USE jules_vegetation_mod, ONLY: photo_collatz, photo_farquhar,                 &
+                                photo_johnson, photo_model
+USE jb_photo_mod, ONLY: jb_eta_scale
+USE pftparm, ONLY: c3, alpha
+USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2
+USE ereport_mod, ONLY: ereport
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: pft, pft_photo_model
+                            ! Plant functional type and its photosynthesis
+                            ! model (photo_collatz or photo_farquhar).
+LOGICAL, INTENT(IN) :: l_multilayer
+                            ! .TRUE.: a layer of the multilayer canopy.
+REAL(KIND=real_jlslsm), INTENT(IN) :: ci
+                            ! Internal CO2 partial pressure (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: vcmax, kc, ko, oi, ccp, km, je, acr,     &
+                                      apar, fapar_lf, ipar, je_ratio, pstar, rd
+                            ! The point's photosynthesis inputs, as the
+                            ! arguments of stom_opt_mod of the same names.
+REAL(KIND=real_jlslsm) :: al
+                            ! Net photosynthesis (mol CO2 m-2 s-1).
+
+REAL(KIND=real_jlslsm) :: wcarb, wlite, wexpt, wl, b1, b2, b3
+                            ! Rubisco, light and export limited rates, the
+                            ! gross rate (mol CO2 m-2 s-1) and the
+                            ! quadratic's coefficients.
+INTEGER :: errcode
+
+CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_NET_PHOTO'
+
+SELECT CASE ( pft_photo_model )
+CASE ( photo_collatz )
+  IF (c3(pft) == 1) THEN
+    wcarb = vcmax * (ci - ccp) / (ci + kc * (1.0 + oi / ko))
+    wlite = alpha(pft) * acr * (ci - ccp) / (ci + 2.0 * ccp)
+    wlite = MAX(wlite, TINY(1.0e0))
+    IF (l_multilayer) wlite = wlite / apar * fapar_lf * ipar
+    wexpt = fwe_c3 * vcmax
+  ELSE
+    wcarb = vcmax
+    wlite = MAX(alpha(pft) * acr, TINY(1.0e0))
+    IF (l_multilayer) wlite = wlite / apar * fapar_lf * ipar
+    wexpt = fwe_c4 * vcmax * ci / pstar
+  END IF
+  b1 = beta1
+  b2 = -(wcarb + wlite)
+  b3 = wcarb * wlite
+  wl = -b2 / (2.0 * b1) - SQRT(b2 * b2 / (4 * beta1 * beta1) - b3 / b1)
+  b1 = beta2
+  b2 = -(wl + wexpt)
+  b3 = wl * wexpt
+  wl = -b2 / (2.0 * b1) - SQRT(b2 * b2 / (4 * beta2 * beta2) - b3 / b1)
+
+CASE ( photo_farquhar )
+  wcarb = vcmax * (ci - ccp) / (ci + km)
+  wlite = je / 4.0 * (ci - ccp) / (ci + 2.0 * ccp)
+  IF (photo_model == photo_johnson) wlite = wlite * jb_eta_scale(ccp, ci)
+  wlite = MAX(wlite, TINY(1.0e0))
+  IF (l_multilayer) wlite = wlite * je_ratio
+  wl = MIN(wcarb, wlite)
+
+CASE DEFAULT
+  wl = 0.0
+  errcode = 101  !  a hard error
+  CALL ereport(RoutineName, errcode,                                           &
+               'pft_photo_model should be photo_collatz or photo_farquhar')
+END SELECT
+
+al = wl - rd
+
+END FUNCTION leaf_net_photo
+
+!-----------------------------------------------------------------------------
 ! Stomatal optimisation model that iterates over leaf ci
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_mod_ci(                                                    &
@@ -1421,16 +1519,9 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
         psi_stem_sample                                                        &
 )
 
-USE jules_vegetation_mod, ONLY:                                                &
-        photo_collatz, photo_farquhar, photo_johnson, photo_model,             &
-        l_som_plant_segments, l_som_coupled_e
+USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_coupled_e
 
-USE jb_photo_mod, ONLY: jb_eta_scale
-
-USE pftparm, ONLY: c3, alpha
-
-USE jules_surface_mod, ONLY: fwe_c3, fwe_c4
-USE jules_surface_mod, ONLY: beta1, beta2, ratio
+USE jules_surface_mod, ONLY: ratio
 
 USE planet_constants_mod, ONLY: repsilon
 
@@ -1560,10 +1651,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
 ! Local integer variables.
 !-----------------------------------------------------------------------------
 INTEGER ::                                                                     &
- i,j,l                                                                         &
+ i,j,l
                             ! Internal iterators
-,errcode
-                            ! Error code to pass to ereport.
 
 !-----------------------------------------------------------------------------
 ! Local real variables.
@@ -1575,24 +1664,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Zero-flow solve for the closed-stomata state
                             ! (entry 0): transpiration, leaf water
                             ! potential and xylem conductance.
-,wcarb_sample(0:n_sample, open_pts)                                          &
-                            ! Rubisco limited photosynthesis
-!                           ! rate (mol CO2/m2/s).
-,wlite_sample(0:n_sample, open_pts)                                          &
-                            ! Electron transport limited photosynthesis
-!                           ! rate (mol CO2/m2/s).
-,wexpt_sample(0:n_sample, open_pts)                                          &
-                            ! Export-limited gross photosynthetic rate
-!                           ! (mol CO2/m2/s). Not used with Farquhar model.
-,wl_sample(0:n_sample, open_pts)                                             &
-                            ! Gross photosynthetic rate (mol CO2/m2/s).
-,b1(0:n_sample, open_pts)                                                    &
-,b2(0:n_sample, open_pts)                                                    &
-,b3(0:n_sample, open_pts)                                                    &
-                            ! Temporary variables for use in the quadratic
-                            ! equation.
-,beta1p2m4, beta2p2m4                                                          &
-                            ! beta[12] ** 2 * 4.
+
 ,vpd                                                                           &
                             ! Vapour pressure deficit of a point (Pa).
                             !
@@ -1648,152 +1720,19 @@ DO j = 1, open_pts
 END DO
 
 !-----------------------------------------------------------------------------
-! Calculate photosynthetic rates.
-! Code based on that in leaf_limits_mod.F90 and leaf.F90 with loops over
-! sample_ci added.
+! Net photosynthesis of every sample (leaf_net_photo).
+!
+! MDK, 23/10/26
 !-----------------------------------------------------------------------------
-SELECT CASE ( pft_photo_model )
-CASE ( photo_collatz )
-  !---------------------------------------------------------------------------
-  ! Use the Collatz models (for C3 or C4 plants).
-  !---------------------------------------------------------------------------
-
-  IF (c3(pft) == 1) THEN
-
-!$OMP PARALLEL DO IF(open_pts > 1)                                             &
-!$OMP SCHEDULE(STATIC)                                                         &
-!$OMP DEFAULT(NONE)                                                            &
-!$OMP PRIVATE(l,j,i)                                                           &
-!$OMP SHARED(open_pts,veg_index,open_index,wcarb_sample,vcmax,ci_sample,       &
-!$OMP        ccp,kc,oi,ko,wlite_sample,pft,wexpt_sample,fwe_c3,alpha,acr,      &
-!$OMP        n_sample,l_multilayer,apar,fapar_lf,ipar)
-    DO j = 1,open_pts
-      l = veg_index(open_index(j))
-
-      ! The numbers in these equations are from Cox, HCTN 24,
-      ! "Description ... Vegetation Model", equations 54 and 55.
-      wcarb_sample(:,j) = vcmax(l) * (ci_sample(:,j) - ccp(l))                 &
-                          / (ci_sample(:,j) + kc(l) * (1.0 + oi(l) / ko(l)))
-      wlite_sample(:,j) = alpha(pft) * acr(l)                                  &
-                          * (ci_sample(:,j) - ccp(l))                          &
-                          / (ci_sample(:,j) + 2.0 * ccp(l))
-      wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
-
-      ! Multilayer calls: rescale the light-limited rate from the canopy's
-      ! absorbed PAR (apar) to that of this layer's sunlit or shaded leaves
-      ! (fapar_lf * ipar).
-      !
-      ! MDK, 21/10/26
-      IF (l_multilayer) THEN
-        wlite_sample(:,j) = wlite_sample(:,j) / apar(l) * fapar_lf(l)          &
-                            * ipar(l)
-      END IF
-      wexpt_sample(:,j) = fwe_c3 * vcmax(l)
-    END DO
-!$OMP END PARALLEL DO
-
-  ELSE
-    !  C4
-!$OMP PARALLEL DO IF(open_pts > 1)                                             &
-!$OMP SCHEDULE(STATIC)                                                         &
-!$OMP DEFAULT(NONE)                                                            &
-!$OMP PRIVATE(l,j,i)                                                           &
-!$OMP SHARED(open_pts,veg_index,open_index,wcarb_sample,vcmax,wlite_sample,    &
-!$OMP        pft,wexpt_sample,pstar,alpha,fwe_c4,ci_sample,acr,n_sample,       &
-!$OMP        l_multilayer,apar,fapar_lf,ipar)
-    DO j = 1,open_pts
-      l = veg_index(open_index(j))
-      wcarb_sample(:,j) = vcmax(l)
-      wlite_sample(:,j) = alpha(pft) * acr(l)
-      wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
-
-      ! Multilayer calls: rescale the light-limited rate from the canopy's
-      ! absorbed PAR (apar) to that of this layer's sunlit or shaded leaves
-      ! (fapar_lf * ipar).
-      !
-      ! MDK, 21/10/26
-      IF (l_multilayer) THEN
-        wlite_sample(:,j) = wlite_sample(:,j) / apar(l) * fapar_lf(l)          &
-                            * ipar(l)
-      END IF
-      wexpt_sample(:,j) = fwe_c4 * vcmax(l) * ci_sample(:,j) / pstar(l)
-    END DO
-!$OMP END PARALLEL DO
-
-  END IF  !  c3
-
-  !---------------------------------------------------------------------------
-  ! Calculate the co-limited rate of gross photosynthesis.
-  !---------------------------------------------------------------------------
-  beta1p2m4 = 4 * beta1 * beta1
-  beta2p2m4 = 4 * beta2 * beta2
-
-  b1(:,:) = beta1
-  b2(:,:) = - (wcarb_sample(:,:) + wlite_sample(:,:))
-  b3(:,:) = wcarb_sample(:,:) * wlite_sample(:,:)
-
-  wl_sample(:,:) = -b2(:,:) / (2.0 * b1(:,:))                                  &
-          - SQRT(b2(:,:) * b2(:,:) / beta1p2m4      - b3(:,:) / b1(:,:))
-
-  b1(:,:) = beta2
-  b2(:,:) = - (wl_sample(:,:) + wexpt_sample(:,:))
-  b3(:,:) = wl_sample(:,:) * wexpt_sample(:,:)
-
-  wl_sample(:,:) = -b2(:,:) / (2.0 * b1(:,:))                                  &
-          - SQRT(b2(:,:) * b2(:,:) / beta2p2m4       - b3(:,:) / b1(:,:))
-
-CASE ( photo_farquhar )
-  !---------------------------------------------------------------------------
-  ! Use the Farquhar model (for C3 plants only).
-  !---------------------------------------------------------------------------
-!$OMP PARALLEL DO IF(open_pts > 1)                                             &
-!$OMP SCHEDULE(STATIC)                                                         &
-!$OMP DEFAULT(NONE)                                                            &
-!$OMP PRIVATE(l,j,i)                                                           &
-!$OMP SHARED(open_pts,veg_index,open_index,wcarb_sample,vcmax,wlite_sample,    &
-!$OMP        ci_sample,ccp,km,je,n_sample,photo_model,l_multilayer,je_ratio)
-  DO j = 1,open_pts
-    l = veg_index(open_index(j))
-    wcarb_sample(:,j) = vcmax(l) * ( ci_sample(:,j) - ccp(l) )                 &
-                        / ( ci_sample(:,j) + km(l) )
-    wlite_sample(:,j) = je(l) / 4.0 * ( ci_sample(:,j) - ccp(l) )              &
-                        / ( ci_sample(:,j) + 2.0 * ccp(l) )
-    ! Johnson-Berry: J depends on ci (see jb_photo_mod).
-    IF ( photo_model == photo_johnson )                                        &
-      wlite_sample(:,j) = wlite_sample(:,j)                                    &
-                          * jb_eta_scale( ccp(l), ci_sample(:,j) )
-    wlite_sample(:,j) = MAX(wlite_sample(:,j), TINY(1.0e0))
-
-    ! Multilayer calls: the electron transport of this layer's sunlit or
-    ! shaded leaves (je_ratio).
-    !
-    ! MDK, 21/10/26
-    IF (l_multilayer) THEN
-      wlite_sample(:,j) = wlite_sample(:,j) * je_ratio(l)
-    END IF
-  END DO
-!$OMP END PARALLEL DO
-
-  !---------------------------------------------------------------------------
-  ! Calculate minimum of Rubisco and electron transport limited rates.
-  !---------------------------------------------------------------------------
-  wl_sample(:,:) = MIN( wcarb_sample(:,:), wlite_sample(:,:) )
-
-CASE DEFAULT
-  errcode = 101  !  a hard error
-  CALL ereport(RoutineName, errcode,                                           &
-               'pft_photo_model should be photo_collatz or photo_farquhar')
-
-END SELECT  !  pft_photo_model
-
-! ----------------------------------------------------------------------------
-! Calculate net photosynthetic rate (mol CO2 m-2 s-1).
-!  al = wl - rd
-! ----------------------------------------------------------------------------
 DO j = 1,open_pts
   l = veg_index(open_index(j))
-
-  al_sample(:,j) = wl_sample(:,j) - rd(l)
+  DO i = 0, n_sample
+    al_sample(i,j) = leaf_net_photo( pft, pft_photo_model, l_multilayer,       &
+                                     ci_sample(i,j), vcmax(l), kc(l), ko(l),   &
+                                     oi(l), ccp(l), km(l), je(l), acr(l),      &
+                                     apar(l), fapar_lf(l), ipar(l),            &
+                                     je_ratio(l), pstar(l), rd(l) )
+  END DO
 END DO
 
 ! ----------------------------------------------------------------------------
@@ -2381,9 +2320,7 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,          &
                                 kplant_model, kplant_model_ground
 
                                 ! MDK, 22/10/26
-USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
-                                photo_farquhar, photo_johnson, photo_model,    &
-                                CW_conductance,                                &
+USE jules_vegetation_mod, ONLY: l_som_gain_gross, CW_conductance,                                &
                                 SOX_conductance,                               &
                                 som_psi_solver, psi_solver_lut,                &
                                 l_som_plant_segments, l_som_nsl,               &
@@ -2392,11 +2329,10 @@ USE jules_vegetation_mod, ONLY: l_som_gain_gross, photo_collatz,               &
                                 l_som_rhizo_series, l_som_coupled_e
 USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kplant_scale
                                        ! MDK, 21/10/26
-USE jb_photo_mod, ONLY: jb_eta_scale
-USE pftparm, ONLY: c3, alpha, pft_conductance_model, psi_nsl_onset, psi_nsl0,  &
+USE pftparm, ONLY: pft_conductance_model, psi_nsl_onset, psi_nsl0,             &
                    fsmc_mod, cmax_a, cmax_b, kmax_pft, cgain_varpi,            &
                    conductance_b_pft, conductance_c_pft
-USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
+USE jules_surface_mod, ONLY: ratio
 USE planet_constants_mod, ONLY: repsilon
 USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls, xylem_conductance_jls
@@ -3386,51 +3322,13 @@ CONTAINS
   nsl_factor = MIN(MAX(nsl_factor, 0.0_real_jlslsm), 1.0_real_jlslsm)
   END FUNCTION nsl_factor
 
-  ! Net photosynthesis at internal CO2 ci (as stom_opt_mod_ci).
+  ! Net photosynthesis at internal CO2 ci of point l (leaf_net_photo).
   REAL(KIND=real_jlslsm) FUNCTION photo_al(ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci
-  REAL(KIND=real_jlslsm) :: wcarb, wlite, wexpt, wl, b1, b2, b3
-  INTEGER :: errcode
-
-  SELECT CASE ( pft_photo_model )
-  CASE ( photo_collatz )
-    IF (c3(pft) == 1) THEN
-      wcarb = vcmax(l) * (ci - ccp(l)) / (ci + kc(l) * (1.0 + oi(l) / ko(l)))
-      wlite = alpha(pft) * acr(l) * (ci - ccp(l)) / (ci + 2.0 * ccp(l))
-      wlite = MAX(wlite, TINY(1.0e0))
-      IF (l_multilayer) wlite = wlite / apar(l) * fapar_lf(l) * ipar(l)
-      wexpt = fwe_c3 * vcmax(l)
-    ELSE
-      wcarb = vcmax(l)
-      wlite = MAX(alpha(pft) * acr(l), TINY(1.0e0))
-      IF (l_multilayer) wlite = wlite / apar(l) * fapar_lf(l) * ipar(l)
-      wexpt = fwe_c4 * vcmax(l) * ci / pstar(l)
-    END IF
-    b1 = beta1
-    b2 = -(wcarb + wlite)
-    b3 = wcarb * wlite
-    wl = -b2 / (2.0 * b1) - SQRT(b2 * b2 / (4 * beta1 * beta1) - b3 / b1)
-    b1 = beta2
-    b2 = -(wl + wexpt)
-    b3 = wl * wexpt
-    wl = -b2 / (2.0 * b1) - SQRT(b2 * b2 / (4 * beta2 * beta2) - b3 / b1)
-
-  CASE ( photo_farquhar )
-    wcarb = vcmax(l) * (ci - ccp(l)) / (ci + km(l))
-    wlite = je(l) / 4.0 * (ci - ccp(l)) / (ci + 2.0 * ccp(l))
-    IF (photo_model == photo_johnson) wlite = wlite * jb_eta_scale(ccp(l), ci)
-    wlite = MAX(wlite, TINY(1.0e0))
-    IF (l_multilayer) wlite = wlite * je_ratio(l)
-    wl = MIN(wcarb, wlite)
-
-  CASE DEFAULT
-    wl = 0.0
-    errcode = 101  !  a hard error
-    CALL ereport(RoutineName, errcode,                                         &
-                 'pft_photo_model should be photo_collatz or photo_farquhar')
-  END SELECT
-
-  photo_al = wl - rd(l)
+  photo_al = leaf_net_photo( pft, pft_photo_model, l_multilayer, ci,           &
+                             vcmax(l), kc(l), ko(l), oi(l), ccp(l), km(l),     &
+                             je(l), acr(l), apar(l), fapar_lf(l), ipar(l),     &
+                             je_ratio(l), pstar(l), rd(l) )
   END FUNCTION photo_al
 
   !---------------------------------------------------------------------------
@@ -3826,15 +3724,13 @@ SUBROUTINE stom_opt_supply_loss(                                               &
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 USE ereport_mod, ONLY: ereport
-USE jules_vegetation_mod, ONLY: photo_collatz, photo_farquhar, photo_johnson,  &
-                                photo_model, CW_conductance, SOX_conductance,  &
+USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,               &
                                 som_psi_solver, psi_solver_lut,                &
                                 l_som_plant_segments, l_som_rhizo_series,      &
                                 sl_kfail_frac
-USE jb_photo_mod, ONLY: jb_eta_scale
-USE pftparm, ONLY: c3, alpha, pft_conductance_model, fsmc_mod,                 &
+USE pftparm, ONLY: pft_conductance_model, fsmc_mod,                           &
                    sl_cica_well_watered, conductance_b_pft, conductance_c_pft
-USE jules_surface_mod, ONLY: fwe_c3, fwe_c4, beta1, beta2, ratio
+USE jules_surface_mod, ONLY: ratio
 USE planet_constants_mod, ONLY: repsilon
 USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
@@ -4250,51 +4146,13 @@ CONTAINS
   hydraulic_cost_g(j) = 0.0
   END SUBROUTINE set_closed
 
-  ! Net photosynthesis at internal CO2 ci (as stom_opt_bounded_search).
+  ! Net photosynthesis at internal CO2 ci of point l (leaf_net_photo).
   REAL(KIND=real_jlslsm) FUNCTION photo_al(ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci
-  REAL(KIND=real_jlslsm) :: wcarb, wlite, wexpt, wl, b1, b2, b3
-  INTEGER :: errcode
-
-  SELECT CASE ( pft_photo_model )
-  CASE ( photo_collatz )
-    IF (c3(pft) == 1) THEN
-      wcarb = vcmax(l) * (ci - ccp(l)) / (ci + kc(l) * (1.0 + oi(l) / ko(l)))
-      wlite = alpha(pft) * acr(l) * (ci - ccp(l)) / (ci + 2.0 * ccp(l))
-      wlite = MAX(wlite, TINY(1.0e0))
-      IF (l_multilayer) wlite = wlite / apar(l) * fapar_lf(l) * ipar(l)
-      wexpt = fwe_c3 * vcmax(l)
-    ELSE
-      wcarb = vcmax(l)
-      wlite = MAX(alpha(pft) * acr(l), TINY(1.0e0))
-      IF (l_multilayer) wlite = wlite / apar(l) * fapar_lf(l) * ipar(l)
-      wexpt = fwe_c4 * vcmax(l) * ci / pstar(l)
-    END IF
-    b1 = beta1
-    b2 = -(wcarb + wlite)
-    b3 = wcarb * wlite
-    wl = -b2 / (2.0 * b1) - SQRT(b2 * b2 / (4 * beta1 * beta1) - b3 / b1)
-    b1 = beta2
-    b2 = -(wl + wexpt)
-    b3 = wl * wexpt
-    wl = -b2 / (2.0 * b1) - SQRT(b2 * b2 / (4 * beta2 * beta2) - b3 / b1)
-
-  CASE ( photo_farquhar )
-    wcarb = vcmax(l) * (ci - ccp(l)) / (ci + km(l))
-    wlite = je(l) / 4.0 * (ci - ccp(l)) / (ci + 2.0 * ccp(l))
-    IF (photo_model == photo_johnson) wlite = wlite * jb_eta_scale(ccp(l), ci)
-    wlite = MAX(wlite, TINY(1.0e0))
-    IF (l_multilayer) wlite = wlite * je_ratio(l)
-    wl = MIN(wcarb, wlite)
-
-  CASE DEFAULT
-    wl = 0.0
-    errcode = 101  !  a hard error
-    CALL ereport(RoutineName, errcode,                                         &
-                 'pft_photo_model should be photo_collatz or photo_farquhar')
-  END SELECT
-
-  photo_al = wl - rd(l)
+  photo_al = leaf_net_photo( pft, pft_photo_model, l_multilayer, ci,           &
+                             vcmax(l), kc(l), ko(l), oi(l), ccp(l), km(l),     &
+                             je(l), acr(l), apar(l), fapar_lf(l), ipar(l),     &
+                             je_ratio(l), pstar(l), rd(l) )
   END FUNCTION photo_al
 
 END SUBROUTINE stom_opt_supply_loss
