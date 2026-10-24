@@ -188,11 +188,10 @@ END SUBROUTINE xylem_conductance_SOX_jls
 !                  k(psi) = ---------------
 !                            1 + (psi/b)^c
 !
-! The code below uses one of three methods to estimate the leaf
-! water potential from the transpiration rate. This is done to avoid
-! the need to integrate the conductance equation each iteration.
-!   1: Applies a zeroth order taylor expansion to the conductance
-!      equation (psi_solver_taylor).
+! The code below uses one of two methods to estimate the leaf
+! water potential from the transpiration rate. (Method 1, a zeroth-order
+! Taylor expansion about the mid-path psi, was retired: it overstated k
+! near E_crit. MDK, 25/10/26)
 !   2: Uses a Newton-Raphson solve of the integrated conductance
 !      equation (psi_solver_newton).
 !   3: Inverts the tabulated supply function (psi_solver_lut; see
@@ -221,8 +220,8 @@ SUBROUTINE psi_leaf_SOX_jls( pft,                                              &
                              leaf_k                                            &
   )
 
-USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_taylor,             &
-                                psi_solver_newton, psi_solver_lut
+USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_newton,             &
+                                psi_solver_lut
 USE supply_table_mod, ONLY: psi_leaf_lut_jls, lut_pft_curve
 
 USE ereport_mod, ONLY: ereport
@@ -276,10 +275,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
                             ! (mol m-2 s-1 Pa-1)
 
 ! Local variables
-INTEGER :: i, j, iter, l
+INTEGER :: i, j, l
 
-! Taylor series variables
-REAL(KIND=real_jlslsm) :: leaf_k_new
 REAL(KIND=real_jlslsm) :: k_conv_tol
                             ! Convergence tolerance on k, 0.1 kcrit
                             ! (mol m-2 s-1 Pa-1).
@@ -290,16 +287,6 @@ LOGICAL :: l_nr_active(n_e_leaf)
                    ! its own convergence)
                    !
                    ! MDK, 24/10/26
-REAL(KIND=real_jlslsm) :: reference_psi
-REAL(KIND=real_jlslsm) :: kmax_open(open_pnts)
-                            ! kmax gathered onto the open-point index, for
-                            ! passing into xylem_conductance_SOX_jls.
-REAL(KIND=real_jlslsm) :: kcrit_open(open_pnts)
-                            ! kcrit gathered onto the open-point index, for
-                            ! passing into xylem_conductance_SOX_jls.
-REAL(KIND=real_jlslsm) :: b_open(open_pnts), c_open(open_pnts)
-                            ! conductance_b/c gathered onto the open-point
-                            ! index, for passing into xylem_conductance_SOX_jls.
 
 ! Newton-Raphson variables
 REAL(KIND=real_jlslsm) :: e_leaf_current(n_e_leaf, open_pnts)
@@ -372,87 +359,6 @@ END IF
 SELECT CASE (psi_solver)
 
 ! ---------------------------------------------------------------------
-! Apply a zeroth order Taylor expansion to simplify the integration
-!
-! Note: The Taylor series expansion is approximated at the reference
-!       water potential (reference_psi). The reference water potential
-!       is the mean (midpoint) of the root zone and leaf water
-!       potentials.
-!
-! MDK, 24/10/26
-! ---------------------------------------------------------------------
-CASE(psi_solver_taylor)
-
-  DO j = 1,open_pnts ! Iterate over the open points.
-    l = veg_index(open_index(j))
-    kmax_open(j) = kmax(l)
-    kcrit_open(j) = kcrit(l)
-    b_open(j) = conductance_b(l)
-    c_open(j) = conductance_c(l)
-
-    ! Convergence tolerance on k for this point.
-    !
-    ! MDK, 24/10/26
-    k_conv_tol = 0.1 * kcrit(l)
-
-    ! Set the initial leaf water potential to that of the root zone
-    leaf_psi(:,j) = root_zone_psi(l)
-
-    ! Calculate the initial xylem conductance for the initial
-    !  reference water potential (this is equal to the root
-    !  zone water potential).
-    leaf_k(:,j) = kmax(l)                                                      &
-               / (1 + (MIN(leaf_psi(:,j),0.0_real_jlslsm)/conductance_b(l))    &
-                  **conductance_c(l))
-
-    !  Iterate over the transpiration for each open point.
-    DO i = 1,n_e_leaf
-
-      DO iter = 1,100 ! Iterate until the change in xylem conductance is
-                      ! less than k_conv_tol, or 100 iterations.
-                      !
-                      ! MDK, 24/10/26
-
-        ! Calculate the new leaf water potential.
-        leaf_psi(i,j) = root_zone_psi(l) - e_leaf(i,j) / leaf_k(i,j)
-
-        ! Calculate the reference psi at which to apply the zeroth order
-        ! Taylor series expansion.
-        !  psi_ref = mean(leaf_psi, root_zone_psi)
-        reference_psi = 0.5 * (leaf_psi(i,j) + root_zone_psi(l))
-
-        ! Calculate the new xylem conductance (SOX curve)
-        !  k(psi) = kmax / (1 + (psi / b) ** c)
-        !
-        ! MDK, 24/10/26
-        leaf_k_new = kmax(l)                                                   &
-               / (1 + (MIN(reference_psi,0.0_real_jlslsm)/conductance_b(l))    &
-                  **conductance_c(l))
-
-        ! If the change in xylem conductance is less than
-        !  k_conv_tol then break the loop.
-        IF (ABS(leaf_k_new - leaf_k(i,j)) < k_conv_tol) THEN
-          EXIT
-        END IF
-
-        ! Set the xylem conductance to the new value for the next
-        ! iteration.
-        leaf_k(i,j) = leaf_k_new
-
-      END DO ! Iterate until conductance converges.
-    END DO ! Iterate over the sample transpiration values.
-  END DO ! Iterate over the open points.
-
-  ! Calculate conductance at the leaf water potential. The value calculated
-  !  above is the conductance at the reference psi.
-  CALL xylem_conductance_SOX_jls(pft, n_e_leaf, open_pnts, leaf_psi,           &
-                                 kmax_open, kcrit_open, b_open, c_open,        &
-                                 leaf_k)
-
-  leaf_k(:,:) = MAX(leaf_k(:,:),                                               &
-                    SPREAD(kcrit_open, DIM = 1, NCOPIES = n_e_leaf))
-
-! ---------------------------------------------------------------------
 ! Apply a Newton-Raphson method to approximate the leaf water potential
 ! from the transpiration rate. The transpiration rate is given by the
 ! integral of the conductance model, k(psi), over the range
@@ -521,8 +427,7 @@ CASE(psi_solver_newton)
     leaf_psi(:,j) = root_zone_psi(l) - e_leaf(:,j)                             &
                     / MAX(leaf_k(:,j), TINY(1.0_real_jlslsm))
 
-    ! Convergence tolerance for this point, matching the psi_solver_taylor
-    ! tolerance above (10% of kcrit).
+    ! Convergence tolerance for this point (10% of kcrit).
     k_conv_tol = 0.1 * kcrit(l)
 
     ! Iterate the water potential until converged, or until max_nr_iter is
@@ -604,8 +509,8 @@ CASE(psi_solver_lut)
 CASE DEFAULT
   errcode = 101  !  a hard error
   CALL ereport(RoutineName, errcode,                                           &
-        'som_psi_solver should be psi_solver_taylor, psi_solver_newton or ' // &
-        'psi_solver_lut')
+        'som_psi_solver should be psi_solver_newton (2) or ' //               &
+        'psi_solver_lut (3)')
 END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

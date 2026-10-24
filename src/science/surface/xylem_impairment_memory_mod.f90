@@ -285,11 +285,11 @@ END SUBROUTINE leaf_conductance_impaired_memory_jls
 ! ---------------------------------------------------------------------
 ! Leaf water potential from transpiration on the capped curve, for open
 ! points (stomatal optimisation layout). The transpiration integral is
-! evaluated exactly (see the module header) and solved by Newton-Raphson,
-! whether som_psi_solver is Taylor (1) or Newton (2). With som_psi_solver
-! = 3 the capped curve is inverted from the PFT's supply table instead.
+! evaluated exactly (see the module header) and solved by Newton-Raphson
+! (som_psi_solver = 2). With som_psi_solver = 3 the capped curve is
+! inverted from the PFT's supply table instead.
 !
-! MDK, 24/10/26
+! MDK, 25/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_impaired_memory( pft,                                      &
                                      n_e_leaf,                                 &

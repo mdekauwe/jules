@@ -253,10 +253,9 @@ INTEGER, PARAMETER ::                                                          &
 
 ! Solvers for the leaf water potential given the transpiration rate
 ! (som_psi_solver). These should have unique values. JBaguley
+! (1, a zeroth-order Taylor expansion of the conductance about the mid-path
+! psi, was retired: it overstated k near E_crit. MDK, 25/10/26)
 INTEGER, PARAMETER ::                                                          &
-  psi_solver_taylor = 1,                                                       &
-    ! Use a zeroth order Taylor series expansion of the xylem conductence
-    ! model to approximate leaf water potential from transpiration rate.
   psi_solver_newton = 2,                                                       &
     ! Use the Newton-Raphson method to approximate leaf water potential
      ! from transpiration rate.
@@ -502,15 +501,23 @@ INTEGER ::                                                                     &
       ! Maximum golden-section iterations of the bounded Ci search, on
       ! top of the initial two-point bracket setup.
   som_psi_solver = psi_solver_newton,                                          &
-      ! Leaf water potential from transpiration rate: 1 Taylor series,
-      ! 2 Newton-Raphson, 3 lookup table of the supply function. Default 2:
-      ! the Taylor solver holds k at the mid-path psi, so near failure it
-      ! overstates k several-fold and can diverge (it was the default before
-      ! 24/10/26; a warning is given if it is chosen).
+      ! Leaf water potential from transpiration rate: 2 Newton-Raphson,
+      ! 3 lookup table of the supply function. (1, the Taylor series, was
+      ! the default before 24/10/26 and is retired: it held k at the
+      ! mid-path psi, so near failure it overstated k several-fold and could
+      ! diverge. 1 stops the run.)
       !
-      ! MDK, 24/10/26
-  som_ci_search = som_ci_flat,                                                 &
+      ! MDK, 25/10/26
+  som_ci_search = som_ci_bounded,                                              &
       ! Ci search of the stomatal optimisation: 1 flat grid, 2 bounded.
+      ! Default 2 (it was 1 before 25/10/26): the bounded search is faster,
+      ! not limited to the grid, and the only one coded for hold_psi,
+      ! som_store_coupling = 1, l_leaf_temp_ci, l_som_nsl and models 6, 7,
+      ! 10 and 11. The flat grid is kept as a check where the profit may
+      ! not have a single peak; utils/upgrade_nml_gce.py sets 1 in old
+      ! namelists that relied on the default.
+      !
+      ! MDK, 25/10/26
   discrimination_model = discrimination_off,                                   &
       ! Leaf 13C discrimination diagnostic: 0 off, 1 simple,
       ! 2 with photorespiration.
@@ -1466,19 +1473,16 @@ END IF
 SELECT CASE( som_psi_solver )
 CASE ( psi_solver_newton, psi_solver_lut )
   ! Valid values
-CASE ( psi_solver_taylor )
-  ! Valid, but inaccurate near hydraulic failure. MDK, 24/10/26
-  IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
-    errcode = -101
-    CALL ereport("check_jules_vegetation", errcode,                            &
-       'som_psi_solver = 1 (Taylor) is inaccurate near hydraulic ' //          &
-       'failure: use 2 (Newton) or 3 (lookup table)')
-  END IF
+CASE ( 1 )
+  ! RETIRED: the Taylor series solver. MDK, 25/10/26
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+     'som_psi_solver = 1 (Taylor) is retired: use 2 (Newton) or 3 ' //         &
+     '(lookup table); utils/upgrade_nml_gce.py converts it')
 CASE DEFAULT
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-     'som_psi_solver should be Taylor series (1), Newton-Raphson (2) ' //      &
-     'or lookup table (3)')
+     'som_psi_solver should be Newton-Raphson (2) or lookup table (3)')
 END SELECT
 
 ! Check that the som_ci_search is suitable.
@@ -1556,8 +1560,7 @@ IF ( stomata_model == stomata_supply_loss .AND.                                &
                'stomata_model = 9 (supply-loss) requires som_base_parm = 1')
 END IF
 ! The loss rule needs the supply function and its slope k = -dE/dpsi_leaf
-! consistently; the Taylor solver floors k at kcrit and approximates the
-! curve, so sl_kfail_frac below kcrit could never act.
+! consistently.
 IF ( stomata_model == stomata_supply_loss .AND.                                &
      som_psi_solver /= psi_solver_newton .AND.                                 &
      som_psi_solver /= psi_solver_lut ) THEN

@@ -52,7 +52,59 @@ LOGICAL, SAVE, PRIVATE :: l_ltc = .FALSE.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE ::                          &
   ltc_a(:), ltc_b(:), ltc_s(:), ltc_dl(:,:)
 
+! CO2 through the leaf boundary layer (l_som_coupled_e): gl_co2_bl gives
+! this as the stomatal conductance of a Ci that the boundary layer alone
+! cannot supply (the Ci is then infeasible).
+!
+! MDK, 25/10/26
+REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: gl_unreach = 1.0e3
+                            ! (m s-1)
+REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: r_bl_co2_fac = 1.37
+                            ! Boundary-layer resistance to CO2 over that to
+                            ! water vapour (the ratio of their
+                            ! diffusivities to the 2/3 power).
+
 CONTAINS
+
+!-----------------------------------------------------------------------------
+! Stomatal conductance to water vapour gl (m s-1) that gives net
+! photosynthesis a (mol CO2 m-2 s-1) at internal CO2 ci, with the CO2
+! crossing the leaf boundary layer and then the stomata in series, as the
+! water vapour does with coupled transpiration (l_som_coupled_e):
+!
+!   A = (ca - ci) / (R T (1.6 / gl + 1.37 r_bl)),
+!
+! so 1.6 / gl = (ca - ci) / (R T A) - 1.37 r_bl (Leuning et al., 1995, as
+! CABLE: photosynthesis at the leaf-surface CO2). Without the boundary layer
+! this is gl = 1.6 A R T / (ca - ci). dc = ca - ci (Pa, floored by the
+! caller), rt = R T (J mol-1), r_bl the leaf boundary-layer resistance to
+! water vapour (s m-1). If the boundary layer alone allows less than a,
+! gl_unreach is returned. a <= 0 (closed): gl from the formula without the
+! boundary layer (<= 0).
+!
+! MDK, 25/10/26
+!-----------------------------------------------------------------------------
+ELEMENTAL FUNCTION gl_co2_bl( a, dc, rt, r_bl ) RESULT( gl )
+
+USE jules_surface_mod, ONLY: ratio
+
+IMPLICIT NONE
+
+REAL(KIND=real_jlslsm), INTENT(IN) :: a, dc, rt, r_bl
+REAL(KIND=real_jlslsm) :: gl, r_s
+
+IF ( a <= 0.0 .OR. r_bl <= 0.0 ) THEN
+  gl = ratio * a * rt / dc
+ELSE
+  r_s = dc / ( a * rt ) - r_bl_co2_fac * r_bl
+  IF ( r_s > ratio / gl_unreach ) THEN
+    gl = ratio / r_s
+  ELSE
+    gl = gl_unreach
+  END IF
+END IF
+
+END FUNCTION gl_co2_bl
 
 !-----------------------------------------------------------------------------
 ! l_leaf_temp_ci: the leaf temperature of each candidate for the next call
@@ -1909,6 +1961,14 @@ DO j = 1,open_pts
   glco2_sample(:,j) = (al_sample(:,j) * conv)                                  &
                      / MAX(ca(l) - ci_sample(:,j), 1.0e-2_real_jlslsm)
   gl_sample(:,j)    = ratio * glco2_sample(:,j)
+  ! Coupled: the CO2 crosses the leaf boundary layer too (gl_co2_bl).
+  ! MDK, 25/10/26
+  IF ( l_som_coupled_e ) THEN
+    gl_sample(:,j) = gl_co2_bl(al_sample(:,j),                                 &
+                               MAX(ca(l) - ci_sample(:,j),                     &
+                                   1.0e-2_real_jlslsm), conv, r_bl(l))
+    glco2_sample(:,j) = gl_sample(:,j) / ratio
+  END IF
 
 END DO
 
@@ -2505,12 +2565,14 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_stomatal_response, ximpair_hold_gs,    &
                                 ximpair_hold_psi,                              &
-                                l_som_rhizo_series, l_som_coupled_e
+                                l_som_rhizo_series, l_som_coupled_e,           &
+                                photo_johnson   ! MDK, 25/10/26
 USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kplant_scale,            &
                                     l_store_q_path
 USE pftparm, ONLY: pft_conductance_model, psi_nsl_onset, psi_nsl0,             &
                    fsmc_mod, cmax_a, cmax_b, kmax_pft, cgain_varpi,            &
-                   conductance_b_pft, conductance_c_pft
+                   conductance_b_pft, conductance_c_pft,                       &
+                   conductance_c_seg   ! MDK, 25/10/26
 USE jules_surface_mod, ONLY: ratio
 USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
@@ -2703,6 +2765,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
   best_f, best_ci, best_al, best_gl, best_el, best_psi, best_kl, best_khc,     &
   ! Golden-section bracket
   a, b, d_ci, fc, fd
+INTEGER :: i_best
+REAL(KIND=real_jlslsm) :: f_scan, f_best_scan, d_scan
+INTEGER, PARAMETER :: n_scan = 5
+                            ! Coarse scan before the golden-section search
+                            ! where profit may have several peaks (see
+                            ! golden_max).
+                            !
+                            ! MDK, 25/10/26
 LOGICAL :: l_ltc_pt
                             ! l_leaf_temp_ci at this point (see eval_ci).
                             !
@@ -3057,6 +3127,32 @@ CONTAINS
   b = e_ci
   tol1 = (b - a) / opt_resol
 
+  ! Where profit need not have a single peak in Ci (a Weibull c < 1 on the
+  ! path, Johnson-Berry photosynthesis, or the nonstomatal limitation), a
+  ! coarse scan first: n_scan evenly spaced interior points, and the
+  ! golden-section bracket is narrowed to the two neighbours of the best.
+  ! The search then finds the peak the scan picked (store_best keeps the
+  ! best Ci evaluated either way).
+  !
+  ! MDK, 25/10/26
+  IF ( tol1 > 0.0 .AND. l_multi_peak() ) THEN
+    i_best = 0
+    f_best_scan = -HUGE(1.0_real_jlslsm)
+    DO i = 1, n_scan
+      CALL eval_ci(a + REAL(i) * (b - a) / REAL(n_scan + 1))
+      f_scan = profit_u()
+      IF ( f_scan > f_best_scan ) THEN
+        f_best_scan = f_scan
+        i_best = i
+      END IF
+    END DO
+    IF ( i_best > 0 ) THEN
+      d_scan = (b - a) / REAL(n_scan + 1)
+      b = a + REAL(i_best + 1) * d_scan
+      a = a + REAL(i_best - 1) * d_scan
+    END IF
+  END IF
+
   IF ( tol1 > 0.0 ) THEN
     ! Two interior points at the golden-ratio positions (0.382 and 0.618 of
     ! the bracket), c_ci < d_ci, and their profits fc and fd.
@@ -3103,6 +3199,16 @@ CONTAINS
     END DO
   END IF
   END SUBROUTINE golden_max
+
+  ! Profit may have more than one peak in Ci at this point (see golden_max).
+  !
+  ! MDK, 25/10/26
+  LOGICAL FUNCTION l_multi_peak()
+  l_multi_peak = l_som_nsl .OR. pft_photo_model == photo_johnson .OR.          &
+                 conductance_c(l) < 1.0
+  IF ( l_som_plant_segments )                                                  &
+    l_multi_peak = l_multi_peak .OR. MINVAL(conductance_c_seg(pft,:)) < 1.0
+  END FUNCTION l_multi_peak
 
   !---------------------------------------------------------------------------
   ! Diagnostic dA/dE at the optimum (lambda_g).
@@ -3414,7 +3520,8 @@ CONTAINS
   ok_u = ( psi_u <= psi_root_zone(l) + TINY(psi_root_zone(l))                  &
            .OR. l_store_q_path )                                               &
          .AND. kl_u > kcrit(l)                                                 &
-         .AND. (gl_max(l) <= 0.0 .OR. l_no_glcap .OR. gl_u <= gl_max(l))
+         .AND. (gl_max(l) <= 0.0 .OR. l_no_glcap .OR. gl_u <= gl_max(l))      &
+         .AND. gl_u < gl_unreach
   END SUBROUTINE eval_ci
 
   ! Conductance, transpiration, leaf psi and xylem k at internal CO2 ci for
@@ -3428,6 +3535,10 @@ CONTAINS
 
   al_u = al
   gl_u = ratio * (al_u * rmol * t_leaf(l)) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
+  ! (Coupled: the CO2 crosses the leaf boundary layer too. MDK, 25/10/26)
+  IF ( l_som_coupled_e ) gl_u = gl_co2_bl(al_u, MAX(ca(l) - ci,               &
+                                          1.0e-2_real_jlslsm),                 &
+                                          rmol * t_leaf(l), r_bl(l))
   el_u = MAX(0.0, e_of_g(gl_u, dq(l), pstar(l), t_leaf(l)))
   IF ( l_som_coupled_e ) el_u = e_of_g(g_eff_e(MAX(gl_u, 0.0_real_jlslsm),     &
                                                r_bl(l), r_ca(l), g_oth(l)),    &
@@ -3469,6 +3580,9 @@ CONTAINS
                            apar(l), fapar_lf(l), ipar(l), je_ratio(l),         &
                            pstar(l), rd(l) * f(7) )
     gl_u = ratio * (al_u * rmol * tl) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
+    IF ( l_som_coupled_e ) gl_u = gl_co2_bl(al_u, MAX(ca(l) - ci,             &
+                                            1.0e-2_real_jlslsm), rmol * tl,    &
+                                            r_bl(l))
     IF ( l_som_coupled_e ) THEN
       c_e = e_of_g(g_eff_e(MAX(gl_u, 0.0_real_jlslsm), r_bl(l), r_ca(l),       &
                            g_oth(l)), 1.0_real_jlslsm, pstar(l), tl)
@@ -3674,8 +3788,15 @@ CONTAINS
   !   f(Ci) = g_cap (ca - Ci) - rk A(Ci) >= 0,   rk = ratio R T_leaf
   !
   ! which needs only the photosynthesis A(Ci), no hydraulics. (ca - Ci) is
-  ! floored at 1e-2 Pa, as in gl.
+  ! floored at 1e-2 Pa, as in gl. Coupled, with the CO2 crossing the leaf
+  ! boundary layer too (gl_co2_bl), gl <= g_cap is
+  ! (ca - Ci) >= A R T (ratio / g_cap + 1.37 r_bl), the same f with
+  ! rk = R T_leaf (ratio + 1.37 r_bl g_cap).
+  !
+  ! MDK, 25/10/26
   rk = ratio * rmol * t_leaf(l)
+  IF ( l_som_coupled_e .AND. r_bl(l) > 0.0 )                                   &
+    rk = rmol * t_leaf(l) * (ratio + r_bl_co2_fac * r_bl(l) * g_cap)
 
   ! Bracket: the current edge e_ci (feasible, f >= 0) and the top of the
   ! range ci_top (f < 0). Give up if they do not bracket a root.
@@ -4479,6 +4600,8 @@ LOGICAL :: l_ok(n)
 l_ok(:) = kl_s(:) > kcr
 IF ( l_psi_test ) l_ok(:) = l_ok(:) .AND. psi_s(:) <= psi_rz + TINY(psi_rz)
 IF ( gl_max > 0.0 ) l_ok(:) = l_ok(:) .AND. gl_s(:) <= gl_max
+! A Ci the leaf boundary layer cannot supply (gl_co2_bl). MDK, 25/10/26
+l_ok(:) = l_ok(:) .AND. gl_s(:) < gl_unreach
 
 END FUNCTION som_feasible
 

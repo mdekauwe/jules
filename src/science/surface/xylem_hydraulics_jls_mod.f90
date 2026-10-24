@@ -406,11 +406,9 @@ CASE ( CW_conductance )
   ! Newton or table solver: leaf psi from solving the segments downstream,
   ! and the whole-plant conductance -dE/dpsi_leaf in k_out. (This choice
   ! was made inside psi_leaf_CW_jls; it is here so that the Weibull module
-  ! does not depend on the segment module.) Segments with the Taylor
-  ! solver are rejected by the namelist check; see the header of
-  ! psi_leaf_CW_jls.
+  ! does not depend on the segment module.)
   !
-  ! MDK, 24/10/26
+  ! MDK, 25/10/26
   IF ( l_som_plant_segments .AND. som_psi_solver == psi_solver_newton ) THEN
     CALL psi_leaf_segments_jls( pft, n_e, land_pts, open_pnts, veg_index,      &
                                 open_index, e_in, psi_root, kmax, kcrit,       &

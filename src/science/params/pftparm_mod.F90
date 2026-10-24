@@ -2380,13 +2380,14 @@ END IF
 
 !-----------------------------------------------------------------------------
 ! Xylem impairment is coded for the stomatal optimisation's flat and bounded
-! Ci searches with the Taylor or Newton leaf-psi solvers. With the lookup
+! Ci searches with the Newton leaf-psi solver. With the lookup
 ! table (som_psi_solver = 3) only the memory model (3) is coded: its capped
 ! curve is inverted exactly from the intact PFT table (the cap is a
 ! straight line above the psi where the intact curve meets it). The whole
 ! trunk model (2) changes b and c, which the table (keyed by PFT) cannot
 ! follow. DESICA uses the intact PFT curve.
-! MDK, 18/10/26
+!
+! MDK, 25/10/26
 !-----------------------------------------------------------------------------
 IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   IF ( som_psi_solver == psi_solver_lut .AND.                                 &
