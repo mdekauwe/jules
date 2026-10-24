@@ -326,7 +326,7 @@ END FUNCTION seg_kmax_fac
 FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, b, c, kcap_frac, kx,        &
                            l_plant_only ) RESULT( k0 )
 
-USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
+USE pftparm, ONLY: seg_rel_k
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_rhizo_series
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
 
@@ -366,9 +366,7 @@ IF ( PRESENT(kx) ) THEN
 ELSE IF ( l_som_plant_segments ) THEN
   r = 0.0
   DO iseg = 1, 3
-    k_el = kmax * seg_kmax_fac(pft,l,iseg)                                     &
-           * EXP(-( ABS(MIN(psi_root, 0.0) / conductance_b_seg(pft,iseg)) )    &
-                 **conductance_c_seg(pft,iseg))
+    k_el = kmax * seg_kmax_fac(pft,l,iseg) * seg_rel_k(pft, iseg, psi_root)
     IF ( PRESENT(kcap_frac) .AND. iseg >= 2 )                                  &
       k_el = MIN(k_el, MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac),      &
                                0.0), 1.0) * kmax * seg_kmax_fac(pft,l,iseg))

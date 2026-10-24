@@ -142,12 +142,6 @@ TYPE :: psparms_data_type
   REAL(KIND=real_jlslsm), ALLOCATABLE :: psi_root_extreme_pft(:,:)
     ! Minimum root water potential for each plant functional type (Pa).
     ! Used in the whole trunk xylem impairment model. JBaguley
-  REAL(KIND=real_jlslsm), ALLOCATABLE :: psi_canopy_pft(:,:)
-    ! Canopy water potential for each plant functional type (Pa) JBaguley
-    ! Calculated from transpiration after JULES compensates for imperfect
-    ! atmospher-leaf coupling.
-  REAL(KIND=real_jlslsm), ALLOCATABLE :: k_canopy_pft(:,:)
-    ! Canopy xylem conductance to water (mol m-2 s-1 Pa-1) JBaguley
   REAL(KIND=real_jlslsm), ALLOCATABLE :: gc_som_pft(:,:)
     ! Stomatal conductance calculated in stomatal optimisation model
     ! (m/s) JBaguley
@@ -196,8 +190,6 @@ TYPE :: psparms_type
   REAL(KIND=real_jlslsm), POINTER :: kmax_impaired_pft(:,:) ! JBaguley
   REAL(KIND=real_jlslsm), POINTER :: psi_leaf_extreme_pft(:,:) ! JBaguley
   REAL(KIND=real_jlslsm), POINTER :: psi_root_extreme_pft(:,:) ! JBaguley
-  REAL(KIND=real_jlslsm), POINTER :: psi_canopy_pft(:,:) ! JBaguley
-  REAL(KIND=real_jlslsm), POINTER :: k_canopy_pft(:,:) ! JBaguley
   REAL(KIND=real_jlslsm), POINTER :: gc_som_pft(:,:) ! JBaguley
   REAL(KIND=real_jlslsm), POINTER :: gc_stom_pft(:,:)
   REAL(KIND=real_jlslsm), POINTER :: t_leaf_sun_pft(:,:)
@@ -263,8 +255,6 @@ ALLOCATE(psparms_data%leaf_k_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%kmax_impaired_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%psi_leaf_extreme_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%psi_root_extreme_pft(land_pts,npft)) ! JBaguley
-ALLOCATE(psparms_data%psi_canopy_pft(land_pts,npft)) ! JBaguley
-ALLOCATE(psparms_data%k_canopy_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%gc_som_pft(land_pts,npft)) ! JBaguley
 ALLOCATE(psparms_data%gc_stom_pft(land_pts,npft))
 ALLOCATE(psparms_data%t_leaf_sun_pft(land_pts,npft))
@@ -294,8 +284,6 @@ psparms_data%leaf_k_pft(:,:)          = 0.0 ! JBaguley
 psparms_data%kmax_impaired_pft(:,:)   = 0.0 ! JBaguley
 psparms_data%psi_leaf_extreme_pft(:,:) = 0.0 ! JBaguley
 psparms_data%psi_root_extreme_pft(:,:) = 0.0 ! JBaguley
-psparms_data%psi_canopy_pft(:,:)        = 0.0 ! JBaguley
-psparms_data%k_canopy_pft(:,:)         = 0.0 ! JBaguley
 psparms_data%gc_som_pft(:,:)         = 0.0 ! JBaguley
 psparms_data%gc_stom_pft(:,:) = 0.0
 psparms_data%t_leaf_sun_pft(:,:) = 0.0
@@ -418,8 +406,6 @@ DEALLOCATE(psparms_data%leaf_k_pft) ! JBaguley
 DEALLOCATE(psparms_data%kmax_impaired_pft) ! JBaguley
 DEALLOCATE(psparms_data%psi_leaf_extreme_pft) ! JBaguley
 DEALLOCATE(psparms_data%psi_root_extreme_pft) ! JBaguley
-DEALLOCATE(psparms_data%psi_canopy_pft) ! JBaguley
-DEALLOCATE(psparms_data%k_canopy_pft) ! JBaguley
 DEALLOCATE(psparms_data%gc_som_pft) ! JBaguley
 DEALLOCATE(psparms_data%gc_stom_pft)
 DEALLOCATE(psparms_data%t_leaf_sun_pft)
@@ -498,8 +484,6 @@ psparms%leaf_k_pft => psparms_data%leaf_k_pft ! JBaguley
 psparms%kmax_impaired_pft => psparms_data%kmax_impaired_pft ! JBaguley
 psparms%psi_leaf_extreme_pft => psparms_data%psi_leaf_extreme_pft ! JBaguley
 psparms%psi_root_extreme_pft => psparms_data%psi_root_extreme_pft ! JBaguley
-psparms%psi_canopy_pft => psparms_data%psi_canopy_pft ! JBaguley
-psparms%k_canopy_pft => psparms_data%k_canopy_pft ! JBaguley
 psparms%gc_som_pft => psparms_data%gc_som_pft ! JBaguley
 psparms%gc_stom_pft => psparms_data%gc_stom_pft
 psparms%t_leaf_sun_pft => psparms_data%t_leaf_sun_pft
@@ -574,8 +558,6 @@ NULLIFY(psparms%leaf_k_pft) ! JBaguley
 NULLIFY(psparms%kmax_impaired_pft) ! JBaguley
 NULLIFY(psparms%psi_leaf_extreme_pft) ! JBaguley
 NULLIFY(psparms%psi_root_extreme_pft) ! JBaguley
-NULLIFY(psparms%psi_canopy_pft) ! JBaguley
-NULLIFY(psparms%k_canopy_pft) ! JBaguley
 NULLIFY(psparms%gc_som_pft) ! JBaguley
 NULLIFY(psparms%gc_stom_pft)
 NULLIFY(psparms%t_leaf_sun_pft)

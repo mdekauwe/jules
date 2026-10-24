@@ -364,12 +364,6 @@ DO i = 1, npft
     WHERE ( ximpair_lock(:,i) <= 0.0 )                                         &
       psparms%kmax_impaired_pft(:,i) = kmax_pft(i)
   END IF
-  ! The canopy conductance diagnostic keeps its last value while the stomata
-  ! are shut; start it at the (possibly restored) impaired kmax, as it
-  ! stands at night in a continuous run.
-  WHERE ( psparms%k_canopy_pft(:,i) <= 0.0 )
-    psparms%k_canopy_pft(:,i) = psparms%kmax_impaired_pft(:,i)
-  END WHERE
 END DO
 
 RETURN

@@ -511,7 +511,7 @@ SUBROUTINE update_xylem_impairment_memory ( n_land_pts                         &
 USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
                    ximpair_psi_driver, ximpair_reset_mmdd,                     &
                    ximpair_psi_growth, ximpair_tau_leaf,                       &
-                   conductance_b_seg, conductance_c_seg, nsc_xylem_replace
+                   seg_rel_k, nsc_xylem_replace
 USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 ximpair_driver_root, ximpair_driver_stem,      &
                                 l_triffid,                                     &
@@ -732,16 +732,16 @@ IF (l_ximpair_seg_memory) THEN
   DO j = 1, n_open_pts
     l = open_index(j)
     IF (l_two) THEN
-      CALL damage_two_pool( l, 1.0 - seg_f(psi_stem(l), 2) )
+      CALL damage_two_pool( l, 1.0 - seg_rel_k(pft, 2, psi_stem(l)) )
     ELSE
-      kcap(l) = MIN(kcap(l), kmax_pts(l) * seg_f(psi_stem(l), 2))
+      kcap(l) = MIN(kcap(l), kmax_pts(l) * seg_rel_k(pft, 2, psi_stem(l)))
     END IF
     ! MDK, 17/10/26
     IF (l_ximpair_rec_nsc)                                                     &
       ximpair_fmin_acc(l,pft) = MIN(ximpair_fmin_acc(l,pft),                   &
-                                    seg_f(psi_stem(l), 2))
+                                    seg_rel_k(pft, 2, psi_stem(l)))
     ximpair_kcap_leaf(l,pft) = MIN(ximpair_kcap_leaf(l,pft),                   &
-                                   seg_f(psi_leaf(l), 3))
+                                   seg_rel_k(pft, 3, psi_leaf(l)))
   END DO
   frac_crit = kcrit(pft) / MAX(kmax_pft(pft), TINY(1.0_real_jlslsm))
   ximpair_kcap_leaf(:,pft) = MAX(MIN(ximpair_kcap_leaf(:,pft), 1.0), frac_crit)
@@ -795,15 +795,6 @@ CONTAINS
   ximpair_lock_new(l,pft) = m_n
   kcap(l) = kmax_pts(l) * (1.0 - e_old - r_n * m_n)
   END SUBROUTINE damage_two_pool
-
-  ! Intact relative conductance of segment iseg at water potential psi.
-  FUNCTION seg_f( psi, iseg ) RESULT( f )
-  REAL(KIND=real_jlslsm), INTENT(IN) :: psi
-  INTEGER, INTENT(IN) :: iseg
-  REAL(KIND=real_jlslsm) :: f
-  f = EXP(-( ABS(MIN(psi, 0.0) / conductance_b_seg(pft,iseg)) )                &
-          **conductance_c_seg(pft,iseg))
-  END FUNCTION seg_f
 
 END SUBROUTINE update_xylem_impairment_memory
 

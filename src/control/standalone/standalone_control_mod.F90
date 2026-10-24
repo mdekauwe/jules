@@ -120,12 +120,6 @@ USE jules_deposition_mod,     ONLY: l_deposition
 USE conversions_mod,          ONLY: pi_over_180
 USE model_grid_mod,           ONLY: latitude
 
-! Use for stomatal optimisation scheme
-USE jules_vegetation_mod, ONLY: leaf_flux_mod, leaf_flux_stom_opt
-USE xylem_impairment_mod, ONLY: canopy_impaired_psi_jls
-USE water_constants_mod, ONLY: Water_kg_per_mol
-USE c_rmol, ONLY: rmol
-
 !-------------------------------------------------------------------------------
 
 IMPLICIT NONE
@@ -446,9 +440,6 @@ REAL ::                                                                        &
   ls_graup_ij(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end),            &
   ls_rainfrac_land(land_pts)
 
-REAL(KIND=real_jlslsm) et_stom_surft_working(land_pts,nsurft)
-  ! WORKING copy of et_stom_surft in mol m-2 s-1, used in stomatal optimisation
-  ! scheme to calculate leaf water potential.
 
 INTEGER :: pft
 
@@ -931,37 +922,6 @@ CALL surf_couple_extra(                                                        &
   wtrac_jls,                                                                   &
   work_cbl                                                                     &
   )
-
-!-------------------------------------------------------------------------------
-! If using the stomatal optimisation scheme calculate canopy water potnetials
-! using the updated transpiration rates
-!-------------------------------------------------------------------------------
-
-
-
-IF (leaf_flux_mod == leaf_flux_stom_opt) THEN
-
-  DO l = 1, land_pts
-    et_stom_surft_working(l,:) = sf_diag%et_stom_surft(l,:) / Water_kg_per_mol
-  END DO
-
-  CALL canopy_impaired_psi_jls( land_pts                                   &
-,                               ainfo%surft_pts                            &
-,                               ainfo%surft_index                          &
-,                               et_stom_surft_working                      &
-,                               psparms%psi_root_zone_pft                  &
-,                               psparms%kmax_impaired_pft                  &
-,                               psparms%psi_leaf_extreme_pft               &
-,                               psparms%psi_root_extreme_pft               &
-,                               progs%lai_pft                              &
-                              ! INTENT OUT
-,                               psparms%psi_canopy_pft                     &
-                              ! INTENT IN OUT
-,                               psparms%k_canopy_pft                       &
-                              )
-
-END IF
-
 
 END SUBROUTINE standalone_control
 END MODULE standalone_control_mod

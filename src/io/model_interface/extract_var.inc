@@ -47,7 +47,7 @@ USE canopy_diag_mod, ONLY: gc_stomatal_pft, gsoil_pft, t_can_air_pft,          &
                            q_can_air_pft, h_leaf_pft, le_leaf_pft   ! MDK, 24/10/26
 USE stom_opt_jls_mod, ONLY: som_lambda_eff_pft   ! MDK, 22/10/26
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
-USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
+USE pftparm, ONLY: seg_kfac, seg_rel_k
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
                           flux_sap_desica, dw_plant_desica
 USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
@@ -3707,7 +3707,9 @@ CASE ( 'psi_root_zone_pft' )
 
   ! Leaf water potential for each plant functional type JBaguley
   ! The 1.0e-6 is to convert from Pa to MPa
-CASE ( 'psi_leaf_pft' )
+CASE ( 'psi_leaf_pft', 'psi_canopy_pft' )
+  ! psi_canopy_pft is the same as psi_leaf_pft (it was a separate
+  ! single-curve solve, removed). MDK, 24/10/26
   ! DESICA: the state advanced with the actual transpiration (sf_evap),
   ! not sf_stom's projection.
   IF ( stomata_model == stomata_desica .AND. ALLOCATED(psi_leaf_desica) ) THEN
@@ -4161,7 +4163,9 @@ CASE ( 'kplant_pft' )
   cube_land = cube_from_array(psparms%leaf_k_pft * 1.0e9)
   cube = map_from_land(cube_land)
 
-CASE ('PLC_pft')
+CASE ('PLC_pft', 'PLC_canopy_pft')
+  ! PLC_canopy_pft is the same as PLC_pft (it was a separate single-curve
+  ! solve, removed). MDK, 24/10/26
   ! Xylem only: the loss of xylem conductance at psi_leaf relative to the
   ! unimpaired kmax_pft. Not from leaf_k_pft (kplant_pft), which includes
   ! the soil-to-root conductance, so would count soil drying as embolism.
@@ -4201,13 +4205,9 @@ CASE ('PLC_pft')
         DO l = 1, land_pts
           psi_s = psparms%psi_leaf_pft(l,i)
           IF ( ALLOCATED(ximpair_psi_stem) ) psi_s = ximpair_psi_stem(l,i)
-          g_stem = MIN( EXP(-( ABS(MIN(psi_s, 0.0)                             &
-                                   / conductance_b_seg(i,2)) )                 &
-                            **conductance_c_seg(i,2)),                         &
+          g_stem = MIN( seg_rel_k(i, 2, psi_s),                                &
                         psparms%kmax_impaired_pft(l,i) / kmax_pft(i) )
-          g_leaf = MIN( EXP(-( ABS(MIN(psparms%psi_leaf_pft(l,i), 0.0)         &
-                                   / conductance_b_seg(i,3)) )                 &
-                            **conductance_c_seg(i,3)),                         &
+          g_leaf = MIN( seg_rel_k(i, 3, psparms%psi_leaf_pft(l,i)),            &
                         ximpair_kcap_leaf(l,i) )
           g_stem = MAX(g_stem, 1.0e-12)
           g_leaf = MAX(g_leaf, 1.0e-12)
@@ -4253,28 +4253,6 @@ CASE ('conductance_c_impaired_pft')
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-  ! Canopy water potential for each plant functional type JBaguley
-  ! This is calculated from the transpiration rate after JULES
-  ! corrects for imperfect atmosphere-leaf coupling.
-  ! The 1.0e-6 is to convert from Pa to MPa
-CASE ( 'psi_canopy_pft' )
-  ! (A screen warning for positive values, printed on every output step,
-  ! was removed. MDK, 24/10/26)
-  cube_land = cube_from_array(psparms%psi_canopy_pft(:,:)*1.0e-6)
-  cube = map_from_land(cube_land)
-
-  ! Percentage loss of conductance in the canopy for each plant JBaguley
-  ! functional type. This is calculated from the transpiration
-  ! rate after JULES corrects for imperfect atmosphere-leaf
-  ! coupling.
-CASE ( 'PLC_canopy_pft' )
-  ! Convert the canopy water potential to a percentage loss of conductance
-  DO i = 1, npft
-    workspace_pft(:,i) = 100.0 * (1 - psparms%k_canopy_pft(:,i)/kmax_pft(i))
-  END DO
-
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
 CASE ( 'gc_som_pft' )
   cube_land = cube_from_array(psparms%gc_som_pft)
   cube = map_from_land(cube_land)

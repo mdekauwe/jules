@@ -828,6 +828,21 @@ nsc_in_flush_window = MODULO(doy - NINT(nsc_flush_start_doy(n)), n_days)     &
                       < NINT(nsc_flush_days(n))
 END FUNCTION nsc_in_flush_window
 
+ELEMENTAL FUNCTION seg_rel_k( n, iseg, psi ) RESULT( f )
+! Intact conductance of hydraulic segment iseg (1 root, 2 stem, 3 leaf) of
+! PFT n at water potential psi (Pa), relative to its maximum: the Weibull
+! exp(-(|psi| / b)^c) of conductance_b_seg and conductance_c_seg; 1 for
+! psi >= 0.
+!
+! MDK, 24/10/26
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: n, iseg
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+REAL(KIND=real_jlslsm) :: f
+f = EXP(-( ABS(MIN(psi, 0.0) / conductance_b_seg(n,iseg)) )                    &
+        **conductance_c_seg(n,iseg))
+END FUNCTION seg_rel_k
+
 SUBROUTINE pftparm_alloc(npft)
 
 USE missing_data_mod, ONLY: imdi, rmdi

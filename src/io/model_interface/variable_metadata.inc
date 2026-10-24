@@ -9638,7 +9638,7 @@ DATA metadata(744) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Canopy water potential",                                                  &
+    "Leaf water potential (same as psi_leaf_pft)",                             &
 ! Units
     "MPa"                                                                      &
   ) /
@@ -9651,7 +9651,7 @@ DATA metadata(745) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Percentage loss of conductance in the canopy",                            &
+    "Percentage loss of xylem conductance (same as PLC_pft)",                  &
 ! Units
     "%"                                                                        &
   ) /
