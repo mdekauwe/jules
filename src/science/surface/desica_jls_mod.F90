@@ -71,6 +71,7 @@ MODULE desica_jls_mod
 ! *********************************************************************
 
 USE um_types, ONLY: real_jlslsm
+USE water_constants_mod, ONLY: Water_kg_per_mol   ! MDK, 24/10/26
 
 IMPLICIT NONE
 
@@ -106,8 +107,12 @@ REAL(KIND=real_jlslsm), PARAMETER :: psi_leaf_min = -20.0e6
                             ! Lower bound on psi_leaf (Pa), as CABLE-DESICA.
 REAL(KIND=real_jlslsm), PARAMETER :: lai_min = 1.0e-3
                             ! Below this LAI there is no leaf pool.
-REAL(KIND=real_jlslsm), PARAMETER :: mol_h2o = 0.018
-                            ! kg H2O per mol.
+REAL(KIND=real_jlslsm), PARAMETER :: mol_h2o = Water_kg_per_mol
+                            ! kg H2O per mol (JULES's value; was 0.018, so
+                            ! mol/kg round trips with the rest of the code
+                            ! did not close).
+                            !
+                            ! MDK, 24/10/26
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='DESICA_JLS_MOD'
 

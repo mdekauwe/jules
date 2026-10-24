@@ -38,6 +38,7 @@ USE pftparm, ONLY: pft_xylem_impairment_model, nsc_psi_turg_zero,            &
                    phen_bb_gdd
 
 USE jules_vegetation_mod, ONLY: l_trif_hydmort   ! MDK, 21/10/26
+USE jules_vegetation_mod, ONLY: l_leaf_temp      ! MDK, 24/10/26
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_triffid, l_phenol, l_veg_compete,            &
                                 l_crop, l_landuse,                             &
@@ -49,9 +50,8 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
                                 l_triffid_nsc, l_ximpair_rec_leaf_turn,        &
                                 l_phen_psi, l_nsc_wmax_norm,                   &
-                                l_som_vcmax_psi, l_som_coupled_e,  &
-                                l_som_cuticular_loss, l_som_capacitance,      &
-                                l_som_plant_store   ! MDK, 23/10/26
+                                l_som_vcmax_psi, l_som_coupled_e,              &
+                                l_som_capacitance_on   ! MDK, 24/10/26
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -260,7 +260,9 @@ IF ( l_som_vcmax_psi ) CALL add_to_list( 'fvcmax_psi_state', nvars, identifiers 
 ! reproduces a continuous run.
 !
 ! MDK, 22/10/26
-IF ( l_som_cuticular_loss .OR. l_som_capacitance .OR. l_som_plant_store ) THEN
+! (l_som_capacitance_on: with the stomatal optimisation only, and
+! l_som_plant_store folded in by check_jules_vegetation. MDK, 24/10/26)
+IF ( l_som_capacitance_on ) THEN
   CALL add_to_list( 'cut_w_store', nvars, identifiers )
   CALL add_to_list( 'cut_psi_stem', nvars, identifiers )
   CALL add_to_list( 'cut_c_store', nvars, identifiers )
@@ -271,6 +273,14 @@ IF ( l_som_coupled_e .AND. can_rad_mod == 7 ) THEN
   CALL add_to_list( 'cpl_gbw_sun', nvars, identifiers )
   CALL add_to_list( 'cpl_gbw_shd', nvars, identifiers )
   CALL add_to_list( 'cpl_ra_ca', nvars, identifiers )
+END IF
+! The leaf temperatures of the last timestep, the first guess of the leaf
+! energy balance (l_leaf_temp), so a restart reproduces a continuous run.
+!
+! MDK, 24/10/26
+IF ( l_leaf_temp ) THEN
+  CALL add_to_list( 't_leaf_sun_pft', nvars, identifiers )
+  CALL add_to_list( 't_leaf_shd_pft', nvars, identifiers )
 END IF
 
 ! TRIFFID's period timer and the accumulators that drive the next TRIFFID

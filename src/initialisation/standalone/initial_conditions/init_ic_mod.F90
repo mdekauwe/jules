@@ -1051,6 +1051,10 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
   CASE ( 'hydmort_dead' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  CASE ( 't_leaf_sun_pft', 't_leaf_shd_pft' )
+    ! Leaf temperatures' first guess: not yet set (< 150 K), so tstar.
+    ! MDK, 24/10/26
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'nsc_store' )
     ! TRIFFID store: -1 = filled to its capacity at the first TRIFFID step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)

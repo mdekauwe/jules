@@ -192,7 +192,10 @@ IF ( is_master_task() ) THEN
              TRIM(identifiers(i)) // " is not in the dump: TRIFFID steps " //  &
              "count from the restart (restart not exact).")
         CASE ( 'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd',                &
-               'cpl_gbw_sun', 'cpl_gbw_shd', 'cpl_ra_ca' )
+               'cpl_gbw_sun', 'cpl_gbw_shd', 'cpl_ra_ca',                     &
+               't_leaf_sun_pft', 't_leaf_shd_pft' )
+          ! (t_leaf_*: the leaf temperatures' first guess, l_leaf_temp; 0 =
+          ! not yet set, so the first step starts from tstar. MDK, 24/10/26)
           ! sf_stom state: dumps written without it start from 'not yet set'
           ! (the restart is then not exact). MDK, 22/10/26
           CALL log_warn("read_dump_shared",                                    &

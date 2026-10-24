@@ -15,7 +15,7 @@ IMPLICIT NONE
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='STOM_OPT_JLS_MOD'
 
 PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_bounded_search,  &
-        stom_opt_supply_loss, g_eff_e
+        stom_opt_supply_loss, g_eff_e, som_feasible
 PUBLIC stom_opt_mod, g_of_geff, som_path_psi, stom_opt_at_e, e_of_g
 
 ! Diagnostic marginal water price at the optimum, lambda_eff = dA/dE
@@ -1076,30 +1076,48 @@ CALL stom_opt_profit_max_select(                                               &
         )
 
 DO j = 1, open_pts_flat
-  l = veg_index(open_index_flat(j))
-  ci(l) = MAX(0.0, ci_sample(optimal_index_flat(j),j))
-
-  ! Closed state (index 0) keeps al = -rd, as for points that
-  ! were never open; an open optimum is clipped at -rd (as closed).
-  IF (optimal_index_flat(j) == 0) THEN
-    al(l) = al_sample(0,j)
-  ELSE
-    al(l) = MAX(-rd(l), al_sample(optimal_index_flat(j),j))
-  END IF
-  gl(l) = MAX(0.0, gl_sample(optimal_index_flat(j),j))
-
-  ! gl = 0 means closed: al = -rd, as in set_closed.
-  IF (gl(l) <= 0.0) al(l) = -rd(l)
-  psi_leaf(l) = psi_sample(optimal_index_flat(j),j)
-  IF (PRESENT(psi_stem))                                                       &
-    psi_stem(l) = psi_stem_sample(optimal_index_flat(j),j)
-  el(l) = el_sample(optimal_index_flat(j),j)
-  leaf_k(l) = kl_sample(optimal_index_flat(j),j)
-  carbon_gain_out(l) = carbon_gain(optimal_index_flat(j),j)
-  hydraulic_cost_out(l) = hydraulic_cost(optimal_index_flat(j),j)
+  CALL take_sample( j, veg_index(open_index_flat(j)), optimal_index_flat(j) )
 END DO
 
 END SUBROUTINE profit_max_flat
+
+!-----------------------------------------------------------------------------
+! Set the outputs at land point l from Ci sample k of open point j of a
+! flat search (k = 0: closed). The two flat searches shared these lines.
+! Closed (k = 0, or gl = 0): al = -rd, as in set_closed, and gain and cost
+! 0, as documented for carbon_gain_out and hydraulic_cost_out (the SOX flat
+! search returned -rd and about 1 there).
+!
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE take_sample( j, l, k )
+INTEGER, INTENT(IN) :: j, l, k
+
+ci(l) = MAX(0.0, ci_sample(k,j))
+! Closed state (index 0) keeps al = -rd, as for points that were never
+! open; an open optimum is clipped at -rd (as closed).
+IF (k == 0) THEN
+  al(l) = al_sample(0,j)
+ELSE
+  al(l) = MAX(-rd(l), al_sample(k,j))
+END IF
+gl(l) = MAX(0.0, gl_sample(k,j))
+psi_leaf(l) = psi_sample(k,j)
+! psi_stem, so the per-segment stem damage follows the stem's water
+! potential, not the root zone's.
+IF (PRESENT(psi_stem)) psi_stem(l) = psi_stem_sample(k,j)
+el(l) = el_sample(k,j)
+leaf_k(l) = kl_sample(k,j)
+carbon_gain_out(l) = carbon_gain(k,j)
+hydraulic_cost_out(l) = hydraulic_cost(k,j)
+! gl = 0 means closed: al = -rd, as in set_closed, no gain or cost.
+IF (k == 0 .OR. gl(l) <= 0.0) THEN
+  IF (gl(l) <= 0.0) al(l) = -rd(l)
+  carbon_gain_out(l) = 0.0
+  hydraulic_cost_out(l) = 0.0
+END IF
+
+END SUBROUTINE take_sample
 
 !-----------------------------------------------------------------------------
 ! SOX_opt on the flat Ci grid (without the bounded search). SOX_opt has no
@@ -1113,7 +1131,6 @@ carbon_gain(:,:) = 0.0
 hydraulic_cost(:,:) = 0.0
 profit(:,:) = 0.0
 kl_SOX(:,:) = 0.0
-l_good_sample(:,:) = .TRUE.
 ci_lo(:) = MAX(ccp(:), 0.0)
 ci_hi(:) = ca(:)
 
@@ -1137,19 +1154,10 @@ CALL stom_opt_mod_ci(                                                          &
 ! ------------------------------------------------------------------
 DO j = 1, open_pts
   l = veg_index(open_index(j))
-
-  ! Require psi <= psi_root_zone
-  l_good_sample(:,j) = l_good_sample(:,j)                                      &
-      .AND. psi_sample(1:,j) <= psi_root_zone(l)                               &
-                                + TINY(psi_root_zone(l))
-
-  ! Require k > k_crit
-  l_good_sample(:,j) = l_good_sample(:,j)                                      &
-                       .AND. kl_sample(1:,j) > kcrit(l)
-
-  ! Require gl <= gl_max (when the cap is enabled)
-  IF (gl_max(l) > 0.0) l_good_sample(:,j) = l_good_sample(:,j)                 &
-                       .AND. gl_sample(1:,j) <= gl_max(l)
+  l_good_sample(:,j) = som_feasible( som_n_sample, psi_sample(1:,j),          &
+                                     kl_sample(1:,j), gl_sample(1:,j),        &
+                                     psi_root_zone(l), kcrit(l), gl_max(l),   &
+                                     .TRUE. )
 END DO
 
 ! SOX_opt (Eller et al. 2018): the conductance is taken at psi_bar,
@@ -1198,29 +1206,7 @@ DO j = 1, open_pts
 
   optimal_index = MAXLOC(profit(1:,j), DIM = 1,                                &
                          MASK = l_good_sample(:,j))
-
-  ci(l) = MAX(0.0, ci_sample(optimal_index,j))
-  IF (optimal_index == 0) THEN
-    al(l) = al_sample(0,j)
-  ELSE
-    al(l) = MAX(-rd(l), al_sample(optimal_index,j))
-  END IF
-  gl(l) = MAX(0.0, gl_sample(optimal_index,j))
-
-  ! gl = 0 means closed: al = -rd, as in set_closed.
-  IF (gl(l) <= 0.0) al(l) = -rd(l)
-  psi_leaf(l) = psi_sample(optimal_index,j)
-
-  ! psi_stem as the profit-max flat search, so the per-segment stem
-  ! damage follows the stem's water potential, not the root zone's.
-  !
-  ! MDK, 21/10/26
-  IF (PRESENT(psi_stem)) psi_stem(l) = psi_stem_sample(optimal_index,j)
-  el(l) = el_sample(optimal_index,j)
-  leaf_k(l) = kl_sample(optimal_index,j)
-
-  carbon_gain_out(l) = carbon_gain(optimal_index,j)
-  hydraulic_cost_out(l) = hydraulic_cost(optimal_index,j)
+  CALL take_sample( j, l, optimal_index )
 END DO
 
 END SUBROUTINE sox_flat_search
@@ -1344,7 +1330,7 @@ DO ipass = 1,2
       l_multilayer, r_bl, r_ca, g_oth,                                         &
       kmax_ref, conductance_b, conductance_c,                                  &
       psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,                  &
-      ci_s, al_s, gl_s, kl_s, psi_s, el_s, klhc_s )
+      ci_s, al_s, gl_s, kl_s, psi_s, el_s, klhc_s, l_photo_only = .TRUE. )
   DO j = 1,open_pts
     l = veg_index(open_index(j))
 
@@ -1551,7 +1537,9 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
         ci_sample, al_sample, gl_sample, kl_sample, psi_sample,el_sample,      &
         kl_hc_sample,                                                          &
 ! OUT (optional)
-        psi_stem_sample                                                        &
+        psi_stem_sample,                                                       &
+! IN (optional)
+        l_photo_only                                                           &
 )
 
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_coupled_e
@@ -1595,6 +1583,14 @@ INTEGER, INTENT(IN) ::                                                         &
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   r_bl(land_pts), r_ca(land_pts), g_oth(land_pts)
                             ! Coupled transpiration (see stom_opt_mod).
+
+LOGICAL, INTENT(IN), OPTIONAL :: l_photo_only
+                            ! .TRUE.: ci, A, gl and E of the samples only,
+                            ! with no path solve (kl, psi and kl_hc are
+                            ! returned as 0), for callers that use no
+                            ! hydraulics (stom_opt_at_e).
+                            !
+                            ! MDK, 24/10/26
 
 !-----------------------------------------------------------------------------
 ! IN real variables
@@ -1813,6 +1809,25 @@ END DO
 
 ! Transpiration can't be negative
 el_sample(:,:) = MAX(0.0, el_sample(:,:))
+
+! Photosynthesis only: the closed entry 0 and no hydraulics.
+!
+! MDK, 24/10/26
+IF ( PRESENT(l_photo_only) ) THEN
+  IF ( l_photo_only ) THEN
+    kl_sample(:,:)    = 0.0
+    psi_sample(:,:)   = 0.0
+    kl_hc_sample(:,:) = 0.0
+    DO j = 1, open_pts
+      l = veg_index(open_index(j))
+      al_sample(0,j) = -rd(l)
+      gl_sample(0,j) = 0.0
+      el_sample(0,j) = 0.0
+    END DO
+    IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+    RETURN
+  END IF
+END IF
 
 ! Approximate the leaf water potential and conductance.
 ! NOTE: el_sample/psi_sample/kl_sample are dimensioned (0:n_sample,
@@ -2200,24 +2215,15 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 ! ----------------------------------------------------------------------------
 !  Make mask of those samples that are physically reasonable.
 ! ----------------------------------------------------------------------------
-l_good_sample(:,:) = .TRUE.
+! (psi <= psi_root_zone is not required with the store's flow held fixed,
+! l_store_q_path: the store is a second source, wetter than the soil while
+! it gives; MDK, 24/10/26)
 DO j = 1, open_pts
   l = veg_index(open_index(j))
-
-  ! Require psi <= psi_root_zone (not with the store's flow held fixed,
-  ! l_store_q_path: the store is a second source, wetter than the soil
-  ! while it gives; MDK, 24/10/26)
-  IF ( .NOT. l_store_q_path )                                                  &
-    l_good_sample(:,j) = l_good_sample(:,j)                                    &
-          .AND. psi_sample(1:,j) <= psi_root_zone(l) + TINY(psi_root_zone(l))
-
-  ! Require k > k_crit
-  l_good_sample(:,j) = l_good_sample(:,j)                                      &
-                       .AND. kl_sample(1:,j) > kcrit(l)
-
-  ! Require gl <= gl_max (when the cap is enabled)
-  IF (gl_max(l) > 0.0) l_good_sample(:,j) = l_good_sample(:,j)                 &
-                       .AND. gl_sample(1:,j) <= gl_max(l)
+  l_good_sample(:,j) = som_feasible( n_sample, psi_sample(1:,j),              &
+                                     kl_sample(1:,j), gl_sample(1:,j),        &
+                                     psi_root_zone(l), kcrit(l), gl_max(l),   &
+                                     .NOT. l_store_q_path )
 END DO
 
 ! ----------------------------------------------------------------------------
@@ -4163,5 +4169,26 @@ CONTAINS
   END FUNCTION photo_al
 
 END SUBROUTINE stom_opt_supply_loss
+
+!-----------------------------------------------------------------------------
+! Physically reasonable Ci samples of one point (the flat searches and
+! stom_opt_profit_max_select): psi <= psi_root_zone (if l_psi_test),
+! k > kcrit and gl <= gl_max (when the cap is on, gl_max > 0).
+!
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+PURE FUNCTION som_feasible( n, psi_s, kl_s, gl_s, psi_rz, kcr, gl_max,         &
+                            l_psi_test ) RESULT( l_ok )
+INTEGER, INTENT(IN) :: n
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_s(n), kl_s(n), gl_s(n), psi_rz,      &
+                                      kcr, gl_max
+LOGICAL, INTENT(IN) :: l_psi_test
+LOGICAL :: l_ok(n)
+
+l_ok(:) = kl_s(:) > kcr
+IF ( l_psi_test ) l_ok(:) = l_ok(:) .AND. psi_s(:) <= psi_rz + TINY(psi_rz)
+IF ( gl_max > 0.0 ) l_ok(:) = l_ok(:) .AND. gl_s(:) <= gl_max
+
+END FUNCTION som_feasible
 
 END MODULE stom_opt_jls_mod

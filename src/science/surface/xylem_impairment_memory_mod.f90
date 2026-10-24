@@ -286,7 +286,6 @@ SUBROUTINE psi_leaf_impaired_memory( pft,                                      &
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_lut
-USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
 USE supply_table_mod, ONLY: psi_leaf_capped_lut_jls
 ! MDK, 18/10/26
 
@@ -327,10 +326,12 @@ REAL(KIND=real_jlslsm) :: psi_vec(n_e_leaf), e_vec(n_e_leaf),                  &
                           k_vec(n_e_leaf), dpsi_vec(n_e_leaf)
 LOGICAL :: l_capped(n_e_leaf)
                             ! Samples solved within the capped part.
-LOGICAL :: l_pft_curve
-                            ! som_psi_solver = 3: every open point on the
-                            ! PFT curve (the table's).
-                            ! MDK, 18/10/26
+LOGICAL :: l_nr_active(n_e_leaf)
+                            ! Newton: samples still iterating (each stops
+                            ! on its own convergence, so the answer for one
+                            ! E does not depend on the rest of the call).
+                            !
+                            ! MDK, 24/10/26
 
 INTEGER, PARAMETER :: max_nr_iter = 20
 REAL(KIND=real_jlslsm), PARAMETER :: psi_tol = 1.0
@@ -344,24 +345,17 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='PSI_LEAF_IMPAIRED_MEMORY'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! som_psi_solver = 3: the same capped curve inverted exactly from the PFT's
-! supply table (psi_leaf_capped_lut_jls), when every open point is on the
-! PFT curve (b, c), which the memory model does not change.
+! supply table (psi_leaf_capped_lut_jls). Every point is on the PFT curve
+! (b, c), which the memory model does not change. (The per-point check of
+! that went with the per-point curves, MDK, 24/10/26.)
 ! MDK, 18/10/26
 IF ( som_psi_solver == psi_solver_lut ) THEN
-  l_pft_curve = .TRUE.
-  DO j = 1, open_pnts
-    l = veg_index(open_index(j))
-    IF ( conductance_b(l) /= conductance_b_pft(pft) .OR.                       &
-         conductance_c(l) /= conductance_c_pft(pft) ) l_pft_curve = .FALSE.
-  END DO
-  IF ( l_pft_curve ) THEN
-    CALL psi_leaf_capped_lut_jls( pft, n_e_leaf, land_pnts, open_pnts,         &
-                                  veg_index, open_index, e_leaf,               &
-                                  root_zone_psi, kmax_ref, kcap, kcrit,        &
-                                  leaf_psi, leaf_k )
-    IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-    RETURN
-  END IF
+  CALL psi_leaf_capped_lut_jls( pft, n_e_leaf, land_pnts, open_pnts,           &
+                                veg_index, open_index, e_leaf,                 &
+                                root_zone_psi, kmax_ref, kcap, kcrit,          &
+                                leaf_psi, leaf_k )
+  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+  RETURN
 END IF
 
 DO j = 1, open_pnts
@@ -406,6 +400,7 @@ DO j = 1, open_pnts
 
     WHERE (.NOT. l_capped) psi_vec(:) = psi_top
 
+    l_nr_active(:) = .NOT. l_capped(:)
     DO i = 1, max_nr_iter
       e_vec(:) = e_capped + antideriv(pft, n_e_leaf, psi_vec, kmx, bb, cc)     &
                  - a_top(1)
@@ -417,10 +412,11 @@ DO j = 1, open_pnts
       ! Only the samples on the intact part of the path are iterated (and
       ! bounded above by psi_top): the capped samples were solved exactly
       ! above and lie above psi_top.
-      WHERE (.NOT. l_capped)                                                   &
+      ! Each sample stops when its own step is below psi_tol.
+      WHERE (l_nr_active)                                                      &
         psi_vec(:) = MIN(MAX(psi_vec(:) + dpsi_vec(:), psi_floor), psi_top)
-
-      IF (MAXVAL(ABS(dpsi_vec(:))) < psi_tol) EXIT
+      WHERE (ABS(dpsi_vec(:)) < psi_tol) l_nr_active(:) = .FALSE.
+      IF ( .NOT. ANY(l_nr_active(:)) ) EXIT
     END DO
   END IF
 

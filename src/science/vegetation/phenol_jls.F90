@@ -205,6 +205,9 @@ DO j = 1,veg_pts
     dphen          = -dtime_phen * g_grow(n)
     dphen          = MAX(dphen,(phen_max(l) - phen(l)))
     g_leaf_phen(l) = MAX(phen(l) * g_leaf(l), -dphen / dtime_phen)
+    ! In the nitrogen scheme g_leaf_phen tracks the net change in phen, as
+    ! in the other two branches. MDK, 24/10/26
+    IF (l_nitrogen) g_leaf_phen(l) = -dphen / dtime_phen
 
   ELSE
     dphen          = dtime_phen * g_grow(n) * (phen_max(l) - phen(l))

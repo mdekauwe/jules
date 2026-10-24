@@ -342,11 +342,14 @@ ELSE
   !
   ! MDK, 23/10/26
   !---------------------------------------------------------------------------
+  ! (psi_in is set at the open points only: the solvers read no others, and
+  ! setting the whole grid for every sample made a one-sample call cost
+  ! O(land_pts). MDK, 24/10/26)
   DO i = 1, n_e_leaf
-    psi_in(:) = root_zone_psi(:)
     DO j = 1, open_pnts
       l = veg_index(open_index(j))
       k_s = ksr_path(l)
+      psi_in(l) = root_zone_psi(l)
       IF ( ksr_path(l) < 0.0 ) THEN
         ! No soil link for this PFT (fsmc_mod /= 2).
       ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN

@@ -381,10 +381,16 @@ REAL(KIND=real_jlslsm) :: e_leaf_current(n_e_leaf, open_pnts)
                             ! Newton-Raphson method. (mol H2O m-2 s-1)
                             !
                             ! MDK, 21/10/26
-REAL(KIND=real_jlslsm) :: gamma_root_psi(land_pts)
+REAL(KIND=real_jlslsm) :: gamma_root_psi(open_pnts)
                             ! Lower incomplete gamma function for the root
-                            ! zone water potential. Used in Newton-Raphson
-                            ! method.
+                            ! zone water potential of each open point. Used
+                            ! in Newton-Raphson method.
+REAL(KIND=real_jlslsm) :: a_open(open_pnts), x_open(open_pnts)
+                            ! Its arguments at the open points: only these
+                            ! are solved, so a one-sample call no longer
+                            ! sums the series over the whole grid.
+                            !
+                            ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) :: leaf_k_prev(n_e_leaf, open_pnts)
                             ! leaf_k from the previous Newton-Raphson
                             ! iteration, used for the convergence check.
@@ -558,10 +564,15 @@ CASE(psi_solver_taylor)
 ! ---------------------------------------------------------------------
 CASE(psi_solver_newton)
   ! Calculate the lower incomplete gamma function for the root zone water
-  ! potential, for all land points.
-  gamma_root_psi = incomplete_gamma_different_a(land_pts, 1/conductance_c,     &
-                     (MIN(root_zone_psi,0.0_real_jlslsm)/conductance_b)        &
-                     **conductance_c)
+  ! potential, for the open points (each value converges on its own, so
+  ! this is the same as over all land points).
+  DO j = 1, open_pnts
+    l = veg_index(open_index(j))
+    a_open(j) = 1 / conductance_c(l)
+    x_open(j) = (MIN(root_zone_psi(l),0.0_real_jlslsm)/conductance_b(l))       &
+                **conductance_c(l)
+  END DO
+  gamma_root_psi = incomplete_gamma_different_a(open_pnts, a_open, x_open)
 
   DO j = 1, open_pnts ! Iterate over the open points.
     l = veg_index(open_index(j))
@@ -617,7 +628,7 @@ CASE(psi_solver_newton)
 
       ! Calculate the difference between the incomplete gamma function at
       ! the leaf and root zone water potentials.
-      e_leaf_current(:,j) = e_leaf_current(:,j) - gamma_root_psi(l)
+      e_leaf_current(:,j) = e_leaf_current(:,j) - gamma_root_psi(j)
 
       ! Multiply by kmax * (-b/c) to get the transpiration rate
       ! Note: The negative sign is present because conductance_b is

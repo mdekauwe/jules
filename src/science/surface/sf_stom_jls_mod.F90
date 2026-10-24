@@ -185,7 +185,7 @@ USE jules_vegetation_mod, ONLY: som_store_coupling
                                        ! MDK, 24/10/26
 
 USE planet_constants_mod, ONLY: g, r
-USE water_constants_mod, ONLY: rho_water
+USE water_constants_mod, ONLY: rho_water, Water_kg_per_mol
 USE desica_jls_mod, ONLY: desica_fw, desica_hydraulics, tuzet_fw,             &
                           desica_store_inputs
 USE timestep_mod, ONLY: timestep
@@ -1166,7 +1166,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   gc_cap, r_eq
       ! Cap and resistance for the transpiration-equivalent gc
       ! (l_leaf_temp_gc_eq).
-REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_lt = 0.018015
+REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_lt = Water_kg_per_mol
       ! Molar mass of water (kg mol-1).
 INTEGER :: n_pass_2l
       ! Number of passes of the two-leaf optimisation.
@@ -6240,7 +6240,7 @@ USE conversions_mod, ONLY: zerodegc
 USE c_rmol, ONLY: rmol
 USE csigma, ONLY: sbcon
 USE planet_constants_mod, ONLY: cp, r, repsilon
-USE water_constants_mod, ONLY: lc
+USE water_constants_mod, ONLY: lc, Water_kg_per_mol
 USE jules_vegetation_mod, ONLY: leaf_width, leaf_shelter, leaf_aero_model
 USE qsat_mod, ONLY: qsat
 
@@ -6302,7 +6302,7 @@ REAL(KIND=real_jlslsm), PARAMETER ::                                           &
       ! Molecular diffusivity of heat (m2 s-1).
   gbh_2_gbw = 1.075,                                                           &
       ! Ratio of boundary-layer conductances for water vapour and heat.
-  m_h2o = 0.018015,                                                            &
+  m_h2o = Water_kg_per_mol,                                                    &
       ! Molar mass of water (kg mol-1).
   u_min = 0.1,                                                                 &
       ! Minimum wind speed for forced convection (m s-1).
@@ -7209,6 +7209,7 @@ USE c_rmol, ONLY: rmol
 USE planet_constants_mod, ONLY: repsilon
 USE jules_vegetation_mod, ONLY: l_som_supply_limit, l_som_coupled_e
 USE stom_opt_jls_mod, ONLY: g_of_geff
+USE water_constants_mod, ONLY: Water_kg_per_mol   ! MDK, 24/10/26
 
 IMPLICIT NONE
 
@@ -7236,8 +7237,8 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
       ! l_som_coupled_e: the resistances and other-class conductance of
       ! stom_opt_mod, so that the cap is the g whose coupled E is the supply.
 
-REAL(KIND=real_jlslsm), PARAMETER :: m_h2o = 0.018015
-      ! Molar mass of water (kg mol-1).
+REAL(KIND=real_jlslsm), PARAMETER :: m_h2o = Water_kg_per_mol
+      ! Molar mass of water (kg mol-1). MDK, 24/10/26
 
 REAL(KIND=real_jlslsm) :: gl_sup
 INTEGER :: l, m

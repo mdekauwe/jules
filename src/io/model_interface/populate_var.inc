@@ -2131,6 +2131,24 @@ CASE ( 'cut_c_store' )
     cut_c_store(:,:) = const_val
   END IF
 
+! Leaf temperatures of the last timestep (l_leaf_temp; 0 = not yet set).
+! MDK, 24/10/26
+CASE ( 't_leaf_sun_pft' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, psparms%t_leaf_sun_pft(:,:))
+  ELSE
+    psparms%t_leaf_sun_pft(:,:) = const_val
+  END IF
+
+CASE ( 't_leaf_shd_pft' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, psparms%t_leaf_shd_pft(:,:))
+  ELSE
+    psparms%t_leaf_shd_pft(:,:) = const_val
+  END IF
+
 ! sf_stom state (sf_stom_state_mod). MDK, 22/10/26
 CASE ( 'fvcmax_psi_state' )
   CALL sf_stom_state_alloc( land_pts )

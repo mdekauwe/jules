@@ -2377,7 +2377,7 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
        THEN
     ERROR = 1
     CALL ereport(routinename, ERROR,                                           &
-    'with som_psi_solver = 3 (or l_som_fast) xylem impairment is only '     // &
+    'with som_psi_solver = 3 xylem impairment is only '                    // &
     'coded for the memory model (pft_xylem_impairment_model = 3)')
   END IF
   IF ( stomata_model == stomata_desica ) THEN

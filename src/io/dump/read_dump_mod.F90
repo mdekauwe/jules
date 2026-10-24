@@ -241,7 +241,8 @@ DO i = 1,nvars
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
            'phen_fbleaf', 'nsc_regrow_acc',                                  &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                         &
-           'cut_w_store', 'cut_psi_stem', 'cut_c_store' )
+           'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &
+           't_leaf_sun_pft', 't_leaf_shd_pft' )
       IF ( var_ids(i) > 0 ) THEN
         CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:npft))
       ELSE
@@ -744,6 +745,15 @@ DO i = 1,nvars
     CALL cut_state_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), cut_c_store(:,n))
+    END DO
+  ! Leaf temperatures of the last timestep (l_leaf_temp). MDK, 24/10/26
+  CASE ( 't_leaf_sun_pft' )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), psparms%t_leaf_sun_pft(:,n))
+    END DO
+  CASE ( 't_leaf_shd_pft' )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), psparms%t_leaf_shd_pft(:,n))
     END DO
   CASE ( 'cpl_gl_sun' )
     CALL sf_stom_state_alloc( land_pts )

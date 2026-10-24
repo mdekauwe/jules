@@ -457,6 +457,15 @@ DO i = 1,nvars
     DO n = 1,npft
       CALL gather_land_field(cut_c_store(:,n), global_data_2d(:,n))
     END DO
+  ! Leaf temperatures of the last timestep (l_leaf_temp). MDK, 24/10/26
+  CASE ( 't_leaf_sun_pft' )
+    DO n = 1,npft
+      CALL gather_land_field(psparms%t_leaf_sun_pft(:,n), global_data_2d(:,n))
+    END DO
+  CASE ( 't_leaf_shd_pft' )
+    DO n = 1,npft
+      CALL gather_land_field(psparms%t_leaf_shd_pft(:,n), global_data_2d(:,n))
+    END DO
 
   ! sf_stom state (sf_stom_state_mod; -1 = not yet set). MDK, 22/10/26
   CASE ( 'fvcmax_psi_state' )
@@ -1296,7 +1305,8 @@ DO i = 1,nvars
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
            'phen_fbleaf', 'nsc_regrow_acc',                                  &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                         &
-           'cut_w_store', 'cut_psi_stem', 'cut_c_store' )
+           'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &
+           't_leaf_sun_pft', 't_leaf_shd_pft' )
       CALL file_write_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 
     CASE ( 'cropdvi', 'croprootc', 'cropharvc', 'cropreservec',                &

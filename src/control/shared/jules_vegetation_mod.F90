@@ -510,11 +510,13 @@ INTEGER ::                                                                     &
       ! Leaf 13C discrimination diagnostic: 0 off, 1 simple,
       ! 2 with photorespiration.
   som_psi_aprox_method = imdi,                                                 &
-      ! Deprecated namelist input: use som_psi_solver (same values).
+      ! RETIRED input: setting it stops the run; use som_psi_solver (same
+      ! values). Still read so namelists that leave it unset run.
+      ! MDK, 24/10/26
   som_profit_model = 1
       ! Profit used by the stomatal optimisation (1: profit max, 2: SOX).
-      ! Derived from stomata_model (4 or 5); only read from the namelist
-      ! with the deprecated leaf_flux_mod = 2. JBaguley
+      ! Derived from stomata_model; a namelist value is ignored (it was read
+      ! with the retired leaf_flux_mod = 2). JBaguley; MDK, 24/10/26
 
 LOGICAL ::                                                                     &
   l_som_gain_gross = .FALSE.
@@ -527,11 +529,11 @@ LOGICAL ::                                                                     &
 
 LOGICAL ::                                                                     &
   l_som_cuticular_floor = .FALSE.
-      ! Deprecated name of l_som_cuticular_loss (renamed 21/10/26: it is
-      ! the residual water loss the plant cannot stop, not a night-time
-      ! floor). Still read; .TRUE. sets l_som_cuticular_loss, with a warning.
+      ! RETIRED name of l_som_cuticular_loss (renamed 21/10/26: it is the
+      ! residual water loss the plant cannot stop, not a night-time floor).
+      ! Still read; .TRUE. stops the run with the new name.
       !
-      ! MDK, 21/10/26
+      ! MDK, 24/10/26
 LOGICAL ::                                                                     &
   l_som_cuticular_loss = .FALSE.
       ! When .TRUE., leaf water loss never falls below a cuticular floor:
@@ -573,10 +575,10 @@ LOGICAL ::                                                                     &
 
 LOGICAL ::                                                                     &
   l_som_plant_store = .FALSE.
-      ! Deprecated name of l_som_capacitance (renamed 23/10/26). Still read;
-      ! .TRUE. sets l_som_capacitance, with a warning.
+      ! RETIRED name of l_som_capacitance (renamed 23/10/26). Still read;
+      ! .TRUE. stops the run with the new name.
       !
-      ! MDK, 23/10/26
+      ! MDK, 24/10/26
 
 LOGICAL ::                                                                     &
   l_som_leak_capacitance_only = .FALSE.
@@ -741,12 +743,8 @@ LOGICAL ::                                                                     &
       ! used.
       !
       ! MDK, 23/10/26
-LOGICAL ::                                                                     &
-  l_som_rhizo_hr = .TRUE.
-      ! RETIRED with l_som_rhizo_mfp (hydraulic redistribution in its root
-      ! balance). Still read so old namelists run; ignored.
-      !
-      ! MDK, 23/10/26
+! (l_som_rhizo_hr, hydraulic redistribution in the l_som_rhizo_mfp root
+! balance, was removed: no namelist set it. MDK, 24/10/26)
 LOGICAL ::                                                                     &
   l_root_mass_fixed = .FALSE.
       ! Root mass in the soil-to-root conductance (soil_to_root_k, Bonan et
@@ -985,8 +983,9 @@ LOGICAL ::                                                                     &
       ! release still matches NPP. .FALSE.: W_max = running mean NPP.
       ! MDK, 18/10/26
   l_som_fast = .FALSE.
-      ! Deprecated namelist input: .TRUE. sets som_ci_search = 2 (bounded)
-      ! and som_psi_solver = 3 (lookup table).
+      ! RETIRED input: .TRUE. stops the run; use som_ci_search = 2 (bounded)
+      ! and som_psi_solver = 3 (lookup table). Still read so namelists that
+      ! set it .FALSE. run. MDK, 24/10/26
 LOGICAL ::                                                                     &
   l_som_skip_search_wellwatered = .FALSE.
       ! When .TRUE., skip the full Ci search in
@@ -1166,7 +1165,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_capacitance, l_som_plant_store, l_som_leak_capacitance_only,         &
     som_store_coupling,                                                        &
     l_som_gravity, l_som_coupled_e,                                           &
-    l_som_rhizo_mfp, l_som_rhizo_hr,                                          &
+    l_som_rhizo_mfp,                                                          &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,    &
     discrimination_model,                                                      &
@@ -1240,8 +1239,8 @@ IMPLICIT NONE
 
 !-----------------------------------------------------------------------------
 ! The stomatal scheme: stomata_model is the switch; derive the internal
-! leaf_flux_mod and som_profit_model from it. Accept the old namelist form
-! (leaf_flux_mod = 2 with som_profit_model) with a warning.
+! leaf_flux_mod and som_profit_model from it. The old namelist form
+! (leaf_flux_mod = 2 with som_profit_model) stops (retired 24/10/26).
 !-----------------------------------------------------------------------------
 SELECT CASE ( stomata_model )
 CASE ( stomata_profit_max, stomata_sox_opt, stomata_cmax, stomata_cgain,       &
@@ -1268,34 +1267,14 @@ CASE ( stomata_profit_max, stomata_sox_opt, stomata_cmax, stomata_cgain,       &
 CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical,                 &
        stomata_desica )
   IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
-    IF ( stomata_model == stomata_sox_analytical .OR.                          &
-         stomata_model == stomata_desica ) THEN
-      errcode = 101
-      CALL ereport("check_jules_vegetation", errcode,                          &
-                   "leaf_flux_mod = 2 cannot be combined with " //             &
-                   "stomata_model = 3 or 8; use stomata_model = 4 " //         &
-                   "(profit max), 5 (SOX_opt), 6 (CMax) or 7 (CGain)")
-    END IF
-    IF ( som_profit_model == sox_opt_profit_model ) THEN
-      stomata_model = stomata_sox_opt
-    ELSE IF ( som_profit_model == cmax_profit_model ) THEN
-      stomata_model = stomata_cmax
-    ELSE IF ( som_profit_model == cgain_profit_model ) THEN
-      stomata_model = stomata_cgain
-    ELSE IF ( som_profit_model == cap_profit_model ) THEN
-      stomata_model = stomata_cap
-      l_som_nsl = .TRUE.
-    ELSE IF ( som_profit_model == pm2_profit_model ) THEN
-      ! MDK, 22/10/26
-      stomata_model = stomata_pm2
-    ELSE
-      stomata_model = stomata_profit_max
-    END IF
-    errcode = -101   ! warning
+    ! The old form (leaf_flux_mod = 2 with som_profit_model) is retired.
+    ! MDK, 24/10/26
+    errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 "leaf_flux_mod is deprecated: use stomata_model = 4 " //      &
-                 "(profit max) to 7 (CGain). Taking stomata_model " //         &
-                 "from som_profit_model.")
+                 "leaf_flux_mod = 2 is retired: set stomata_model " //         &
+                 "instead (som_profit_model 1 -> 4 profit max, 2 -> 5 " //     &
+                 "SOX_opt, 4 -> 6 CMax, 5 -> 7 CGain, 6 -> 10 CAP, " //        &
+                 "7 -> 11 ProfitMax2)")
   ELSE
     leaf_flux_mod = leaf_flux_fsmc
   END IF
@@ -1440,20 +1419,19 @@ IF (som_leaf_resist_frac <= 0.0 .OR. som_leaf_resist_frac >= 1.0) THEN
                'som_leaf_resist_frac should be strictly between 0 and 1')
 END IF
 
-! Deprecated inputs: l_som_fast and som_psi_aprox_method.
+! Retired inputs: l_som_fast and som_psi_aprox_method (no longer aliases).
+! MDK, 24/10/26
 IF ( som_psi_aprox_method /= imdi ) THEN
-  som_psi_solver = som_psi_aprox_method
-  errcode = -101   ! warning
+  errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               "som_psi_aprox_method is deprecated: use som_psi_solver")
+               "som_psi_aprox_method is retired: use som_psi_solver " //       &
+               "(same values)")
 END IF
 IF ( l_som_fast ) THEN
-  som_ci_search  = som_ci_bounded
-  som_psi_solver = psi_solver_lut
-  errcode = -101   ! warning
+  errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               "l_som_fast is deprecated: use som_ci_search = 2 and " //       &
-               "som_psi_solver = 3 (set here)")
+               "l_som_fast is retired: use som_ci_search = 2 and " //          &
+               "som_psi_solver = 3")
 END IF
 
 ! Check that the som_psi_solver is suitable. JBaguley
@@ -1929,26 +1907,21 @@ IF ( ( kplant_model /= kplant_model_param .AND.                                &
                'kplant_model must be 0, or 1 with l_som_plant_segments=T')
 END IF
 
-! Deprecated name (MDK, 21/10/26).
+! Retired names (no longer aliases). MDK, 24/10/26
 IF ( l_som_cuticular_floor ) THEN
-  errcode = -101
+  errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_cuticular_floor is renamed l_som_cuticular_loss; ' //    &
-               'it sets l_som_cuticular_loss = .TRUE.')
-  l_som_cuticular_loss  = .TRUE.
-  l_som_cuticular_floor = .FALSE.
+               'l_som_cuticular_floor is retired: use ' //                     &
+               'l_som_cuticular_loss = .TRUE.')
 END IF
 
 ! The plant water store and its target on the transpiration.
 !
 ! MDK, 23/10/26
 IF ( l_som_plant_store ) THEN
-  errcode = -101
+  errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_plant_store is renamed l_som_capacitance; ' //          &
-               'it sets l_som_capacitance = .TRUE.')
-  l_som_capacitance = .TRUE.
-  l_som_plant_store = .FALSE.
+               'l_som_plant_store is retired: use l_som_capacitance = .TRUE.')
 END IF
 l_som_capacitance_on = ( l_som_capacitance .OR. l_som_cuticular_loss ) .AND.  &
                        leaf_flux_mod == leaf_flux_stom_opt
@@ -2451,8 +2424,6 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_rhizo_mfp = ', l_som_rhizo_mfp
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' l_som_rhizo_hr = ', l_som_rhizo_hr
-CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' som_hc_negligible_tol = ', som_hc_negligible_tol
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2598,7 +2569,9 @@ INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 58 + npft_max
+INTEGER, PARAMETER :: n_log = 57 + npft_max
+                                  ! -1 l_som_rhizo_hr removed (MDK,
+                                  ! 24/10/26),
                                   ! -1 l_ximpair_rec_growth retired (MDK,
                                   ! 23/10/26),
                                   ! +3 l_som_capacitance/plant_store
@@ -2703,7 +2676,6 @@ TYPE :: my_namelist
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_coupled_e
   LOGICAL :: l_som_rhizo_mfp
-  LOGICAL :: l_som_rhizo_hr
   LOGICAL :: l_nrun_mid_trif
   LOGICAL :: l_trif_init_accum
   LOGICAL :: l_phenol
@@ -2830,7 +2802,6 @@ IF (mype == 0) THEN
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_coupled_e = l_som_coupled_e
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
-  my_nml % l_som_rhizo_hr = l_som_rhizo_hr
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
   my_nml % l_trif_init_accum   = l_trif_init_accum
   my_nml % l_phenol        = l_phenol
@@ -2946,7 +2917,6 @@ IF (mype /= 0) THEN
   l_som_gravity = my_nml % l_som_gravity
   l_som_coupled_e = my_nml % l_som_coupled_e
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp
-  l_som_rhizo_hr = my_nml % l_som_rhizo_hr
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif
   l_trif_init_accum = my_nml % l_trif_init_accum
   l_phenol        = my_nml % l_phenol

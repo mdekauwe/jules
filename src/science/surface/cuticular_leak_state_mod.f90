@@ -38,6 +38,7 @@ MODULE cuticular_leak_state_mod
 ! MDK, 23/10/26
 
 USE um_types, ONLY: real_jlslsm
+USE water_constants_mod, ONLY: Water_kg_per_mol   ! MDK, 24/10/26
 
 IMPLICIT NONE
 
@@ -48,8 +49,8 @@ PUBLIC :: cut_w_store, cut_psi_stem, cut_q_store, cut_c_store, cut_w_shed,   &
 REAL(KIND=real_jlslsm), PARAMETER :: cut_psi_unset = 1.0
       ! Value of a state not yet set (psi and the store's water are <= 0)
       ! (Pa, or mol m-2).
-REAL(KIND=real_jlslsm), PARAMETER :: cut_m_h2o = 0.018015
-      ! Molar mass of water (kg mol-1).
+REAL(KIND=real_jlslsm), PARAMETER :: cut_m_h2o = Water_kg_per_mol
+      ! Molar mass of water (kg mol-1), JULES's value. MDK, 24/10/26
 
 ! Water in the store of each PFT at each land point at the end of the last
 ! timestep, relative to the full store at psi = 0 (mol H2O m-2 ground,

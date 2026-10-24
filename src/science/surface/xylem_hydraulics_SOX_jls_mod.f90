@@ -301,10 +301,15 @@ REAL(KIND=real_jlslsm) :: e_leaf_current(n_e_leaf, open_pnts)
                             ! Current transpiration rates for each open point
                             ! calculated from current leaf_psi. Used in
                             ! Newton-Raphson method. (kg/m2/s)
-REAL(KIND=real_jlslsm) :: root_psi_component(land_pts)
-                            ! Lower incomplete gamma function for the root
-                            ! zone water potential. Used in Newton-Raphson
-                            ! method.
+REAL(KIND=real_jlslsm) :: root_psi_component(open_pnts)
+                            ! psi_r 2F1 at the root zone water potential of
+                            ! each open point. Used in Newton-Raphson method.
+REAL(KIND=real_jlslsm) :: cf_open(open_pnts), xf_open(open_pnts)
+                            ! Its arguments at the open points: only these
+                            ! are solved, so a one-sample call no longer
+                            ! sums the series over the whole grid.
+                            !
+                            ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) :: leaf_k_prev(n_e_leaf, open_pnts)
                             ! leaf_k from the previous Newton-Raphson
                             ! iteration, used for the convergence check.
@@ -462,12 +467,18 @@ CASE(psi_solver_taylor)
 CASE(psi_solver_newton)
 
   ! Calculate the lower 2F1 function for the root zone water
-  ! potential, for all land points.
-  root_psi_component = SOX_2F1_multiple_cf(land_pts,                           &
-                               1 + 1/conductance_c,                            &
-                -(MIN(root_zone_psi,0.0_real_jlslsm)/conductance_b)**conductance_c)
-
-  root_psi_component = root_zone_psi * root_psi_component
+  ! potential, for the open points (each value converges on its own).
+  DO j = 1, open_pnts
+    l = veg_index(open_index(j))
+    cf_open(j) = 1 + 1/conductance_c(l)
+    xf_open(j) = -(MIN(root_zone_psi(l),0.0_real_jlslsm)/conductance_b(l))      &
+                 **conductance_c(l)
+  END DO
+  root_psi_component = SOX_2F1_multiple_cf(open_pnts, cf_open, xf_open)
+  DO j = 1, open_pnts
+    l = veg_index(open_index(j))
+    root_psi_component(j) = root_zone_psi(l) * root_psi_component(j)
+  END DO
 
   DO j = 1, open_pnts ! Iterate over the open points.
     l = veg_index(open_index(j))
@@ -516,7 +527,7 @@ CASE(psi_solver_newton)
 
       ! Calculate the difference between the incomplete gamma function at the
       ! leaf and root zone water potentials.
-      e_leaf_current(:,j) = e_leaf_current(:,j) - root_psi_component(l)
+      e_leaf_current(:,j) = e_leaf_current(:,j) - root_psi_component(j)
 
       ! Multiply by kmax to get the transpiration rate.
       e_leaf_current(:,j) = - e_leaf_current(:,j) * kmax(l)
@@ -657,17 +668,41 @@ END SUBROUTINE psi_leaf_SOX_jls
 ! result worse rather than more accurate. It was also missing the
 ! (1-xf)^(-1) prefactor derived above. Both are fixed in the code below.)
 ! ---------------------------------------------------------------------
-FUNCTION SOX_2F1(n_xf, cf, xf) RESULT( sum )
+FUNCTION SOX_2F1(n_xf, cf, xf) RESULT( f21 )
 
-USE parkind1, ONLY: jprb, jpim
-USE yomhook, ONLY: lhook, dr_hook
+! One cf for all values: the per-value series below (SOX_2F1_multiple_cf),
+! as incomplete_gamma does.
+!
+! MDK, 24/10/26
 
 INTEGER, INTENT(IN) :: n_xf ! Size of xf array
 
 REAL(KIND=real_jlslsm), INTENT(IN) :: cf
 REAL(KIND=real_jlslsm), INTENT(IN) :: xf(n_xf)
 
-REAL(KIND=real_jlslsm) :: sum(n_xf)
+REAL(KIND=real_jlslsm) :: f21(n_xf)
+
+f21 = SOX_2F1_multiple_cf(n_xf, SPREAD(cf, 1, n_xf), xf)
+
+END FUNCTION SOX_2F1
+
+! ---------------------------------------------------------------------
+! As SOX_2F1, with cf per value (per-point, e.g. impaired, curves); the
+! series itself. JBaguley
+! ---------------------------------------------------------------------
+FUNCTION SOX_2F1_multiple_cf(n_xf, cf, xf) RESULT( f21 )
+
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
+INTEGER, INTENT(IN) :: n_xf ! Size of xf array
+
+REAL(KIND=real_jlslsm), INTENT(IN) :: cf(n_xf)
+REAL(KIND=real_jlslsm), INTENT(IN) :: xf(n_xf)
+
+REAL(KIND=real_jlslsm) :: f21(n_xf)
+                            ! (Was named sum, which hid the intrinsic.
+                            ! MDK, 24/10/26)
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: current_term(n_xf)
@@ -702,74 +737,6 @@ INTEGER, PARAMETER :: max_terms = 100
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='SOX_2F1'
-
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
-
-z = xf / (xf - 1)
-
-! Calculate the 0th term in the sum.
-current_term = 1.0
-sum = 1.0
-
-! Iterate over the sum: Tn = [n / (n-1+cf)] * z * Tn-1 (see derivation
-! above), each point until its own remaining term is negligible relative
-! to its running sum (as incomplete_gamma; MDK, 23/10/26).
-l_active(:) = .TRUE.
-DO i = 1, max_terms
-  WHERE ( l_active )
-    current_term = current_term * i * z / (i - 1 + cf)
-    sum = sum + current_term
-    l_active = ABS(current_term) >= series_tol * ABS(sum)
-  END WHERE
-
-  IF ( .NOT. ANY(l_active) ) EXIT
-END DO
-
-! Apply the (1-xf)^(-1) prefactor from the analytic continuation identity
-! above to convert the z-series (2F1(1,1;1+1/c;xf/(xf-1))) into the
-! function this routine is documented to return, 2F1(1,1/c;1+1/c;xf).
-sum = sum / (1 - xf)
-
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-
-END FUNCTION SOX_2F1
-
-! ---------------------------------------------------------------------
-! Same as the function above but with cf as an array input, for use with
-! per-point (e.g. impaired) conductance curves. JBaguley
-! ---------------------------------------------------------------------
-FUNCTION SOX_2F1_multiple_cf(n_xf, cf, xf) RESULT( sum )
-
-USE parkind1, ONLY: jprb, jpim
-USE yomhook, ONLY: lhook, dr_hook
-
-INTEGER, INTENT(IN) :: n_xf ! Size of xf array
-
-REAL(KIND=real_jlslsm), INTENT(IN) :: cf(n_xf)
-REAL(KIND=real_jlslsm), INTENT(IN) :: xf(n_xf)
-
-REAL(KIND=real_jlslsm) :: sum(n_xf)
-
-! Local variables
-REAL(KIND=real_jlslsm) :: current_term(n_xf)
-LOGICAL :: l_active(n_xf)
-                            ! .TRUE. while this value's own series has not
-                            ! converged (as incomplete_gamma).
-                            !
-                            ! MDK, 23/10/26
-REAL(KIND=real_jlslsm) :: z(n_xf)
-INTEGER :: i
-
-! Series convergence controls - see SOX_2F1 above.
-REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
-INTEGER, PARAMETER :: max_terms = 100
-
-! zhook variables
-
-INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
-INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
-REAL(KIND=jprb)               :: zhook_handle
 CHARACTER(LEN=*), PARAMETER :: RoutineName='SOX_2F1_MULTIPLE_CF'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
@@ -778,22 +745,24 @@ z = xf / (xf - 1)
 
 ! Calculate the 0th term in the sum.
 current_term = 1.0
-sum = 1.0
+f21 = 1.0
 
-! Tn = [n / (n-1+cf)] * z * Tn-1 - see the derivation above SOX_2F1.
+! Tn = [n / (n-1+cf)] * z * Tn-1 (see the derivation above SOX_2F1),
+! each value until its own remaining term is negligible relative to its
+! running sum (as incomplete_gamma; MDK, 23/10/26).
 l_active(:) = .TRUE.
 DO i = 1, max_terms
   WHERE ( l_active )
     current_term = current_term * i * z / (i - 1 + cf)
-    sum = sum + current_term
-    l_active = ABS(current_term) >= series_tol * ABS(sum)
+    f21 = f21 + current_term
+    l_active = ABS(current_term) >= series_tol * ABS(f21)
   END WHERE
 
   IF ( .NOT. ANY(l_active) ) EXIT
 END DO
 
 ! Apply the (1-xf)^(-1) prefactor - see SOX_2F1 above.
-sum = sum / (1 - xf)
+f21 = f21 / (1 - xf)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 

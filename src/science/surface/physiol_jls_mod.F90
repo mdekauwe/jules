@@ -93,7 +93,7 @@ USE cancap_mod, ONLY: cancap
 USE atm_fields_bounds_mod, ONLY: tdims
 USE theta_field_sizes, ONLY: t_i_length, t_j_length
 
-USE water_constants_mod, ONLY: rho_water
+USE water_constants_mod, ONLY: rho_water, Water_kg_per_mol
 
 USE ancil_info, ONLY: dim_cslayer, nsoilt, rad_nband
 
@@ -738,7 +738,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! MDK, 23/10/26
 LOGICAL, SAVE :: l_warned_ksr = .FALSE.
                             ! Warned once about fsmc_mod /= 2.
-REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_rs = 0.018015
+REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_rs = Water_kg_per_mol
                             ! Molar mass of water (kg mol-1), for
                             ! l_som_rhizo_series.
 
