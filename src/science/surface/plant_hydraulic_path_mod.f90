@@ -27,6 +27,8 @@ PRIVATE
 CHARACTER(LEN=*),PARAMETER,PRIVATE :: ModuleName='PLANT_HYDRAULIC_PATH_MOD'
 
 PUBLIC :: set_ksr_path                                                         &
+,         set_store_q_path                                                     &
+,         clear_store_q_path                                                   &
 ,         set_k_ground_basis                                                   &
 ,         seg_kmax_fac                                                         &
 ,         k_path_zero_flow                                                     &
@@ -50,6 +52,31 @@ PUBLIC :: set_ksr_path                                                         &
 ! Used by psi_leaf_jls (single conductance curve) and the segment solvers
 ! below.
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
+
+! Plant capacitance coupled to the optimiser (som_store_coupling = 1): the
+! store's flow out at the stem node, held fixed for this leaf path while
+! the optimiser searches (q_f, > 0: the store gives; < 0: it refills).
+! With it set, the soil link, the root and the stem segments carry
+!
+!   E_r = E - q_f
+!
+! (not floored at 0, see psi_leaf_segments_jls) and the leaf segment
+! carries E, so a full store leaves the stem and leaf wetter at the same
+! E, and the hydraulic cost (k = -dE/dpsi_leaf) is that of the xylem
+! alone: q_f does not move with E, so the store adds no conductance of its
+! own. The cost is measured against the unshifted path at zero flow
+! (stom_opt_mod, kl_hc_max). With q_f = 0 the chain is the steady-state
+! one.
+!   store_q_path   : this leaf path's share of q_f, in the units of the
+!                    transpiration the solver is given. Set by sf_stom
+!                    (set_store_q_path) before the optimiser's call.
+!   l_store_q_path : .TRUE. while store_q_path applies (cleared after the
+!                    call, so no other caller of the segment solver sees
+!                    it).
+!
+! MDK, 24/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: store_q_path(:)
+LOGICAL, PUBLIC :: l_store_q_path = .FALSE.
 
 ! Root and stem conductance per unit ground area (kplant_model = 1, with
 ! l_som_plant_segments). On the leaf-area basis of kmax_pft the root and
@@ -105,6 +132,46 @@ DO m = 1,veg_pts
 END DO
 
 END SUBROUTINE set_ksr_path
+
+! *****************************************************************************
+! som_store_coupling = 1: set store_q_path, the store's flow out held fixed
+! for the next leaf path, as share * q (q per m2 ground, share as in
+! set_ksr_path), and switch it on for the segment solver.
+!
+! MDK, 24/10/26
+! *****************************************************************************
+SUBROUTINE set_store_q_path( land_pts, veg_pts, veg_index, share, q )
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: share(land_pts), q(land_pts)
+
+INTEGER :: l, m
+
+IF ( .NOT. ALLOCATED(store_q_path) ) ALLOCATE(store_q_path(land_pts))
+store_q_path(:) = 0.0
+DO m = 1,veg_pts
+  l = veg_index(m)
+  store_q_path(l) = q(l) * share(l)
+END DO
+l_store_q_path = .TRUE.
+
+END SUBROUTINE set_store_q_path
+
+! *****************************************************************************
+! som_store_coupling = 1: switch store_q_path off again after the call it
+! was set for.
+!
+! MDK, 24/10/26
+! *****************************************************************************
+SUBROUTINE clear_store_q_path()
+
+IMPLICIT NONE
+
+l_store_q_path = .FALSE.
+
+END SUBROUTINE clear_store_q_path
 
 ! *****************************************************************************
 ! kplant_model = 1: set kplant_scale and seg_kscale (see their declaration)
@@ -418,6 +485,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
   kmx, kcr, bs, cs, fr, psi_cap, a_cap
       ! Segment kmax, kcrit, Weibull b (Pa) and c; cap fraction, the psi
       ! where the intact curve meets the cap and the intact integral there.
+REAL(KIND=real_jlslsm) :: e_seg(n_e_leaf)
+      ! The flow the current segment carries: the leaf's E, or with the
+      ! store's flow held fixed (l_store_q_path) E_r = E - q_f for the soil
+      ! link, the root and the stem (dE_r/dE = 1 either way).
+      !
+      ! MDK, 24/10/26
 LOGICAL :: l_cap, l_impair, l_exact_on
 LOGICAL :: l_nr_active(n_e_leaf)
       ! Newton: samples still iterating (each stops on its own convergence).
@@ -444,6 +517,19 @@ DO j = 1, open_pnts
   dpsi_de_int(:) = 0.0
   l_closed(:) = .FALSE.
 
+  ! The flow up to the stem node. With the store's flow held fixed
+  ! (l_store_q_path) the soil, root and stem carry E_r = E - q_f. It is not
+  ! floored at 0: below q_f it runs back towards the soil, so the supply
+  ! curve is the steady one shifted by q_f, smooth in E. (A floor at 0
+  ! would leave only the leaf segment below E = q_f, a conductance far
+  ! above the whole plant's, so the hydraulic cost would be negative there
+  ! and jump at q_f, pinning the optimum near q_f.) The store's balance
+  ! (sf_stom, store_cpl_q) keeps E_r >= 0 in what is committed.
+  !
+  ! MDK, 24/10/26
+  e_seg(:) = e_leaf(:,j)
+  IF ( l_store_q_path ) e_seg(:) = e_leaf(:,j) - store_q_path(l)
+
   ! l_som_rhizo_series: the soil (rhizosphere) link in series ahead of the
   ! root segment. Linear in E: psi_root = psi_src - E / K_s, and the chain
   ! starts from dpsi_root/dE = -1/K_s, so leaf_k is the conductance of the
@@ -453,16 +539,20 @@ DO j = 1, open_pnts
   IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
     k_s = ksr_path(l)
     IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
-      psi_in(:)  = MAX(root_zone_psi(l) - e_leaf(:,j) / k_s,                   &
+      psi_in(:)  = MAX(root_zone_psi(l) - e_seg(:) / k_s,                      &
                        som_psi_in_min)
       dpsi_de(:) = -1.0 / k_s
       dpsi_de_int(:) = -1.0 / k_s
     ELSE
-      l_closed(:) = e_leaf(:,j) > 0.0
+      l_closed(:) = e_seg(:) > 0.0
     END IF
   END IF
 
   DO iseg = 1, n_seg
+    ! The leaf segment carries the leaf's E, whatever the store gives.
+    ! (MDK, 24/10/26)
+    IF ( iseg == n_seg .AND. l_store_q_path ) e_seg(:) = e_leaf(:,j)
+
     ! This segment's maximum and critical conductance (its share of the
     ! whole-plant values) and its own vulnerability curve (b, c).
     kmx = kmax(l) * seg_kmax_fac(pft,l,iseg)   ! MDK, 21/10/26
@@ -507,7 +597,7 @@ DO j = 1, open_pnts
 
     ! First guess: the root-side conductance over the whole drop (Ohm's
     ! law, psi_out = psi_in - E / k_in), no more than 5 |b| below psi_in.
-    psi_out(:) = psi_in(:) - e_leaf(:,j) / MAX(k_in(:), TINY(1.0_real_jlslsm))
+    psi_out(:) = psi_in(:) - e_seg(:) / MAX(k_in(:), TINY(1.0_real_jlslsm))
     psi_out(:) = MAX(psi_out(:), psi_in(:) - 5.0 * ABS(bs))
     k_cur(:)   = k_in(:)
 
@@ -527,10 +617,13 @@ DO j = 1, open_pnts
       k_cur(:)  = seg_k(psi_out)
       e_cur(:)  = seg_a(n_e_leaf, psi_out) - a_in(:)
       WHERE (l_nr_active(:))                                                   &
-        psi_out(:) = psi_out(:) - (e_leaf(:,j) - e_cur(:))                     &
+        psi_out(:) = psi_out(:) - (e_seg(:) - e_cur(:))                        &
                                   / MAX(k_cur(:), TINY(1.0_real_jlslsm))
       ! Same runaway guard as the single segment (infeasible demand).
       psi_out(:) = MAX(psi_out(:), psi_in(:) - 5.0 * ABS(bs))
+      ! A flow back from the store (E_r < 0) larger than the segment can
+      ! carry up to psi = 0: the leaf-side end at 0. (MDK, 24/10/26)
+      IF ( l_store_q_path ) psi_out(:) = MIN(psi_out(:), 0.0_real_jlslsm)
       WHERE (ABS(k_cur(:) - k_prev(:)) < 0.1 * kcr) l_nr_active(:) = .FALSE.
       IF ( .NOT. ANY(l_nr_active(:)) ) EXIT
     END DO
@@ -626,7 +719,7 @@ CONTAINS
   INTEGER, INTENT(IN) :: i
   INTEGER :: ib
   REAL(KIND=real_jlslsm) :: lo(1), hi(1), mid(1), a_t, a1(1)
-  a_t   = a_in(i) + e_leaf(i,j)
+  a_t   = a_in(i) + e_seg(i)
   hi(1) = psi_in(i)
   lo(1) = -ABS(bs) * 12.0**(1.0 / cs)
   IF ( l_closed(i) ) RETURN

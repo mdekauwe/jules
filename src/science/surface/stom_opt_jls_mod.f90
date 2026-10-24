@@ -178,7 +178,8 @@ USE pftparm, ONLY:                                                             &
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
-USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, ksr_path
+USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, ksr_path,             &
+                                    l_store_q_path   ! MDK, 24/10/26
 
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft,                       &
                    pft_xylem_impairment_model
@@ -704,6 +705,21 @@ IF (l_xylem_impairment) THEN
       END DO
     END IF
   END IF
+END IF
+
+! The store's flow held fixed (l_store_q_path, som_store_coupling = 1): at
+! E near 0 the shifted chain carries -q_f, back towards the soil, a state
+! the store's balance never allows. So the cost is measured against the
+! unshifted path at zero flow (as with impairment), not the conductance
+! at the low end of the Ci range. Without impairment the search's path
+! (kmax); with impairment kl_hc_max is already that of the intact path.
+!
+! MDK, 24/10/26
+IF ( l_store_q_path .AND. .NOT. l_xylem_impairment ) THEN
+  DO m = 1, veg_pts
+    l = veg_index(m)
+    kl_hc_max(l) = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
+  END DO
 END IF
 
 ! ----------------------------------------------------------------------------
@@ -2100,6 +2116,7 @@ SUBROUTINE stom_opt_profit_max_select(                                         &
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY: l_som_gain_gross
+USE plant_hydraulic_path_mod, ONLY: l_store_q_path   ! MDK, 24/10/26
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts                                                                     &
@@ -2187,8 +2204,11 @@ l_good_sample(:,:) = .TRUE.
 DO j = 1, open_pts
   l = veg_index(open_index(j))
 
-  ! Require psi <= psi_root_zone
-  l_good_sample(:,j) = l_good_sample(:,j)                                      &
+  ! Require psi <= psi_root_zone (not with the store's flow held fixed,
+  ! l_store_q_path: the store is a second source, wetter than the soil
+  ! while it gives; MDK, 24/10/26)
+  IF ( .NOT. l_store_q_path )                                                  &
+    l_good_sample(:,j) = l_good_sample(:,j)                                    &
           .AND. psi_sample(1:,j) <= psi_root_zone(l) + TINY(psi_root_zone(l))
 
   ! Require k > k_crit
@@ -2222,7 +2242,9 @@ DO j = 1, open_pts
   max_al(j) = MAXVAL(al_sample(1:,j) + gain_off(j), MASK = l_good_sample(:,j))
 END DO
 
-IF (l_xylem_impairment) THEN
+! (Also with the store's flow held fixed, l_store_q_path: see kl_hc_max
+! in stom_opt_mod. MDK, 24/10/26)
+IF (l_xylem_impairment .OR. l_store_q_path) THEN
   ! Set the maximum conductance as equal to the current (unimpaired) root
   ! zone conductance. JBaguley
   DO j = 1, open_pts
@@ -2338,6 +2360,7 @@ USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
 USE supply_table_mod, ONLY: supply_lut_psi, supply_lut_e_crit, supply_lut_f
                                        ! MDK, 24/10/26
+USE plant_hydraulic_path_mod, ONLY: l_store_q_path   ! MDK, 24/10/26
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts, pft, open_pts, open_index(land_pts), pft_photo_model,              &
@@ -2681,6 +2704,9 @@ CONTAINS
   ! search being on it).
   IF ( l_xylem_impairment .AND. ximpair_stomatal_response == ximpair_hold_gs ) &
     max_kl = kl_hc_max(l)
+  ! The store's flow held fixed: the unshifted path at zero flow (see
+  ! kl_hc_max in stom_opt_mod). MDK, 24/10/26
+  IF ( l_store_q_path ) max_kl = kl_hc_max(l)
   IF ( .NOT. ok_u ) THEN
     CALL set_closed()
     l_shut = .TRUE.
@@ -3138,8 +3164,12 @@ CONTAINS
 
   ! A Ci sample is feasible when the leaf is no wetter than the root zone,
   ! the path conductance is above its critical value kcrit, and the leaf
-  ! conductance is within gl_max (when gl_max is set).
-  ok_u = psi_u <= psi_root_zone(l) + TINY(psi_root_zone(l))                    &
+  ! conductance is within gl_max (when gl_max is set). With the store's flow
+  ! held fixed (l_store_q_path) the leaf may be wetter than the root zone:
+  ! the store is a second source, wetter than the soil while it gives.
+  ! (MDK, 24/10/26)
+  ok_u = ( psi_u <= psi_root_zone(l) + TINY(psi_root_zone(l))                  &
+           .OR. l_store_q_path )                                               &
          .AND. kl_u > kcrit(l)                                                 &
          .AND. (gl_max(l) <= 0.0 .OR. gl_u <= gl_max(l))
   END SUBROUTINE eval_ci

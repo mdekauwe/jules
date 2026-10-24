@@ -589,6 +589,27 @@ LOGICAL ::                                                                     &
       !
       ! MDK, 23/10/26
 
+INTEGER ::                                                                     &
+  som_store_coupling = 0
+      ! How the plant capacitance store meets the stomatal optimisation.
+      ! 0: the optimiser sees the soil only; the store then sets E', the
+      !    transpiration that brings the leaf to the optimiser's psi_leaf
+      !    at the end of the step (l_som_capacitance), so the store moves
+      !    the timing of the root uptake but not psi_leaf.
+      ! 1: the optimiser sees the store. Its flow out at the stem node, q_f,
+      !    is held fixed while the optimiser searches: the soil, root and
+      !    stem segments carry E - q_f and the leaf segment E, so a full
+      !    store (morning) leaves the stem and leaf wetter, the hydraulic
+      !    cost lower and the stomata more open; a refilling store
+      !    (afternoon) the reverse. q_f is updated between the passes of
+      !    the leaf-temperature (or humidity) iteration by the store's
+      !    balance at the stem node over the step (backward Euler), and that
+      !    balance is committed at the final E, so the water is conserved.
+      !    Two-leaf canopy (can_rad_mod = 7), plant segments with the
+      !    Newton solver, no cuticular loss.
+      !
+      ! MDK, 24/10/26
+
 LOGICAL ::                                                                     &
   l_som_capacitance_on = .FALSE.
       ! Derived (not in the namelist): the stomatal optimisation's plant
@@ -1143,6 +1164,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_gain_gross,                                                          &
     l_som_cuticular_loss, l_som_cuticular_floor,                              &
     l_som_capacitance, l_som_plant_store, l_som_leak_capacitance_only,         &
+    som_store_coupling,                                                        &
     l_som_gravity, l_som_coupled_e,                                           &
     l_som_rhizo_mfp, l_som_rhizo_hr,                                          &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                   &
@@ -1946,6 +1968,50 @@ IF ( l_som_capacitance_on .AND. can_rad_mod == 4 ) THEN
                'Plant capacitance (l_som_capacitance or ' //                  &
                'l_som_cuticular_loss) is not available with can_rad_mod = 4')
 END IF
+! The store coupled to the optimiser (som_store_coupling = 1): the store
+! sits at the stem node of the plant segments, and is coded for the
+! two-leaf canopy with the Newton segment solver and without the cuticular
+! loss.
+!
+! MDK, 24/10/26
+IF ( som_store_coupling < 0 .OR. som_store_coupling > 1 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'som_store_coupling should be 0 or 1')
+END IF
+IF ( som_store_coupling == 1 ) THEN
+  IF ( .NOT. l_som_capacitance_on ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'som_store_coupling = 1 requires l_som_capacitance')
+  END IF
+  IF ( .NOT. l_som_plant_segments .OR.                                         &
+       som_psi_solver /= psi_solver_newton ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'som_store_coupling = 1 requires l_som_plant_segments ' //    &
+                 'and som_psi_solver = 2 (Newton)')
+  END IF
+  IF ( can_rad_mod /= 7 ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'som_store_coupling = 1 is only coded for can_rad_mod = 7')
+  END IF
+  IF ( stomata_model /= stomata_profit_max ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'som_store_coupling = 1 is only coded for profit max ' //     &
+                 '(stomata_model = 4)')
+  END IF
+  IF ( l_som_cuticular_loss .OR. stomata_model == stomata_desica .OR.          &
+       l_som_skip_search_wellwatered ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'som_store_coupling = 1 is not coded with ' //                &
+                 'l_som_cuticular_loss, DESICA or ' //                         &
+                 'l_som_skip_search_wellwatered')
+  END IF
+END IF
 
 ! The stomatal optimisation's leak also runs with the multilayer canopy
 ! (can_rad_mod 5, 6); DESICA's with big leaf and two-leaf only.
@@ -2353,6 +2419,9 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_leak_capacitance_only = ', l_som_leak_capacitance_only   ! MDK, 23/10/26
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' som_store_coupling = ', som_store_coupling   ! MDK, 24/10/26
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
 WRITE(lineBuffer,*) ' l_ximpair_leaf_loss = ', l_ximpair_leaf_loss
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_seg_memory = ', l_ximpair_seg_memory
@@ -2514,7 +2583,8 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 25
+INTEGER, PARAMETER :: n_int = 26
+                                  ! +1 som_store_coupling (MDK, 24/10/26),
                                   ! +1 discrimination_model (MDK, 22/10/26), +1
                                   ! kplant_model (MDK, 21/10/26), +1
                                   ! ml_leaf_temp_model (MDK, 19/10/26), +1
@@ -2581,6 +2651,7 @@ TYPE :: my_namelist
   INTEGER :: photo_jv_model
   INTEGER :: photo_model
   INTEGER :: stomata_model
+  INTEGER :: som_store_coupling   ! MDK, 24/10/26
   REAL(KIND=real_jlslsm) :: frac_min
   REAL(KIND=real_jlslsm) :: frac_seed
   REAL(KIND=real_jlslsm) :: pow
@@ -2701,6 +2772,7 @@ IF (mype == 0) THEN
   my_nml % photo_jv_model     = photo_jv_model
   my_nml % photo_model     = photo_model
   my_nml % stomata_model   = stomata_model
+  my_nml % som_store_coupling = som_store_coupling
   my_nml % frac_min        = frac_min
   my_nml % frac_seed       = frac_seed
   my_nml % pow             = pow
@@ -2816,6 +2888,7 @@ IF (mype /= 0) THEN
   photo_jv_model     = my_nml % photo_jv_model
   photo_model     = my_nml % photo_model
   stomata_model   = my_nml % stomata_model
+  som_store_coupling = my_nml % som_store_coupling
   frac_min        = my_nml % frac_min
   frac_seed       = my_nml % frac_seed
   pow             = my_nml % pow
