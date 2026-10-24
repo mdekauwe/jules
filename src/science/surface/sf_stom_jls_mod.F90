@@ -927,6 +927,22 @@ REAL(KIND=real_jlslsm) :: q_be(land_pts), psi_st_be(land_pts),                 &
                             ! its flow out (mol H2O m-2 s-1), the stem node
                             ! psi at the end of the step and the leaf psi
                             ! (Pa).
+LOGICAL :: l_cap_only(land_pts), l_fl_hit(land_pts)
+                            ! som_store_coupling = 1 with the leak: the store
+                            ! alone pays E at this point (leak points with
+                            ! l_som_leak_capacitance_only); the committed
+                            ! leaf psi was below psi_fl_leaf before its floor
+                            ! (store_cpl_q).
+                            !
+                            ! MDK, 25/10/26
+REAL(KIND=real_jlslsm) :: k_be(land_pts)
+                            ! som_store_coupling = 1: the canopy's plant
+                            ! conductance at the committed E on the path
+                            ! without the store's shift (the output
+                            ! kplant), mol m-2 s-1 Pa-1, as kmax_sun_2l +
+                            ! kmax_shd_2l.
+                            !
+                            ! MDK, 25/10/26
                             !
                             ! MDK, 24/10/26
 LOGICAL :: l_cap_store
@@ -3600,6 +3616,14 @@ CASE ( 7 )
     km_sun_lt(:)  = km(:)
     km_shd_lt(:)  = km(:)
   END IF
+  ! The store coupled to the optimiser updates q_f between passes, so it
+  ! needs at least two. MDK, 25/10/26
+  IF ( l_store_cpl .AND. n_pass_2l < 2 ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'som_store_coupling = 1 needs at least 2 leaf ' //            &
+                 'temperature passes (leaf_temp_iter, or iter)')
+  END IF
 
   !---------------------------------------------------------------------------
   ! Coupled transpiration: first guesses of the class conductances and leaf
@@ -3641,6 +3665,7 @@ CASE ( 7 )
   ! MDK, 24/10/26
   !---------------------------------------------------------------------------
   e_sup_use(:) = e_supply(:)
+  l_cap_only(:) = .FALSE.
   IF ( l_store_cpl ) THEN
     q_f(:) = 0.0
     DO m = 1,veg_pts
@@ -3727,6 +3752,12 @@ CASE ( 7 )
         l = veg_index(m)
         e_be_2l(l) = MAX(el_sun(l) + el_shd(l), 0.0)
       END DO
+    END IF
+    ! (Only where some point transpires: q_f is used only by the next pass's
+    ! open points, so with E = 0 everywhere, e.g. at night, the solve is
+    ! skipped and q_f keeps its value. MDK, 25/10/26)
+    IF ( l_store_cpl .AND. k < n_pass_2l .AND.                                 &
+         ANY(e_be_2l(veg_index(1:veg_pts)) > 0.0) ) THEN
       CALL store_cpl_q( .FALSE., e_be_2l )
       DO m = 1,veg_pts
         l = veg_index(m)
@@ -4092,8 +4123,15 @@ IF ( l_cap_store ) THEN
                                     * MIN(dq_cut(l) / dqc(l), dq_ratio_cut_max)
     share_sup(l) = 1.0
   END DO
-  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
-                           share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
+  ! (Coupled to the optimiser the soil supplies only E - q_f: the cap is
+  ! e_sup_use. MDK, 25/10/26)
+  IF ( l_store_cpl ) THEN
+    CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use,          &
+                             share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
+  ELSE
+    CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
+                             share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
+  END IF
   CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -4188,15 +4226,22 @@ IF ( l_cap_store ) THEN
   !   q = C (psi_x0 - psi_x) / dt = E - E_r,   psi_x = psi_st(E_r),
   !
   ! the stem node psi_st where the soil, root and stem carry E_r, and the
-  ! leaf psi_leaf where the leaf segment then carries E.
+  ! leaf psi_leaf where the leaf segment then carries E. With the leak, the
+  ! leak's E is cut where the leaf would end below psi_fl_leaf
+  ! (store_cpl_leak_cut), and with l_som_leak_capacitance_only the store
+  ! alone pays it (E_r = 0).
   !
-  ! MDK, 24/10/26
+  ! MDK, 25/10/26
   IF ( l_store_cpl ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
       e_be_2l(l) = MAX(el(l), 0.0)
+      ! With l_som_leak_capacitance_only the store alone pays the leak.
+      ! (MDK, 25/10/26)
+      l_cap_only(l) = l_som_leak_capacitance_only .AND. lk_cut(l)
     END DO
     CALL store_cpl_q( .TRUE., e_be_2l )
+    IF ( l_som_cuticular_loss ) CALL store_cpl_leak_cut()
   END IF
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -4222,6 +4267,10 @@ IF ( l_cap_store ) THEN
       cut_psi_stem(l,ft) = psi_st_be(l)
       psi_leaf(l) = psi_l_be(l)
       psi_stem(l) = psi_st_be(l)
+      ! kplant without the store's shift, per unit leaf area as leaf_k.
+      ! (MDK, 25/10/26)
+      IF ( k_be(l) > 0.0 )                                                     &
+        leaf_k(l) = k_be(l) / MAX(lai(l), TINY(1.0_real_jlslsm))
       CYCLE
     END IF
     ! Case 2: the store sets E, or the leak binds (and the store is set).
@@ -4300,6 +4349,9 @@ IF ( l_cap_store ) THEN
     ! MDK, 23/10/26
     IF ( cut_w_store(l,ft) > 0.0 ) THEN
       cut_w_store(l,ft) = c_cut * psi_leaf(l)
+      ! The store coupled to the optimiser sits at the stem node: it starts
+      ! at the step's stem psi. (MDK, 25/10/26)
+      IF ( l_store_cpl ) cut_w_store(l,ft) = c_cut * MIN(psi_stem(l), 0.0)
       CYCLE
     END IF
     ! Case 4: the store relaxes towards the step's psi through the root
@@ -4880,6 +4932,66 @@ END DO
 END SUBROUTINE store_cpl_supply
 
 !-----------------------------------------------------------------------------
+! som_store_coupling = 1 with the leak (l_som_cuticular_loss): at leak points
+! (lk_cut) where the committed leaf psi fell below psi_fl_leaf, the psi of
+! the critical loss of conductance, the leak is cut to the E that leaves the
+! leaf there at the end of the step, as in the store's other mode: E is
+! found by bisection on [0, el] around the store's balance (store_cpl_q,
+! Newton segments), gc and el are scaled to it, and the balance is then
+! committed exactly. The leak points are few (stomata shut in a drought),
+! and the other points are solved again unchanged.
+!
+! MDK, 25/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE store_cpl_leak_cut()
+
+IMPLICIT NONE
+
+INTEGER, PARAMETER :: n_it_fl = 30
+INTEGER :: m, l, it
+LOGICAL :: l_cut(land_pts)
+REAL(KIND=real_jlslsm) :: e_lo(land_pts), e_hi(land_pts)
+
+l_cut(:) = .FALSE.
+DO m = 1,veg_pts
+  l = veg_index(m)
+  l_cut(l) = lk_cut(l) .AND. l_fl_hit(l) .AND. el(l) > 0.0 .AND.               &
+             cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min
+  e_lo(l) = 0.0
+  e_hi(l) = e_be_2l(l)
+END DO
+IF ( .NOT. ANY(l_cut) ) RETURN
+
+DO it = 1,n_it_fl
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( l_cut(l) ) e_be_2l(l) = 0.5 * (e_lo(l) + e_hi(l))
+  END DO
+  CALL store_cpl_q( .FALSE., e_be_2l )
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( .NOT. l_cut(l) ) CYCLE
+    IF ( psi_l_be(l) < psi_fl_leaf ) THEN
+      e_hi(l) = e_be_2l(l)
+    ELSE
+      e_lo(l) = e_be_2l(l)
+    END IF
+  END DO
+END DO
+
+DO m = 1,veg_pts
+  l = veg_index(m)
+  IF ( .NOT. l_cut(l) ) CYCLE
+  e_be_2l(l) = e_lo(l)
+  gc(l)      = gc(l) * e_lo(l) / el(l)
+  gc_som(l)  = gc(l)
+  el(l)      = e_lo(l)
+END DO
+CALL store_cpl_q( .TRUE., e_be_2l )
+
+END SUBROUTINE store_cpl_leak_cut
+
+!-----------------------------------------------------------------------------
 ! som_store_coupling = 1: the store's balance over the step at the canopy
 ! transpiration e_c, at the points where the store is set. Backward Euler
 ! at the stem node:
@@ -4899,7 +5011,10 @@ END SUBROUTINE store_cpl_supply
 !   q_lo = C' (psi_x0 - psi_src)  (R <= 0)   and   q_hi = E  (R > 0).
 !
 ! It is found by regula falsi (Illinois), with a bisection step whenever
-! the bracket has shrunk by less than half.
+! the bracket has shrunk by less than half. The iterations use the
+! segments' Newton psi; with l_ex only the final evaluation is exact (the
+! bisection), which halves the cost of mode 1. q_be comes from that final
+! stem psi, so the store's water still balances exactly (MDK, 25/10/26).
 !
 ! Where q_lo >= E, the store is wetter than the soil by more than the
 ! step's E: it pays all of E (E_r = 0), psi_st = psi_x0 - E / C', and the
@@ -4945,15 +5060,18 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Trial q and R there; the converged width and the last width.
   kref_c(land_pts), kmx_c(land_pts), kcr_c(land_pts), kcap_c(land_pts)
       ! The canopy's intact and impaired kmax, kcrit and their ratio.
-REAL(KIND=real_jlslsm) :: psi1(1,land_pts), st1(1,land_pts)
+REAL(KIND=real_jlslsm) :: psi1(1,land_pts), st1(1,land_pts), k1(1,land_pts)
                             ! One sample per point: the leaf and stem psi of
-                            ! the chain.
+                            ! the chain, and its conductance (k1, with
+                            ! l_ex; MDK, 25/10/26).
                             !
                             ! MDK, 24/10/26
 
 q_be(:)      = 0.0
 psi_st_be(:) = psi_src(:)
 psi_l_be(:)  = psi_leaf(:)
+k_be(:)      = 0.0
+l_fl_hit(:)  = .FALSE.
 ! (q_try is passed whole to set_store_q_path, so the points not solved
 ! hold 0, not junk. MDK, 24/10/26)
 q_try(:)     = 0.0
@@ -4984,7 +5102,7 @@ DO m = 1,veg_pts
   q_hi(l)   = e_c(l)
   n_be = n_be + 1
   idx_be(n_be) = m
-  IF ( q_lo(l) >= q_hi(l) ) THEN
+  IF ( q_lo(l) >= q_hi(l) .OR. l_cap_only(l) ) THEN
     l_only(l)    = .TRUE.
     q_be(l)      = e_c(l)
     psi_st_be(l) = psi_x0(l) - e_c(l) / c_p(l)
@@ -5001,15 +5119,15 @@ IF ( n_be == 0 ) RETURN
 DO j = 1,n_be
   q_try(veg_index(idx_be(j))) = q_lo(veg_index(idx_be(j)))
 END DO
-CALL store_cpl_eval( n_be, idx_be, l_imp_be, l_ex, e_c, q_try, c_p, psi_x0,    &
-                     kref_c, kmx_c, kcr_c, kcap_c, psi1, st1, f_try )
+CALL store_cpl_eval( n_be, idx_be, l_imp_be, .FALSE., e_c, q_try, c_p,        &
+                     psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1, f_try )
 DO j = 1,n_be
   l = veg_index(idx_be(j))
   f_lo(l) = f_try(l)
   q_try(l) = q_hi(l)
 END DO
-CALL store_cpl_eval( n_be, idx_be, l_imp_be, l_ex, e_c, q_try, c_p, psi_x0,    &
-                     kref_c, kmx_c, kcr_c, kcap_c, psi1, st1, f_try )
+CALL store_cpl_eval( n_be, idx_be, l_imp_be, .FALSE., e_c, q_try, c_p,        &
+                     psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1, f_try )
 DO j = 1,n_be
   l = veg_index(idx_be(j))
   f_hi(l) = f_try(l)
@@ -5034,8 +5152,8 @@ DO it = 1,n_it_be
     END IF
   END DO
   IF ( l_all_done ) EXIT
-  CALL store_cpl_eval( n_be, idx_be, l_imp_be, l_ex, e_c, q_try, c_p, psi_x0,  &
-                       kref_c, kmx_c, kcr_c, kcap_c, psi1, st1, f_try )
+  CALL store_cpl_eval( n_be, idx_be, l_imp_be, .FALSE., e_c, q_try, c_p,      &
+                       psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1, f_try )
   DO j = 1,n_be
     l = veg_index(idx_be(j))
     IF ( l_done(l) ) CYCLE
@@ -5079,11 +5197,25 @@ DO j = 1,n_be
   ! The commit: no psi below the critical-loss psi of the stem and leaf
   ! (where E cannot be carried the chain returns its floor).
   IF ( l_ex ) THEN
+    l_fl_hit(l)  = psi_l_be(l) < psi_fl_leaf
     psi_st_be(l) = MAX(psi_st_be(l), psi_fl_stem)
     psi_l_be(l)  = MAX(psi_l_be(l), psi_fl_leaf)
     q_be(l)      = c_p(l) * (psi_x0(l) - psi_st_be(l))
   END IF
 END DO
+
+! The commit (l_ex): the plant conductance for the output kplant, on the
+! path without the store's shift (q = 0), as with capacitance off, at the
+! committed E. MDK, 25/10/26
+IF ( l_ex ) THEN
+  q_try(:) = 0.0
+  CALL store_cpl_eval( n_be, idx_be, l_imp_be, .FALSE., e_c, q_try, c_p,       &
+                       psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1, f_try, &
+                       k1_out = k1 )
+  DO j = 1,n_be
+    k_be(veg_index(idx_be(j))) = k1(1,j)
+  END DO
+END IF
 
 END SUBROUTINE store_cpl_q
 
@@ -5096,7 +5228,7 @@ END SUBROUTINE store_cpl_q
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_eval( n_be, idx_be, l_imp_be, l_ex, e_c, q_try, c_p,      &
                            psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1,    &
-                           f_try )
+                           f_try, k1_out )
 
 IMPLICIT NONE
 
@@ -5118,6 +5250,10 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: psi1(1,land_pts), st1(1,land_pts)
                             ! Leaf and stem psi at each point solved (Pa).
 REAL(KIND=real_jlslsm), INTENT(OUT) :: f_try(land_pts)
                             ! R at q_try (mol m-2 s-1).
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: k1_out(1,land_pts)
+                            ! The chain's conductance (mol m-2 s-1 Pa-1).
+                            !
+                            ! MDK, 25/10/26
                             !
                             ! MDK, 24/10/26
 
@@ -5145,6 +5281,7 @@ DO j = 1,n_be
   l = veg_index(idx_be(j))
   f_try(l) = q_try(l) - c_p(l) * (psi_x0(l) - st1(1,j))
 END DO
+IF ( PRESENT(k1_out) ) k1_out(1,1:n_be) = k1(1,1:n_be)
 
 END SUBROUTINE store_cpl_eval
 

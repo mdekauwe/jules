@@ -613,9 +613,11 @@ INTEGER ::                                                                     &
       !    balance at the stem node over the step (backward Euler), and that
       !    balance is committed at the final E, so the water is conserved.
       !    Two-leaf canopy (can_rad_mod = 7), plant segments with the
-      !    Newton solver, no cuticular loss.
+      !    Newton solver and the bounded Ci search, at least two passes;
+      !    with the cuticular loss the leak is cut where the leaf would end
+      !    below psi at the critical loss of conductance.
       !
-      ! MDK, 24/10/26
+      ! MDK, 25/10/26
 
 LOGICAL ::                                                                     &
   l_som_capacitance_on = .FALSE.
@@ -1958,10 +1960,10 @@ IF ( l_som_capacitance_on .AND. can_rad_mod == 4 ) THEN
 END IF
 ! The store coupled to the optimiser (som_store_coupling = 1): the store
 ! sits at the stem node of the plant segments, and is coded for the
-! two-leaf canopy with the Newton segment solver and without the cuticular
-! loss.
+! two-leaf canopy with the Newton segment solver and the bounded Ci search
+! (with or without the cuticular loss).
 !
-! MDK, 24/10/26
+! MDK, 25/10/26
 IF ( som_store_coupling < 0 .OR. som_store_coupling > 1 ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -1991,13 +1993,23 @@ IF ( som_store_coupling == 1 ) THEN
                  'som_store_coupling = 1 is only coded for profit max ' //     &
                  '(stomata_model = 4)')
   END IF
-  IF ( l_som_cuticular_loss .OR. stomata_model == stomata_desica .OR.          &
+  ! The flat grid search has its own psi <= psi_root_zone mask and k
+  ! reference; only the bounded search is coded for the store's flow.
+  !
+  ! MDK, 25/10/26
+  IF ( som_ci_search /= som_ci_bounded ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'som_store_coupling = 1 requires som_ci_search = 2 ' //       &
+                 '(bounded)')
+  END IF
+  ! (The leak, l_som_cuticular_loss, is coded with it. MDK, 25/10/26)
+  IF ( stomata_model == stomata_desica .OR.                                    &
        l_som_skip_search_wellwatered ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
                  'som_store_coupling = 1 is not coded with ' //                &
-                 'l_som_cuticular_loss, DESICA or ' //                         &
-                 'l_som_skip_search_wellwatered')
+                 'DESICA or l_som_skip_search_wellwatered')
   END IF
 END IF
 
