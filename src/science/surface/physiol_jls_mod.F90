@@ -127,6 +127,7 @@ USE pftparm, ONLY: fsmc_mod
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
 USE jules_hydrology_mod, ONLY: l_limit_gsoil, l_soil_evap_or
+USE jules_hydrology_mod, ONLY: l_or_fsoil   ! MDK, 24/10/26
 
 USE soil_evap_or_mod, ONLY: gsoil_or, w1_or
 
@@ -1535,6 +1536,10 @@ DO n = 1,npft
                    sthu_soilt(l,m,1) * smvcst_soilt(l,m,1),                    &
                    smvcst_soilt(l,m,1), soil_litter_depth(n),                  &
                    or_z0soil_fac(n))
+        ! l_or_fsoil: the energy reaching the soil under the canopy, as
+        ! trunk JULES's fsoil. MDK, 24/10/26
+        IF ( l_or_fsoil ) gsoil_under_canopy(l) = gsoil_under_canopy(l)       &
+                          * EXP(-0.5 * lai_pft_soil_evap(l,n))
       ELSE
         gsoil_under_canopy(l) = 0.0
       END IF

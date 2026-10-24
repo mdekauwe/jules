@@ -95,7 +95,10 @@ CONTAINS
 !
 !   Differences from CABLE:
 !   - The sublayer depth uses visc / u*_surface, dividing by the canopy
-!     wind-profile factor; CABLE multiplies by it (see below).
+!     wind-profile factor, as Decker et al. (2017, eq. 17 and 21: u* scaled
+!     down beneath the canopy) and CABLE CMIP6-GM2; CABLE trunk and Decker's
+!     later branch multiply by it. (Corrected 24/10/26: this said CABLE
+!     multiplies.)
 !   - u* is supplied by the caller (JULES computes the tile u* after physiol,
 !     so a neutral-stability estimate is used).
 !   - K(theta) uses CABLE's Campbell form, K = Ks S**(2b+3), with the JULES
@@ -199,10 +202,12 @@ IF (int_eddy_shape > 0) THEN
 END IF
 eddy_mod = EXP(log_em)
 
-! Sublayer depth scales with visc / u* at the soil surface. CABLE
-! (cable_psm.F90) multiplies visc/u* by the wind-profile factor, i.e. uses
-! u* / factor, which makes the sublayer thinner under a canopy instead of
-! thicker; here it divides, consistent with eddy_shape above.
+! Sublayer depth scales with visc / u* at the soil surface (Decker et al.
+! 2017 eq. 17, with u* scaled down beneath the canopy, eq. 21), so the
+! sublayer is thicker under a canopy, consistent with eddy_shape above.
+! (CABLE trunk multiplies visc/u* by the wind-profile factor instead.)
+!
+! MDK, 24/10/26
 sublayer_dz = MIN(0.05, MAX(eddy_mod * visc / MAX(1.0e-4, us_surf), 1.0e-7))
 
 !-----------------------------------------------------------------------------

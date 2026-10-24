@@ -55,6 +55,13 @@ LOGICAL ::                                                                     &
       ! conductance is added to the canopy conductance without the
       ! exp(-0.5*LAI) fsoil factor, as in CABLE (the Or resistance already
       ! includes the canopy); fsoil itself is unchanged.
+  l_or_fsoil = .FALSE.,                                                        &
+      ! With l_soil_evap_or: multiply the Or conductance beneath a canopy by
+      ! exp(-0.5 LAI) (trunk JULES's fsoil), for the energy that reaches the
+      ! soil under the canopy, which the Or resistance does not represent
+      ! (or_z0soil_fac had been absorbing it at FR-Pue). Off by default.
+      !
+      ! MDK, 24/10/26
   l_inland = .FALSE.
       ! Switch for putting inland water from from rivers into soil moisture
 
@@ -92,19 +99,24 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ! Or et al. soil evaporation parameters
 !-----------------------------------------------------------------------------
 REAL(KIND=real_jlslsm) ::                                                      &
-  or_k_min = 1.0e-8
+  or_k_min = 1.0e-12
       ! Floor on the liquid-phase hydraulic conductivity in the Or
-      ! resistance (m/s), as CABLE (Decker's groundwater branches use
-      ! 1e-12). The Or resistance then does not stop evaporation from dry
-      ! soil; sf_evap limits the soil evaporation to the layer-1 water above
-      ! half the wilting point, as CABLE.
+      ! resistance (m/s), only to avoid dividing by zero: Decker et al.
+      ! (2017) have no floor (r_sv ~ 1/K over orders of magnitude). With
+      ! the former default 1e-8 (CABLE GM2) the liquid-supply term levelled
+      ! off at ~430 s/m, so drying the top layer below theta ~0.17 no
+      ! longer reduced evaporation at FR-Pue; with 1e-12 the conductance
+      ! falls ~7x between theta1 0.18 and 0.14 (a stage-2 decline), and
+      ! annual soil evaporation drops 10-20 % (FR-Pue 2003, 2006).
+      !
+      ! MDK, 24/10/26
 
 !------------------------------------------------------------------------------
 ! Single namelist definition for UM and standalone
 !------------------------------------------------------------------------------
 NAMELIST  / jules_hydrology/                                                   &
   l_hydrology, l_top, l_pdm, l_spdmvar, l_baseflow_corr, l_var_rainfrac,       &
-  l_wetland_unfrozen, l_limit_gsoil, l_soil_evap_or, l_inland,                 &
+  l_wetland_unfrozen, l_limit_gsoil, l_soil_evap_or, l_or_fsoil, l_inland,     &
   dz_pdm, b_pdm, s_pdm, slope_pdm_max, ti_max, ti_wetl, zw_max, nfita, or_k_min
 
 
@@ -268,6 +280,8 @@ CALL jules_print('jules_hydrology', lineBuffer)
 
 WRITE(lineBuffer, *) '  l_soil_evap_or = ', l_soil_evap_or
 CALL jules_print('jules_hydrology', lineBuffer)
+WRITE(lineBuffer, *) '  l_or_fsoil = ', l_or_fsoil
+CALL jules_print('jules_hydrology', lineBuffer)
 
 WRITE(lineBuffer, *) '  or_k_min = ', or_k_min
 CALL jules_print('jules_hydrology', lineBuffer)
@@ -341,7 +355,8 @@ INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 1
 INTEGER, PARAMETER :: n_real = 8 ! upstream 7 + or_k_min
-INTEGER, PARAMETER :: n_log = 10 ! upstream 9 (+l_inland) + l_soil_evap_or
+INTEGER, PARAMETER :: n_log = 11 ! upstream 9 (+l_inland) + l_soil_evap_or,
+                                 ! l_or_fsoil (MDK, 24/10/26)
 
 TYPE :: my_namelist
   SEQUENCE
@@ -363,6 +378,7 @@ TYPE :: my_namelist
   LOGICAL :: l_wetland_unfrozen
   LOGICAL :: l_limit_gsoil
   LOGICAL :: l_soil_evap_or
+  LOGICAL :: l_or_fsoil   ! MDK, 24/10/26
   LOGICAL :: l_inland
 END TYPE my_namelist
 
@@ -401,6 +417,7 @@ IF (mype == 0) THEN
   my_nml % l_wetland_unfrozen  = l_wetland_unfrozen
   my_nml % l_limit_gsoil   = l_limit_gsoil
   my_nml % l_soil_evap_or  = l_soil_evap_or
+  my_nml % l_or_fsoil      = l_or_fsoil
   my_nml % l_inland        = l_inland
 
 END IF
@@ -429,6 +446,7 @@ IF (mype /= 0) THEN
   l_wetland_unfrozen  = my_nml % l_wetland_unfrozen
   l_limit_gsoil   = my_nml % l_limit_gsoil
   l_soil_evap_or  = my_nml % l_soil_evap_or
+  l_or_fsoil      = my_nml % l_or_fsoil
   l_inland        = my_nml % l_inland
 
 END IF
