@@ -32,7 +32,7 @@ USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state   ! MDK, 22/10/26
 USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_w_store,                  &
                                     cut_psi_stem, cut_m_h2o,                   &
                                     cut_psi_unset, cut_c_store,                &
-                                    cut_w_shed   ! MDK, 22/10/26
+                                    cut_w_shed, cut_e_leak   ! MDK, 25/10/26
 USE phen_budburst_mod, ONLY: phen_gdd, phen_bb_day, phen_dormant
 USE triffid_hydmort_mod, ONLY: hydmort_g_pft, hydmort_m_pft,                   &
                                hydmort_dead_pft, hydmort_plc_peak,             &
@@ -4053,6 +4053,24 @@ CASE ( 'cut_c_store' )
 ! water budget.
 !
 ! MDK, 22/10/26
+! Transpiration through the leak (kg m-2 s-1; part of TVeg): the PFT
+! tile's final transpiration (et_stom_surft, after sf_evap's soil-supply and
+! coupling corrections) where the leak set the conductance this step
+! (cut_e_leak > 0, sf_stom's estimate there), 0 elsewhere.
+!
+! MDK, 25/10/26
+CASE ( 'cut_e_leak_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(cut_e_leak) .AND.                                             &
+       SIZE(sf_diag%et_stom_surft, 2) >= npft ) THEN
+    DO i = 1, npft
+      WHERE ( cut_e_leak(:,i) > 0.0 )                                          &
+        workspace_pft(:,i) = sf_diag%et_stom_surft(:,i)
+    END DO
+  END IF
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
 CASE ( 'cut_w_shed_pft' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(cut_w_shed) ) workspace_pft(:,:) = cut_w_shed(:,:)

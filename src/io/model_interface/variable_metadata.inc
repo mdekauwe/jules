@@ -10573,4 +10573,18 @@ DATA metadata(814) / var_metadata(                                             &
 ! Units
     "kg m-2 s-1"                                                               &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for cut_e_leak_pft
+! MDK, 25/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(815) / var_metadata(                                             &
+! String identifier
+    'cut_e_leak_pft',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Transpiration through the cuticular leak (part of TVeg)",                 &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
 #endif

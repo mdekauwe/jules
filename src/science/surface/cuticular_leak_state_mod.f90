@@ -44,7 +44,8 @@ IMPLICIT NONE
 
 PRIVATE
 PUBLIC :: cut_w_store, cut_psi_stem, cut_q_store, cut_c_store, cut_w_shed,     &
-          cut_state_alloc, cut_psi_unset, cut_m_h2o, cut_store_return
+          cut_e_leak, cut_state_alloc, cut_psi_unset, cut_m_h2o,               &
+          cut_store_return
 
 REAL(KIND=real_jlslsm), PARAMETER :: cut_psi_unset = 1.0
       ! Value of a state not yet set (psi and the store's water are <= 0)
@@ -98,6 +99,16 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_c_store(:,:)
 ! MDK, 22/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_w_shed(:,:)
 
+! Transpiration through the leak this timestep, as sf_stom estimates it
+! (kg H2O m-2 ground s-1): the canopy flux at points where the leak sets the
+! conductance (the stomata shut, l_som_cuticular_loss), after any cut that
+! keeps the leaf above the critical-loss psi; 0 elsewhere. The output
+! cut_e_leak_pft is the tile's final transpiration at these points (sf_evap
+! corrects the flux for the soil supply and the canopy coupling).
+!
+! MDK, 25/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_e_leak(:,:)
+
 CONTAINS
 
 ! ---------------------------------------------------------------------
@@ -127,12 +138,13 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 IF (.NOT. ALLOCATED(cut_w_store)) THEN
   ALLOCATE(cut_w_store(n_land_pts, npft), cut_psi_stem(n_land_pts, npft),      &
            cut_q_store(n_land_pts, npft), cut_c_store(n_land_pts, npft),       &
-           cut_w_shed(n_land_pts, npft))
+           cut_w_shed(n_land_pts, npft), cut_e_leak(n_land_pts, npft))
   cut_w_store(:,:)  = cut_psi_unset
   cut_psi_stem(:,:) = cut_psi_unset
   cut_q_store(:,:)  = 0.0
   cut_c_store(:,:)  = 0.0
   cut_w_shed(:,:)   = 0.0
+  cut_e_leak(:,:)   = 0.0
 END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

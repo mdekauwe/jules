@@ -161,7 +161,7 @@ USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_eff_pft, stom_opt_at_e,   &
 USE cuticular_leak_state_mod, ONLY: cut_w_store, cut_psi_stem,                 &
                                     cut_q_store, cut_c_store, cut_m_h2o,       &
                                     cut_state_alloc, cut_psi_unset,            &
-                                    cut_w_shed
+                                    cut_w_shed, cut_e_leak   ! MDK, 25/10/26
 USE pftparm, ONLY: cap_stem, kcrit_fractional_loss, conductance_b_seg,         &
                    conductance_c_seg
 USE model_time_mod, ONLY: is_spinup
@@ -4112,6 +4112,7 @@ END IF
 IF ( l_cap_store ) THEN
   CALL cut_state_alloc( land_pts )
   cut_q_store(:,ft) = 0.0
+  cut_e_leak(:,ft)  = 0.0   ! MDK, 25/10/26
   ! The multilayer canopy has no lit set from its own path: the points
   ! with absorbed PAR. MDK, 23/10/26
   IF ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) THEN
@@ -4420,6 +4421,14 @@ IF ( l_cap_store ) THEN
     END IF
     ! The store's flow out (kg m-2 s-1) and its water at the end of the step.
     CALL store_commit( l, c_cut, psi0_store, psi_st )
+  END DO
+  ! The leak's transpiration (cut_e_leak, kg m-2 s-1): the final canopy flux
+  ! where the leak sets the conductance, after its cut in either mode.
+  !
+  ! MDK, 25/10/26
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( lk_cut(l) ) cut_e_leak(l,ft) = MAX(el(l), 0.0) * cut_m_h2o
   END DO
 
   ! At the other lit points, those of the impairment update, psi_leaf (and
