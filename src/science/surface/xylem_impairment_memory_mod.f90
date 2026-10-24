@@ -16,7 +16,7 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_IMPAIRMENT_MEMORY_MOD'
 
 PRIVATE
 
-PUBLIC :: ximpair_memory_alloc,                                                &
+PUBLIC :: ximpair_memory_alloc, ximpair_dilute_area,                           &
           leaf_conductance_impaired_memory_jls,                                &
           psi_leaf_impaired_memory,                                            &
           update_xylem_impairment_memory
@@ -65,7 +65,88 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_fmin_acc(:,:)
 !
 ! MDK, 24/10/26
 
+! Factor (0-1) by which TRIFFID's gain of PFT area has diluted the stem
+! damage (ximpair_dilute_area) since the last update, applied to the
+! impaired kmax (kmax_impaired_pft, held by the surface code) at the next
+! update and then reset to 1. Not in the dump: after a restart the impaired
+! kmax is rebuilt from ximpair_lock, which is diluted at once.
+!
+! MDK, 25/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: ximpair_area_w(:,:)
+
 CONTAINS
+
+! ---------------------------------------------------------------------
+! The memory model's damage after TRIFFID's change of PFT area (lotka,
+! with l_veg_compete). Area gained is new growth with intact xylem, so the
+! damage of the PFT is spread over its new area: each loss of conductance
+! is multiplied by w = frac_old / frac_new (0 for a PFT that had no area),
+! as triffid_nsc_area spreads the store. Area lost keeps the damage of the
+! area that is left. Diluted:
+! - the stem's locked loss (ximpair_lock; the impaired kmax at the next
+!   update, through ximpair_area_w), with the two pools as one plant: the
+!   rebuilt share (ximpair_rebuilt) by w, its own worst loss
+!   (ximpair_lock_new) unchanged, so the old pool's embolised share is
+!   diluted by w as well;
+! - the leaf segment's loss (1 - ximpair_kcap_leaf);
+! - the period's lowest intact stem fraction (1 - ximpair_fmin_acc) and
+!   the queued repair (ximpair_repair_pend), per unit of PFT area.
+!
+! MDK, 25/10/26
+! ---------------------------------------------------------------------
+SUBROUTINE ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac )
+
+USE jules_surface_types_mod, ONLY: npft, ntype
+USE jules_vegetation_mod, ONLY: xylem_impairment_memory
+USE pftparm, ONLY: pft_xylem_impairment_model
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
+
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
+INTEGER, INTENT(IN) :: land_pts, trif_pts, trif_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  frac(land_pts,ntype),                                                        &
+      ! Areal fractions after the TRIFFID step.
+  dfrac(land_pts,npft)
+      ! Change in the areal fractions over the step.
+
+INTEGER :: n, t, l
+REAL(KIND=real_jlslsm) :: w
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='XIMPAIR_DILUTE_AREA'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+IF ( ALLOCATED(ximpair_lock) ) THEN
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( .NOT. ALLOCATED(ximpair_area_w) ) THEN
+    ALLOCATE( ximpair_area_w(land_pts,npft) )
+    ximpair_area_w(:,:) = 1.0
+  END IF
+  DO n = 1,npft
+    IF ( pft_xylem_impairment_model(n) /= xylem_impairment_memory ) CYCLE
+    DO t = 1,trif_pts
+      l = trif_index(t)
+      IF ( dfrac(l,n) <= 0.0 .OR. frac(l,n) <= 0.0 ) CYCLE
+      w = MAX(frac(l,n) - dfrac(l,n), 0.0) / frac(l,n)
+      ximpair_area_w(l,n)      = ximpair_area_w(l,n) * w
+      ximpair_lock(l,n)        = ximpair_lock(l,n) * w
+      ximpair_rebuilt(l,n)     = ximpair_rebuilt(l,n) * w
+      ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n) * w
+      ximpair_fmin_acc(l,n)    = 1.0 - (1.0 - ximpair_fmin_acc(l,n)) * w
+      IF ( ALLOCATED(ximpair_kcap_leaf) )                                      &
+        ximpair_kcap_leaf(l,n) = 1.0 - (1.0 - ximpair_kcap_leaf(l,n)) * w
+    END DO
+  END DO
+END IF
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
+END SUBROUTINE ximpair_dilute_area
 
 ! ---------------------------------------------------------------------
 ! Allocate the impairment memory (n_land_pts, npft) with its start values,
@@ -620,6 +701,16 @@ kmax_pts(:)  = kmax_pft(pft)
 kcrit_pts(:) = kcrit(pft)
 b_pts(:)     = conductance_b_pft(pft)
 c_pts(:)     = conductance_c_pft(pft)
+
+! Area gained by TRIFFID since the last update (ximpair_dilute_area): the
+! stem's loss of conductance diluted by the new, intact area.
+!
+! MDK, 25/10/26
+IF ( ALLOCATED(ximpair_area_w) ) THEN
+  WHERE ( ximpair_area_w(:,pft) < 1.0 )                                        &
+    kcap(:) = kmax_pts(:) - (kmax_pts(:) - kcap(:)) * ximpair_area_w(:,pft)
+  ximpair_area_w(:,pft) = 1.0
+END IF
 
 !-----------------------------------------------------------------------------
 ! Recovery: the stem by the store repair (l_ximpair_rec_nsc), the leaf

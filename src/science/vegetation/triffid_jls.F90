@@ -148,6 +148,7 @@ USE jules_vegetation_mod, ONLY: l_veg_compete, l_ht_compete,                   &
 
 ! MDK, 17/10/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_store, triffid_nsc_area, nsc_dc_pft
+USE xylem_impairment_memory_mod, ONLY: ximpair_dilute_area   ! MDK, 25/10/26
 ! MDK, 21/10/26
 USE triffid_hydmort_mod, ONLY: triffid_hydmort, triffid_hydmort_cover
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock
@@ -1065,6 +1066,11 @@ nsc_lit(:,:) = 0.0
 IF ( l_triffid_nsc )                                                           &
   CALL triffid_nsc_area( land_pts, trif_pts, trif_index, r_gamma, frac,        &
                          dfrac, nsc_lit )
+
+! Xylem damage (memory model): area gained is new, intact xylem, so the
+! damage is spread over the new area, as the store is. MDK, 25/10/26
+IF ( l_veg_compete )                                                           &
+  CALL ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac )
 
 !-----------------------------------------------------------------------------
 ! N from fertiliser.
