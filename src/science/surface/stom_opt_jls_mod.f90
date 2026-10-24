@@ -3330,10 +3330,14 @@ CONTAINS
   ! A Ci sample is feasible when the leaf is no wetter than the root zone,
   ! the path conductance is above its critical value kcrit, and the leaf
   ! conductance is within gl_max (when gl_max is set). With the store's flow
-  ! held fixed (l_store_q_path) the leaf may be wetter than the root zone:
-  ! the store is a second source, wetter than the soil while it gives.
-  ! (MDK, 24/10/26)
-  ! (Not the gl cap while l_no_glcap: the hydraulic edge. MDK, 24/10/26)
+  ! held fixed (l_store_q_path) the test is not made: the store is a second
+  ! source, wetter than the soil while it gives. (Where E >= q_f the chain
+  ! carries flow to the leaf, so the leaf cannot be wetter than the soil
+  ! anyway; a strict test there rejected samples near E = q_f on rounding,
+  ! shutting points: -0.5 % T with C -> 0 at FR-Pue 2006.)
+  ! (Not the gl cap while l_no_glcap: the hydraulic edge.)
+  !
+  ! MDK, 25/10/26
   ok_u = ( psi_u <= psi_root_zone(l) + TINY(psi_root_zone(l))                  &
            .OR. l_store_q_path )                                               &
          .AND. kl_u > kcrit(l)                                                 &
