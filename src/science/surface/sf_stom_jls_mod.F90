@@ -112,7 +112,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_som_leak_capacitance_only,                                               &
     l_som_vcmax_psi, kplant_model, kplant_model_ground,                        &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model,           &
-    leaf_wind_ext, ml_leaf_temp_model, ml_leaf_temp_layers
+    leaf_wind_ext, ml_leaf_temp_model, ml_leaf_temp_layers, l_leaf_temp_ci
 
 USE CN_utils_mod, ONLY:                                                        &
 ! imported procedures
@@ -156,8 +156,8 @@ USE sugar_mod, ONLY: sugar
 
 
 USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_eff_pft, stom_opt_at_e,   &
-                            e_of_g
-                            ! MDK, 23/10/26
+                            e_of_g, set_leaf_temp_ci, clear_leaf_temp_ci
+                            ! MDK, 23/10/26 (leaf_temp_ci: MDK, 24/10/26)
 USE cuticular_leak_state_mod, ONLY: cut_w_store, cut_psi_stem,                 &
                                     cut_q_store, cut_c_store, cut_m_h2o,       &
                                     cut_state_alloc, cut_psi_unset,            &
@@ -1155,6 +1155,16 @@ INTEGER :: i_cut
                             ! Loop counter over the floor fluxes (n_cut).
                             !
                             ! MDK, 24/10/26
+
+! l_leaf_temp_ci (two-leaf): each class's leaf temperature as a linear
+! function of its transpiration from the last pass's balance, T = ltc_a -
+! ltc_b E (ltc_b = 0 before the first balance of the step), and the
+! deficit and photosynthesis parameters' temperature slopes about it.
+!
+! MDK, 24/10/26
+REAL(KIND=real_jlslsm) ::                                                      &
+  ltc_a_2l(land_pts,2), ltc_b_2l(land_pts,2), ltc_s_2l(land_pts),             &
+  ltc_dl_2l(land_pts,7)
 
 ! Two-leaf (sunlit/shaded big-leaf) canopy, can_rad_mod = 7. Canopy (per m2
 ! ground) totals for each leaf class, aggregated from the layered radiation
@@ -3689,6 +3699,8 @@ CASE ( 7 )
   ! timestep's conductance (as for big-leaf), and with l_leaf_temp for the
   ! leaf temperatures.
   !---------------------------------------------------------------------------
+  ltc_a_2l(:,:) = 0.0
+  ltc_b_2l(:,:) = 0.0
   DO k = 1,n_pass_2l
 
     DO m = 1,veg_pts
@@ -3727,6 +3739,12 @@ CASE ( 7 )
     !
     ! MDK, 21/10/26
     !-------------------------------------------------------------------------
+    ! l_leaf_temp_ci: from the second pass, each candidate Ci of the
+    ! search at its own leaf temperature (ltc_set). MDK, 24/10/26
+    IF ( l_leaf_temp_ci .AND. k > 1 )                                          &
+      CALL ltc_set( 1, t_sun_lt, nw_sun_2l, i2_sun, ccp_sun_lt, kc_sun_lt,     &
+                    ko_sun_lt, km_sun_lt, vcmax_sun_2l, je_sun, rd_sun,        &
+                    qs_sun_lt )
     CALL two_leaf_class( apar_sun_2l, lai_sun_2l, kmax_ref_sun_2l,             &
                          qs_sun_lt, dq_sun_lt, gbw_sun_lt, gbw_shd_lt,         &
                          gl_shd, t_sun_lt, gl_max_sun_2l, acr_sun_2l,          &
@@ -3736,6 +3754,12 @@ CASE ( 7 )
                          flux_o3_l_sun, fo3_l_sun, gl_sun, psi_leaf_sun,       &
                          CG_sun, HC_sun, leaf_k_sun, psi_stem_sun, lam_sun,    &
                          q_f_sun )
+    IF ( l_leaf_temp_ci .AND. k > 1 ) THEN
+      CALL clear_leaf_temp_ci()
+      CALL ltc_set( 2, t_shd_lt, nw_shd_2l, i2_shd, ccp_shd_lt, kc_shd_lt,     &
+                    ko_shd_lt, km_shd_lt, vcmax_shd_2l, je_shd, rd_shd,        &
+                    qs_shd_lt )
+    END IF
     CALL two_leaf_class( apar_shd_2l, lai_shd_2l, kmax_ref_shd_2l,             &
                          qs_shd_lt, dq_shd_lt, gbw_shd_lt, gbw_sun_lt,         &
                          gl_sun, t_shd_lt, gl_max_shd_2l, acr_shd_2l,          &
@@ -3745,6 +3769,7 @@ CASE ( 7 )
                          flux_o3_l_shd, fo3_l_shd, gl_shd, psi_leaf_shd,       &
                          CG_shd, HC_shd, leaf_k_shd, psi_stem_shd, lam_shd,    &
                          q_f_shd )
+    IF ( l_leaf_temp_ci .AND. k > 1 ) CALL clear_leaf_temp_ci()
 
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -3789,7 +3814,7 @@ CASE ( 7 )
                              rt1ab_a, zrd_a, usc_a, usuh_a, gl_sun,            &
                              gl_shd, g_soil_c, qs, zeta_lt, t_sun_lt,          &
                              t_shd_lt, t_c_lt, q_c_lt, gbw_sun_lt, gbw_shd_lt, &
-                             ra_ca_lt, n_clamp_lt )
+                             ra_ca_lt, n_clamp_lt, ltc_a_2l, ltc_b_2l )
     END IF
 
   END DO   ! End of iteration loop
@@ -5897,6 +5922,56 @@ CALL stom_opt_at_e( land_pts, ft, open_pts, open_index, pft_photo_model,       &
                     .TRUE., e_tgt_c, ci_c, anetl_c, gl_c, el_c )
 
 END SUBROUTINE two_leaf_class_at_e
+
+!-----------------------------------------------------------------------------
+! l_leaf_temp_ci: set the bounded search's leaf temperature of each
+! candidate Ci for leaf class ic (1 sunlit, 2 shaded), from the last pass's
+! leaf balance (ltc_a_2l, ltc_b_2l) and the class's photosynthesis
+! parameters and saturated humidity at t_cls (from leaf_class_at_temp) and
+! at t_cls + 1 K: their slopes, d ln(p) / dT for the parameters (0 where a
+! parameter is not positive at both) and dqs / dT for the deficit.
+!
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE ltc_set( ic, t_cls, nw_c, i2c, ccp_c, kc_c, ko_c, km_c, vcmax_c,    &
+                    je_c, rd_c, qs_c )
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: ic
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  t_cls(land_pts), nw_c(land_pts), i2c(land_pts), ccp_c(land_pts),             &
+  kc_c(land_pts), ko_c(land_pts), km_c(land_pts), vcmax_c(land_pts),           &
+  je_c(land_pts), rd_c(land_pts), qs_c(land_pts)
+REAL(KIND=real_jlslsm) ::                                                      &
+  t1(land_pts), ccp1(land_pts), kc1(land_pts), ko1(land_pts), km1(land_pts),   &
+  vcmax1(land_pts), je1(land_pts), rd1(land_pts), qs1(land_pts), dq1(land_pts),&
+  p0(7), p1(7)
+INTEGER :: l, m, ip
+
+t1(:) = t_cls(:) + 1.0
+ccp1(:) = ccp_c(:)
+kc1(:)  = kc_c(:)
+ko1(:)  = ko_c(:)
+km1(:)  = km_c(:)
+CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index, pft_photo_model,    &
+                         t1, oa, actj, actv, dsj, dsv, jv25, nleaf_top, nw_c,  &
+                         i2c, pstar, q_c_lt, dq_min, ccp1, kc1, ko1, km1,      &
+                         vcmax1, je1, rd1, qs1, dq1, f_vc = f_vc )
+ltc_dl_2l(:,:) = 0.0
+ltc_s_2l(:)    = 0.0
+DO m = 1,veg_pts
+  l = veg_index(m)
+  p0 = (/ vcmax_c(l), je_c(l), kc_c(l), ko_c(l), ccp_c(l), km_c(l), rd_c(l) /)
+  p1 = (/ vcmax1(l), je1(l), kc1(l), ko1(l), ccp1(l), km1(l), rd1(l) /)
+  DO ip = 1,7
+    IF ( p0(ip) > 0.0 .AND. p1(ip) > 0.0 )                                     &
+      ltc_dl_2l(l,ip) = LOG(p1(ip) / p0(ip))
+  END DO
+  ltc_s_2l(l) = qs1(l) - qs_c(l)
+END DO
+CALL set_leaf_temp_ci( land_pts, veg_pts, veg_index, ltc_a_2l(:,ic),          &
+                       ltc_b_2l(:,ic), ltc_s_2l, ltc_dl_2l )
+
+END SUBROUTINE ltc_set
 
 !-----------------------------------------------------------------------------
 ! Leaf energy balance (l_leaf_temp), two-leaf and multilayer: set-up before

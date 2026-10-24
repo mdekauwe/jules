@@ -16,7 +16,8 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='STOM_OPT_JLS_MOD'
 
 PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_bounded_search,  &
         stom_opt_supply_loss, g_eff_e, som_feasible
-PUBLIC stom_opt_mod, g_of_geff, som_path_psi, stom_opt_at_e, e_of_g
+PUBLIC stom_opt_mod, g_of_geff, som_path_psi, stom_opt_at_e, e_of_g,          &
+       set_leaf_temp_ci, clear_leaf_temp_ci
 
 ! Diagnostic marginal water price at the optimum, lambda_eff = dA/dE
 ! (mol CO2 per mol H2O; = umol per mmol x 1e-3), from the bounded Ci
@@ -32,7 +33,66 @@ PUBLIC stom_opt_mod, g_of_geff, som_path_psi, stom_opt_at_e, e_of_g
 ! MDK, 24/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: som_lambda_eff_pft(:,:)
 
+! Leaf temperature of each candidate Ci (l_leaf_temp_ci), for the next call
+! of the bounded search; set by sf_stom with set_leaf_temp_ci before each
+! leaf class's call and switched off after it (clear_leaf_temp_ci), as
+! set_ksr_path. At point l, with E the class's transpiration (mol m-2 s-1,
+! the basis of the search's E) and T0 the leaf temperature the call is
+! given (t_leaf):
+!   T_leaf(E) = ltc_a - ltc_b E                      (leaf energy balance)
+!   dq(T)     = dq(T0) + ltc_s (T - T0)              (deficit, kg kg-1)
+!   p(T)      = p(T0) exp(ltc_dl(p) (T - T0))        (photosynthesis
+!               parameters: vcmax, je, kc, ko, ccp, km, rd)
+! ltc_b = 0: the point keeps T0.
+!
+! MDK, 24/10/26
+INTEGER, PARAMETER, PRIVATE :: n_ltc_par = 7
+                            ! vcmax, je, kc, ko, ccp, km, rd.
+LOGICAL, SAVE, PRIVATE :: l_ltc = .FALSE.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE ::                          &
+  ltc_a(:), ltc_b(:), ltc_s(:), ltc_dl(:,:)
+
 CONTAINS
+
+!-----------------------------------------------------------------------------
+! l_leaf_temp_ci: the leaf temperature of each candidate for the next call
+! of the bounded search (see ltc_a above). dl: d ln(p) / dT (K-1) of the
+! photosynthesis parameters in the order vcmax, je, kc, ko, ccp, km, rd.
+!
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE set_leaf_temp_ci( land_pts, veg_pts, veg_index, a, b, s, dl )
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: a(land_pts), b(land_pts), s(land_pts),  &
+                                      dl(land_pts,n_ltc_par)
+
+INTEGER :: l, m
+
+IF ( .NOT. ALLOCATED(ltc_a) ) ALLOCATE( ltc_a(land_pts), ltc_b(land_pts),     &
+                                        ltc_s(land_pts),                       &
+                                        ltc_dl(land_pts,n_ltc_par) )
+ltc_a(:)    = 0.0
+ltc_b(:)    = 0.0
+ltc_s(:)    = 0.0
+ltc_dl(:,:) = 0.0
+DO m = 1,veg_pts
+  l = veg_index(m)
+  ltc_a(l)    = a(l)
+  ltc_b(l)    = MAX(b(l), 0.0)
+  ltc_s(l)    = s(l)
+  ltc_dl(l,:) = dl(l,:)
+END DO
+l_ltc = .TRUE.
+
+END SUBROUTINE set_leaf_temp_ci
+
+SUBROUTINE clear_leaf_temp_ci()
+IMPLICIT NONE
+l_ltc = .FALSE.
+END SUBROUTINE clear_leaf_temp_ci
 
 !-----------------------------------------------------------------------------
 ! Coupled transpiration (l_som_coupled_e): the effective conductance for
@@ -2643,6 +2703,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
   best_f, best_ci, best_al, best_gl, best_el, best_psi, best_kl, best_khc,     &
   ! Golden-section bracket
   a, b, d_ci, fc, fd
+LOGICAL :: l_ltc_pt
+                            ! l_leaf_temp_ci at this point (see eval_ci).
+                            !
+                            ! MDK, 24/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -3234,8 +3298,17 @@ CONTAINS
                             ! MDK, 23/10/26
 
   last_ci = ci
-  al0_u = photo_al(ci)
-  CALL hydraulic_state(ci, al0_u)
+  ! l_leaf_temp_ci: A, gl and E at the candidate's own leaf temperature.
+  ! MDK, 24/10/26
+  l_ltc_pt = .FALSE.
+  IF ( l_ltc ) l_ltc_pt = ltc_b(l) > 0.0
+  IF ( l_ltc_pt ) THEN
+    CALL state_at_leaf_temp(ci)
+    CALL psi_k_at_e()
+  ELSE
+    al0_u = photo_al(ci)
+    CALL hydraulic_state(ci, al0_u)
+  END IF
 
   !-------------------------------------------------------------------------
   ! Nonstomatal limitation (l_som_nsl)
@@ -3361,6 +3434,59 @@ CONTAINS
                                        dq(l), pstar(l), t_leaf(l))
   CALL psi_k_at_e()
   END SUBROUTINE hydraulic_state
+
+  !-------------------------------------------------------------------------
+  ! l_leaf_temp_ci: A, gl and E at internal CO2 ci at the candidate's own
+  ! leaf temperature (sets al0_u, al_u, gl_u, el_u). The leaf temperature
+  ! T is where the leaf energy balance, T = ltc_a - ltc_b E, meets the
+  ! transpiration at T, E = c_e dq(T), with
+  !   c_e   = E per unit deficit through gl (g_eff with l_som_coupled_e),
+  !   dq(T) = dq0 + ltc_s (T - T0),
+  ! so for a given gl
+  !   T = (ltc_a - ltc_b c_e (dq0 - ltc_s T0)) / (1 + ltc_b c_e ltc_s).
+  ! A, and so gl, depend on T through the photosynthesis parameters, which
+  ! are scaled from T0 as exp(ltc_dl (T - T0)). This fixed point is
+  ! iterated from T0 (n_ltc_iter at most, to tol_ltc); T stays within
+  ! dt_ltc of T0.
+  !
+  ! MDK, 24/10/26
+  !-------------------------------------------------------------------------
+  SUBROUTINE state_at_leaf_temp(ci)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: ci
+  REAL(KIND=real_jlslsm) :: tl, tl_new, f(n_ltc_par), c_e
+  INTEGER :: it
+  INTEGER, PARAMETER :: n_ltc_iter = 4
+  REAL(KIND=real_jlslsm), PARAMETER :: tol_ltc = 0.01, dt_ltc = 10.0
+                            ! Iterations, tolerance (K) and the largest
+                            ! change from T0 (K).
+
+  tl = t_leaf(l)
+  DO it = 1, n_ltc_iter
+    f(:) = EXP(ltc_dl(l,:) * (tl - t_leaf(l)))
+    al_u = leaf_net_photo( pft, pft_photo_model, l_multilayer, ci,             &
+                           vcmax(l) * f(1), kc(l) * f(3), ko(l) * f(4), oi(l), &
+                           ccp(l) * f(5), km(l) * f(6), je(l) * f(2), acr(l),  &
+                           apar(l), fapar_lf(l), ipar(l), je_ratio(l),         &
+                           pstar(l), rd(l) * f(7) )
+    gl_u = ratio * (al_u * rmol * tl) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
+    IF ( l_som_coupled_e ) THEN
+      c_e = e_of_g(g_eff_e(MAX(gl_u, 0.0_real_jlslsm), r_bl(l), r_ca(l),       &
+                           g_oth(l)), 1.0_real_jlslsm, pstar(l), tl)
+    ELSE
+      c_e = e_of_g(MAX(gl_u, 0.0_real_jlslsm), 1.0_real_jlslsm, pstar(l), tl)
+    END IF
+    tl_new = ( ltc_a(l) - ltc_b(l) * c_e * (dq(l) - ltc_s(l) * t_leaf(l)) )    &
+             / ( 1.0 + ltc_b(l) * c_e * ltc_s(l) )
+    tl_new = MIN(MAX(tl_new, t_leaf(l) - dt_ltc), t_leaf(l) + dt_ltc)
+    IF ( ABS(tl_new - tl) < tol_ltc .OR. it == n_ltc_iter ) EXIT
+    tl = tl_new
+  END DO
+
+  ! The state at the last T at which A and gl were evaluated.
+  al0_u = al_u
+  el_u = c_e * (dq(l) + ltc_s(l) * (tl - t_leaf(l)))
+  IF ( .NOT. l_som_coupled_e ) el_u = MAX(0.0, el_u)
+  END SUBROUTINE state_at_leaf_temp
 
   ! Leaf psi, conductance and the hydraulic-cost conductance (psi_u, kl_u,
   ! khc_u) at transpiration el_u, on the path the search runs on (split out

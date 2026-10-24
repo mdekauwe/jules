@@ -278,7 +278,7 @@ SUBROUTINE leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
                              z0m_a, zref_a, rt1ab_a, zrd_a, usc_a, usuh_a,     &
                              gl_sun, gl_shd, g_soil, qs_soil, zeta_a, t_sun,   &
                              t_shd, t_c, q_c, gbw_sun, gbw_shd, ra_out,        &
-                             n_clamp )
+                             n_clamp, lt_a, lt_b )
 
 ! Two-leaf leaf energy balance (l_leaf_temp): sunlit and shaded leaf
 ! temperatures, and canopy air temperature and humidity, for the stomatal
@@ -305,6 +305,13 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
   zeta_a(land_pts), t_sun(land_pts), t_shd(land_pts), t_c(land_pts),           &
   q_c(land_pts), gbw_sun(land_pts), gbw_shd(land_pts), ra_out(land_pts),       &
   n_clamp(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN OUT), OPTIONAL ::                            &
+  lt_a(land_pts,2), lt_b(land_pts,2)
+      ! The sunlit (1) and shaded (2) leaves' temperature as a linear
+      ! function of their transpiration (see leaf_temp_update_n;
+      ! l_leaf_temp_ci).
+      !
+      ! MDK, 24/10/26
 
 REAL(KIND=real_jlslsm) ::                                                      &
   lai_x(land_pts,2), sw_x(land_pts,2), wlw_x(land_pts,2), wlws_x(land_pts,2),  &
@@ -342,7 +349,7 @@ CALL leaf_temp_update_n( land_pts, veg_pts, veg_index, 2, tair, q1, pstar,     &
                          ra, lw_down, u_wind, lai_x, sw_x, wlw_x, wlws_x,      &
                          frad_x, ff_x, z0m_a, zref_a, rt1ab_a, zrd_a, usc_a,   &
                          usuh_a, gl_x, g_soil, qs_soil, zeta_a, t_x, t_c,      &
-                         q_c, gbw_x, ra_out, n_clamp )
+                         q_c, gbw_x, ra_out, n_clamp, lt_a, lt_b )
 
 t_sun(:)   = t_x(:,1)
 t_shd(:)   = t_x(:,2)
@@ -361,7 +368,7 @@ SUBROUTINE leaf_temp_update_n( land_pts, veg_pts, veg_index, nc, tair, q1,     &
                                wlws_c, frad_c, ff_c, z0m_a, zref_a, rt1ab_a,   &
                                zrd_a, usc_a, usuh_a, gl_c, g_soil, qs_soil,    &
                                zeta_a, t_cls, t_c, q_c, gbw_c, ra_out,         &
-                               n_clamp )
+                               n_clamp, lt_a_c, lt_b_c )
 
 ! Leaf energy balance (l_leaf_temp) of nc leaf classes sharing one canopy
 ! air: two-leaf (nc = 2, sunlit and shaded), the aggregate multilayer canopy
@@ -450,6 +457,17 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) :: n_clamp(land_pts)
       ! from the canopy air in the balance found.
       ! MDK, 18/10/26
 
+REAL(KIND=real_jlslsm), INTENT(IN OUT), OPTIONAL ::                            &
+  lt_a_c(land_pts,nc), lt_b_c(land_pts,nc)
+      ! Each class's leaf temperature as a linear function of its
+      ! transpiration E (mol m-2 s-1, ground) at the canopy air of the
+      ! balance found, T_leaf = lt_a - lt_b E, i.e. lt_a = t_c + Rn / (cp gh)
+      ! (K) and lt_b = lambda / (cp gh) (K per mol m-2 s-1); lt_b = 0
+      ! without leaf area (l_leaf_temp_ci). Points not solved keep their
+      ! values.
+      !
+      ! MDK, 24/10/26
+
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
   vonk = 0.40, grav = 9.81, zetneg = -15.0, zetpos = 1.0, rt_min = 5.0,        &
       ! CABLE constants: von Karman, gravity, limits on zref/L, minimum rt1.
@@ -485,7 +503,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   t_try1(veg_pts), p_v(veg_pts), qs0_v(veg_pts), qs1_v(veg_pts),               &
   tx_v(nc,veg_pts), qc_v(veg_pts), h_v(veg_pts), le_v(veg_pts),                &
   hb_v(veg_pts), leb_v(veg_pts), res, ra_m(land_pts),                          &
-  u_m(land_pts), us, rt1usc, zr, gbw_last(nc), ncl_last
+  u_m(land_pts), us, rt1usc, zr, gbw_last(nc), ncl_last, lta_last(nc),       &
+  ltb_last(nc)
       ! (ncl_last: classes held at dt_leaf in the last canopy_balance call;
       ! MDK, 18/10/26. tx_v, gbw_last of each class; MDK, 19/10/26)
 LOGICAL :: l_done(veg_pts)
@@ -655,6 +674,9 @@ IF ( ALLOCATED(h_leaf_pts) ) THEN
 END IF
 ! (ncl_last too.) MDK, 18/10/26
 n_clamp(l) = ncl_last
+! (And lta_last, ltb_last for l_leaf_temp_ci. MDK, 24/10/26)
+IF ( PRESENT(lt_a_c) ) lt_a_c(l,:) = lta_last(:)
+IF ( PRESENT(lt_b_c) ) lt_b_c(l,:) = ltb_last(:)
 END SUBROUTINE set_out
 
 ELEMENTAL FUNCTION psim( zeta_in ) RESULT( r_psi )
@@ -808,6 +830,15 @@ h_tot  = 0.0
 le_out = 0.0
 ncl_last = 0.0
 DO ic = 1,nc
+  ! The leaf temperature as a function of the class's transpiration at
+  ! this tc (l_leaf_temp_ci): T = tc + (rn - lhv E) / (cp_mol gh).
+  ! MDK, 24/10/26
+  lta_last(ic) = tc
+  ltb_last(ic) = 0.0
+  IF ( lai_x(ic) > EPSILON(0.0) .AND. gh(ic) > 0.0 ) THEN
+    lta_last(ic) = tc + rn(ic) / ( cp_mol * gh(ic) )
+    ltb_last(ic) = lhv / ( cp_mol * gh(ic) )
+  END IF
   IF ( lai_x(ic) > EPSILON(0.0) ) THEN
     le     = MAX(0.0, a(ic) + b(ic) * (qs0 - qc_new))
     le_out = le_out + le

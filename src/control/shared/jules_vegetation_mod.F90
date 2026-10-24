@@ -870,6 +870,24 @@ LOGICAL ::                                                                     &
       ! optimisation (at the leaf temperatures) at the surface temperature,
       ! rather than the sum of the leaf stomatal conductances. Keeps the
       ! water used consistent with the hydraulics and the supply limits.
+LOGICAL ::                                                                     &
+  l_leaf_temp_ci = .FALSE.
+      ! With l_leaf_temp (two-leaf canopy, can_rad_mod = 7) and the bounded
+      ! Ci search: the optimiser sees each candidate's own leaf temperature.
+      ! For each Ci the leaf temperature comes from the leaf energy balance
+      ! linearised in transpiration about the last pass,
+      !   T_leaf = t_c + (Rn - lambda E) / (cp gh),
+      ! (the balance of leaf_temp_update_n at the canopy air of the last
+      ! pass), and the photosynthesis parameters and the leaf-to-air
+      ! humidity deficit follow T_leaf (log-linear and linear in T about
+      ! the last pass). So opening the stomata cools the leaf in the gain
+      ! and the transpiration, as in Sperry et al. (2017), where T_leaf is
+      ! computed for each E on the supply curve. The first pass of each
+      ! step uses the fixed leaf temperatures (no balance yet). Not with
+      ! l_som_nsl. .FALSE.: the leaf temperature is fixed during the search
+      ! and updated only between passes.
+      !
+      ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) ::                                                      &
   sl_kfail_frac = 0.0
       ! Supply-loss stomata (stomata_model = 9) only: the whole-path
@@ -1167,6 +1185,7 @@ NAMELIST  / jules_vegetation/                                                  &
     sl_kfail_frac,                                                             &
     l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
     l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
+    l_leaf_temp_ci,                                                            &
     leaf_shelter, leaf_aero_model, l_leaf_coexp_lai, leaf_wind_ext,            &
     ml_leaf_temp_model, kplant_model,                                          &
     l_som_gain_gross,                                                          &
@@ -2125,6 +2144,17 @@ IF ( l_leaf_temp .AND. leaf_width <= 0.0 ) THEN
                'l_leaf_temp needs leaf_width > 0')
 END IF
 
+! MDK, 24/10/26
+IF ( l_leaf_temp_ci .AND. ( .NOT. l_leaf_temp .OR. can_rad_mod /= 7 .OR.       &
+     leaf_flux_mod /= leaf_flux_stom_opt .OR.                                  &
+     som_ci_search /= som_ci_bounded .OR. l_som_nsl ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_leaf_temp_ci needs l_leaf_temp, the two-leaf canopy ' //     &
+               '(can_rad_mod = 7), stomatal optimisation with the ' //         &
+               'bounded Ci search (som_ci_search = 2), and not l_som_nsl')
+END IF
+
 IF ( ximpair_stomatal_response /= ximpair_hold_gs .AND.                        &
      ximpair_stomatal_response /= ximpair_hold_psi ) THEN
   errcode = 101
@@ -2389,6 +2419,8 @@ IF ( l_leaf_temp ) THEN
   CALL jules_print('jules_vegetation_mod',lineBuffer)
   WRITE(lineBuffer,*) ' l_leaf_temp_gc_eq = ', l_leaf_temp_gc_eq
   CALL jules_print('jules_vegetation_mod',lineBuffer)
+  WRITE(lineBuffer,*) ' l_leaf_temp_ci = ', l_leaf_temp_ci
+  CALL jules_print('jules_vegetation_mod',lineBuffer)
   WRITE(lineBuffer,*) ' leaf_aero_model = ', leaf_aero_model
   CALL jules_print('jules_vegetation_mod',lineBuffer)
   WRITE(lineBuffer,*) ' leaf_shelter = ', leaf_shelter
@@ -2598,7 +2630,7 @@ INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 57 + npft_max
+INTEGER, PARAMETER :: n_log = 58 + npft_max
                                   ! -1 l_som_rhizo_hr removed (MDK,
                                   ! 24/10/26),
                                   ! -1 l_ximpair_rec_growth retired (MDK,
@@ -2688,6 +2720,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_vcmax_psi
   LOGICAL :: l_leaf_temp
   LOGICAL :: l_leaf_temp_gc_eq
+  LOGICAL :: l_leaf_temp_ci
   LOGICAL :: l_leaf_coexp_lai
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
@@ -2806,6 +2839,7 @@ IF (mype == 0) THEN
   my_nml % l_som_vcmax_psi = l_som_vcmax_psi
   my_nml % l_leaf_temp = l_leaf_temp
   my_nml % l_leaf_temp_gc_eq = l_leaf_temp_gc_eq
+  my_nml % l_leaf_temp_ci = l_leaf_temp_ci
   my_nml % l_leaf_coexp_lai = l_leaf_coexp_lai
   my_nml % leaf_aero_model = leaf_aero_model
   my_nml % ml_leaf_temp_model = ml_leaf_temp_model
@@ -2921,6 +2955,7 @@ IF (mype /= 0) THEN
   l_som_vcmax_psi = my_nml % l_som_vcmax_psi
   l_leaf_temp = my_nml % l_leaf_temp
   l_leaf_temp_gc_eq = my_nml % l_leaf_temp_gc_eq
+  l_leaf_temp_ci = my_nml % l_leaf_temp_ci
   l_leaf_coexp_lai = my_nml % l_leaf_coexp_lai
   leaf_aero_model = my_nml % leaf_aero_model
   ml_leaf_temp_model = my_nml % ml_leaf_temp_model
