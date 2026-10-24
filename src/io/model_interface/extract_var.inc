@@ -43,6 +43,8 @@ USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,    &
                            phen_fbleaf, phen_nlow, phen_nhigh, nsc_regrow_acc, &
                            phen_psi_acc
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
+USE canopy_diag_mod, ONLY: gc_stomatal_pft, gsoil_pft, t_can_air_pft,          &
+                           q_can_air_pft, h_leaf_pft, le_leaf_pft   ! MDK, 24/10/26
 USE stom_opt_jls_mod, ONLY: som_lambda_eff_pft   ! MDK, 22/10/26
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
 USE pftparm, ONLY: seg_kfac, conductance_b_seg, conductance_c_seg
@@ -2026,6 +2028,16 @@ CASE ( 'ecan_gb' )
 CASE ( 'ei_gb' )
   cube = cube_from_array(fluxes%ei_ij)
 
+! Soil surface evaporation only: esoil_gb (all the water leaving the soil
+! store) less the stomatal transpiration. MDK, 24/10/26
+CASE ( 'esoil_surf_gb' )
+  IF (nsoilt == 1) THEN
+    cube = cube_from_array(fluxes%esoil_ij_soilt(:,:,1) - sf_diag%et_stom_ij)
+  ELSE
+    CALL log_fatal("extract_var",                                              &
+                   "esoil_surf_gb is only coded for nsoilt = 1")
+  END IF
+
 CASE ( 'esoil_gb' )
   IF (nsoilt == 1) THEN
     cube = cube_from_array(fluxes%esoil_ij_soilt(:,:,1))
@@ -3738,6 +3750,37 @@ CASE ( 't_leaf_clamp_pft' )
   ! Ratio of intercellular and canopy level CO2 concentration JBaguley
 CASE ('cica_ratio_pft')
   cube_land = cube_from_array(psparms%cica_ratio_pft)
+  cube = map_from_land(cube_land)
+
+! Canopy diagnostics (canopy_diag_mod; zero where not set; t and q missing
+! where the PFT has no tile fraction). MDK, 24/10/26
+CASE ( 'gc_stomatal_pft', 'gsoil_pft', 'h_leaf_pft', 'le_leaf_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(gc_stomatal_pft) ) THEN
+    SELECT CASE ( get_string_identifier(var_id) )
+    CASE ( 'gc_stomatal_pft' )
+      workspace_pft(:,:) = gc_stomatal_pft
+    CASE ( 'gsoil_pft' )
+      workspace_pft(:,:) = gsoil_pft
+    CASE ( 'h_leaf_pft' )
+      workspace_pft(:,:) = h_leaf_pft
+    CASE ( 'le_leaf_pft' )
+      workspace_pft(:,:) = le_leaf_pft
+    END SELECT
+  END IF
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 't_can_air_pft', 'q_can_air_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(t_can_air_pft) ) THEN
+    IF ( get_string_identifier(var_id) == 't_can_air_pft' ) THEN
+      workspace_pft(:,:) = t_can_air_pft
+    ELSE
+      workspace_pft(:,:) = q_can_air_pft
+    END IF
+  END IF
+  cube_land = cube_from_array(pft_present_or_mdi(workspace_pft))
   cube = map_from_land(cube_land)
 
   ! Leaf 13C discrimination (permil, discrimination_model); zero when off.

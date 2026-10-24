@@ -2298,7 +2298,8 @@ DATA metadata(182) / var_metadata(                                             &
 ! Variable type
     var_type_surface,                                                          &
 ! Long name
-    "Gridbox surface evapotranspiration from soil moisture store",             &
+    "Gridbox evapotranspiration from soil moisture store (soil evaporation " // &
+    "+ transpiration)",                                                        &
 ! Units
     "kg m-2 s-1"                                                               &
   ) /
@@ -10473,5 +10474,103 @@ DATA metadata(807) / var_metadata(                                             &
     "Hydraulic mortality: worst damage the surviving stand has withstood",     &
 ! Units
     "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for gc_stomatal_pft
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(808) / var_metadata(                                             &
+! String identifier
+    'gc_stomatal_pft',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "PFT stomatal conductance (before gc_eq and the cuticular leak)",          &
+! Units
+    "m s-1"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for gsoil_pft
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(809) / var_metadata(                                             &
+! String identifier
+    'gsoil_pft',                                                               &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "PFT soil evaporation conductance beneath the canopy",                     &
+! Units
+    "m s-1"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for t_can_air_pft
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(810) / var_metadata(                                             &
+! String identifier
+    't_can_air_pft',                                                           &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "PFT canopy air temperature of the leaf energy balance",                   &
+! Units
+    "K"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for q_can_air_pft
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(811) / var_metadata(                                             &
+! String identifier
+    'q_can_air_pft',                                                           &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "PFT canopy air specific humidity of the leaf energy balance",             &
+! Units
+    "kg kg-1"                                                                  &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for h_leaf_pft
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(812) / var_metadata(                                             &
+! String identifier
+    'h_leaf_pft',                                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "PFT leaf sensible heat flux of the leaf energy balance",                  &
+! Units
+    "W m-2"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for le_leaf_pft
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(813) / var_metadata(                                             &
+! String identifier
+    'le_leaf_pft',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "PFT leaf latent heat flux of the leaf energy balance",                    &
+! Units
+    "W m-2"                                                                    &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for esoil_surf_gb
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(814) / var_metadata(                                             &
+! String identifier
+    'esoil_surf_gb',                                                           &
+! Variable type
+    var_type_surface,                                                          &
+! Long name
+    "Gridbox soil surface evaporation (esoil_gb less transpiration)",          &
+! Units
+    "kg m-2 s-1"                                                               &
   ) /
 #endif

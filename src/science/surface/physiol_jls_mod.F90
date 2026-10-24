@@ -133,6 +133,7 @@ USE soil_evap_or_mod, ONLY: gsoil_or, w1_or
 USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft,        &
                    soil_litter_depth, or_z0soil_fac
 USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht   ! MDK, 20/10/26
+USE canopy_diag_mod, ONLY: canopy_diag_alloc, gsoil_pft   ! MDK, 24/10/26
 USE pftparm, ONLY: sigl, lma, rmass, kmax_pft, conductance_b_pft,              &
                    conductance_c_pft
 
@@ -1554,6 +1555,9 @@ DO n = 1,npft
                          * EXP(-0.5 * lai_pft_soil_evap(l,n))
     END IF
   END DO
+  ! Output gsoil_pft (canopy_diag_mod). MDK, 24/10/26
+  CALL canopy_diag_alloc( land_pts )
+  gsoil_pft(:,n) = gsoil_can_air(:)
 
   fsun_tmp(:,:) = fsun(:,n,:)
   cond_b_pts(:) = conductance_b_pft(n)

@@ -172,6 +172,9 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_daily, triffid_nsc_turgor,              &
                            phen_psi_update
 USE jules_vegetation_mod, ONLY: discrimination_model, discrimination_off
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft, d13c_disc_alloc, d13c_disc_leaf
+USE canopy_diag_mod, ONLY: canopy_diag_alloc, gc_stomatal_pft, t_can_air_pft,  &
+                           q_can_air_pft, h_leaf_pft, le_leaf_pft,            &
+                           h_leaf_pts, le_leaf_pts   ! MDK, 24/10/26
 
 
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
@@ -1366,6 +1369,13 @@ leaf_k(:)         = 0.0
 carbon_gain(:)    = 0.0
 hydraulic_cost(:) = 0.0
 gc_som(:)         = 0.0
+! Canopy diagnostics of this PFT (canopy_diag_mod). MDK, 24/10/26
+CALL canopy_diag_alloc( land_pts )
+gc_stomatal_pft(:,ft) = 0.0
+t_can_air_pft(:,ft)   = 0.0
+q_can_air_pft(:,ft)   = 0.0
+h_leaf_pft(:,ft)      = 0.0
+le_leaf_pft(:,ft)     = 0.0
 
 SELECT CASE ( can_rad_mod )
 CASE ( 4,5,6 )
@@ -3885,6 +3895,9 @@ END SELECT  ! can_rad_mod
 !
 ! MDK, 24/10/26
 IF ( leaf_flux_mod == leaf_flux_stom_opt ) gc_som(:) = gc(:)
+! The stomatal conductance itself: gc here, unless the leaf energy balance
+! replaced it by gc_eq (then lt_finish kept it). MDK, 24/10/26
+IF ( .NOT. l_leaf_temp ) gc_stomatal_pft(:,ft) = gc(:)
 
 !-----------------------------------------------------------------------------
 ! DESICA: as the stomatal optimisation, no stomatal loss with no light
@@ -5841,6 +5854,15 @@ CHARACTER(LEN=300) :: clamp_msg
   ! cap is off (supply-loss).
   !
   ! MDK, 24/10/26
+  ! Diagnostics (canopy_diag_mod): the stomatal gc before gc_eq replaces
+  ! it, and the canopy air and leaf fluxes of the energy balance.
+  ! MDK, 24/10/26
+  gc_stomatal_pft(lp,ft) = gc(lp)
+  t_can_air_pft(lp,ft)   = t_c_lt(lp)
+  q_can_air_pft(lp,ft)   = q_c_lt(lp)
+  h_leaf_pft(lp,ft)      = h_leaf_pts(lp)
+  le_leaf_pft(lp,ft)     = le_leaf_pts(lp)
+
   IF ( l_leaf_temp_gc_eq ) THEN
     dq_eq  = qs(lp) - q1(lp)
     cap_eq = gc_cap
@@ -6354,6 +6376,7 @@ SUBROUTINE leaf_temp_update_n( land_pts, veg_pts, veg_index, nc, tair, q1,     &
 USE conversions_mod, ONLY: zerodegc
 USE c_rmol, ONLY: rmol
 USE csigma, ONLY: sbcon
+USE canopy_diag_mod, ONLY: h_leaf_pts, le_leaf_pts   ! MDK, 24/10/26
 USE planet_constants_mod, ONLY: cp, r, repsilon
 USE water_constants_mod, ONLY: lc, Water_kg_per_mol
 USE jules_vegetation_mod, ONLY: leaf_width, leaf_shelter, leaf_aero_model
@@ -6604,6 +6627,11 @@ q_c(l)   = qc
 gbw_c(l,:) = gbw_last(:)
 h_v(m)   = hb_v(m)
 le_v(m)  = leb_v(m)
+! For the canopy diagnostics (canopy_diag_mod). MDK, 24/10/26
+IF ( ALLOCATED(h_leaf_pts) ) THEN
+  h_leaf_pts(l)  = hb_v(m)
+  le_leaf_pts(l) = leb_v(m)
+END IF
 ! (ncl_last too.) MDK, 18/10/26
 n_clamp(l) = ncl_last
 END SUBROUTINE set_out
