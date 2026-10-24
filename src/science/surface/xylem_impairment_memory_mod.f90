@@ -14,6 +14,8 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_IMPAIRMENT_MEMORY_MOD'
 
+PRIVATE
+
 PUBLIC :: ximpair_memory_alloc,                                                &
           leaf_conductance_impaired_memory_jls,                                &
           psi_leaf_impaired_memory,                                            &
@@ -30,6 +32,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock(:,:)
 ! Stem conductance rebuilt by xylem regrown from the TRIFFID store
 ! (l_ximpair_rec_nsc), as a fraction of kmax, queued by triffid_nsc_store
 ! at the TRIFFID step and applied (then cleared) at the next update.
+!
 ! MDK, 17/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_repair_pend(:,:)
 
@@ -37,6 +40,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_repair_pend(:,:)
 ! conducting xylem rebuilt from the store, and the worst loss of
 ! conductance of that rebuilt pool since it was built. The old pool's
 ! embolised share is the rest of the stem's loss.
+!
 ! MDK, 20/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_rebuilt(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock_new(:,:)
@@ -53,10 +57,13 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_grow_acc(:,:)
 ! losses does not pay again and again for the same conduits, and repair
 ! waits for a drought to ease.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_fmin_acc(:,:)
-! ximpair_lock, ximpair_repair_pend, ximpair_grow_acc and ximpair_fmin_acc
-! are written to and read from dumps (ximpair_memory_alloc allocates them).
-! (ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean and
-! ximpair_renew_wt went with the time-based recovery. MDK, 23/10/26)
+! ximpair_lock, ximpair_repair_pend, ximpair_rebuilt, ximpair_lock_new,
+! ximpair_grow_acc and ximpair_fmin_acc are written to and read from dumps
+! (ximpair_memory_alloc allocates them). ximpair_npp_prev,
+! ximpair_wood_prev, ximpair_renew_mean and ximpair_renew_wt went with the
+! time-based recovery.
+!
+! MDK, 24/10/26
 
 CONTAINS
 
@@ -68,7 +75,17 @@ SUBROUTINE ximpair_memory_alloc( n_land_pts )
 
 USE jules_surface_types_mod, ONLY: npft
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 INTEGER, INTENT(IN) :: n_land_pts
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='XIMPAIR_MEMORY_ALLOC'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 IF (.NOT. ALLOCATED(ximpair_lock)) THEN
   ALLOCATE(ximpair_lock(n_land_pts, npft))
@@ -80,7 +97,8 @@ IF (.NOT. ALLOCATED(ximpair_repair_pend)) THEN
   ximpair_repair_pend(:,:) = 0.0
 END IF
 IF (.NOT. ALLOCATED(ximpair_rebuilt)) THEN
-  ALLOCATE(ximpair_rebuilt(n_land_pts, npft), ximpair_lock_new(n_land_pts, npft))
+  ALLOCATE(ximpair_rebuilt(n_land_pts, npft),                                  &
+           ximpair_lock_new(n_land_pts, npft))
   ximpair_rebuilt(:,:)  = 0.0
   ximpair_lock_new(:,:) = 0.0
 END IF
@@ -92,6 +110,8 @@ IF (.NOT. ALLOCATED(ximpair_fmin_acc)) THEN
   ALLOCATE(ximpair_fmin_acc(n_land_pts, npft))
   ximpair_fmin_acc(:,:) = 1.0
 END IF
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE ximpair_memory_alloc
 
@@ -153,8 +173,10 @@ END FUNCTION k_intact
 
 ! ---------------------------------------------------------------------
 ! A(psi) such that the intact-curve integral of k from psi_1 to psi_2 is
-! A(psi_1) - A(psi_2) (see the psi_aprox_NR branches of psi_leaf_CW_jls /
-! psi_leaf_SOX_jls).
+! A(psi_1) - A(psi_2) (see the Newton-Raphson branches, psi_solver_newton,
+! of psi_leaf_CW_jls / psi_leaf_SOX_jls).
+!
+! MDK, 24/10/26
 ! ---------------------------------------------------------------------
 FUNCTION antideriv( pft, n, psi, kmax, b, c ) RESULT( a )
 
@@ -246,7 +268,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_CONDUCTANCE_IMPAIRED_MEMORY_JLS'
+CHARACTER(LEN=*), PARAMETER ::                                                 &
+  RoutineName='LEAF_CONDUCTANCE_IMPAIRED_MEMORY_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
@@ -263,7 +286,10 @@ END SUBROUTINE leaf_conductance_impaired_memory_jls
 ! Leaf water potential from transpiration on the capped curve, for open
 ! points (stomatal optimisation layout). The transpiration integral is
 ! evaluated exactly (see the module header) and solved by Newton-Raphson,
-! independently of som_psi_aprox_method.
+! whether som_psi_solver is Taylor (1) or Newton (2). With som_psi_solver
+! = 3 the capped curve is inverted from the PFT's supply table instead.
+!
+! MDK, 24/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_impaired_memory( pft,                                      &
                                      n_e_leaf,                                 &
@@ -292,10 +318,16 @@ USE supply_table_mod, ONLY: psi_leaf_capped_lut_jls
 INTEGER, INTENT(IN) ::                                                         &
   pft, n_e_leaf, land_pnts, open_pnts, veg_index(land_pnts),                   &
   open_index(land_pnts)
+                            ! See psi_leaf_impaired_jls.
+                            !
+                            ! MDK, 24/10/26
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   e_leaf(n_e_leaf, open_pnts)                                                  &
                             ! Transpiration rates for each open point
+                            ! (mol H2O m-2 leaf s-1)
+                            !
+                            ! MDK, 24/10/26
 , root_zone_psi(land_pnts)                                                     &
                             ! Water potential in the root zone (Pa)
 , kmax_ref(land_pnts), kcap(land_pnts), kcrit(land_pnts)                       &
@@ -346,9 +378,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! som_psi_solver = 3: the same capped curve inverted exactly from the PFT's
 ! supply table (psi_leaf_capped_lut_jls). Every point is on the PFT curve
-! (b, c), which the memory model does not change. (The per-point check of
-! that went with the per-point curves, MDK, 24/10/26.)
-! MDK, 18/10/26
+! (b, c), which the memory model does not change.
+!
+! MDK, 24/10/26
 IF ( som_psi_solver == psi_solver_lut ) THEN
   CALL psi_leaf_capped_lut_jls( pft, n_e_leaf, land_pnts, open_pnts,           &
                                 veg_index, open_index, e_leaf,                 &
@@ -435,7 +467,8 @@ END SUBROUTINE psi_leaf_impaired_memory
 ! Damage: k_cap = MIN(k_cap, k_intact(psi_x)) at points with open stomata,
 ! where psi_x is the damage-driving water potential (ximpair_psi_driver):
 !   1: leaf, 2: mean of leaf and root zone, 3: root zone (~predawn, as used
-!   for Kcav by Mackay et al. 2015).
+!   for Kcav by Mackay et al. 2015), 4: stem (leaf-side end of the stem
+!   segment).
 !
 ! Recovery:
 !   l_ximpair_rec_nsc - carbon-limited repair (Trugman et al. 2018): the
@@ -452,8 +485,6 @@ END SUBROUTINE psi_leaf_impaired_memory
 ! retired in favour of the store repair. They are in the git history (e.g.
 ! branch ximpair_prune).
 !
-! MDK, 23/10/26
-!
 ! Per-segment memory (l_ximpair_seg_memory, with l_som_plant_segments):
 ! kcap is the stem segment's cap and ximpair_kcap_leaf the leaf segment's
 ! (as a fraction of the intact leaf segment). Each is damaged by its own
@@ -464,6 +495,8 @@ END SUBROUTINE psi_leaf_impaired_memory
 ! so a drought's damage to the distal, fast-renewed tissue fades within a
 ! few years while the stem keeps its damage until the store repairs it.
 ! The reset restores both.
+!
+! MDK, 24/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment_memory ( n_land_pts                         &
 ,                                           n_open_pts                         &
@@ -525,14 +558,36 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 ! Local variables
 INTEGER :: j, l, errcode
 REAL(KIND=real_jlslsm) :: rep_l, r_n, m_n, e_new, e_old, d_old, d_new
+                            ! Two-pool repair at one point: the repair
+                            ! queued (share of the stem), the rebuilt
+                            ! pool's share and its worst loss, the rebuilt
+                            ! and old pools' embolised shares of the stem,
+                            ! and the embolised xylem replaced in the old
+                            ! and rebuilt pools.
+                            !
+                            ! MDK, 24/10/26
 LOGICAL :: l_two
                             ! Two-pool stem memory (nsc_xylem_replace > 0).
 
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_x(n_land_pts), k_x(n_land_pts), kmax_pts(n_land_pts),                    &
-  kcrit_pts(n_land_pts), b_pts(n_land_pts), c_pts(n_land_pts),                 &
-  growth(n_land_pts)
+  kcrit_pts(n_land_pts), b_pts(n_land_pts), c_pts(n_land_pts)
+                            ! Damage-driving water potential (Pa), the
+                            ! intact conductance there, and the PFT's
+                            ! intact curve (kmax, kcrit, b in Pa, c) on
+                            ! each point.
+                            !
+                            ! MDK, 24/10/26
+REAL(KIND=real_jlslsm) :: dt_years
+                            ! This timestep in years, for the leaf
+                            ! segment's recovery.
+                            !
+                            ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) :: frac_crit, store_days
+                            ! kcrit / kmax (floor of the leaf segment's
+                            ! cap), and the store period in days.
+                            !
+                            ! MDK, 24/10/26
 
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_year = 365.25 * 86400.0
 
@@ -581,6 +636,7 @@ IF (l_ximpair_rec_nsc) THEN
     ! Two pools: the stem's loss is the old pool's embolised share plus
     ! the rebuilt pool's share times its own worst loss. The new xylem
     ! (repair_pend, as a share of the stem) is built embolism free.
+    !
     ! MDK, 20/10/26
     DO l = 1, n_land_pts
       rep_l = ximpair_repair_pend(l,pft)
@@ -638,17 +694,18 @@ IF (l_ximpair_rec_nsc) THEN
 END IF
 
 ! This timestep in years, for the leaf segment's recovery.
-growth(:) = REAL(timestep_len) / sec_per_year
+dt_years = REAL(timestep_len) / sec_per_year
 
 IF (l_ximpair_seg_memory) THEN
   CALL ximpair_seg_state_alloc( n_land_pts )
   ximpair_psi_stem(:,pft) = psi_stem(:)
   ! With leaf renewal (l_ximpair_rec_leaf_turn) the leaf segment recovers
   ! by new leaves instead (triffid_nsc_turgor, phenol).
+  !
   ! MDK, 18/10/26
   IF (ximpair_tau_leaf(pft) > 0.0 .AND. .NOT. l_ximpair_rec_leaf_turn) THEN
     ximpair_kcap_leaf(:,pft) = 1.0 - (1.0 - ximpair_kcap_leaf(:,pft))          &
-                               * EXP(-growth(:) / ximpair_tau_leaf(pft))
+                               * EXP(-dt_years / ximpair_tau_leaf(pft))
   END IF
 END IF
 
@@ -713,6 +770,7 @@ IF (.NOT. ALLOCATED(ximpair_lock)) THEN
 END IF
 ximpair_lock(:,pft) = 1.0 - kcap(:) / kmax_pts(:)
 ! Worst damage of the TRIFFID period, for hydraulic mortality.
+!
 ! MDK, 21/10/26
 IF (l_trif_hydmort) CALL hydmort_accumulate( n_land_pts, pft,                  &
                                              ximpair_lock(:,pft) )
@@ -724,6 +782,7 @@ CONTAINS
   ! Two-pool damage at point l from the intact loss plc_x at the current
   ! water potential: the old pool's embolised share can rise to its share
   ! of plc_x, the rebuilt pool's worst loss to plc_x.
+  !
   ! MDK, 20/10/26
   SUBROUTINE damage_two_pool( l, plc_x )
   INTEGER, INTENT(IN) :: l

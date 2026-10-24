@@ -76,9 +76,19 @@ SUBROUTINE phen_bb_alloc( land_pts )
 
 USE jules_surface_types_mod, ONLY: npft
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: land_pts
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='PHEN_BB_ALLOC'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 IF (.NOT. ALLOCATED(phen_gdd)) THEN
   ALLOCATE(phen_gdd(land_pts, npft))
@@ -92,6 +102,8 @@ IF (.NOT. ALLOCATED(phen_dormant)) THEN
   ALLOCATE(phen_dormant(land_pts, npft))
   phen_dormant(:,:) = 0.0
 END IF
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE phen_bb_alloc
 
@@ -130,7 +142,13 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 INTEGER :: j, l
 REAL(KIND=real_jlslsm) :: doy
+    ! Day of the year.
+    !
+    ! MDK, 24/10/26
 LOGICAL :: l_new_year
+    ! First time step of the year.
+    !
+    ! MDK, 24/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -143,10 +161,10 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL phen_bb_alloc( land_pts )
 
-doy = REAL(day_of_year(current_time%year, current_time%month,                &
+doy = REAL(day_of_year(current_time%year, current_time%month,                  &
                        current_time%day, l_360, l_leap))
 ! First time step of the year: restart the degree-days and budburst.
-l_new_year = current_time%month == 1 .AND. current_time%day == 1 .AND.      &
+l_new_year = current_time%month == 1 .AND. current_time%day == 1 .AND.         &
              REAL(current_time%time) < timestep
 
 DO j = 1,veg_pts
@@ -157,7 +175,7 @@ DO j = 1,veg_pts
   END IF
   IF (is_set(phen_bb_gdd(ft)))                                                 &
     phen_gdd(l,ft) = phen_gdd(l,ft)                                            &
-                     + MAX(tair(l) - tm - phen_bb_tbase(ft), 0.0)             &
+                     + MAX(tair(l) - tm - phen_bb_tbase(ft), 0.0)              &
                        * timestep / 86400.0
   IF (phen_bb_day(l,ft) < 0.0) THEN
     IF ((is_set(phen_bb_doy(ft)) .AND. doy >= phen_bb_doy(ft)) .OR.            &
@@ -208,7 +226,7 @@ REAL(KIND=real_jlslsm) :: doy
 phen_bb_in_leaf = .FALSE.
 IF (.NOT. phen_bb_on(n) .OR. .NOT. ALLOCATED(phen_bb_day)) RETURN
 IF (phen_bb_day(l,n) < 0.0 .OR. phen_bb_min_days(n) <= 0.0) RETURN
-doy = REAL(day_of_year(current_time%year, current_time%month,                &
+doy = REAL(day_of_year(current_time%year, current_time%month,                  &
                        current_time%day, l_360, l_leap))
 phen_bb_in_leaf = doy < phen_bb_day(l,n) + phen_bb_min_days(n)
 

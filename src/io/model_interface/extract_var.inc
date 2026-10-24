@@ -23,23 +23,23 @@ USE gridbox_mean_mod, ONLY:                                                    &
 USE timestep_mod, ONLY: timestep
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf, ximpair_psi_stem
-USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_grow_acc, &
-                                       ximpair_rebuilt, ximpair_lock_new,     &
+USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_grow_acc,  &
+                                       ximpair_rebuilt, ximpair_lock_new,      &
                                        ximpair_fmin_acc
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
 USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state   ! MDK, 22/10/26
-USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_w_store,                 &
+USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_w_store,                  &
                                     cut_psi_stem, cut_m_h2o,                   &
                                     cut_psi_unset, cut_c_store,                &
                                     cut_w_shed   ! MDK, 22/10/26
 USE phen_budburst_mod, ONLY: phen_gdd, phen_bb_day, phen_dormant
-USE triffid_hydmort_mod, ONLY: hydmort_g_pft, hydmort_m_pft,                  &
-                               hydmort_dead_pft, hydmort_plc_peak,          &
+USE triffid_hydmort_mod, ONLY: hydmort_g_pft, hydmort_m_pft,                   &
+                               hydmort_dead_pft, hydmort_plc_peak,             &
                                hydmort_pref   ! MDK, 21/10/26
-USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,   &
-                           nsc_repair_pft, nsc_starv_pft, nsc_turg_acc,   &
-                           nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day, &
+USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,    &
+                           nsc_repair_pft, nsc_starv_pft, nsc_turg_acc,        &
+                           nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day,  &
                            phen_fbleaf, phen_nlow, phen_nhigh, nsc_regrow_acc, &
                            phen_psi_acc
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
@@ -836,7 +836,7 @@ CASE ( 'npp_gb' )
   workspace_land(:) = trifctltype%npp_gb(:)
   ! Less the store's overflow respiration (see resp_p_gb).
   ! MDK, 18/10/26
-  IF ( ALLOCATED(nsc_resp_pft) ) workspace_land(:) = workspace_land(:)        &
+  IF ( ALLOCATED(nsc_resp_pft) ) workspace_land(:) = workspace_land(:)         &
     - SUM(nsc_resp_pft(:,1:npft) * ainfo%frac_surft(:,1:npft), 2) / sec_nsc_yr
   cube_land = cube_from_array(workspace_land)
   cube = map_from_land(cube_land)
@@ -879,7 +879,7 @@ CASE ( 'resp_p_gb' )
   ! store step, spread evenly over the next (kg C m-2 s-1): plant
   ! respiration in the outputs only (the store already took it from NPP).
   ! MDK, 18/10/26
-  IF ( ALLOCATED(nsc_resp_pft) ) workspace_land(:) = workspace_land(:)        &
+  IF ( ALLOCATED(nsc_resp_pft) ) workspace_land(:) = workspace_land(:)         &
     + SUM(nsc_resp_pft(:,1:npft) * ainfo%frac_surft(:,1:npft), 2) / sec_nsc_yr
   cube_land = cube_from_array(workspace_land)
   cube = map_from_land(cube_land)
@@ -1490,7 +1490,7 @@ CASE ( 'npp' )
   workspace_pft(:,:) = trifctltype%npp_pft(:,:)
   ! Less the store's overflow respiration (see resp_p_gb).
   ! MDK, 18/10/26
-  IF ( ALLOCATED(nsc_resp_pft) ) workspace_pft(:,:) = workspace_pft(:,:)      &
+  IF ( ALLOCATED(nsc_resp_pft) ) workspace_pft(:,:) = workspace_pft(:,:)       &
                                                   - nsc_resp_pft / sec_nsc_yr
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
@@ -1572,7 +1572,7 @@ CASE ( 'resp_p' )
   workspace_pft(:,:) = trifctltype%resp_p_pft(:,:)
   ! Plus the store's overflow respiration (see resp_p_gb).
   ! MDK, 18/10/26
-  IF ( ALLOCATED(nsc_resp_pft) ) workspace_pft(:,:) = workspace_pft(:,:)      &
+  IF ( ALLOCATED(nsc_resp_pft) ) workspace_pft(:,:) = workspace_pft(:,:)       &
                                                   + nsc_resp_pft / sec_nsc_yr
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
@@ -3705,12 +3705,13 @@ CASE ( 'psi_leaf_pft' )
   END IF
   cube = map_from_land(cube_land)
 
-  ! Transpiration rate calcuated in the stomatal optimisation calculation JBaguley
+  ! Transpiration rate calculated in the stomatal optimisation JBaguley
 CASE ( 'som_transpiration_pft' )
   cube_land = cube_from_array(psparms%som_transpiration_pft)
   cube = map_from_land(cube_land)
 
-  ! Ratio of intercellular and canopy level CO2 concentration JBaguley
+  ! Canopy stomatal conductance for water, without the soil (m s-1).
+  ! MDK, 24/10/26
 CASE ( 'gc_stom_pft' )
   cube_land = cube_from_array(psparms%gc_stom_pft)
   cube = map_from_land(cube_land)
@@ -3734,6 +3735,7 @@ CASE ( 't_leaf_clamp_pft' )
   cube_land = cube_from_array(pft_present_or_mdi(psparms%t_leaf_clamp_pft))
   cube = map_from_land(cube_land)
 
+  ! Ratio of intercellular and canopy level CO2 concentration JBaguley
 CASE ('cica_ratio_pft')
   cube_land = cube_from_array(psparms%cica_ratio_pft)
   cube = map_from_land(cube_land)
@@ -3765,8 +3767,6 @@ CASE ('lambda_eff_pft')
   END IF
   cube = map_from_land(cube_land)
 
-  ! Percentage loss of conductance at the leaf water potential compared to the
-  ! maximum conductance JBaguley
   ! DESICA (stomata_model = 8) stem water potential (Pa -> MPa) and root
   ! uptake / sap flow (kg m-2 s-1); zero when DESICA is not in use.
 CASE ( 'psi_stem_pft' )
@@ -4162,7 +4162,7 @@ CASE ('PLC_pft')
                                    / conductance_b_seg(i,2)) )                 &
                             **conductance_c_seg(i,2)),                         &
                         psparms%kmax_impaired_pft(l,i) / kmax_pft(i) )
-          g_leaf = MIN( EXP(-( ABS(MIN(psparms%psi_leaf_pft(l,i), 0.0)          &
+          g_leaf = MIN( EXP(-( ABS(MIN(psparms%psi_leaf_pft(l,i), 0.0)         &
                                    / conductance_b_seg(i,3)) )                 &
                             **conductance_c_seg(i,3)),                         &
                         ximpair_kcap_leaf(l,i) )
@@ -4215,19 +4215,8 @@ CASE ('conductance_c_impaired_pft')
   ! corrects for imperfect atmosphere-leaf coupling.
   ! The 1.0e-6 is to convert from Pa to MPa
 CASE ( 'psi_canopy_pft' )
-
-  DO i = 1, npft
-    DO j = 1, ainfo%surft_pts(i)
-      l = ainfo%surft_index(j,i)
-      IF ( psparms%psi_canopy_pft(l,i) > 0.0 ) THEN
-        WRITE(*,*) "----------------------------------------------------------------"
-        WRITE(*,*) "Warning: positive canopy water potential for plant functional type ", &
-                   i, " at land point ", l
-        WRITE(*,*) "----------------------------------------------------------------"
-      END IF
-    END DO
-  END DO
-
+  ! (A screen warning for positive values, printed on every output step,
+  ! was removed. MDK, 24/10/26)
   cube_land = cube_from_array(psparms%psi_canopy_pft(:,:)*1.0e-6)
   cube = map_from_land(cube_land)
 

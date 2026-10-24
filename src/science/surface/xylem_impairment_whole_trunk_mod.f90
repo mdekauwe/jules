@@ -15,6 +15,8 @@ IMPLICIT NONE
 CHARACTER(LEN=*), PARAMETER, PRIVATE ::                                        &
   ModuleName = 'XYLEM_IMPAIRMENT_WHOLE_TRUNK_MOD'
 
+PRIVATE
+
 PUBLIC :: leaf_conductance_impaired_whole_trunk_jls,                           &
           xylem_conductance_impaired_whole_trunk_stom_opt_jls,                 &
           psi_leaf_impaired_whole_trunk,                                       &
@@ -23,23 +25,26 @@ PUBLIC :: leaf_conductance_impaired_whole_trunk_jls,                           &
 CONTAINS
 
 ! *********************************************************************
-! Contains routines used to switch between different xylem conductance
-! models.
+! Whole-trunk xylem impairment model (pft_xylem_impairment_model = 2):
+! conductance, leaf water potential and the update of the historic
+! minimum leaf and root water potentials.
+!
+! MDK, 24/10/26
 ! *********************************************************************
 
 ! ---------------------------------------------------------------------
 ! Function to calculate leaf conductance
 ! ---------------------------------------------------------------------
-SUBROUTINE leaf_conductance_impaired_whole_trunk_jls( pft,                    &
-                                                      land_pnts,              &
-                                                      leaf_psi,               &
-                                                      kmax,                   &
-                                                      kcrit,                  &
-                                                      conductance_b,          &
-                                                      conductance_c,          &
-                                                      psi_leaf_extreme,       &
+SUBROUTINE leaf_conductance_impaired_whole_trunk_jls( pft,                     &
+                                                      land_pnts,               &
+                                                      leaf_psi,                &
+                                                      kmax,                    &
+                                                      kcrit,                   &
+                                                      conductance_b,           &
+                                                      conductance_c,           &
+                                                      psi_leaf_extreme,        &
                                                    ! INTENT OUT
-                                                      leaf_k                  &
+                                                      leaf_k                   &
   )
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
@@ -84,7 +89,8 @@ REAL(KIND=real_jlslsm) :: new_psi_leaf_extreme(land_pnts)
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_CONDUCTANCE_IMPAIRED_WHOLE_TRUNK_JLS'
+CHARACTER(LEN=*), PARAMETER ::                                                 &
+  RoutineName='LEAF_CONDUCTANCE_IMPAIRED_WHOLE_TRUNK_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
@@ -96,17 +102,20 @@ new_psi_leaf_extreme = MIN(leaf_psi, psi_leaf_extreme)
 ! water potential.
 ! NOTE: kmax/conductance_b/conductance_c are the per-point arrays rather than
 !       kmax_pft/conductance_b_pft/conductance_c_pft. The whole-trunk model
-!       never updates them, so they hold the PFT values - but passed this way
-!       they carry whatever canopy scaling (e.g. fpar) the caller applied.
-CALL leaf_conductance_jls(pft,                                                &
-                          land_pnts,                                          &
-                          new_psi_leaf_extreme,                               &
-                          kmax,                                               &
-                          kcrit,                                              &
-                          conductance_b,                                      &
-                          conductance_c,                                      &
+!       never updates them: b and c are the PFT curve, and kmax is the
+!       per-point kmax with whatever canopy scaling (e.g. * LAI) the caller
+!       applied.
+!
+!       MDK, 24/10/26
+CALL leaf_conductance_jls(pft,                                                 &
+                          land_pnts,                                           &
+                          new_psi_leaf_extreme,                                &
+                          kmax,                                                &
+                          kcrit,                                               &
+                          conductance_b,                                       &
+                          conductance_c,                                       &
                         ! INTENT OUT
-                          leaf_k                                              &
+                          leaf_k                                               &
                          )
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -117,8 +126,10 @@ END SUBROUTINE leaf_conductance_impaired_whole_trunk_jls
 ! Function to manage xylem conductance calculations for different
 ! impairment models.
 ! NOTE: This function is designed for the stomatal optimisation model.
-!       It asumes that the input and output arrays are only large
+!       It assumes that the input and output arrays are only large
 !       enough to contain values for points with open stomata.
+!
+! MDK, 24/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE xylem_conductance_impaired_whole_trunk_stom_opt_jls(                &
                                                    pft,                        &
@@ -174,8 +185,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Historic minimum water potential at a given point
                             ! in the tree for each land point (Pa).
                             ! To calculate the leaf (root) conductance this
-                            ! value is the historic minm=imum leaf (root) water
+                            ! value is the historic minimum leaf (root) water
                             ! potential.
+                            !
+                            ! MDK, 24/10/26
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   xylem_conductance(n_water_potentials, open_pnts)
@@ -185,7 +198,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ! Local variables
 REAL(KIND=real_jlslsm) :: new_psi_extreme(n_water_potentials, open_pnts)
 REAL(KIND=real_jlslsm) ::                                                      &
-  kmax_open(open_pnts), kcrit_open(open_pnts), b_open(open_pnts),             &
+  kmax_open(open_pnts), kcrit_open(open_pnts), b_open(open_pnts),              &
   c_open(open_pnts)
                             ! Per-point curve parameters gathered onto the
                             ! open-point index.
@@ -195,7 +208,8 @@ INTEGER :: i, l
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_IMPAIRED_WHOLE_TRUNK_STOM_OPT_JLS'
+CHARACTER(LEN=*), PARAMETER ::                                                 &
+  RoutineName='XYLEM_CONDUCTANCE_IMPAIRED_WHOLE_TRUNK_STOM_OPT_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
@@ -282,7 +296,11 @@ INTEGER, INTENT(IN) ::                                                         &
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   e_leaf(n_e_leaf, open_pnts)                                                  &
-                            ! Transpiration rates for each open point (kg/m2/s)
+                            ! Transpiration rates for each open point
+                            ! (mol H2O m-2 s-1, on the same area basis as
+                            ! kmax)
+                            !
+                            ! MDK, 24/10/26
 , root_zone_psi(land_pnts)                                                     &
                             ! Water potential in the root zone (Pa)
 , kmax(land_pnts)                                                              &
@@ -342,43 +360,43 @@ new_psi_leaf_extreme = MIN(psi_leaf_extreme, new_psi_root_extreme)
 SELECT CASE ( pft_conductance_model(pft) )
 
 CASE ( CW_conductance )
-  CALL psi_leaf_impaired_CW_jls(pft,                                         &
-                                n_e_leaf,                                    &
-                                land_pnts,                                   &
-                                open_pnts,                                   &
-                                veg_index,                                   &
-                                open_index,                                  &
-                                e_leaf,                                      &
-                                root_zone_psi,                               &
-                                kmax,                                        &
-                                kcrit,                                       &
-                                conductance_b,                               &
-                                conductance_c,                               &
-                                new_psi_leaf_extreme,                        &
-                                new_psi_root_extreme,                        &
+  CALL psi_leaf_impaired_CW_jls(pft,                                           &
+                                n_e_leaf,                                      &
+                                land_pnts,                                     &
+                                open_pnts,                                     &
+                                veg_index,                                     &
+                                open_index,                                    &
+                                e_leaf,                                        &
+                                root_zone_psi,                                 &
+                                kmax,                                          &
+                                kcrit,                                         &
+                                conductance_b,                                 &
+                                conductance_c,                                 &
+                                new_psi_leaf_extreme,                          &
+                                new_psi_root_extreme,                          &
                               ! INTENT OUT
-                                leaf_psi,                                    &
-                                leaf_k                                       &
+                                leaf_psi,                                      &
+                                leaf_k                                         &
                                )
 
 CASE ( SOX_conductance )
-  CALL psi_leaf_impaired_SOX_jls(pft,                                        &
-                                 n_e_leaf,                                   &
-                                 land_pnts,                                  &
-                                 open_pnts,                                  &
-                                 veg_index,                                  &
-                                 open_index,                                 &
-                                 e_leaf,                                     &
-                                 root_zone_psi,                              &
-                                 kmax,                                       &
-                                 kcrit,                                      &
-                                 conductance_b,                              &
-                                 conductance_c,                              &
-                                 new_psi_leaf_extreme,                       &
-                                 new_psi_root_extreme,                       &
+  CALL psi_leaf_impaired_SOX_jls(pft,                                          &
+                                 n_e_leaf,                                     &
+                                 land_pnts,                                    &
+                                 open_pnts,                                    &
+                                 veg_index,                                    &
+                                 open_index,                                   &
+                                 e_leaf,                                       &
+                                 root_zone_psi,                                &
+                                 kmax,                                         &
+                                 kcrit,                                        &
+                                 conductance_b,                                &
+                                 conductance_c,                                &
+                                 new_psi_leaf_extreme,                         &
+                                 new_psi_root_extreme,                         &
                                ! INTENT OUT
-                                 leaf_psi,                                   &
-                                 leaf_k                                      &
+                                 leaf_psi,                                     &
+                                 leaf_k                                        &
                                 )
 
 CASE DEFAULT
@@ -412,9 +430,14 @@ INTEGER, INTENT(IN) ::                                                         &
   n_land_pts                                                                   &
                             ! Number of land points
 , n_open_pts                                                                   &
-                            ! Number of open plant functional types
+                            ! Number of land points with open stomata
+                            !
+                            ! MDK, 24/10/26
 , open_index(n_open_pts)                                                       &
-                            ! Index of open plant functional types
+                            ! Land point of each point with open stomata
+                            ! (not used: every land point is updated)
+                            !
+                            ! MDK, 24/10/26
 , pft
                             ! Plant functional type
 
@@ -522,12 +545,20 @@ INTEGER, INTENT(IN) ::                                                         &
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   e_leaf(n_e_leaf, open_pnts)                                                  &
-                            ! Transpiration rates for each open point (kg/m2/s)
+                            ! Transpiration rates for each open point
+                            ! (mol H2O m-2 s-1, on the same area basis as
+                            ! kmax)
+                            !
+                            ! MDK, 24/10/26
 , root_zone_psi(land_pnts)                                                     &
                             ! Water potential in the root zone (Pa)
 , kmax_pft(land_pnts)                                                          &
                             ! Maximum xylem conductance for each land point
-                            ! (mol m-2 s-1 Pa-1)
+                            ! (mol m-2 s-1 Pa-1): the per-point kmax with
+                            ! the caller's canopy scaling, not the PFT
+                            ! parameter kmax_pft.
+                            !
+                            ! MDK, 24/10/26
 , kcrit(land_pnts)                                                             &
                             ! Critical xylem conductance for each land point
                             ! (mol m-2 s-1 Pa-1)
@@ -564,9 +595,9 @@ REAL(KIND=real_jlslsm) :: keff
                             ! Effective whole-path conductance for case 1.
 REAL(KIND=real_jlslsm) :: psi_c1(n_e_leaf)
                             ! Case 1 leaf water potential (Pa).
-REAL(KIND=real_jlslsm) :: psi_vec(n_e_leaf), g_vec(n_e_leaf),               &
-                          k_vec(n_e_leaf), d_vec(n_e_leaf),                 &
-                          e_vec(n_e_leaf), de_vec(n_e_leaf),                &
+REAL(KIND=real_jlslsm) :: psi_vec(n_e_leaf), g_vec(n_e_leaf),                  &
+                          k_vec(n_e_leaf), d_vec(n_e_leaf),                    &
+                          e_vec(n_e_leaf), de_vec(n_e_leaf),                   &
                           dpsi_vec(n_e_leaf)
                             ! Case 2 Newton-Raphson work arrays.
 REAL(KIND=real_jlslsm) :: psi_floor
@@ -599,15 +630,15 @@ DO j = 1, open_pnts
   psi_re = psi_root_extreme(l)
   psi_le = psi_leaf_extreme(l)
 
-  gamma_re = incomplete_gamma_scalar(1/conductance_c(l),                   &
+  gamma_re = incomplete_gamma_scalar(1/conductance_c(l),                       &
                    (psi_re/conductance_b(l))**conductance_c(l))
 
   !-------------------------------------------------------------------------
   ! Case 1: leaf above its historic minimum.
   !-------------------------------------------------------------------------
   IF (psi_re - psi_le > dpsi_min) THEN
-    g_le = kmax_pft(l) * (-conductance_b(l)/conductance_c(l))              &
-           * ( incomplete_gamma_scalar(1/conductance_c(l),                 &
+    g_le = kmax_pft(l) * (-conductance_b(l)/conductance_c(l))                  &
+           * ( incomplete_gamma_scalar(1/conductance_c(l),                     &
                    (psi_le/conductance_b(l))**conductance_c(l)) - gamma_re )
     keff = g_le / (psi_re - psi_le)
   ELSE
@@ -626,11 +657,11 @@ DO j = 1, open_pnts
   psi_vec(:) = MAX(MIN(psi_c1(:), psi_le), psi_floor)
 
   DO i = 1, max_nr_iter
-    g_vec(:) = kmax_pft(l) * (-conductance_b(l)/conductance_c(l))            &
-             * ( incomplete_gamma(n_e_leaf, 1/conductance_c(l),              &
-                     (psi_vec(:)/conductance_b(l))**conductance_c(l))        &
+    g_vec(:) = kmax_pft(l) * (-conductance_b(l)/conductance_c(l))              &
+             * ( incomplete_gamma(n_e_leaf, 1/conductance_c(l),                &
+                     (psi_vec(:)/conductance_b(l))**conductance_c(l))          &
                  - gamma_re )
-    k_vec(:) = kmax_pft(l)                                                   &
+    k_vec(:) = kmax_pft(l)                                                     &
              * EXP( -(psi_vec(:)/conductance_b(l))**conductance_c(l) )
 
     ! Distance below psi_re, floored to avoid dividing by zero where the
@@ -638,7 +669,7 @@ DO j = 1, open_pnts
     d_vec(:) = MAX(psi_re - psi_vec(:), dpsi_min)
 
     e_vec(:)  = g_vec(:) * (psi_r - psi_vec(:)) / d_vec(:)
-    de_vec(:) = - k_vec(:) * (psi_r - psi_vec(:)) / d_vec(:)                 &
+    de_vec(:) = - k_vec(:) * (psi_r - psi_vec(:)) / d_vec(:)                   &
                 + g_vec(:) * (psi_r - psi_re) / d_vec(:)**2
 
     ! dE/dpsi_l < 0 for any physical solution; guard the step against a
@@ -683,23 +714,23 @@ END SUBROUTINE psi_leaf_impaired_CW_jls
 ! Subroutine to calculate the leaf water potential for the SOX model.
 ! ---------------------------------------------------------------------
 
-SUBROUTINE psi_leaf_impaired_SOX_jls( pft,                                    &
-                                      n_e_leaf,                               &
-                                      land_pnts,                              &
-                                      open_pnts,                              &
-                                      veg_index,                              &
-                                      open_index,                             &
-                                      e_leaf,                                 &
-                                      root_zone_psi,                          &
-                                      kmax_pft,                               &
-                                      kcrit,                                  &
-                                      conductance_b,                          &
-                                      conductance_c,                          &
-                                      psi_leaf_extreme,                       &
-                                      psi_root_extreme,                       &
+SUBROUTINE psi_leaf_impaired_SOX_jls( pft,                                     &
+                                      n_e_leaf,                                &
+                                      land_pnts,                               &
+                                      open_pnts,                               &
+                                      veg_index,                               &
+                                      open_index,                              &
+                                      e_leaf,                                  &
+                                      root_zone_psi,                           &
+                                      kmax_pft,                                &
+                                      kcrit,                                   &
+                                      conductance_b,                           &
+                                      conductance_c,                           &
+                                      psi_leaf_extreme,                        &
+                                      psi_root_extreme,                        &
                                    ! INTENT OUT
-                                      leaf_psi,                               &
-                                      leaf_k                                  &
+                                      leaf_psi,                                &
+                                      leaf_k                                   &
   )
 
 USE xylem_hydraulics_SOX_jls_mod, ONLY: SOX_2F1
@@ -723,12 +754,20 @@ INTEGER, INTENT(IN) ::                                                         &
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   e_leaf(n_e_leaf, open_pnts)                                                  &
-                            ! Transpiration rates for each open point (kg/m2/s)
+                            ! Transpiration rates for each open point
+                            ! (mol H2O m-2 s-1, on the same area basis as
+                            ! kmax)
+                            !
+                            ! MDK, 24/10/26
 , root_zone_psi(land_pnts)                                                     &
                             ! Water potential in the root zone (Pa)
 , kmax_pft(land_pnts)                                                          &
                             ! Maximum xylem conductance for each land point
-                            ! (mol m-2 s-1 Pa-1)
+                            ! (mol m-2 s-1 Pa-1): the per-point kmax with
+                            ! the caller's canopy scaling, not the PFT
+                            ! parameter kmax_pft.
+                            !
+                            ! MDK, 24/10/26
 , kcrit(land_pnts)                                                             &
                             ! Critical xylem conductance for each land point
                             ! (mol m-2 s-1 Pa-1)
@@ -766,9 +805,9 @@ REAL(KIND=real_jlslsm) :: keff
                             ! Effective whole-path conductance for case 1.
 REAL(KIND=real_jlslsm) :: psi_c1(n_e_leaf)
                             ! Case 1 leaf water potential (Pa).
-REAL(KIND=real_jlslsm) :: psi_vec(n_e_leaf), g_vec(n_e_leaf),               &
-                          k_vec(n_e_leaf), d_vec(n_e_leaf),                 &
-                          e_vec(n_e_leaf), de_vec(n_e_leaf),                &
+REAL(KIND=real_jlslsm) :: psi_vec(n_e_leaf), g_vec(n_e_leaf),                  &
+                          k_vec(n_e_leaf), d_vec(n_e_leaf),                    &
+                          e_vec(n_e_leaf), de_vec(n_e_leaf),                   &
                           dpsi_vec(n_e_leaf)
                             ! Case 2 Newton-Raphson work arrays.
 REAL(KIND=real_jlslsm) :: psi_floor
@@ -801,15 +840,15 @@ DO j = 1, open_pnts
   psi_re = psi_root_extreme(l)
   psi_le = psi_leaf_extreme(l)
 
-  gamma_re = psi_re * sox_2f1_scalar(1 + 1/conductance_c(l),               &
+  gamma_re = psi_re * sox_2f1_scalar(1 + 1/conductance_c(l),                   &
                    -(psi_re/conductance_b(l))**conductance_c(l))
 
   !-------------------------------------------------------------------------
   ! Case 1: leaf above its historic minimum.
   !-------------------------------------------------------------------------
   IF (psi_re - psi_le > dpsi_min) THEN
-    g_le = - kmax_pft(l)                                                   &
-           * ( psi_le * sox_2f1_scalar(1 + 1/conductance_c(l),             &
+    g_le = - kmax_pft(l)                                                       &
+           * ( psi_le * sox_2f1_scalar(1 + 1/conductance_c(l),                 &
                    -(psi_le/conductance_b(l))**conductance_c(l)) - gamma_re )
     keff = g_le / (psi_re - psi_le)
   ELSE
@@ -828,11 +867,11 @@ DO j = 1, open_pnts
   psi_vec(:) = MAX(MIN(psi_c1(:), psi_le), psi_floor)
 
   DO i = 1, max_nr_iter
-    g_vec(:) = - kmax_pft(l)                                                 &
-             * ( psi_vec(:) * SOX_2F1(n_e_leaf, 1 + 1/conductance_c(l),      &
-                     -(psi_vec(:)/conductance_b(l))**conductance_c(l))       &
+    g_vec(:) = - kmax_pft(l)                                                   &
+             * ( psi_vec(:) * SOX_2F1(n_e_leaf, 1 + 1/conductance_c(l),        &
+                     -(psi_vec(:)/conductance_b(l))**conductance_c(l))         &
                  - gamma_re )
-    k_vec(:) = kmax_pft(l)                                                   &
+    k_vec(:) = kmax_pft(l)                                                     &
              / (1 + (psi_vec(:)/conductance_b(l))**conductance_c(l))
 
     ! Distance below psi_re, floored to avoid dividing by zero where the
@@ -840,7 +879,7 @@ DO j = 1, open_pnts
     d_vec(:) = MAX(psi_re - psi_vec(:), dpsi_min)
 
     e_vec(:)  = g_vec(:) * (psi_r - psi_vec(:)) / d_vec(:)
-    de_vec(:) = - k_vec(:) * (psi_r - psi_vec(:)) / d_vec(:)                 &
+    de_vec(:) = - k_vec(:) * (psi_r - psi_vec(:)) / d_vec(:)                   &
                 + g_vec(:) * (psi_r - psi_re) / d_vec(:)**2
 
     ! dE/dpsi_l < 0 for any physical solution; guard the step against a
@@ -861,21 +900,21 @@ DO j = 1, open_pnts
   END WHERE
 END DO
 
-CALL xylem_conductance_impaired_whole_trunk_stom_opt_jls(                       &
-                                            pft,                                &
-                                            n_e_leaf,                           &
-                                            open_pnts,                          &
-                                            open_index,                         &
-                                            veg_index,                          &
-                                            land_pnts,                          &
-                                            leaf_psi,                           &
-                                            kmax_pft,                           &
-                                            kcrit,                              &
-                                            conductance_b,                      &
-                                            conductance_c,                      &
-                                            psi_leaf_extreme,                   &
+CALL xylem_conductance_impaired_whole_trunk_stom_opt_jls(                      &
+                                            pft,                               &
+                                            n_e_leaf,                          &
+                                            open_pnts,                         &
+                                            open_index,                        &
+                                            veg_index,                         &
+                                            land_pnts,                         &
+                                            leaf_psi,                          &
+                                            kmax_pft,                          &
+                                            kcrit,                             &
+                                            conductance_b,                     &
+                                            conductance_c,                     &
+                                            psi_leaf_extreme,                  &
                                           ! INTENT OUT
-                                            leaf_k                              &
+                                            leaf_k                             &
                                            )
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

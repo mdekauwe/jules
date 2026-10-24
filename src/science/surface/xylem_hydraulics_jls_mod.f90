@@ -215,9 +215,11 @@ END SUBROUTINE xylem_conductance_jls
 ! ---------------------------------------------------------------------
 ! Subroutine to manage leaf water potential calculations for different
 ! conductance models.
-! NOTE: This function is designed for the stomatal optimisation model.
+! NOTE: This subroutine is designed for the stomatal optimisation model.
 !       It returns an output array that only contains values for points
 !       with open stomata.
+!
+! MDK, 24/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_jls( pft,                                                  &
                          n_e_leaf,                                             &
@@ -271,7 +273,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Transpiration rates for each open point
                             ! (mol H2O m-2 s-1)
 , root_zone_psi(land_pts)                                                      &
-                             ! Water potential in the root zone (Pa)
+                            ! Water potential in the root zone (Pa)
 , kmax(land_pts)                                                               &
                             ! Maximum xylem conductance for each land point
                             ! (mol m-2 s-1 Pa-1).
@@ -404,10 +406,11 @@ CASE ( CW_conductance )
   ! Newton or table solver: leaf psi from solving the segments downstream,
   ! and the whole-plant conductance -dE/dpsi_leaf in k_out. (This choice
   ! was made inside psi_leaf_CW_jls; it is here so that the Weibull module
-  ! does not depend on the segment module. With the Taylor solver the
-  ! single curve is used, as before.)
+  ! does not depend on the segment module.) Segments with the Taylor
+  ! solver are rejected by the namelist check; see the header of
+  ! psi_leaf_CW_jls.
   !
-  ! MDK, 23/10/26
+  ! MDK, 24/10/26
   IF ( l_som_plant_segments .AND. som_psi_solver == psi_solver_newton ) THEN
     CALL psi_leaf_segments_jls( pft, n_e, land_pts, open_pnts, veg_index,      &
                                 open_index, e_in, psi_root, kmax, kcrit,       &

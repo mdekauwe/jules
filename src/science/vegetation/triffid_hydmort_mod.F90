@@ -45,11 +45,12 @@ MODULE triffid_hydmort_mod
 ! - with fixed fractions (l_veg_compete = F, e.g. monoculture runs), the
 !   killed fraction is moved to bare soil here, and is not refilled.
 !
-! Design: NOTES_triffid_mortality.md (branch triffid_mortality).
+! The design notes are local, not in the repository.
 ! p_ref, the stand killed so far and the period's peak damage are in dumps.
 ! A dump written without them starts p_ref at the current damage (the stand
 ! is taken to have withstood it).
-! MDK, 21/10/26
+!
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 
 USE um_types, ONLY: real_jlslsm
@@ -78,6 +79,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: hydmort_dead_pft(:,:)
 ! Smallest fraction of the cover killed in a step that is applied.
 REAL(KIND=real_jlslsm), PARAMETER :: hydmort_m_min = 1.0e-6
 
+CHARACTER(LEN=*), PARAMETER :: ModuleName='TRIFFID_HYDMORT_MOD'
+
 CONTAINS
 
 ! ---------------------------------------------------------------------
@@ -87,7 +90,17 @@ SUBROUTINE hydmort_alloc( n_land_pts )
 
 USE jules_surface_types_mod, ONLY: npft
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 INTEGER, INTENT(IN) :: n_land_pts
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='HYDMORT_ALLOC'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 IF (.NOT. ALLOCATED(hydmort_plc_peak)) THEN
   ALLOCATE(hydmort_plc_peak(n_land_pts, npft))
@@ -109,6 +122,8 @@ IF (.NOT. ALLOCATED(hydmort_dead_pft)) THEN
   ALLOCATE(hydmort_dead_pft(n_land_pts, npft))
   hydmort_dead_pft(:,:) = 0.0
 END IF
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE hydmort_alloc
 
@@ -134,11 +149,29 @@ END FUNCTION hydmort_s
 ! ---------------------------------------------------------------------
 SUBROUTINE hydmort_accumulate( n_land_pts, pft, lock )
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 INTEGER, INTENT(IN) :: n_land_pts, pft
+                          ! Number of land points; plant functional type.
+                          !
+                          ! MDK, 24/10/26
 REAL(KIND=real_jlslsm), INTENT(IN) :: lock(n_land_pts)
+                          ! Lasting loss of conductance (ximpair_lock).
+                          !
+                          ! MDK, 24/10/26
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='HYDMORT_ACCUMULATE'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL hydmort_alloc( n_land_pts )
 hydmort_plc_peak(:,pft) = MAX(hydmort_plc_peak(:,pft), lock(:))
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE hydmort_accumulate
 
@@ -151,14 +184,39 @@ SUBROUTINE triffid_hydmort( land_pts, trif_pts, trif_index, r_gamma, lock )
 USE jules_surface_types_mod, ONLY: npft
 USE pftparm, ONLY: hydmort_mu, hydmort_width, hydmort_plc_bg
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 INTEGER, INTENT(IN) :: land_pts, trif_pts
+                          ! Number of land points, and of points on which
+                          ! TRIFFID may operate.
+                          !
+                          ! MDK, 24/10/26
 INTEGER, INTENT(IN) :: trif_index(land_pts)
+                          ! Land points on which TRIFFID may operate.
+                          !
+                          ! MDK, 24/10/26
 REAL(KIND=real_jlslsm), INTENT(IN) :: r_gamma
+                          ! Inverse TRIFFID timestep (/360 days).
+                          !
+                          ! MDK, 24/10/26
 REAL(KIND=real_jlslsm), INTENT(IN) :: lock(land_pts,npft)
                           ! Lasting loss of conductance (ximpair_lock).
 
 INTEGER :: l, n, t
 REAL(KIND=real_jlslsm) :: p_peak, s_peak, s_ref, m
+                          ! Peak damage of the period, the fractions of the
+                          ! stand dead at it and at p_ref, and the fraction
+                          ! of the surviving cover killed in this step.
+                          !
+                          ! MDK, 24/10/26
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='TRIFFID_HYDMORT'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL hydmort_alloc( land_pts )
 
@@ -167,9 +225,9 @@ DO n = 1, npft
     l = trif_index(t)
     p_peak = MAX(hydmort_plc_peak(l,n), lock(l,n))
     IF (hydmort_pref(l,n) < 0.0) hydmort_pref(l,n) = lock(l,n)
-    s_peak = hydmort_s(p_peak, hydmort_mu(n), hydmort_width(n),              &
+    s_peak = hydmort_s(p_peak, hydmort_mu(n), hydmort_width(n),                &
                        hydmort_plc_bg(n))
-    s_ref  = hydmort_s(hydmort_pref(l,n), hydmort_mu(n), hydmort_width(n),   &
+    s_ref  = hydmort_s(hydmort_pref(l,n), hydmort_mu(n), hydmort_width(n),     &
                        hydmort_plc_bg(n))
     m = MAX(0.0, s_peak - s_ref) / MAX(1.0 - s_ref, 1.0e-6)
     m = MIN(m, 1.0)
@@ -183,6 +241,8 @@ DO n = 1, npft
   END DO
 END DO
 
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
 END SUBROUTINE triffid_hydmort
 
 ! ---------------------------------------------------------------------
@@ -190,23 +250,49 @@ END SUBROUTINE triffid_hydmort
 ! dfrac (< 0) carries the loss, so TRIFFID's mass-balance litter sends the
 ! killed area's vegetation carbon and N to the soil.
 ! ---------------------------------------------------------------------
-SUBROUTINE triffid_hydmort_cover( land_pts, trif_pts, trif_index, frac,      &
-                                  frac_na, frac_nofire, dfrac, dfrac_na,     &
+SUBROUTINE triffid_hydmort_cover( land_pts, trif_pts, trif_index, frac,        &
+                                  frac_na, frac_nofire, dfrac, dfrac_na,       &
                                   dfrac_nofire )
 
 USE jules_surface_types_mod, ONLY: npft, ntype, soil
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 INTEGER, INTENT(IN) :: land_pts, trif_pts
+                          ! Number of land points, and of points on which
+                          ! TRIFFID may operate.
+                          !
+                          ! MDK, 24/10/26
 INTEGER, INTENT(IN) :: trif_index(land_pts)
+                          ! Land points on which TRIFFID may operate.
+                          !
+                          ! MDK, 24/10/26
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: frac(land_pts,ntype)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: frac_na(land_pts,ntype)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: frac_nofire(land_pts,ntype)
+                          ! Areal fractions, as in triffid.
+                          !
+                          ! MDK, 24/10/26
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: dfrac(land_pts,npft)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: dfrac_na(land_pts,npft)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: dfrac_nofire(land_pts,npft)
+                          ! Their changes over the TRIFFID step.
+                          !
+                          ! MDK, 24/10/26
 
 INTEGER :: l, n, t
 REAL(KIND=real_jlslsm) :: dlost
+                          ! Fraction of the grid box killed in this step.
+                          !
+                          ! MDK, 24/10/26
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='TRIFFID_HYDMORT_COVER'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 DO n = 1, npft
   DO t = 1, trif_pts
@@ -224,6 +310,8 @@ DO n = 1, npft
     frac_nofire(l,soil) = frac_nofire(l,soil) + dlost
   END DO
 END DO
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE triffid_hydmort_cover
 

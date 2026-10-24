@@ -21,13 +21,15 @@ PUBLIC stom_opt_mod, g_of_geff, som_path_psi, stom_opt_at_e, e_of_g
 ! Diagnostic marginal water price at the optimum, lambda_eff = dA/dE
 ! (mol CO2 per mol H2O; = umol per mmol x 1e-3), from the bounded Ci
 ! search (som_ci_search = 2: profit max, CMax, CGain, CAP, ProfitMax2), by
-! a finite difference about the chosen Ci on the search path; 0 for closed
-! stomata and for the other searches. stom_opt_mod returns it per land
-! point (optional argument lambda_eff); som_lambda_eff_pft: the canopy
-! value per PFT, leaf-area weighted over the sunlit and shaded leaves by
-! sf_stom (can_rad_mod = 7 only), for the output lambda_eff_pft.
+! a finite difference about the chosen Ci on the search path. It is 0 for
+! closed stomata, for the other searches, and for open points taken by the
+! well-watered fast path (l_som_skip_search_wellwatered). stom_opt_mod
+! returns it per land point (optional argument lambda_eff);
+! som_lambda_eff_pft: the canopy value per PFT, leaf-area weighted over the
+! sunlit and shaded leaves by sf_stom (can_rad_mod = 7 only), for the
+! output lambda_eff_pft.
 !
-! MDK, 23/10/26
+! MDK, 24/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: som_lambda_eff_pft(:,:)
 
 CONTAINS
@@ -171,20 +173,17 @@ USE jules_vegetation_mod, ONLY:                                                &
         cap_profit_model, som_ci_search, som_ci_bounded,                       &
         pm2_profit_model,                                                      &
         som_n_ci_golden_iter,                                                  &
-        l_som_skip_search_wellwatered, som_hc_negligible_tol, l_som_nsl
+        l_som_skip_search_wellwatered, som_hc_negligible_tol, l_som_nsl,       &
+        xylem_impairment_none, l_som_plant_segments, l_som_rhizo_series
 
 USE pftparm, ONLY:                                                             &
-        min_gl_pft
+        min_gl_pft, conductance_b_pft, conductance_c_pft,                      &
+        pft_xylem_impairment_model
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
-USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, ksr_path,             &
-                                    l_store_q_path   ! MDK, 24/10/26
-
-USE pftparm, ONLY: conductance_b_pft, conductance_c_pft,                       &
-                   pft_xylem_impairment_model
-USE jules_vegetation_mod, ONLY: xylem_impairment_none, l_som_plant_segments,   &
-                                l_som_rhizo_series
+USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, ksr_path,                &
+                                    l_store_q_path
 USE model_time_mod, ONLY: is_spinup
 
 LOGICAL, INTENT(IN) :: l_multilayer
@@ -392,9 +391,12 @@ REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
  lambda_eff(land_pts)
                             ! Marginal water price dA/dE at the optimum (mol
                             ! CO2 per mol H2O; see the module header), from
-                            ! the bounded Ci search; 0 otherwise.
+                            ! the bounded Ci search; 0 otherwise. Under hold
+                            ! leaf psi it is taken at the intact-path optimum,
+                            ! before hold_leaf_psi moves Ci, so it is that
+                            ! optimum's dA/dE.
                             !
-                            ! MDK, 23/10/26
+                            ! MDK, 24/10/26
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
  lai_cost(land_pts)
                             ! Leaf area of this call (m2 leaf m-2 ground):
@@ -439,11 +441,11 @@ LOGICAL ::                                                                     &
                             ! Feasibility mask for the flat search.
 
 !-----------------------------------------------------------------------------
-! Arrays containing results of sampling over the base parameter. Only need
-! to do so for locations with open stomata.
-! (profit_max_profit_model with som_ci_search = 2 uses
-! stom_opt_bounded_search
-! instead, which needs none of the sample arrays.)
+! Arrays holding the Ci samples. Only needed for points with open stomata.
+! (som_ci_search = 2 uses stom_opt_bounded_search instead, which needs none
+! of the sample arrays.)
+!
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 REAL(KIND=real_jlslsm) ::                                                      &
  ci_lo(land_pts)                                                               &
@@ -723,8 +725,9 @@ IF ( l_store_q_path .AND. .NOT. l_xylem_impairment ) THEN
 END IF
 
 ! ----------------------------------------------------------------------------
-!  Calculate leaf properties as a function of the selected parameter,
-!    either ci or psi.
+!  Choose Ci by the profit model.
+!
+!  MDK, 24/10/26
 ! ----------------------------------------------------------------------------
 
 SELECT CASE (som_profit_model)
@@ -1154,9 +1157,9 @@ CALL stom_opt_mod_ci(                                                          &
 ! ------------------------------------------------------------------
 DO j = 1, open_pts
   l = veg_index(open_index(j))
-  l_good_sample(:,j) = som_feasible( som_n_sample, psi_sample(1:,j),          &
-                                     kl_sample(1:,j), gl_sample(1:,j),        &
-                                     psi_root_zone(l), kcrit(l), gl_max(l),   &
+  l_good_sample(:,j) = som_feasible( som_n_sample, psi_sample(1:,j),           &
+                                     kl_sample(1:,j), gl_sample(1:,j),         &
+                                     psi_root_zone(l), kcrit(l), gl_max(l),    &
                                      .TRUE. )
 END DO
 
@@ -1198,8 +1201,10 @@ END DO ! j open points
 
 ! ------------------------------------------------------------------
 !  Identify maximum profit and set leaf properties to those of the
-!   optimal state. See the NOTE above stom_opt_profit_max_select for
-!   what the zeroth (closed-stomata) sample represents.
+!   optimal state. For what the zeroth sample is, see the closed state,
+!   entry 0, in stom_opt_mod_ci.
+!
+!  MDK, 24/10/26
 ! ------------------------------------------------------------------
 DO j = 1, open_pts
   l = veg_index(open_index(j))
@@ -1250,6 +1255,8 @@ SUBROUTINE stom_opt_at_e(                                                      &
 )
 
 USE jules_vegetation_mod, ONLY: som_n_sample
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 IMPLICIT NONE
 
@@ -1315,7 +1322,17 @@ REAL(KIND=real_jlslsm), DIMENSION(0:som_n_sample, open_pts) ::                 &
                             !
                             ! MDK, 23/10/26
 
-IF ( open_pts == 0 ) RETURN
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='STOM_OPT_AT_E'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+IF ( open_pts == 0 ) THEN
+  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+  RETURN
+END IF
 
 ! Pass 1 searches the whole ci range [ccp, ca]; pass 2 the bracket around
 ! the target E that pass 1 found.
@@ -1385,6 +1402,8 @@ DO j = 1,open_pts
   gl(l) = MAX(gl(l), 0.0)
   al(l) = MAX(al(l), -rd(l))
 END DO
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE stom_opt_at_e
 
@@ -1522,7 +1541,14 @@ al = wl - rd
 END FUNCTION leaf_net_photo
 
 !-----------------------------------------------------------------------------
-! Stomatal optimisation model that iterates over leaf ci
+! The leaf states on a grid of Ci, for the flat searches, the fast path and
+! stom_opt_at_e. n_sample Ci values are spaced evenly on [ci_lo, ci_hi)
+! at each open point. Entry 0 is the closed state (see below). For each
+! sample it returns A, gl, E, psi_leaf, the path conductance k and the
+! conductance for the hydraulic cost (k_cost; kl_hc_sample). With
+! l_photo_only only A, gl and E are set.
+!
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_mod_ci(                                                    &
 ! IN
@@ -1545,7 +1571,6 @@ SUBROUTINE stom_opt_mod_ci(                                                    &
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_coupled_e
 
 USE jules_surface_mod, ONLY: ratio
-
 
 USE c_rmol, ONLY: rmol
 
@@ -1628,7 +1653,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                              ! terms. Only used with the Farquhar model.
 ,dq(land_pts)                                                                  &
                             ! Specific humidity deficit of air (kg H2O/kg air).
-                            ! Leaf saturation vapour pressure (Pa).
 ,je(land_pts)                                                                  &
                              ! Electron transport rate (mol m-2 s-1)
 ,t_leaf(land_pts)                                                              &
@@ -1722,12 +1746,14 @@ el_sample(:,:)      = 0.0
 kl_hc_sample(:,:)   = 0.0
 
 ! Entry 0 of the sample arrays represents the closed-stomata state used as
-! the fallback in stom_opt_mod (ci = ca, psi = psi_root_zone; see the note
-! there). ci_sample and psi_sample are set here so the whole-column
-! photosynthesis calculations below have a valid ci for it, but those
-! calculations DO overwrite al/gl (and el) for entry 0 with the open-stomata
-! values at ci = ca - so entry 0 is reset to the closed state again at the
-! end of this routine, after all of them.
+! the fallback in stom_opt_mod (ci = ca, psi = psi_root_zone; see the reset
+! at the end of this routine). ci_sample and psi_sample are set here so the
+! whole-column photosynthesis calculations below have a valid ci for it,
+! but those calculations DO overwrite al/gl (and el) for entry 0 with the
+! open-stomata values at ci = ca - so entry 0 is reset to the closed state
+! again at the end of this routine, after all of them.
+!
+! MDK, 24/10/26
 DO j = 1, open_pts
   l = veg_index(open_index(j))
   ci_sample(0,j)  = ca(l)
@@ -1802,8 +1828,8 @@ DO j = 1,open_pts
   el_sample(:,j) = e_of_g(gl_sample(:,j), dq(l), pstar(l), t_leaf(l))
 
   ! Coupled: E = D g_eff(g), dq the deficit to the level-1 air.
-  IF ( l_som_coupled_e ) el_sample(:,j) = e_of_g(                             &
-       g_eff_e(MAX(gl_sample(:,j), 0.0_real_jlslsm), r_bl(l), r_ca(l),       &
+  IF ( l_som_coupled_e ) el_sample(:,j) = e_of_g(                              &
+       g_eff_e(MAX(gl_sample(:,j), 0.0_real_jlslsm), r_bl(l), r_ca(l),         &
                g_oth(l)), dq(l), pstar(l), t_leaf(l))
 END DO
 
@@ -1925,10 +1951,12 @@ END SUBROUTINE stom_opt_mod_ci
 !   - xylem impairment alone: the impaired whole-plant curve
 !   - otherwise: the whole-plant vulnerability curve (b, c)
 !
-! Used for the closed-stomata state here and for the cuticular loss in
-! sf_stom, so both solve on the same path as the Ci samples.
+! Used for the Ci samples and the closed-stomata state (stom_opt_mod_ci)
+! and for the single-sample solves of the bounded search, so all of them
+! solve on the same path. (sf_stom's cuticular loss calls the segment
+! solver directly.)
 !
-! MDK, 23/10/26
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE som_path_psi( pft, n_e_leaf, land_pts, open_pts, veg_index,         &
                          open_index, e_leaf, psi_root_zone, kmax_ref, kmax,    &
@@ -1946,6 +1974,8 @@ USE plant_hydraulic_path_mod, ONLY: psi_leaf_segments_jls,                     &
 USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_lut,                &
                                 l_som_plant_segments, l_som_rhizo_series
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 IMPLICIT NONE
 
@@ -1999,6 +2029,13 @@ REAL(KIND=real_jlslsm) :: k_s, psi_in_s
       ! of one sample (l_som_rhizo_series).
 INTEGER :: i, j, l
 LOGICAL :: l_ex
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='SOM_PATH_PSI'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 l_ex = .FALSE.
 IF ( PRESENT(l_exact) ) l_ex = l_exact
@@ -2103,6 +2140,8 @@ ELSE
   IF ( PRESENT(leaf_k_intact) ) leaf_k_intact(:,:) = leaf_k(:,:)
 END IF
 
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
 END SUBROUTINE som_path_psi
 
 !-----------------------------------------------------------------------------
@@ -2113,10 +2152,13 @@ END SUBROUTINE som_path_psi
 !
 ! Returns optimal_index(j) = 0 when no sample for open point j is feasible;
 ! callers should then use sample index 0 (the closed-stomata state) rather
-! than treat this as an error - see the note in stom_opt_mod.
+! than treat this as an error - see the closed state, entry 0, in
+! stom_opt_mod_ci.
 !
 ! Used by the flat search's single pass to select the profit-maximising
 ! sample, keeping the mask/profit/MAXLOC logic out of stom_opt_mod itself.
+!
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_profit_max_select(                                         &
 ! IN
@@ -2220,9 +2262,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 ! it gives; MDK, 24/10/26)
 DO j = 1, open_pts
   l = veg_index(open_index(j))
-  l_good_sample(:,j) = som_feasible( n_sample, psi_sample(1:,j),              &
-                                     kl_sample(1:,j), gl_sample(1:,j),        &
-                                     psi_root_zone(l), kcrit(l), gl_max(l),   &
+  l_good_sample(:,j) = som_feasible( n_sample, psi_sample(1:,j),               &
+                                     kl_sample(1:,j), gl_sample(1:,j),         &
+                                     psi_root_zone(l), kcrit(l), gl_max(l),    &
                                      .NOT. l_store_q_path )
 END DO
 
@@ -2306,7 +2348,10 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE stom_opt_profit_max_select
 
 !-----------------------------------------------------------------------------
-! Bounded profit-max Ci search (som_ci_search = 2), one open point at a time.
+! Bounded Ci search (som_ci_search = 2), one open point at a time. It serves
+! all six optimisation models: profit max, SOX_opt, CMax, CGain, CAP and
+! ProfitMax2 (the profit function is chosen by l_cmax, l_cgain, l_sox,
+! l_cap and l_pm2).
 !
 ! gl rises with Ci (A rises and ca - Ci falls), so E rises and k(psi_leaf)
 ! falls: the feasible samples of the flat grid form a single range
@@ -2323,8 +2368,13 @@ END SUBROUTINE stom_opt_profit_max_select
 !   3. golden-section maximisation of profit on [ccp, ci_b], where every Ci
 !      is feasible (no cliff), to (ci_b - ccp)/opt_resol or n_iter
 !      iterations.
+!   4. hold leaf psi (ximpair_hold_psi, xylem impairment): the search above
+!      runs on the intact path, then Ci is moved so that the impaired path
+!      reaches the same leaf water potential (hold_leaf_psi).
 ! The best point seen (including ccp and ci_b) is returned. Each evaluation
 ! is scalar (eval_ci), so points stop as soon as they have converged.
+!
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_bounded_search(                                            &
 ! IN
@@ -2346,18 +2396,16 @@ USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 cgain_profit_model, sox_opt_profit_model,      &
                                 cap_profit_model, pm2_profit_model,            &
-                                kplant_model, kplant_model_ground
-
-                                ! MDK, 22/10/26
-USE jules_vegetation_mod, ONLY: l_som_gain_gross, CW_conductance,              &
+                                kplant_model, kplant_model_ground,             &
+                                l_som_gain_gross, CW_conductance,              &
                                 SOX_conductance,                               &
                                 som_psi_solver, psi_solver_lut,                &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_stomatal_response, ximpair_hold_gs,    &
                                 ximpair_hold_psi,                              &
                                 l_som_rhizo_series, l_som_coupled_e
-USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kplant_scale
-                                       ! MDK, 21/10/26
+USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kplant_scale,            &
+                                    l_store_q_path
 USE pftparm, ONLY: pft_conductance_model, psi_nsl_onset, psi_nsl0,             &
                    fsmc_mod, cmax_a, cmax_b, kmax_pft, cgain_varpi,            &
                    conductance_b_pft, conductance_c_pft
@@ -2365,8 +2413,6 @@ USE jules_surface_mod, ONLY: ratio
 USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
 USE supply_table_mod, ONLY: supply_lut_psi, supply_lut_e_crit, supply_lut_f
-                                       ! MDK, 24/10/26
-USE plant_hydraulic_path_mod, ONLY: l_store_q_path   ! MDK, 24/10/26
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts, pft, open_pts, open_index(land_pts), pft_photo_model,              &
@@ -3814,7 +3860,7 @@ REAL(KIND=real_jlslsm) :: b_curve(land_pts), c_curve(land_pts)
                             ! psi_leaf_jls (no xylem impairment here).
 
 REAL(KIND=real_jlslsm) ::                                                      &
-  rt, conv_e, k_fail, p0, k0, ci_d, al_d, gl_d, e_d, psi_d, k_d,          &
+  rt, conv_e, k_fail, p0, k0, ci_d, al_d, gl_d, e_d, psi_d, k_d,               &
   dp, dp_d, psi_t, psi_u, k_u, e_reg, psi_reg, k_reg, gl_reg,                  &
   ! Illinois brackets
   xa, xb, xc, fa, fb, fc,                                                      &

@@ -18,22 +18,22 @@ USE jules_fields_mod, ONLY: toppdm
 USE imgn_drive_mod, ONLY: imgn_drive
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
-USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
+USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
     ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc, ximpair_rebuilt,  &
     ximpair_lock_new
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
-USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,           &
+USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
                                     cut_psi_stem, cut_c_store   ! MDK, 22/10/26
-USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,           &
+USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
                              phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf
-USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft, &
+USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft,  &
     hydmort_plc_peak   ! MDK, 21/10/26
 
 USE ancil_info, ONLY:                                                          &

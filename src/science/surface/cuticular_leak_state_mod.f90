@@ -43,14 +43,18 @@ USE water_constants_mod, ONLY: Water_kg_per_mol   ! MDK, 24/10/26
 IMPLICIT NONE
 
 PRIVATE
-PUBLIC :: cut_w_store, cut_psi_stem, cut_q_store, cut_c_store, cut_w_shed,   &
+PUBLIC :: cut_w_store, cut_psi_stem, cut_q_store, cut_c_store, cut_w_shed,     &
           cut_state_alloc, cut_psi_unset, cut_m_h2o, cut_store_return
 
 REAL(KIND=real_jlslsm), PARAMETER :: cut_psi_unset = 1.0
       ! Value of a state not yet set (psi and the store's water are <= 0)
       ! (Pa, or mol m-2).
 REAL(KIND=real_jlslsm), PARAMETER :: cut_m_h2o = Water_kg_per_mol
-      ! Molar mass of water (kg mol-1), JULES's value. MDK, 24/10/26
+      ! Molar mass of water (kg mol-1), JULES's value.
+      !
+      ! MDK, 24/10/26
+
+CHARACTER(LEN=*), PARAMETER :: ModuleName='CUTICULAR_LEAK_STATE_MOD'
 
 ! Water in the store of each PFT at each land point at the end of the last
 ! timestep, relative to the full store at psi = 0 (mol H2O m-2 ground,
@@ -105,14 +109,24 @@ SUBROUTINE cut_state_alloc( n_land_pts )
 
 USE jules_surface_types_mod, ONLY: npft
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 INTEGER, INTENT(IN) :: n_land_pts
       ! Number of land points.
       !
       ! MDK, 23/10/26
 
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='CUT_STATE_ALLOC'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
 IF (.NOT. ALLOCATED(cut_w_store)) THEN
-  ALLOCATE(cut_w_store(n_land_pts, npft), cut_psi_stem(n_land_pts, npft),     &
-           cut_q_store(n_land_pts, npft), cut_c_store(n_land_pts, npft),      &
+  ALLOCATE(cut_w_store(n_land_pts, npft), cut_psi_stem(n_land_pts, npft),      &
+           cut_q_store(n_land_pts, npft), cut_c_store(n_land_pts, npft),       &
            cut_w_shed(n_land_pts, npft))
   cut_w_store(:,:)  = cut_psi_unset
   cut_psi_stem(:,:) = cut_psi_unset
@@ -120,6 +134,8 @@ IF (.NOT. ALLOCATED(cut_w_store)) THEN
   cut_c_store(:,:)  = 0.0
   cut_w_shed(:,:)   = 0.0
 END IF
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE cut_state_alloc
 

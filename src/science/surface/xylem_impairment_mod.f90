@@ -14,6 +14,8 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_IMPAIRMENT_MOD'
 
+PRIVATE
+
 PUBLIC :: leaf_conductance_impaired_jls,                                       &
           psi_leaf_impaired_jls,                                               &
           update_xylem_impairment,                                             &
@@ -28,15 +30,19 @@ CONTAINS
 ! NOTE on the curve parameter arguments passed to the routines below:
 !   kmax_ref      : unimpaired maximum xylem conductance for each land
 !                   point, i.e. kmax_pft(pft) with whatever canopy
-!                   scaling the caller applies (e.g. * fpar for the
+!                   scaling the caller applies (e.g. * LAI for the
 !                   big-leaf stomatal optimisation). Used, together with
 !                   conductance_b_pft/conductance_c_pft, whenever no
 !                   impairment is applied (spinup, xylem_impairment_none).
-!   kmax, conductance_b, conductance_c
-!                 : the (possibly impaired) per-point curve, with the same
+!   kmax          : the (possibly impaired) per-point kmax, with the same
 !                   scaling as kmax_ref.
+!   conductance_b, conductance_c
+!                 : the PFT's vulnerability curve on each point. Neither
+!                   impairment model changes it.
 !   kcrit         : critical xylem conductance, with the same scaling as
 !                   kmax_ref.
+!
+! MDK, 24/10/26
 ! *********************************************************************
 
 ! ---------------------------------------------------------------------
@@ -171,7 +177,8 @@ CASE ( xylem_impairment_memory )
 CASE DEFAULT
   errcode = 101  !  a hard error
   CALL ereport(RoutineName, errcode,                                           &
-    'pft_xylem_impairment_model should be none (0), whole_trunk (2) or memory (3)')
+    'pft_xylem_impairment_model should be none (0), whole_trunk (2) ' //       &
+    'or memory (3)')
 
 END SELECT
 
@@ -349,7 +356,8 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
           IF ( ksr_path(l) < 0.0 ) THEN
             ! No soil link for this PFT (fsmc_mod /= 2).
           ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
-            psi_in(l) = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
+            psi_in(l) = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s,              &
+                            som_psi_in_min)
           ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
             psi_in(l) = som_psi_in_min
           END IF
@@ -391,7 +399,8 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
   CASE DEFAULT
     errcode = 101  !  a hard error
     CALL ereport(RoutineName, errcode,                                         &
-     'pft_xylem_impairment_model should be none (0), whole_trunk (2) or memory (3)')
+     'pft_xylem_impairment_model should be none (0), whole_trunk (2) ' //      &
+     'or memory (3)')
 END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -454,8 +463,10 @@ END SUBROUTINE impaired_path
 END SUBROUTINE psi_leaf_impaired_jls
 
 ! ---------------------------------------------------------------------
-! Function to manage which xylem imparement model is applied.
-! Note the differnet types of conductance models are no handled here.
+! Subroutine to manage which xylem impairment model is applied.
+! Note the different types of conductance models are not handled here.
+!
+! MDK, 24/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment ( n_land_pts                                &
 ,                                    n_open_pts                                &
@@ -491,9 +502,13 @@ INTEGER, INTENT(IN) ::                                                         &
   n_land_pts                                                                   &
                             ! Number of land points
 , n_open_pts                                                                   &
-                            ! Number of open plant functional types
+                            ! Number of land points with open stomata
+                            !
+                            ! MDK, 24/10/26
 , open_index(n_open_pts)                                                       &
-                            ! Index of open plant functional types
+                            ! Land point of each point with open stomata
+                            !
+                            ! MDK, 24/10/26
 , pft
                             ! Plant functional type
 
@@ -537,7 +552,7 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='UPDATE_XYLEM_IMPAIRMENT'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! Do not update the xylem impairment model during spinup
-IF(is_spinup) THEN
+IF (is_spinup) THEN
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
   RETURN
 END IF
@@ -571,7 +586,8 @@ SELECT CASE (pft_xylem_impairment_model(pft))
   CASE DEFAULT
     errcode = 1
     CALL ereport(RoutineName, errcode,                                         &
-     'pft_xylem_impairment_model should be none (0), whole_trunk (2) or memory (3)')
+     'pft_xylem_impairment_model should be none (0), whole_trunk (2) ' //      &
+     'or memory (3)')
 END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -579,12 +595,14 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE update_xylem_impairment
 
 ! ---------------------------------------------------------------------
-! Subroutine to calculate canopy water potential from canoopy
+! Subroutine to calculate canopy water potential from canopy
 ! transpiration and root zone water potential for different conductance
 ! models.
 ! NOTE: This function is designed for use outside the stomatal
 !       optimisation model. It returns an output array that contains
 !       values for all land points.
+!
+! MDK, 24/10/26
 ! ---------------------------------------------------------------------
 
 SUBROUTINE canopy_impaired_psi_jls( land_pts                                   &
@@ -631,8 +649,11 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 , root_zone_psi(land_pts, npft)                                                &
                              ! Water potential in the root zone (Pa)
 , kmax_pft(land_pts, npft)                                                     &
-                            ! Maximum xylem conductance for each plant
-                            ! functional type (mol m-2 s-1 Pa-1)
+                            ! Impaired maximum xylem conductance of each
+                            ! PFT on each land point, leaf basis
+                            ! (mol m-2 s-1 Pa-1)
+                            !
+                            ! MDK, 24/10/26
 , psi_leaf_extreme(land_pts, npft)                                             &
                             ! Minimum leaf water potential for each land point
                             ! (Pa)
@@ -683,7 +704,9 @@ INTEGER ::                                                                     &
 REAL(KIND=real_jlslsm) ::                                                      &
   e_canopy_open(land_pts)                                                      &
                             ! Transpiration rates for each open point
-                            ! (kg/m2/s)
+                            ! (mol H2O m-2 leaf s-1)
+                            !
+                            ! MDK, 24/10/26
 , canopy_psi_open(land_pts)                                                    &
                             ! Canopy water potential for each open point
                             ! (Pa)
@@ -708,7 +731,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='CANOPY_PSI_JLS'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='CANOPY_IMPAIRED_PSI_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
@@ -760,7 +783,7 @@ DO pft = 1, npft
   b_pts(:)     = conductance_b_pft(pft)
   c_pts(:)     = conductance_c_pft(pft)
 
-    ! Calculate canopy water potential for points with open stomata
+  ! Calculate canopy water potential for points with open stomata
   CALL psi_leaf_impaired_jls( pft,                                             &
                               1,                                               &
                               land_pts,                                        &

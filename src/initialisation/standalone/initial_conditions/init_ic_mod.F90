@@ -1027,15 +1027,15 @@ DO i = 1, nvars_required
 
     !Xylem impairment state: intact (0 sets the intact curve in
     !init_vars_tmp).
-  CASE ( 'kmax_impaired', 'psi_leaf_extreme', 'psi_root_extreme',            &
+  CASE ( 'kmax_impaired', 'psi_leaf_extreme', 'psi_root_extreme',              &
          'ximpair_lock' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'ximpair_kcap_leaf', 'ximpair_fmin_acc' )
     ! Leaf-segment cap fraction: 1 = intact.
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   ! MDK, 17/10/26
-  CASE ( 'ximpair_rebuilt', 'ximpair_lock_new',                              &
-         'ximpair_repair_pend', 'ximpair_grow_acc', 'nsc_npp_mean',          &
+  CASE ( 'ximpair_rebuilt', 'ximpair_lock_new',                                &
+         'ximpair_repair_pend', 'ximpair_grow_acc', 'nsc_npp_mean',            &
          'nsc_npp_wt', 'nsc_npp_day' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   ! TRIFFID's timer at the start of a run (as init_time) and empty sums.
@@ -1065,14 +1065,15 @@ DO i = 1, nvars_required
   CASE ( 'nsc_t_run' )
     ! Not yet set: the air temperature at the first step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
-  CASE ( 'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',       &
+  CASE ( 'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',        &
          'cpl_gbw_shd', 'cpl_ra_ca' )
     ! sf_stom state: not yet set. MDK, 22/10/26
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
   CASE ( 'cut_w_store', 'cut_psi_stem' )
-    ! Cuticular-loss store: not yet set (> 0), so it starts full.
+    ! Plant store: not yet set (> 0), so it starts at the first step's psi
+    ! (in balance with it).
     !
-    ! MDK, 22/10/26
+    ! MDK, 24/10/26
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   CASE ( 'cut_c_store' )
     ! Cuticular-loss store: C not yet set.

@@ -116,9 +116,9 @@ USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 
 USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
-  l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                       &
+  l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                        &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
-  l_som_rhizo_series, stomata_model, stomata_desica,                          &
+  l_som_rhizo_series, stomata_model, stomata_desica,                           &
   l_som_capacitance_on   ! MDK, 23/10/26
 USE plant_hydraulic_path_mod, ONLY: ksr
 USE planet_constants_mod, ONLY: g
@@ -130,10 +130,10 @@ USE jules_hydrology_mod, ONLY: l_limit_gsoil, l_soil_evap_or
 
 USE soil_evap_or_mod, ONLY: gsoil_or, w1_or
 
-USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft,       &
+USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft,        &
                    soil_litter_depth, or_z0soil_fac
 USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht   ! MDK, 20/10/26
-USE pftparm, ONLY: sigl, lma, rmass, kmax_pft, conductance_b_pft,             &
+USE pftparm, ONLY: sigl, lma, rmass, kmax_pft, conductance_b_pft,              &
                    conductance_c_pft
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs,                    &
@@ -254,7 +254,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
     !Surface ozone concentration (ppb).
   cos_zenith_angle(tdims%i_start:tdims%i_end,tdims%j_start:tdims%j_end),       &
     !Cosine of the zenith angle
-  non_lake_frac(land_pts)                                                      
+  non_lake_frac(land_pts)
     ! Sum of fractions of surface tiles linked to soil
 
 TYPE(veg_state_type), INTENT(IN OUT) :: veg_state
@@ -1306,8 +1306,8 @@ DO n = 1,npft
 
   ! Tile-based irrigated surface types do not extract water so routine is not called
   ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
-  ! psi_root_zone_pft
-  ! NOTE: min_rootc_pft needs to be changed for dynamic root growth
+  ! psi_root_zone_pft. The root mass follows the vegetation (root_mass)
+  ! unless l_root_mass_fixed. MDK, 24/10/26
   IF ( irrig_tile(n) /= 1 ) THEN
     CALL smc_ext (land_pts,sm_levels,surft_pts(n),surft_index(:,n), n, f_root, &
                   satcon_soilt(:,m,:),                                         &
@@ -1366,7 +1366,6 @@ DO n = 1,npft
   END IF
 
   ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
-  ! NOTE: min_rootc_pft needs to be changed for dynamic root growth
   IF (l_irrig_dmd) THEN
     CALL smc_ext (land_pts,sm_levels,surft_pts(n),surft_index(:,n), n, f_root, &
                   satcon_soilt(:,m,:),                                         &
@@ -1429,11 +1428,12 @@ DO n = 1,npft
           IF ( l_leaf_temp ) THEN
             ! Near-IR, as for PAR (same diffuse fraction).
             fapar_shd_nir(l,il) = diff_frac(i) * fapar_dif2dif_nir(l,n,il)     &
-                              + ( 1.0 - diff_frac(i) ) * fapar_dir2dif_nir(l,n,il)
+                              + ( 1.0 - diff_frac(i) )                         &
+                                * fapar_dir2dif_nir(l,n,il)
             IF ( fsun(l,n,il) > EPSILON(fsun) ) THEN
               fapar_sun_nir(l,il) = fapar_shd_nir(l,il)                        &
-                              + (1.0 - diff_frac(i)) * fapar_dir2dir_nir(l,n,il) &
-                              / fsun(l,n,il)
+                              + (1.0 - diff_frac(i))                           &
+                                * fapar_dir2dir_nir(l,n,il) / fsun(l,n,il)
             ELSE
               fapar_sun_nir(l,il) = 0.0
             END IF
@@ -1651,7 +1651,7 @@ DO n = 1,npft
       !
       ! MDK, 23/10/26
       e_root_rs = el_pft(l,n)
-      IF ( l_som_capacitance_on )                                             &
+      IF ( l_som_capacitance_on )                                              &
         e_root_rs = MAX(el_pft(l,n) - cut_q_store(l,n) / m_h2o_rs, 0.0)
       psi_root_rs = psi_root_zone_pft(l,n)                                     &
                     - e_root_rs * m_h2o_rs * rho_water * g / ksum_rs
@@ -1692,7 +1692,7 @@ DO n = 1,npft
   !
   ! MDK, 23/10/26
   !-----------------------------------------------------------------------
-  IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR. l_soil_evap_or      &
+  IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR. l_soil_evap_or       &
       .OR. stomata_model == stomata_desica) THEN
     IF (l_aggregate) THEN
       DO l = 1,land_pts
@@ -1748,7 +1748,7 @@ DO n = 1,npft
   ! Budburst for deciduous phenology: degree-days on the air temperature
   ! (returns at once unless phen_bb_doy or phen_bb_gdd is set).
   ! MDK, 20/10/26
-  CALL phen_bb_update(land_pts, surft_pts(n), surft_index(:,n), n, timestep,  &
+  CALL phen_bb_update(land_pts, surft_pts(n), surft_index(:,n), n, timestep,   &
                       tair_land)
 
   CALL cancap (land_pts,surft_pts(n),surft_index(:,n),can_model,n              &
@@ -2520,7 +2520,7 @@ END DO
 ! CABLE limit on soil evaporation (applied in sf_evap)
 IF (l_soil_evap_or) THEN
   IF (ALLOCATED(w1_or)) THEN
-    IF (SIZE(w1_or, 1) /= land_pts .OR. SIZE(w1_or, 2) /= nsoilt)             &
+    IF (SIZE(w1_or, 1) /= land_pts .OR. SIZE(w1_or, 2) /= nsoilt)              &
       DEALLOCATE(w1_or)
   END IF
   IF (.NOT. ALLOCATED(w1_or)) ALLOCATE(w1_or(land_pts,nsoilt))

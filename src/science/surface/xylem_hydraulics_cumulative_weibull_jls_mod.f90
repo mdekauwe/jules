@@ -29,7 +29,6 @@ PUBLIC :: leaf_conductance_CW_jls                                              &
 ,         xylem_conductance_CW_jls                                             &
 ,         psi_leaf_CW_jls                                                      &
 ,         incomplete_gamma                                                     &
-,         incomplete_gamma_different_a                                         &
 ,         xylem_f                                                              &
 ,         xylem_f_bc
 
@@ -352,11 +351,15 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
                             ! MDK, 21/10/26
 
 ! Local variables
-INTEGER :: i, j, k, l
+INTEGER :: i, j, iter, l
 
 ! Taylor expansion variables
 REAL(KIND=real_jlslsm) :: leaf_k_new
-REAL(KIND=real_jlslsm) :: k_conversion_limit
+REAL(KIND=real_jlslsm) :: k_conv_tol
+                            ! Convergence tolerance on k, 0.1 kcrit
+                            ! (mol m-2 s-1 Pa-1).
+                            !
+                            ! MDK, 24/10/26
 LOGICAL :: l_nr_active(n_e_leaf)
                    ! Newton: samples still iterating (each sample stops on
                    ! its own convergence, so the answer for one E does not
@@ -468,8 +471,10 @@ CASE(psi_solver_taylor)
     b_open(j) = conductance_b(l)
     c_open(j) = conductance_c(l)
 
-    ! Calculate the conductance conversion limit
-    k_conversion_limit = 0.1 * kcrit(l)
+    ! Convergence tolerance on k for this point.
+    !
+    ! MDK, 24/10/26
+    k_conv_tol = 0.1 * kcrit(l)
 
     ! Set the initial leaf water potential to that of the root zone
     leaf_psi(:,j) = root_zone_psi(l)
@@ -485,8 +490,8 @@ CASE(psi_solver_taylor)
     !  Iterate over the transpiration for each open point.
     DO i = 1,n_e_leaf
 
-      DO k = 1,100 ! Iterate until the change in xylem conductance is
-                   ! less than k_conversion_limit, or 100 iterations.
+      DO iter = 1,100 ! Iterate until the change in xylem conductance is
+                      ! less than k_conv_tol, or 100 iterations.
 
         ! Calculate the new leaf water potential. leaf_k is floored at TINY,
         ! as in the Newton solver: deep in the curve kmax exp(-(psi/b)^c)
@@ -508,8 +513,8 @@ CASE(psi_solver_taylor)
                   **conductance_c(l) )
 
         ! If the change in xylem conductance is less than
-        !  k_conversion_limit then break the loop.
-        IF (ABS(leaf_k_new - leaf_k(i,j)) < k_conversion_limit) THEN
+        !  k_conv_tol then break the loop.
+        IF (ABS(leaf_k_new - leaf_k(i,j)) < k_conv_tol) THEN
           EXIT
         END IF
 
@@ -556,7 +561,7 @@ CASE(psi_solver_taylor)
 ! (corrected 23/10/26: this read psi_r - ..., but the code has always
 ! stepped from psi_l). The first guess is psi_l = psi_r - e_leaf / k(psi_r);
 ! each step is kept no more than 5 |b| below psi_r, and the loop stops when
-! k changes by less than k_conversion_limit (or after max_nr_iter steps).
+! k changes by less than k_conv_tol (or after max_nr_iter steps).
 !
 ! psi is held at <= 0 in (psi/b)**c, as for the Taylor solver.
 !
@@ -597,7 +602,7 @@ CASE(psi_solver_newton)
 
     ! Convergence tolerance for this point, matching the psi_solver_taylor
     ! tolerance above (10% of kcrit).
-    k_conversion_limit = 0.1 * kcrit(l)
+    k_conv_tol = 0.1 * kcrit(l)
 
     ! Iterate the water potential until converged, or until max_nr_iter
     ! is reached. A sample whose e_leaf demand exceeds what this
@@ -653,7 +658,7 @@ CASE(psi_solver_newton)
       leaf_psi(:,j) = MAX(leaf_psi(:,j),                                       &
                           root_zone_psi(l) - 5.0 * ABS(conductance_b(l)))
 
-      WHERE (ABS(leaf_k(:,j) - leaf_k_prev(:,j)) < k_conversion_limit)         &
+      WHERE (ABS(leaf_k(:,j) - leaf_k_prev(:,j)) < k_conv_tol)                 &
         l_nr_active(:) = .FALSE.
       IF ( .NOT. ANY(l_nr_active(:)) ) EXIT
 
@@ -665,7 +670,6 @@ CASE(psi_solver_newton)
                  **conductance_c(l) )
 
   END DO
-
 
 ! ---------------------------------------------------------------------
 ! Invert the tabulated supply function; see psi_leaf_lut_jls.

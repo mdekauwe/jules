@@ -19,7 +19,7 @@ CONTAINS
 SUBROUTINE smc_ext (npnts,nshyd,surft_pts,surft_index,ft                       &
 ,                   f_root,k_sat,sthu,v_open,v_sat,v_close                     &
 ,                   bexp,sathh                                                 &
-,                   psi,soil_k,soil_to_root_k,wt_ext,fsmc,psi_root_zone      &
+,                   psi,soil_k,soil_to_root_k,wt_ext,fsmc,psi_root_zone        &
 ,                   root_mass)
 !---------------------------------------------------------------------
 
@@ -33,8 +33,8 @@ SUBROUTINE smc_ext (npnts,nshyd,surft_pts,surft_index,ft                       &
 USE pftparm, ONLY: calc_rz_psi, fsmc_mod, root_psi_crit
 USE hyd_psi_mod, ONLY: psi_from_sthu, bound_soil_psi
 USE jules_vegetation_mod, ONLY: fsmc_shape, leaf_flux_mod, leaf_flux_stom_opt, &
-                                stomata_model, stomata_sox_analytical,        &
-                                stomata_desica,                               &
+                                stomata_model, stomata_sox_analytical,         &
+                                stomata_desica,                                &
                                 l_som_rhizo_series
 USE hyd_con_ic_mod, ONLY: hyd_con_ic
 USE jules_soil_mod, ONLY: l_bound_soil_wp, ds_psi, dzsoil
@@ -205,8 +205,8 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 !$OMP PARALLEL                                                                 &
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(n,i,j)                                                           &
-!$OMP SHARED(nshyd,npnts,psi,v_layer,sthu,v_sat,wt_ext,psi_root_zone,fsmc,ones,soil_k, soil_to_root_k, &
-!$OMP        surft_pts,surft_index)
+!$OMP SHARED(nshyd,npnts,psi,v_layer,sthu,v_sat,wt_ext,psi_root_zone,fsmc,    &
+!$OMP        ones,soil_k,soil_to_root_k,surft_pts,surft_index)
 DO n = 1,nshyd
 !$OMP DO SCHEDULE(STATIC)
   DO i = 1,npnts
@@ -309,7 +309,8 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
 !$OMP PARALLEL                                                                 &
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(j,i,n)                                                           &
-!$OMP SHARED(surft_pts,surft_index,sthu_open,V_open,V_sat,sthu_close,V_close,nshyd)
+!$OMP SHARED(surft_pts,surft_index,sthu_open,V_open,V_sat,sthu_close,V_close,  &
+!$OMP        nshyd)
   DO n = 1,nshyd
 !$OMP DO SCHEDULE(STATIC)
     DO j = 1,surft_pts
@@ -369,8 +370,8 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
                      soil_k(:,n), soil_dk_dthk(:,n))
   END DO
 
-  soil_to_root_k_ft = soil_to_root_conductance(npnts,nshyd,surft_pts,       &
-                                              surft_index,ft,f_root,soil_k,   &
+  soil_to_root_k_ft = soil_to_root_conductance(npnts,nshyd,surft_pts,          &
+                                              surft_index,ft,f_root,soil_k,    &
                                               root_mass)
   DO n = 1,nshyd
     DO j = 1,surft_pts
@@ -459,7 +460,7 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
   ! MDK, 23/10/26
   !---------------------------------------------------------------------
 
-  IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft)               &
+  IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft)                &
        .OR. stomata_model == stomata_desica ) THEN
     psi_root_zone = calc_weighted_mean(npnts, nshyd, surft_pts, surft_index,   &
                                        psi, wt_ext)
@@ -538,7 +539,7 @@ ELSE
   ! fraction of the transpiration taken from each layer.
   !---------------------------------------------------------------------
 
-  IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft)               &
+  IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft)                &
        .OR. stomata_model == stomata_desica ) THEN
     psi_root_zone = calc_weighted_mean(npnts, nshyd, surft_pts, surft_index,   &
                                        psi, wt_ext)
@@ -782,7 +783,7 @@ RETURN
 END FUNCTION fsmc_layer
 
 FUNCTION soil_to_root_conductance(npnts,nshyd,surft_pts,surft_index,ft         &
-,                                 f_root,soil_k,root_mass)           &
+,                                 f_root,soil_k,root_mass)                     &
                            RESULT(soil_to_root_k)
 !---------------------------------------------------------------------
 
@@ -843,7 +844,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
                       ! Holds local copy of root mass per unit soil area
 !                     ! (kg m-2).
 ,rootc_per_unit_length
-                      ! Holds local calculaion of the root mass per unit root
+                      ! Holds local calculation of the root mass per unit root
 !                     ! length (kg m-1).
 
 ! Return variable
@@ -856,7 +857,7 @@ INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
 
-CHARACTER(LEN=*), PARAMETER :: RoutineName='soil_to_root_conductance'
+CHARACTER(LEN=*), PARAMETER :: RoutineName='SOIL_TO_ROOT_CONDUCTANCE'
 
 !----------------------------------------------------------------------
 ! Initialisations

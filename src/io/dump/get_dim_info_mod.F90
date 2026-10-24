@@ -157,22 +157,22 @@ CASE ( 'sthzw_soilt', 'zw_soilt' )
   dim_names(1:ndims) = [ land_dim_name, soilt_dim_name ]
   dim_sizes(1:ndims) = [ global_land_pts, nsoilt ]
 
-CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                        &
-       'psi_leaf_desica', 'psi_stem_desica',                                    &
+CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
+       'psi_leaf_desica', 'psi_stem_desica',                                   &
        'kmax_impaired',                                                        &
        'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',                 &
        'ximpair_kcap_leaf',                                                    &
-       'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', &
-           'ximpair_rebuilt', 'ximpair_lock_new',                     &
-           'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc', &
-           'gpp_acc', 'hydmort_pref', 'hydmort_dead', 'hydmort_plc_peak',     &
-           'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',           &
-           'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',     &
-           'cpl_gbw_shd', 'cpl_ra_ca',                                       &
-           'nsc_turg_acc', 'nsc_t_run',                       &
-           'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
-           'phen_fbleaf', 'nsc_regrow_acc',                                  &
-           'phen_gdd', 'phen_bb_day', 'phen_dormant',                         &
+       'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt',       &
+           'ximpair_rebuilt', 'ximpair_lock_new',                              &
+           'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc',           &
+           'gpp_acc', 'hydmort_pref', 'hydmort_dead', 'hydmort_plc_peak',      &
+           'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',              &
+           'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',      &
+           'cpl_gbw_shd', 'cpl_ra_ca',                                         &
+           'nsc_turg_acc', 'nsc_t_run',                                        &
+           'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
+           'phen_fbleaf', 'nsc_regrow_acc',                                    &
+           'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
            'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &
            't_leaf_sun_pft', 't_leaf_shd_pft' )
   ndims = 2

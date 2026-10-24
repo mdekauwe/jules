@@ -125,13 +125,23 @@ SUBROUTINE desica_alloc( land_pts )
 
 USE jules_surface_types_mod, ONLY: npft
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 INTEGER, INTENT(IN) :: land_pts
 
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='DESICA_ALLOC'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
 IF ( .NOT. ALLOCATED(psi_leaf_desica) ) THEN
-  ALLOCATE( psi_leaf_desica(land_pts,npft), psi_stem_desica(land_pts,npft),   &
-            flux_root_desica(land_pts,npft), flux_sap_desica(land_pts,npft),  &
-            dw_plant_desica(land_pts,npft), lai_desica(land_pts,npft),        &
-            ht_desica(land_pts,npft), psi_soil_desica(land_pts,npft),         &
+  ALLOCATE( psi_leaf_desica(land_pts,npft), psi_stem_desica(land_pts,npft),    &
+            flux_root_desica(land_pts,npft), flux_sap_desica(land_pts,npft),   &
+            dw_plant_desica(land_pts,npft), lai_desica(land_pts,npft),         &
+            ht_desica(land_pts,npft), psi_soil_desica(land_pts,npft),          &
             ksr_desica(land_pts,npft) )
   psi_leaf_desica(:,:)  = 0.0
   psi_stem_desica(:,:)  = 0.0
@@ -144,6 +154,8 @@ IF ( .NOT. ALLOCATED(psi_leaf_desica) ) THEN
   ksr_desica(:,:)       = -1.0
 END IF
 
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
 END SUBROUTINE desica_alloc
 
 !-----------------------------------------------------------------------------
@@ -152,6 +164,9 @@ END SUBROUTINE desica_alloc
 !-----------------------------------------------------------------------------
 SUBROUTINE desica_fw( ft, land_pts, veg_pts, veg_index, psi_root_zone, fw )
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: psi_root_zone(land_pts)
                             ! Root zone water potential (Pa).
@@ -159,6 +174,13 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: fw(land_pts)
                             ! Tuzet factor (0-1).
 
 INTEGER :: l, m
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='DESICA_FW'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL desica_alloc( land_pts )
 
@@ -172,6 +194,8 @@ DO m = 1,veg_pts
   END IF
   fw(l) = tuzet_fw(ft, psi_leaf_desica(l,ft))
 END DO
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE desica_fw
 
@@ -198,15 +222,18 @@ END FUNCTION tuzet_fw
 ! Advance psi_leaf and psi_stem over the timestep for the canopy
 ! transpiration el (Xu et al. 2016, Eqns S1, S2, S4).
 !-----------------------------------------------------------------------------
-SUBROUTINE desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,     &
+SUBROUTINE desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,      &
                               lai, canht, psi_root_zone, ksr, el, l_commit,    &
                               psi_leaf, leaf_k, el_hyd )
 
-USE pftparm, ONLY: kmax_pft, conductance_b_pft, conductance_c_pft, p50,               &
+USE pftparm, ONLY: kmax_pft, conductance_b_pft, conductance_c_pft, p50,        &
                    cap_leaf, cap_stem
 USE jules_vegetation_mod, ONLY: som_leaf_resist_frac
 USE planet_constants_mod, ONLY: g
 USE water_constants_mod, ONLY: rho_water
+
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
@@ -242,8 +269,26 @@ INTEGER :: l, m, n, n_sub
 REAL(KIND=real_jlslsm) ::                                                      &
   dt, kmax_c, k_xylem, k_leaf, k_root, k_plant, c_leaf, c_stem, psi_h,         &
   psi_stem_min,                                                                &
-  pl, ps, pl_new, ps_new, ap, bp, ex, j_sap, j_cap, q_root, q_sum, j_sum,     &
+  pl, ps, pl_new, ps_new, ap, bp, ex, j_sap, j_cap, q_root, q_sum, j_sum,      &
   e, e_sub, e_sum, ksr_l
+                            ! Sub-step (s); canopy kmax, xylem, leaf-side,
+                            ! root-side and soil-to-leaf conductances
+                            ! (mol m-2 s-1 Pa-1); leaf and stem
+                            ! capacitances (mol m-2 Pa-1); gravity drop
+                            ! and stem bound (Pa); leaf and stem psi at the
+                            ! start and end of a sub-step (Pa); the pool
+                            ! solution's a, b and EXP(a dt); sap flow, its
+                            ! cap, root uptake and their step sums, and
+                            ! transpiration (mol m-2 s-1); and ksr here.
+                            !
+                            ! MDK, 24/10/26
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='DESICA_HYDRAULICS'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 n_sub = MAX(1, CEILING(timestep / dt_max))
 dt    = timestep / REAL(n_sub)
@@ -288,7 +333,8 @@ DO m = 1,veg_pts
     ! Xylem conductance on the PFT vulnerability curve at psi_stem
     ! (Eqn S2b), split either side of the stem store; the soil-to-root ksr
     ! is in series on the root side (soil -> root -> stem store).
-    k_xylem = kmax_c * EXP(-(ABS(ps / conductance_b_pft(ft)))**conductance_c_pft(ft))
+    k_xylem = kmax_c * EXP(-(ABS(ps / conductance_b_pft(ft)))                  &
+                           **conductance_c_pft(ft))
     k_xylem = MAX(k_xylem, 1.0e-6 * kmax_c)
     k_leaf  = k_xylem / som_leaf_resist_frac
     k_root  = k_xylem / (1.0 - som_leaf_resist_frac)
@@ -374,18 +420,33 @@ DO m = 1,veg_pts
   leaf_k(l)   = k_plant
 END DO
 
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
 END SUBROUTINE desica_hydraulics
 
 !-----------------------------------------------------------------------------
 ! Store this step's plant inputs for desica_commit (called from sf_stom).
 !-----------------------------------------------------------------------------
-SUBROUTINE desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, canht, &
+SUBROUTINE desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, canht,  &
                                 psi_root_zone, ksr )
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
-REAL(KIND=real_jlslsm), INTENT(IN) :: lai(land_pts), canht(land_pts),        &
+REAL(KIND=real_jlslsm), INTENT(IN) :: lai(land_pts), canht(land_pts),          &
                                       psi_root_zone(land_pts), ksr(land_pts)
+                            ! As desica_hydraulics.
+                            !
+                            ! MDK, 24/10/26
 INTEGER :: l, m
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='DESICA_STORE_INPUTS'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL desica_alloc( land_pts )
 DO m = 1,veg_pts
@@ -396,6 +457,8 @@ DO m = 1,veg_pts
   ksr_desica(l,ft)      = ksr(l)
 END DO
 
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
 END SUBROUTINE desica_store_inputs
 
 !-----------------------------------------------------------------------------
@@ -403,16 +466,31 @@ END SUBROUTINE desica_store_inputs
 ! (kg m-2 s-1) and return the root uptake to take from the soil, q_soil
 ! (kg m-2 s-1). Called from sf_evap once the surface fluxes are final.
 !-----------------------------------------------------------------------------
-SUBROUTINE desica_commit( ft, land_pts, npts, pts_index, timestep, t_stom,    &
+SUBROUTINE desica_commit( ft, land_pts, npts, pts_index, timestep, t_stom,     &
                           q_soil )
+
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) :: ft, land_pts, npts, pts_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: timestep, t_stom(land_pts)
 REAL(KIND=real_jlslsm), INTENT(OUT) :: q_soil(land_pts)
 
 INTEGER :: l, m
-REAL(KIND=real_jlslsm) :: el(land_pts), psi_l(land_pts), k_l(land_pts),      &
+REAL(KIND=real_jlslsm) :: el(land_pts), psi_l(land_pts), k_l(land_pts),        &
                           el_hyd(land_pts)
+                            ! Transpiration (mol m-2 s-1), and the
+                            ! desica_hydraulics outputs: psi_leaf (Pa),
+                            ! leaf_k and the deliverable transpiration.
+                            !
+                            ! MDK, 24/10/26
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='DESICA_COMMIT'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL desica_alloc( land_pts )
 q_soil(:) = 0.0
@@ -421,9 +499,9 @@ DO m = 1,npts
   l = pts_index(m)
   el(l) = MAX(t_stom(l), 0.0) / mol_h2o
 END DO
-CALL desica_hydraulics( ft, land_pts, npts, pts_index, timestep,              &
-                        lai_desica(:,ft), ht_desica(:,ft),                    &
-                        psi_soil_desica(:,ft), ksr_desica(:,ft), el, .TRUE.,  &
+CALL desica_hydraulics( ft, land_pts, npts, pts_index, timestep,               &
+                        lai_desica(:,ft), ht_desica(:,ft),                     &
+                        psi_soil_desica(:,ft), ksr_desica(:,ft), el, .TRUE.,   &
                         psi_l, k_l, el_hyd )
 DO m = 1,npts
   l = pts_index(m)
@@ -433,6 +511,8 @@ DO m = 1,npts
   flux_root_desica(l,ft) = q_soil(l)
   dw_plant_desica(l,ft)  = q_soil(l) - MAX(t_stom(l), 0.0)
 END DO
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE desica_commit
 
@@ -453,7 +533,7 @@ c_stem = cap_stem(ft) * lai_desica(l,ft)
 flux_root_desica(l,ft) = flux_root_desica(l,ft) - dq
 dw_plant_desica(l,ft)  = dw_plant_desica(l,ft) - dq
 IF ( c_stem > 0.0 ) THEN
-  psi_stem_desica(l,ft) = psi_stem_desica(l,ft) - dq / mol_h2o * timestep    &
+  psi_stem_desica(l,ft) = psi_stem_desica(l,ft) - dq / mol_h2o * timestep      &
                                                   / c_stem
 END IF
 

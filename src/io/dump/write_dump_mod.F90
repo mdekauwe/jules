@@ -17,7 +17,7 @@ SUBROUTINE write_dump()
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
-USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,           &
+USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
                                     cut_psi_stem, cut_c_store   ! MDK, 22/10/26
 USE jules_fields_mod, ONLY: crop_vars, psparms, ainfo, trif_vars, progs,       &
                             fluxes, lake_vars, rivers, water_resources
@@ -27,17 +27,17 @@ USE jules_fields_mod, ONLY: crop_vars, psparms, ainfo, trif_vars, progs,       &
 USE jules_fields_mod, ONLY: toppdm, soilecosse, trifctltype
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
-USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      &
+USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
     ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc, ximpair_rebuilt,  &
     ximpair_lock_new
-USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,           &
+USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
                              phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf
-USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft, &
+USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft,  &
     hydmort_plc_peak   ! MDK, 21/10/26
 
 USE model_grid_mod, ONLY:                                                      &
@@ -1290,22 +1290,22 @@ DO i = 1,nvars
 
       ! If it is a variable with one levels dimension, write the appropriate
       ! number of levels to global_data_2d.
-    CASE ( 'canht', 'lai', 'years_since_harvest', 'harvest_doy', 'f_nsc',     &
+    CASE ( 'canht', 'lai', 'years_since_harvest', 'harvest_doy', 'f_nsc',      &
            'psi_leaf_desica', 'psi_stem_desica',                               &
            'kmax_impaired',                                                    &
            'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',             &
            'ximpair_kcap_leaf',                                                &
-           'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', &
-           'ximpair_rebuilt', 'ximpair_lock_new',                     &
-           'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc', &
-           'gpp_acc', 'hydmort_pref', 'hydmort_dead', 'hydmort_plc_peak',     &
-           'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',           &
-           'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',     &
-           'cpl_gbw_shd', 'cpl_ra_ca',                                       &
-           'nsc_turg_acc', 'nsc_t_run',                       &
-           'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',       &
-           'phen_fbleaf', 'nsc_regrow_acc',                                  &
-           'phen_gdd', 'phen_bb_day', 'phen_dormant',                         &
+           'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt',   &
+           'ximpair_rebuilt', 'ximpair_lock_new',                              &
+           'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc',           &
+           'gpp_acc', 'hydmort_pref', 'hydmort_dead', 'hydmort_plc_peak',      &
+           'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',              &
+           'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',      &
+           'cpl_gbw_shd', 'cpl_ra_ca',                                         &
+           'nsc_turg_acc', 'nsc_t_run',                                        &
+           'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
+           'phen_fbleaf', 'nsc_regrow_acc',                                    &
+           'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
            'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &
            't_leaf_sun_pft', 't_leaf_shd_pft' )
       CALL file_write_var(FILE, var_ids(i), global_data_2d(:,1:npft))

@@ -142,6 +142,9 @@ SUBROUTINE psi_leaf_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,    &
                                 open_index, e_leaf, root_zone_psi, kmax,       &
                                 leaf_psi, leaf_k )
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 INTEGER, INTENT(IN) ::                                                         &
   pft, n_e_leaf, land_pts, open_pnts, veg_index(land_pts), open_index(land_pts)
 
@@ -163,6 +166,13 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 
 INTEGER :: i, j, l
 
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='PSI_LEAF_LUT_JLS'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
 ! For each open point and each candidate transpiration rate: divide E by the
 ! point's kmax (the table is per unit kmax, so one table serves every point),
 ! invert the table for psi_leaf, then take k at that psi_leaf from the curve.
@@ -177,6 +187,8 @@ DO j = 1, open_pnts
     leaf_k(i,j) = kmax(l) * supply_lut_f(pft, leaf_psi(i,j))
   END DO
 END DO
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE psi_leaf_lut_jls
 
@@ -203,6 +215,8 @@ SUBROUTINE psi_leaf_capped_lut_jls( pft, n_e_leaf, land_pts, open_pnts,        &
                                     leaf_psi, leaf_k )
 
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) ::                                                         &
   pft, n_e_leaf, land_pts, open_pnts, veg_index(land_pts), open_index(land_pts)
@@ -225,6 +239,13 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 
 INTEGER :: i, j, l
 REAL(KIND=real_jlslsm) :: kmx, kc, psi_r, psi_s, psi_top, e_cap, r
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='PSI_LEAF_CAPPED_LUT_JLS'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL build_supply_lut(pft)
 
@@ -264,6 +285,8 @@ DO j = 1, open_pnts
     leaf_k(i,j) = MAX(MIN(kmx * supply_lut_f(pft, leaf_psi(i,j)), kc), kcrit(l))
   END DO
 END DO
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE psi_leaf_capped_lut_jls
 
@@ -696,7 +719,8 @@ USE max_dimensions, ONLY: npft_max
 USE pftparm, ONLY: conductance_b_seg, conductance_c_seg, seg_kfac,             &
                    kcrit_fractional_loss
 USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground
-                                ! MDK, 21/10/26
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) :: pft
 
@@ -704,6 +728,11 @@ INTEGER :: iseg
 REAL(KIND=real_jlslsm) :: b, c
 REAL(KIND=real_jlslsm) :: kfac_lut   ! segment share the table is built for
                                      ! MDK, 21/10/26
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='BUILD_SUPPLY_LUT_SEG'
 
 ! Same structure as build_supply_lut: fast exit once built, allocate for all
 ! PFTs inside the critical section on the first call, then build this PFT's
@@ -714,6 +743,11 @@ REAL(KIND=real_jlslsm) :: kfac_lut   ! segment share the table is built for
 IF ( ALLOCATED(lut_seg_ready) ) THEN
   IF ( lut_seg_ready(pft) ) RETURN
 END IF
+
+! DrHook after the fast exit, as in build_supply_lut.
+!
+! MDK, 24/10/26
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 !$OMP CRITICAL (som_supply_lut_seg)
 IF ( .NOT. ALLOCATED(lut_seg_ready) ) THEN
@@ -744,6 +778,8 @@ IF ( .NOT. lut_seg_ready(pft) ) THEN
   lut_seg_ready(pft) = .TRUE.
 END IF
 !$OMP END CRITICAL (som_supply_lut_seg)
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE build_supply_lut_seg
 

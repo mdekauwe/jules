@@ -62,9 +62,9 @@ MODULE triffid_nsc_mod
 ! dPLC = -repair / X, at the next xylem impairment update. TRIFFID's
 ! allometry fixes the wood carbon, so the repair carbon leaves as litter
 ! (the embolised conduits it replaces are retired). With
-! ximpair_psi_growth set, the repair is scaled by the fraction of time since
-! the last TRIFFID step that the root zone was wetter than it (no stem growth
-! in drought; ximpair_grow_acc).
+! ximpair_psi_growth (MPa) set, the repair is scaled by the fraction of time
+! since the last TRIFFID step that the root zone was wetter than it (no stem
+! growth in drought; ximpair_grow_acc).
 !
 ! Wood anatomy (nsc_xylem_type). 1, diffuse-porous (the default, as above):
 ! repair whenever growth is allowed, on all the conducting xylem X, at most
@@ -114,7 +114,6 @@ MODULE triffid_nsc_mod
 ! to day 296 (Lempereur et al. 2015: stem growth starts in early-mid May,
 ! autumn growth ends in late October). Like the other limits it turns on the
 ! normalised release.
-! MDK, 20/10/26
 !
 ! Leaf flush (nsc_flush_start_doy set): leaves flush before stem growth
 ! starts and the flush draws on the store (Q. ilex at Puechabon: budburst
@@ -127,7 +126,6 @@ MODULE triffid_nsc_mod
 ! the store: over a year the release still balances NPP. The growing
 ! season then gates only the cambium: xylem repair and its cap are scaled
 ! by the share of the store step's days inside it.
-! MDK, 20/10/26
 !
 ! Leaf renewal (l_ximpair_rec_leaf_turn, with the per-segment memory): new
 ! leaves arrive intact, so the leaf segment's loss falls by the fraction of
@@ -186,7 +184,7 @@ MODULE triffid_nsc_mod
 ! (there is no growth to feed), the repair rebuilds the stem cap as with
 ! TRIFFID, and nsc_starv is a diagnostic only (the PFT fractions are fixed).
 !
-! MDK, 17/10/26
+! MDK, 24/10/26
 !
 !-----------------------------------------------------------------------------
 
@@ -196,11 +194,11 @@ IMPLICIT NONE
 
 PRIVATE
 
-PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft, nsc_repair_pft,   &
-          nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft, &
-          nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, phen_nhigh,        &
-          phen_fbleaf, nsc_regrow_acc, phen_psi_update,                       &
-          triffid_nsc_alloc, triffid_nsc_store, triffid_nsc_area,             &
+PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft, nsc_repair_pft,     &
+          nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft,  &
+          nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, phen_nhigh,         &
+          phen_fbleaf, nsc_regrow_acc, phen_psi_update,                        &
+          triffid_nsc_alloc, triffid_nsc_store, triffid_nsc_area,              &
           triffid_nsc_daily, triffid_nsc_turgor
 
 ! Store (kg C m-2 of the PFT); < 0 = not yet set (filled to C_max at the
@@ -255,7 +253,17 @@ SUBROUTINE triffid_nsc_alloc( n_land_pts )
 
 USE jules_surface_types_mod, ONLY: npft
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 INTEGER, INTENT(IN) :: n_land_pts
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='TRIFFID_NSC_ALLOC'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 IF (.NOT. ALLOCATED(nsc_pft)) THEN
   ALLOCATE(nsc_pft(n_land_pts, npft))
@@ -306,8 +314,8 @@ IF (.NOT. ALLOCATED(nsc_ft_mean)) THEN
   nsc_ft_mean(:,:) = -1.0
 END IF
 IF (.NOT. ALLOCATED(phen_psi_acc)) THEN
-  ALLOCATE(phen_psi_acc(n_land_pts, npft), phen_nlow(n_land_pts, npft),      &
-           phen_nhigh(n_land_pts, npft), phen_fbleaf(n_land_pts, npft),      &
+  ALLOCATE(phen_psi_acc(n_land_pts, npft), phen_nlow(n_land_pts, npft),        &
+           phen_nhigh(n_land_pts, npft), phen_fbleaf(n_land_pts, npft),        &
            nsc_regrow_acc(n_land_pts, npft))
   phen_psi_acc(:,:)   = 0.0
   phen_nlow(:,:)      = 0.0
@@ -315,6 +323,8 @@ IF (.NOT. ALLOCATED(phen_psi_acc)) THEN
   phen_fbleaf(:,:)    = 1.0
   nsc_regrow_acc(:,:) = 0.0
 END IF
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE triffid_nsc_alloc
 
@@ -325,30 +335,30 @@ END SUBROUTINE triffid_nsc_alloc
 ! litter). The repaired fraction of conductance is queued in
 ! ximpair_repair_pend for the next xylem impairment update.
 ! ---------------------------------------------------------------------
-SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,       &
-                              woodc, leafc, rootc, ht, lai_bal, npp, repair,  &
+SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,         &
+                              woodc, leafc, rootc, ht, lai_bal, npp, repair,   &
                               pft_only )
 
 USE jules_surface_types_mod, ONLY: npft, nnpft
 USE pftparm, ONLY: is_set, nsc_in_flush_window, nsc_limits_on   ! MDK, 24/10/26
-USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,  &
+USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,    &
                                 l_triffid, l_nsc_wmax_norm
 USE datetime_utils_mod, ONLY: day_of_year, days_in_year
 USE time_info_mod, ONLY: l_360, l_leap
 USE calc_c_comps_triffid_mod, ONLY: sapwood_c   ! MDK, 20/10/26
-USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
-                   nsc_flush, nsc_kc, nsc_reserve_frac, nsc_tau_load,        &
-                   nsc_wmax_fac, nsc_hold_plc,                               &
-                   nsc_g_starv, ximpair_psi_growth, nsc_repair_window,       &
-                   nsc_plc_background,                                       &
-                   nsc_psi_turg_zero, nsc_t_grow_zero, nsc_overflow_resp,    &
-                   nsc_xylem_type, nsc_xylem_rate_max, nsc_ring_mmdd,        &
-                   nsc_cmax, nsc_grow_start_doy, nsc_grow_end_doy,           &
+USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                       &
+                   nsc_flush, nsc_kc, nsc_reserve_frac, nsc_tau_load,          &
+                   nsc_wmax_fac, nsc_hold_plc,                                 &
+                   nsc_g_starv, ximpair_psi_growth, nsc_repair_window,         &
+                   nsc_plc_background,                                         &
+                   nsc_psi_turg_zero, nsc_t_grow_zero, nsc_overflow_resp,      &
+                   nsc_xylem_type, nsc_xylem_rate_max, nsc_ring_mmdd,          &
+                   nsc_cmax, nsc_grow_start_doy, nsc_grow_end_doy,             &
                    nsc_flush_start_doy, nsc_flush_days
 USE model_time_mod, ONLY: current_time
 USE trif, ONLY: g_root, g_wood
-USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_repair_pend,    &
-                                       ximpair_grow_acc, ximpair_fmin_acc,   &
+USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_repair_pend,      &
+                                       ximpair_grow_acc, ximpair_fmin_acc,     &
                                        ximpair_memory_alloc
 
 USE parkind1, ONLY: jprb, jpim
@@ -401,23 +411,49 @@ REAL(KIND=real_jlslsm) ::                                                      &
     ! Maximum and actual loading, net draw on the store (per 360 days).
   c_old,                                                                       &
     ! Store at the start of the step (kg C m-2).
-  plc, x_s, l_tot, turn_l, u,                                                 &
-  f_grow, plc_rep,                                                             &
-  f_turg, c_acc_max, w_regrow
-    ! Repair: loss of conductance, conducting xylem (kg C m-2), leaf and fine
-    ! root of the intact plant (kg C m-2), turnover TRIFFID charges against
-    ! growth (per 360 days), share of W, growth gate, repairable loss.
-    ! Turgor-limited sink: turgor factor, accessible store when full (kg C
-    ! m-2).
+  plc,                                                                         &
+    ! Repair: stem loss of conductance (0-1).
+  x_s,                                                                         &
+    ! Repair: conducting xylem (kg C m-2).
+  l_tot,                                                                       &
+    ! Repair: leaf and fine root of the intact plant (kg C m-2).
+  turn_l,                                                                      &
+    ! Repair: turnover TRIFFID charges against growth (per 360 days).
+  u,                                                                           &
+    ! Repair: share of W that rebuilds xylem.
+  f_grow,                                                                      &
+    ! Repair: growth gate (0-1).
+  plc_rep,                                                                     &
+    ! Repair: repairable loss of conductance (0-1).
+  f_turg,                                                                      &
+    ! Turgor-limited sink: turgor factor (0-1).
+  c_acc_max,                                                                   &
+    ! Turgor-limited sink: accessible store when full (kg C m-2).
+  w_regrow
+    ! Phenology regrowth drawn from the store (per 360 days).
+    !
+    ! MDK, 24/10/26
 LOGICAL :: l_rep, l_mem, l_turg, l_ring_now, l_flush
+    ! Xylem repair on, memory impairment model, growth limits on, earlywood
+    ! rebuild in this store step, leaf flush on.
+    !
+    ! MDK, 24/10/26
 INTEGER :: doy_now, doy_ring, k, d, nd
+    ! Day of year now and of nsc_ring_mmdd; day counter, day of year and
+    ! number of days of this store step.
+    !
+    ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) :: f_flush, f_stem, w_flush
     ! Leaf flush: share of the year's flush in this step, share of the
     ! step's days in the growing season (cambium), flush draw (per 360 days).
 REAL(KIND=real_jlslsm) :: x_r
-    ! Ring-porous: this store step holds the earlywood rebuild; day of year
-    ! now and of nsc_ring_mmdd; earlywood ring (kg C m-2).
+    ! Ring-porous: earlywood ring (kg C m-2).
+    !
+    ! MDK, 24/10/26
 INTEGER :: n_days
+    ! Days in this year.
+    !
+    ! MDK, 24/10/26
 
 REAL(KIND=real_jlslsm), PARAMETER :: x_min = 1.0e-6
     ! Minimum conducting xylem for repair (kg C m-2).
@@ -450,13 +486,14 @@ DO n = n1,n2
   l_turg = nsc_limits_on(n)
   ! Leaf flush: days of this store step (the nd days up to today) in the
   ! flush and in the growing season.
+  !
   ! MDK, 20/10/26
   l_flush = is_set(nsc_flush_start_doy(n))
   f_flush = 0.0
   f_stem  = 1.0
   IF (l_flush) THEN
     n_days  = days_in_year(current_time%year, l_360, l_leap)
-    doy_now = day_of_year(current_time%year, current_time%month,             &
+    doy_now = day_of_year(current_time%year, current_time%month,               &
                           current_time%day, l_360, l_leap)
     nd = MAX(NINT(dt * 360.0), 1)
     f_stem = 0.0
@@ -468,7 +505,7 @@ DO n = n1,n2
       ! Only the start of the stem window: its end is already in the
       ! growth factor (the release season).
       IF (.NOT. is_set(nsc_grow_start_doy(n)) .OR.                             &
-          REAL(d) >= nsc_grow_start_doy(n))                                   &
+          REAL(d) >= nsc_grow_start_doy(n))                                    &
         f_stem = f_stem + 1.0 / REAL(nd)
     END DO
   END IF
@@ -476,14 +513,14 @@ DO n = n1,n2
   l_ring_now = .FALSE.
   IF (nsc_xylem_type(n) == 2) THEN
     n_days   = days_in_year(current_time%year, l_360, l_leap)
-    doy_now  = day_of_year(current_time%year, current_time%month,            &
+    doy_now  = day_of_year(current_time%year, current_time%month,              &
                            current_time%day, l_360, l_leap)
     IF (l_360) THEN
-      doy_ring = day_of_year(current_time%year, nsc_ring_mmdd(n) / 100,      &
-                             MIN(MOD(nsc_ring_mmdd(n), 100), 30), l_360,     &
+      doy_ring = day_of_year(current_time%year, nsc_ring_mmdd(n) / 100,        &
+                             MIN(MOD(nsc_ring_mmdd(n), 100), 30), l_360,       &
                              l_leap)
     ELSE
-      doy_ring = day_of_year(current_time%year, nsc_ring_mmdd(n) / 100,      &
+      doy_ring = day_of_year(current_time%year, nsc_ring_mmdd(n) / 100,        &
                              MOD(nsc_ring_mmdd(n), 100), l_360, l_leap)
     END IF
     doy_ring = MIN(doy_ring, n_days)
@@ -508,7 +545,7 @@ DO n = n1,n2
     ! Maximum loading from the running mean of NPP (bias-corrected), held
     ! while the stem is damaged.
     IF (plc <= nsc_hold_plc(n)) THEN
-      nsc_npp_mean(l,n) = nsc_npp_mean(l,n) + a_mean * (npp(l,n)            &
+      nsc_npp_mean(l,n) = nsc_npp_mean(l,n) + a_mean * (npp(l,n)               &
                           - nsc_npp_mean(l,n))
       nsc_npp_wt(l,n)   = nsc_npp_wt(l,n) + a_mean * (1.0 - nsc_npp_wt(l,n))
     END IF
@@ -516,7 +553,7 @@ DO n = n1,n2
     IF (nsc_npp_wt(l,n) > 0.0)                                                 &
       w_max = nsc_wmax_fac(n) * MAX(nsc_npp_mean(l,n) / nsc_npp_wt(l,n), 0.0)
     ! Release concentrated in the growth windows.
-    IF (l_nsc_wmax_norm .AND. l_turg .AND. nsc_ft_mean(l,n) > 0.0)            &
+    IF (l_nsc_wmax_norm .AND. l_turg .AND. nsc_ft_mean(l,n) > 0.0)             &
       w_max = w_max / MAX(nsc_ft_mean(l,n), 0.05)
 
     ! Leaf regrowth queued by phenol (l_phen_psi), paid first from the
@@ -531,14 +568,15 @@ DO n = n1,n2
 
     ! Leaf flush: this step's share of the year's new leaves, from the
     ! accessible store, as part of the release.
-    ! MDK, 20/10/26
     ! Phenology regrowth paid above in the flush window counts towards
     ! it, so a deciduous canopy rebuilt by phenol is not paid twice: the
     ! larger of the two is charged.
+    !
+    ! MDK, 20/10/26
     w_flush = 0.0
     IF (f_flush > 0.0) THEN
-      w_flush = MIN(MAX(g_leaf_0(n) * leafc(l,n) * f_flush - w_regrow * dt,  &
-                        0.0),                                                 &
+      w_flush = MIN(MAX(g_leaf_0(n) * leafc(l,n) * f_flush - w_regrow * dt,    &
+                        0.0),                                                  &
                     MAX(nsc_pft(l,n) - c_res, 0.0))
       nsc_pft(l,n) = nsc_pft(l,n) - w_flush
       w_flush = w_flush / dt
@@ -642,13 +680,13 @@ DO n = n1,n2
           turn_l = (1.0 - plc) * g_leaf_0(n) * l_tot
         END IF
         ! The leaf flush's carbon is for leaves: not shared with xylem.
-        u = x_s / (x_s + l_tot) * MAX(1.0 - turn_l / MAX(w - w_flush,        &
+        u = x_s / (x_s + l_tot) * MAX(1.0 - turn_l / MAX(w - w_flush,          &
                                                          TINY(1.0)), 0.0)
-        repair(l,n) = MIN(f_grow * u * MAX(w - w_flush, 0.0),                 &
+        repair(l,n) = MIN(f_grow * u * MAX(w - w_flush, 0.0),                  &
                           plc_rep * x_s / dt)
         ! Cambial production limit.
         IF (nsc_xylem_rate_max(n) > 0.0)                                       &
-          repair(l,n) = MIN(repair(l,n), nsc_xylem_rate_max(n) * f_turg      &
+          repair(l,n) = MIN(repair(l,n), nsc_xylem_rate_max(n) * f_turg        &
                                          * f_stem * x_s)
         ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                    &
                                    + repair(l,n) * dt / x_s
@@ -672,10 +710,13 @@ END SUBROUTINE triffid_nsc_store
 ! store with it, to litter (lit_store); area gained shares the store, which
 ! is spread over the new area.
 ! ---------------------------------------------------------------------
-SUBROUTINE triffid_nsc_area( land_pts, trif_pts, trif_index, r_gamma,        &
+SUBROUTINE triffid_nsc_area( land_pts, trif_pts, trif_index, r_gamma,          &
                              frac, dfrac, lit_store )
 
 USE jules_surface_types_mod, ONLY: npft, nnpft, ntype
+
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts,                                                                    &
@@ -700,9 +741,22 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 
 INTEGER :: n, t, l
 REAL(KIND=real_jlslsm) :: frac_old
+    ! Areal fraction before the TRIFFID step.
+    !
+    ! MDK, 24/10/26
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='TRIFFID_NSC_AREA'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 lit_store(:,:) = 0.0
-IF (.NOT. ALLOCATED(nsc_pft)) RETURN
+IF (.NOT. ALLOCATED(nsc_pft)) THEN
+  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+  RETURN
+END IF
 
 DO n = 1,nnpft
   DO t = 1,trif_pts
@@ -717,6 +771,8 @@ DO n = 1,nnpft
   END DO
 END DO
 
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
 END SUBROUTINE triffid_nsc_area
 
 ! ---------------------------------------------------------------------
@@ -725,21 +781,24 @@ END SUBROUTINE triffid_nsc_area
 ! nsc_turg_acc as a fraction of the store period (the TRIFFID period, or a
 ! day without TRIFFID).
 ! ---------------------------------------------------------------------
-SUBROUTINE triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,   &
+SUBROUTINE triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,     &
                                psi_rz, tair )
 
-USE jules_vegetation_mod, ONLY: l_triffid, triffid_period,                    &
+USE jules_vegetation_mod, ONLY: l_triffid, triffid_period,                     &
                                 l_ximpair_rec_leaf_turn, l_nsc_wmax_norm
 USE pftparm, ONLY: is_set, nsc_limits_on, nsc_season_on   ! MDK, 24/10/26
-USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero,   &
-                   nsc_t_grow_full, g_leaf_0, nsc_grow_start_doy,             &
+USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero,      &
+                   nsc_t_grow_full, g_leaf_0, nsc_grow_start_doy,              &
                    nsc_grow_end_doy, nsc_flush_start_doy
 USE model_time_mod, ONLY: current_time
 USE datetime_utils_mod, ONLY: day_of_year
 USE time_info_mod, ONLY: l_360, l_leap
-USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                  &
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_seg_state_alloc
 USE water_constants_mod, ONLY: tm
+
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts,                                                                    &
@@ -760,13 +819,32 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
     ! Air temperature (K).
 
 INTEGER :: j, l
-REAL(KIND=real_jlslsm) :: period, f, a_t, a_yr, d_renew, f_season, doy,     &
+REAL(KIND=real_jlslsm) :: period, f, a_t, a_yr, d_renew, f_season, doy,        &
                           doy_start
+    ! Store period (s); growth factor (0-1); weights of this time step in
+    ! the daily and annual running means; leaf renewal this time step;
+    ! growing-season factor (0 or 1); day of year now and of the start of
+    ! the release.
+    !
+    ! MDK, 24/10/26
 LOGICAL :: l_lim, l_season
+    ! Growth limits on; growing season set.
+    !
+    ! MDK, 24/10/26
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='TRIFFID_NSC_TURGOR'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 l_season = nsc_season_on(ft)
 l_lim = nsc_limits_on(ft)
-IF (.NOT. l_lim .AND. .NOT. l_ximpair_rec_leaf_turn) RETURN
+IF (.NOT. l_lim .AND. .NOT. l_ximpair_rec_leaf_turn) THEN
+  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+  RETURN
+END IF
 CALL triffid_nsc_alloc( land_pts )
 IF (l_ximpair_rec_leaf_turn) CALL ximpair_seg_state_alloc( land_pts )
 
@@ -775,12 +853,14 @@ IF (l_triffid) period = 86400.0 * REAL(triffid_period)
 a_t = 1.0 - EXP(-timestep / 86400.0)
 a_yr = 1.0 - EXP(-timestep / (360.0 * 86400.0))
 ! Growing season: 0 outside the start and end days of the year.
+!
 ! MDK, 20/10/26
 f_season = 1.0
 IF (l_season) THEN
-  doy = REAL(day_of_year(current_time%year, current_time%month,              &
+  doy = REAL(day_of_year(current_time%year, current_time%month,                &
                          current_time%day, l_360, l_leap))
   ! With the leaf flush the release starts at budburst.
+  !
   ! MDK, 20/10/26
   doy_start = nsc_grow_start_doy(ft)
   IF (is_set(nsc_flush_start_doy(ft))) doy_start = nsc_flush_start_doy(ft)
@@ -814,12 +894,14 @@ DO j = 1,veg_pts
   END IF
   ! Leaf renewal: production at the turnover rate, made while growing.
   IF (l_ximpair_rec_leaf_turn) THEN
-    d_renew = MIN(g_leaf_0(ft) * f / MAX(nsc_ft_mean(l,ft), 0.05)             &
+    d_renew = MIN(g_leaf_0(ft) * f / MAX(nsc_ft_mean(l,ft), 0.05)              &
                   * timestep / (360.0 * 86400.0), 1.0)
-    ximpair_kcap_leaf(l,ft) = 1.0 - (1.0 - ximpair_kcap_leaf(l,ft))          &
+    ximpair_kcap_leaf(l,ft) = 1.0 - (1.0 - ximpair_kcap_leaf(l,ft))            &
                               * (1.0 - d_renew)
   END IF
 END DO
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE triffid_nsc_turgor
 
@@ -829,12 +911,15 @@ END SUBROUTINE triffid_nsc_turgor
 ! day updates the consecutive dry / wet day counts and the leaf biomass
 ! factor phen_fbleaf (Xu et al. 2016, Eqn S7).
 ! ---------------------------------------------------------------------
-SUBROUTINE phen_psi_update( land_pts, veg_pts, veg_index, ft, timestep,      &
+SUBROUTINE phen_psi_update( land_pts, veg_pts, veg_index, ft, timestep,        &
                             psi_rz )
 
 USE model_time_mod, ONLY: current_time
 USE pftparm, ONLY: is_set   ! MDK, 24/10/26
 USE pftparm, ONLY: phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min
+
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts,                                                                    &
@@ -854,8 +939,21 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 INTEGER :: j, l
 REAL(KIND=real_jlslsm) :: psi_d
+    ! Daily mean root-zone water potential (MPa).
+    !
+    ! MDK, 24/10/26
 
-IF (.NOT. is_set(phen_psi_tlp(ft))) RETURN
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='PHEN_PSI_UPDATE'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+IF (.NOT. is_set(phen_psi_tlp(ft))) THEN
+  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+  RETURN
+END IF
 CALL triffid_nsc_alloc( land_pts )
 
 DO j = 1,veg_pts
@@ -864,7 +962,10 @@ DO j = 1,veg_pts
 END DO
 
 ! The day's update at its last time step.
-IF (REAL(current_time%time) + timestep < 86400.0 - 0.5) RETURN
+IF (REAL(current_time%time) + timestep < 86400.0 - 0.5) THEN
+  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+  RETURN
+END IF
 
 DO j = 1,veg_pts
   l = veg_index(j)
@@ -890,6 +991,8 @@ DO j = 1,veg_pts
   phen_fbleaf(l,ft) = MIN(MAX(phen_fbleaf(l,ft), phen_fbleaf_min(ft)), 1.0)
 END DO
 
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
 END SUBROUTINE phen_psi_update
 
 ! ---------------------------------------------------------------------
@@ -898,12 +1001,15 @@ END SUBROUTINE phen_psi_update
 ! the day runs the store step for ft with a one-day step, with leaf, root
 ! and wood carbon from the prescribed height (TRIFFID allometry).
 ! ---------------------------------------------------------------------
-SUBROUTINE triffid_nsc_daily( land_pts, veg_pts, veg_index, ft, timestep,    &
+SUBROUTINE triffid_nsc_daily( land_pts, veg_pts, veg_index, ft, timestep,      &
                               ht, npp )
 
 USE jules_surface_types_mod, ONLY: npft
 USE model_time_mod, ONLY: current_time
 USE calc_c_comps_triffid_mod, ONLY: calc_c_comps_triffid
+
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts,                                                                    &
@@ -925,12 +1031,25 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 INTEGER :: j, l
 REAL(KIND=real_jlslsm) :: c_veg, lai_b
-REAL(KIND=real_jlslsm), ALLOCATABLE :: woodc(:,:), leafc(:,:), rootc(:,:),   &
-                                       npp_d(:,:), repair(:,:), ht_p(:,:),    &
+    ! Vegetation carbon (kg C m-2) and balanced LAI from the allometry.
+    !
+    ! MDK, 24/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE :: woodc(:,:), leafc(:,:), rootc(:,:),     &
+                                       npp_d(:,:), repair(:,:), ht_p(:,:),     &
                                        laib_p(:,:)
+    ! Inputs and outputs of triffid_nsc_store for this PFT (see there).
+    !
+    ! MDK, 24/10/26
 
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_day = 86400.0
 REAL(KIND=real_jlslsm), PARAMETER :: days_per_trif_year = 360.0
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='TRIFFID_NSC_DAILY'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL triffid_nsc_alloc( land_pts )
 
@@ -940,10 +1059,13 @@ DO j = 1,veg_pts
 END DO
 
 ! Store step at the last time step of the day.
-IF (REAL(current_time%time) + timestep < sec_per_day - 0.5) RETURN
+IF (REAL(current_time%time) + timestep < sec_per_day - 0.5) THEN
+  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+  RETURN
+END IF
 
-ALLOCATE(woodc(land_pts,npft), leafc(land_pts,npft), rootc(land_pts,npft), &
-         npp_d(land_pts,npft), repair(land_pts,npft), ht_p(land_pts,npft),   &
+ALLOCATE(woodc(land_pts,npft), leafc(land_pts,npft), rootc(land_pts,npft),     &
+         npp_d(land_pts,npft), repair(land_pts,npft), ht_p(land_pts,npft),     &
          laib_p(land_pts,npft))
 woodc(:,:) = 0.0
 ht_p(:,:) = 0.0
@@ -953,7 +1075,7 @@ rootc(:,:) = 0.0
 npp_d(:,:) = 0.0
 DO j = 1,veg_pts
   l = veg_index(j)
-  CALL calc_c_comps_triffid(ft, ht(l), lai_b, leafc(l,ft), rootc(l,ft),    &
+  CALL calc_c_comps_triffid(ft, ht(l), lai_b, leafc(l,ft), rootc(l,ft),        &
                             woodc(l,ft), c_veg)
   ht_p(l,ft)   = ht(l)
   laib_p(l,ft) = lai_b
@@ -962,11 +1084,13 @@ DO j = 1,veg_pts
   nsc_npp_day(l,ft) = 0.0
 END DO
 
-CALL triffid_nsc_store( land_pts, veg_pts, veg_index, days_per_trif_year,   &
-                        woodc, leafc, rootc, ht_p, laib_p, npp_d, repair,    &
+CALL triffid_nsc_store( land_pts, veg_pts, veg_index, days_per_trif_year,      &
+                        woodc, leafc, rootc, ht_p, laib_p, npp_d, repair,      &
                         pft_only = ft )
 
 DEALLOCATE(woodc, leafc, rootc, npp_d, repair, ht_p, laib_p)
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE triffid_nsc_daily
 

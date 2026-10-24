@@ -21,7 +21,7 @@ IMPLICIT NONE
 
 PRIVATE
 
-PUBLIC :: ximpair_kcap_leaf, ximpair_psi_stem, ximpair_seg_state_alloc,       &
+PUBLIC :: ximpair_kcap_leaf, ximpair_psi_stem, ximpair_seg_state_alloc,        &
           ximpair_seg_frac
 
 ! Leaf-segment cap, k_cap / kmax of the leaf segment (1 = intact), of each
@@ -34,6 +34,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: ximpair_kcap_leaf(:,:)
 ! update, for the PLC_pft diagnostic. Not dumped; 0 until the first update.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: ximpair_psi_stem(:,:)
 
+CHARACTER(LEN=*), PARAMETER :: ModuleName='XYLEM_IMPAIRMENT_SEG_STATE_MOD'
+
 CONTAINS
 
 ! ---------------------------------------------------------------------
@@ -43,7 +45,17 @@ SUBROUTINE ximpair_seg_state_alloc( n_land_pts )
 
 USE jules_surface_types_mod, ONLY: npft
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 INTEGER, INTENT(IN) :: n_land_pts
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='XIMPAIR_SEG_STATE_ALLOC'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 IF (.NOT. ALLOCATED(ximpair_kcap_leaf)) THEN
   ALLOCATE(ximpair_kcap_leaf(n_land_pts, npft))
@@ -53,6 +65,8 @@ IF (.NOT. ALLOCATED(ximpair_psi_stem)) THEN
   ALLOCATE(ximpair_psi_stem(n_land_pts, npft))
   ximpair_psi_stem(:,:) = 0.0
 END IF
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE ximpair_seg_state_alloc
 

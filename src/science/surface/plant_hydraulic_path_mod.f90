@@ -30,7 +30,6 @@ PUBLIC :: set_ksr_path                                                         &
 ,         set_store_q_path                                                     &
 ,         clear_store_q_path                                                   &
 ,         set_k_ground_basis                                                   &
-,         seg_kmax_fac                                                         &
 ,         k_path_zero_flow                                                     &
 ,         psi_leaf_segments_jls                                                &
 ,         psi_leaf_segments_lut_jls                                            &
@@ -49,8 +48,11 @@ PUBLIC :: set_ksr_path                                                         &
 !              solver is given. Set by sf_stom (set_ksr_path) before each
 !              solver call, from the path's share of the undamaged plant
 !              conductance (share_sup). < 0: no soil link.
-! Used by psi_leaf_jls (single conductance curve) and the segment solvers
-! below.
+! Used by psi_leaf_jls (single conductance curve), the segment solvers
+! below, k_path_zero_flow, and som_path_psi and the zero-flow cost
+! reference in stom_opt_mod.
+!
+! MDK, 24/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
 
 ! Plant capacitance coupled to the optimiser (som_store_coupling = 1): the
@@ -115,6 +117,8 @@ CONTAINS
 SUBROUTINE set_ksr_path( land_pts, veg_pts, veg_index, share )
 
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 IMPLICIT NONE
 
@@ -123,13 +127,25 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: share(land_pts)
 
 INTEGER :: l, m
 
-IF ( .NOT. l_som_rhizo_series ) RETURN
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='SET_KSR_PATH'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+IF ( .NOT. l_som_rhizo_series ) THEN
+  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+  RETURN
+END IF
 IF ( .NOT. ALLOCATED(ksr_path) ) ALLOCATE(ksr_path(land_pts))
 ksr_path(:) = -1.0
 DO m = 1,veg_pts
   l = veg_index(m)
   IF ( ksr(l) >= 0.0 ) ksr_path(l) = ksr(l) * share(l)
 END DO
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE set_ksr_path
 
@@ -142,12 +158,22 @@ END SUBROUTINE set_ksr_path
 ! *****************************************************************************
 SUBROUTINE set_store_q_path( land_pts, veg_pts, veg_index, share, q )
 
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: share(land_pts), q(land_pts)
 
 INTEGER :: l, m
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='SET_STORE_Q_PATH'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 IF ( .NOT. ALLOCATED(store_q_path) ) ALLOCATE(store_q_path(land_pts))
 store_q_path(:) = 0.0
@@ -156,6 +182,8 @@ DO m = 1,veg_pts
   store_q_path(l) = q(l) * share(l)
 END DO
 l_store_q_path = .TRUE.
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE set_store_q_path
 
@@ -187,6 +215,8 @@ SUBROUTINE set_k_ground_basis( pft, land_pts, veg_pts, veg_index, lai,         &
 
 USE pftparm, ONLY: seg_kfac
 USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 IMPLICIT NONE
 
@@ -196,13 +226,23 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: lai(land_pts), lai_ref(land_pts)
 INTEGER :: l, m, iseg
 REAL(KIND=real_jlslsm) :: r(3), rinv
 
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='SET_K_GROUND_BASIS'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
 IF ( .NOT. ALLOCATED(kplant_scale) ) THEN
   ALLOCATE(kplant_scale(land_pts))
   ALLOCATE(seg_kscale(land_pts,3))
 END IF
 kplant_scale(:) = 1.0
 seg_kscale(:,:) = 1.0
-IF ( kplant_model /= kplant_model_ground ) RETURN
+IF ( kplant_model /= kplant_model_ground ) THEN
+  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+  RETURN
+END IF
 
 DO m = 1,veg_pts
   l = veg_index(m)
@@ -228,6 +268,8 @@ DO m = 1,veg_pts
     seg_kscale(l,iseg) = r(iseg) * rinv
   END DO
 END DO
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE set_k_ground_basis
 
@@ -259,8 +301,10 @@ END FUNCTION seg_kmax_fac
 ! potential along the path, so every element sits at psi_root and the
 ! elements add in series:
 !   1 / K = 1 / ksr_path + sum over segments of 1 / k_s(psi_root)
-! This is what the solvers give at E = 0, and is used for points the
-! optimiser does not visit (closed stomata).
+! This is what the solvers give at E = 0. It is used for points the
+! optimiser does not visit (closed stomata), for the zero-flow reference
+! of the hydraulic cost, for SOX's k(psi_bar) and for CGain's k_max
+! (all in stom_opt_mod).
 !
 ! The elements:
 ! - Segments (l_som_plant_segments): root, stem and leaf, each with maximum
@@ -277,7 +321,7 @@ END FUNCTION seg_kmax_fac
 !   which must be set by set_ksr_path for this path. Left out when
 !   l_plant_only is .TRUE. (e.g. CGain's k_max).
 !
-! MDK, 21/10/26
+! MDK, 24/10/26
 ! *****************************************************************************
 FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, b, c, kcap_frac, kx,        &
                            l_plant_only ) RESULT( k0 )
@@ -417,6 +461,8 @@ SUBROUTINE psi_leaf_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
 USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 IMPLICIT NONE
 
@@ -496,6 +542,13 @@ LOGICAL :: l_nr_active(n_e_leaf)
       ! Newton: samples still iterating (each stops on its own convergence).
       !
       ! MDK, 24/10/26
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='PSI_LEAF_SEGMENTS_JLS'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 l_impair = PRESENT(kcap_frac)
 l_exact_on = .FALSE.
@@ -695,6 +748,8 @@ DO j = 1, open_pnts
   END IF
 END DO
 
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
 CONTAINS
 
   ! Segment conductance (capped where l_cap). psi is held at <= 0 here and in
@@ -804,6 +859,8 @@ SUBROUTINE psi_leaf_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
 USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
 
 IMPLICIT NONE
 
@@ -847,6 +904,13 @@ REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de,  &
       ! e_pos the flow (>= 0); dpsi_de_int d(psi)/dE on the intact segments.
       !
       ! MDK, 18/10/26
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='PSI_LEAF_SEGMENTS_LUT_JLS'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL build_supply_lut_seg(pft)
 l_impair = PRESENT(kcap_frac)
@@ -958,6 +1022,8 @@ DO j = 1, open_pnts
     END IF
   END DO
 END DO
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE psi_leaf_segments_lut_jls
 
