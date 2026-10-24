@@ -19,6 +19,8 @@ SUBROUTINE required_vars_for_configuration(nvars, identifiers,                 &
                                            read_or_write_dump)
 
 USE update_mod, ONLY: l_imogen, have_prescribed_sthuf
+USE pftparm, ONLY: is_set, nsc_limits_on   ! MDK, 24/10/26
+USE jules_surface_types_mod, ONLY: npft    ! MDK, 24/10/26
 
 USE jules_hydrology_mod, ONLY: l_top
 
@@ -333,8 +335,6 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   ! Xylem impairment: damaged curves, extreme water potentials and the
   ! recovery memory are prognostic for all PFTs
   CALL add_to_list( 'kmax_impaired', nvars, identifiers )
-  CALL add_to_list( 'cond_b_impaired', nvars, identifiers )
-  CALL add_to_list( 'cond_c_impaired', nvars, identifiers )
   CALL add_to_list( 'psi_leaf_extreme', nvars, identifiers )
   CALL add_to_list( 'psi_root_extreme', nvars, identifiers )
   CALL add_to_list( 'ximpair_lock', nvars, identifiers )
@@ -376,15 +376,12 @@ IF ( l_triffid_nsc ) THEN
   IF ( .NOT. l_triffid ) CALL add_to_list( 'nsc_npp_day', nvars, identifiers )
   ! The turgor factor so far over the store period (turgor-limited sink).
   ! MDK, 18/10/26
-  IF ( ANY(nsc_psi_turg_zero(:) > -1.0e29) .OR.                                &
-       ANY(nsc_t_grow_zero(:) > -1.0e29) .OR.                                  &
-       ANY(nsc_grow_start_doy(:) > -1.0e29) .OR.                               &
-       ANY(nsc_grow_end_doy(:) > -1.0e29) .OR.                                 &
-       ANY(nsc_flush_start_doy(:) > -1.0e29) )                                 &
+  ! (nsc_limits_on, the same test as the store. MDK, 24/10/26)
+  IF ( ANY( [ (nsc_limits_on(i), i = 1, npft) ] ) )                            &
     CALL add_to_list( 'nsc_turg_acc', nvars, identifiers )
   ! The daily running mean air temperature of the cold limit.
   ! MDK, 18/10/26
-  IF ( ANY(nsc_t_grow_zero(:) > -1.0e29) )                                     &
+  IF ( ANY(is_set(nsc_t_grow_zero(:))) )                                       &
     CALL add_to_list( 'nsc_t_run', nvars, identifiers )
   ! The annual mean growth factor of the leaf renewal.
   ! MDK, 18/10/26
@@ -403,11 +400,11 @@ END IF
 ! The leaf flush queues regrowth for the store as well.
 ! MDK, 20/10/26
 IF ( l_triffid_nsc .AND. .NOT. l_phen_psi .AND.                              &
-     ANY(nsc_flush_start_doy(:) > -1.0e29) )                                  &
+     ANY(is_set(nsc_flush_start_doy(:))) )                                     &
   CALL add_to_list( 'nsc_regrow_acc', nvars, identifiers )
 ! Budburst for deciduous phenology: degree-days, budburst day, dormancy.
 ! MDK, 20/10/26
-IF ( ANY(phen_bb_doy(:) > -1.0e29) .OR. ANY(phen_bb_gdd(:) > -1.0e29) ) THEN
+IF ( ANY(is_set(phen_bb_doy(:))) .OR. ANY(is_set(phen_bb_gdd(:))) ) THEN
   CALL add_to_list( 'phen_gdd', nvars, identifiers )
   CALL add_to_list( 'phen_bb_day', nvars, identifiers )
   CALL add_to_list( 'phen_dormant', nvars, identifiers )

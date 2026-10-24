@@ -26,6 +26,7 @@ SUBROUTINE phenol (land_pts, veg_pts, n, veg_index, dtime_phen, g_leaf, ht,    &
                    lai, g_leaf_phen,lai_bal_red)
 
 USE um_types, ONLY: real_jlslsm
+USE pftparm, ONLY: is_set, nsc_in_flush_window   ! MDK, 24/10/26
 USE jules_vegetation_mod, ONLY: l_nitrogen, l_ximpair_leaf_loss,             &
                                 l_ximpair_rec_leaf_turn, l_phen_psi,           &
                                 l_triffid_nsc,                                 &
@@ -175,7 +176,7 @@ END IF
 ! Drought leaf shedding (l_phen_psi): the canopy is also capped at the leaf
 ! biomass factor of the water status (Xu et al. 2016; triffid_nsc_mod).
 ! MDK, 18/10/26
-IF (l_phen_psi .AND. phen_psi_tlp(n) > -1.0e29 .AND.                         &
+IF (l_phen_psi .AND. is_set(phen_psi_tlp(n)) .AND.                             &
     ALLOCATED(phen_fbleaf)) THEN
   DO j = 1,veg_pts
     l = veg_index(j)
@@ -225,14 +226,13 @@ DO j = 1,veg_pts
     ! paying for the brief regrowth of mild winter spells would drain the
     ! store and collapse a deciduous canopy.
     ! MDK, 20/10/26
-    l_pay = l_phen_psi .AND. phen_psi_tlp(n) > -1.0e29
-    IF (.NOT. l_pay .AND. nsc_flush_start_doy(n) > -1.0e29) THEN
+    l_pay = l_phen_psi .AND. is_set(phen_psi_tlp(n))
+    IF (.NOT. l_pay .AND. is_set(nsc_flush_start_doy(n))) THEN
       doy = REAL(day_of_year(current_time%year, current_time%month,          &
                              current_time%day, l_360, l_leap))
       ! The flush window may cross the year end.
-      l_pay = MODULO(NINT(doy) - NINT(nsc_flush_start_doy(n)),               &
-                     days_in_year(current_time%year, l_360, l_leap))          &
-              < NINT(nsc_flush_days(n))
+      l_pay = nsc_in_flush_window(n, NINT(doy),                                &
+                          days_in_year(current_time%year, l_360, l_leap))
     END IF
     IF (l_triffid_nsc .AND. dphen > 0.0 .AND. ALLOCATED(nsc_pft) .AND. l_pay) THEN
      IF (nsc_pft(l,n) >= 0.0) THEN

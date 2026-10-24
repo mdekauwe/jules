@@ -600,7 +600,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,ximpair_psi_growth(:)                                                         &
                  ! Root-zone (~predawn) water potential below which no new
                  !  conducting xylem grows, the growth gate of the store
-                 !  repair (l_ximpair_rec_nsc; Pa). Stem growth at Puechabon stops
+                 !  repair (l_ximpair_rec_nsc; MPa, as nsc_psi_turg_* and
+                 !  phen_psi_tlp). Stem growth at Puechabon stops
                  !  near predawn -1.1 MPa (Lempereur et al. 2015, New Phytol
                  !  207: 579), so recovery falls in the growth windows (spring
                  !  and autumn), not in summer drought. Default -1e30: no gate.
@@ -609,7 +610,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  ximpair_tau_stem, the time-based recovery of the memory
                  !  model, were retired; see l_ximpair_rec_nsc.)
                  !
-                 ! MDK, 23/10/26
+                 ! MDK, 24/10/26
 ,ximpair_tau_leaf(:)                                                          &
                  ! Per-segment memory (l_ximpair_seg_memory): e-folding time
                  !  (years of calendar time) of the leaf (leaf and twig)
@@ -784,6 +785,48 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
 CONTAINS
+
+!-----------------------------------------------------------------------------
+! Helpers for the "unset" PFT parameters of the store, phenology and
+! impairment (default -1e30, set > -1e29), and the tests built on them that
+! several modules share.
+!
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+ELEMENTAL LOGICAL FUNCTION is_set( x )
+! .TRUE. if x is not the "unset" default (-1e30).
+IMPLICIT NONE
+REAL(KIND=real_jlslsm), INTENT(IN) :: x
+is_set = x > -1.0e29
+END FUNCTION is_set
+
+LOGICAL FUNCTION nsc_season_on( n )
+! The TRIFFID store's growing season is limited for PFT n (start, end or
+! leaf flush day set).
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: n
+nsc_season_on = is_set(nsc_grow_start_doy(n)) .OR.                             &
+                is_set(nsc_grow_end_doy(n)) .OR.                               &
+                is_set(nsc_flush_start_doy(n))
+END FUNCTION nsc_season_on
+
+LOGICAL FUNCTION nsc_limits_on( n )
+! Any growth limit of the TRIFFID store is on for PFT n (turgor,
+! temperature or season): nsc_turg_acc is then accumulated and dumped.
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: n
+nsc_limits_on = is_set(nsc_psi_turg_zero(n)) .OR.                              &
+                is_set(nsc_t_grow_zero(n)) .OR. nsc_season_on(n)
+END FUNCTION nsc_limits_on
+
+LOGICAL FUNCTION nsc_in_flush_window( n, doy, n_days )
+! Day of year doy is in PFT n's leaf flush window (nsc_flush_start_doy for
+! nsc_flush_days days), which may cross the year end (n_days in the year).
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: n, doy, n_days
+nsc_in_flush_window = MODULO(doy - NINT(nsc_flush_start_doy(n)), n_days)     &
+                      < NINT(nsc_flush_days(n))
+END FUNCTION nsc_in_flush_window
 
 SUBROUTINE pftparm_alloc(npft)
 
@@ -1655,7 +1698,11 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  l_scale_resp_pm, stomata_desica,              &
                                  som_psi_solver, psi_solver_lut,               &
                                  l_ximpair_seg_memory, l_som_plant_segments,   &
-                                 xylem_impairment_memory
+                                 xylem_impairment_memory,                      &
+                                 xylem_impairment_none,                        &
+                                 xylem_impairment_whole_trunk,                 &
+                                 ximpair_driver_leaf, ximpair_driver_stem,     &
+                                 l_ximpair_leaf_loss, l_phenol
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs, l_snow_albedo
 
@@ -2346,6 +2393,28 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
     'pft_xylem_impairment_model 1 (kmax) and 4 (kmax refit) are retired; '  // &
     'use 2 or 3 (their code is on branch xylem_impairment at 130a575)')
   END IF
+  ! Any other value would only be caught after spin-up (the impairment
+  ! routines return early in spin-up), so check here, once.
+  !
+  ! MDK, 24/10/26
+  IF ( ANY( pft_xylem_impairment_model(1:npft) /= xylem_impairment_none .AND.  &
+            pft_xylem_impairment_model(1:npft) /=                             &
+                                         xylem_impairment_whole_trunk .AND.   &
+            pft_xylem_impairment_model(1:npft) /= xylem_impairment_memory ) )  &
+       THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR,                                           &
+    'pft_xylem_impairment_model should be 0 (none), 2 (whole trunk) or '    // &
+    '3 (memory)')
+  END IF
+  IF ( ANY( pft_xylem_impairment_model(1:npft) == xylem_impairment_memory    &
+            .AND. ( ximpair_psi_driver(1:npft) < ximpair_driver_leaf .OR.     &
+                    ximpair_psi_driver(1:npft) > ximpair_driver_stem ) ) )    &
+       THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR,                                           &
+    'ximpair_psi_driver should be leaf (1), mean (2), root (3) or stem (4)')
+  END IF
 END IF
 
 !-----------------------------------------------------------------------------
@@ -2360,6 +2429,48 @@ IF ( l_ximpair_seg_memory ) THEN
     CALL ereport(routinename, ERROR,                                           &
     'l_ximpair_seg_memory needs l_som_plant_segments and '                  // &
     'pft_xylem_impairment_model = 0 or 3 (memory)')
+  END IF
+  ! ...and at least one memory PFT, or it does nothing.
+  !
+  ! MDK, 24/10/26
+  IF ( .NOT. ANY( pft_xylem_impairment_model(1:npft) ==                     &
+                  xylem_impairment_memory ) ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR,                                           &
+    'l_ximpair_seg_memory needs a PFT with pft_xylem_impairment_model = 3')
+  END IF
+END IF
+
+!-----------------------------------------------------------------------------
+! The growth gate ximpair_psi_growth is in MPa (it was read in Pa before
+! 24/10/26), as nsc_psi_turg_* and phen_psi_tlp. Stop on a value in Pa
+! (e.g. -1.1e6), which would otherwise close the gate for good.
+!
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+IF ( ANY( is_set(ximpair_psi_growth(1:npft)) .AND.                             &
+          ( ximpair_psi_growth(1:npft) < -100.0 .OR.                          &
+            ximpair_psi_growth(1:npft) > 0.0 ) ) ) THEN
+  ERROR = 1
+  CALL ereport(routinename, ERROR,                                             &
+  'ximpair_psi_growth is in MPa (e.g. -1.1), not Pa; it should be '         // &
+  'between -100 and 0')
+END IF
+
+!-----------------------------------------------------------------------------
+! Leaf loss after damage: needs the memory model's cap and phenology, or it
+! silently does nothing. A warning, not an error.
+!
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+IF ( l_ximpair_leaf_loss ) THEN
+  IF ( .NOT. l_phenol .OR.                                                    &
+       .NOT. ANY( pft_xylem_impairment_model(1:npft) ==                     &
+                  xylem_impairment_memory ) ) THEN
+    ERROR = -1
+    CALL ereport(routinename, ERROR,                                           &
+    'l_ximpair_leaf_loss has no effect without l_phenol and a PFT with '    // &
+    'pft_xylem_impairment_model = 3')
   END IF
 END IF
 

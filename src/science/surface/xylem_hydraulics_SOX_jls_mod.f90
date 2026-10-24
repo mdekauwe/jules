@@ -46,7 +46,6 @@ SUBROUTINE leaf_conductance_SOX_jls( pft,                                      &
                                      leaf_k                                    &
   )
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -113,7 +112,6 @@ SUBROUTINE xylem_conductance_SOX_jls( pft,                                     &
                                       xylem_conductance                        &
   )
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -282,6 +280,11 @@ INTEGER :: i, j, k, l
 ! Taylor series variables
 REAL(KIND=real_jlslsm) :: leaf_k_new
 REAL(KIND=real_jlslsm) :: k_conversion_limit
+LOGICAL :: l_nr_active(n_e_leaf)
+                   ! Newton: samples still iterating (each sample stops on
+                   ! its own convergence)
+                   !
+                   ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) :: reference_psi
 REAL(KIND=real_jlslsm) :: kmax_open(open_pnts)
                             ! kmax gathered onto the open-point index, for
@@ -491,7 +494,11 @@ CASE(psi_solver_newton)
 
     ! Iterate the water potential until converged, or until max_nr_iter is
     ! reached. See the max_nr_iter comment above for why a fixed 2
-    ! iterations with no convergence check was wrong.
+    ! iterations with no convergence check was wrong. Each sample stops
+    ! when its own k has settled.
+    !
+    ! MDK, 24/10/26
+    l_nr_active(:) = .TRUE.
     DO i = 1, max_nr_iter
 
       ! Calculate the xylem conductance for the current leaf water potential.
@@ -521,17 +528,19 @@ CASE(psi_solver_newton)
       ! (Was "+": the update must lower psi_leaf when the demand exceeds the
       ! supply, as in psi_leaf_CW_jls; with "+" it stepped away from the
       ! root, e.g. -5.0 instead of -5.5 MPa at high demand.)
-      leaf_psi(:,j) = leaf_psi(:,j)                                            &
-             - (e_leaf(:,j) - e_leaf_current(:,j))                             &
-               / MAX(leaf_k(:,j), TINY(1.0_real_jlslsm))
+      WHERE (l_nr_active(:))                                                   &
+        leaf_psi(:,j) = leaf_psi(:,j)                                          &
+               - (e_leaf(:,j) - e_leaf_current(:,j))                           &
+                 / MAX(leaf_k(:,j), TINY(1.0_real_jlslsm))
 
       ! Guard against runaway steps for an infeasible sample, as in
       ! psi_leaf_CW_jls.
       leaf_psi(:,j) = MAX(leaf_psi(:,j),                                       &
                           root_zone_psi(l) - 5.0 * ABS(conductance_b(l)))
 
-
-      IF (MAXVAL(ABS(leaf_k(:,j) - leaf_k_prev(:,j))) < k_conversion_limit) EXIT
+      WHERE (ABS(leaf_k(:,j) - leaf_k_prev(:,j)) < k_conversion_limit)         &
+        l_nr_active(:) = .FALSE.
+      IF ( .NOT. ANY(l_nr_active(:)) ) EXIT
 
     END DO
 
@@ -650,7 +659,6 @@ END SUBROUTINE psi_leaf_SOX_jls
 ! ---------------------------------------------------------------------
 FUNCTION SOX_2F1(n_xf, cf, xf) RESULT( sum )
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -733,7 +741,6 @@ END FUNCTION SOX_2F1
 ! ---------------------------------------------------------------------
 FUNCTION SOX_2F1_multiple_cf(n_xf, cf, xf) RESULT( sum )
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 

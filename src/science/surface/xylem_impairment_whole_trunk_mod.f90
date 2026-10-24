@@ -44,7 +44,6 @@ SUBROUTINE leaf_conductance_impaired_whole_trunk_jls( pft,                    &
 
 USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -140,7 +139,6 @@ SUBROUTINE xylem_conductance_impaired_whole_trunk_stom_opt_jls(                &
 
 USE xylem_hydraulics_jls_mod, ONLY: xylem_conductance_jls
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -407,7 +405,6 @@ SUBROUTINE update_xylem_impairment_whole_trunk ( n_land_pts                    &
 ,                                                psi_root_extreme              &
                                                )
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -506,7 +503,6 @@ SUBROUTINE psi_leaf_impaired_CW_jls( pft,                                      &
 
 USE xylem_hydraulics_CW_jls_mod, ONLY: incomplete_gamma
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -708,7 +704,6 @@ SUBROUTINE psi_leaf_impaired_SOX_jls( pft,                                    &
 
 USE xylem_hydraulics_SOX_jls_mod, ONLY: SOX_2F1
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 

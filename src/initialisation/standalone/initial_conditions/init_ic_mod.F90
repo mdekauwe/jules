@@ -1027,8 +1027,8 @@ DO i = 1, nvars_required
 
     !Xylem impairment state: intact (0 sets the intact curve in
     !init_vars_tmp).
-  CASE ( 'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',               &
-         'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock' )
+  CASE ( 'kmax_impaired', 'psi_leaf_extreme', 'psi_root_extreme',            &
+         'ximpair_lock' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'ximpair_kcap_leaf', 'ximpair_fmin_acc' )
     ! Leaf-segment cap fraction: 1 = intact.

@@ -289,7 +289,8 @@ INTEGER, PARAMETER ::                                                          &
     ! fine grid, then golden-section on [ccp, ci_b] (som_n_ci_golden_iter).
     ! See stom_opt_bounded_search. Fastest with som_psi_solver = 3, which
     ! gives the edge directly. sox_opt_profit_model uses it too (A_n (k - kcrit)
-    ! is unimodal in Ci), except with xylem impairment (flat grid).
+    ! is unimodal in Ci); SOX_opt has no xylem impairment (rejected at
+    ! start-up). MDK, 24/10/26
 
 ! Parameters identifying different profit models for determaning the optimal
 ! stomatal conductance.

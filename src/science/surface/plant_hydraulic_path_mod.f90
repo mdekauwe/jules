@@ -419,6 +419,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Segment kmax, kcrit, Weibull b (Pa) and c; cap fraction, the psi
       ! where the intact curve meets the cap and the intact integral there.
 LOGICAL :: l_cap, l_impair, l_exact_on
+LOGICAL :: l_nr_active(n_e_leaf)
+      ! Newton: samples still iterating (each stops on its own convergence).
+      !
+      ! MDK, 24/10/26
 
 l_impair = PRESENT(kcap_frac)
 l_exact_on = .FALSE.
@@ -512,17 +516,23 @@ DO j = 1, open_pnts
     !   E(psi_out) = seg_a(psi_out) - a_in
     !
     ! and dE/dpsi_out = -k(psi_out), so each step moves psi_out by the
-    ! missing flow divided by the conductance there. Stop when k has
-    ! settled (changes by less than 0.1 kcrit) or after max_nr_iter steps.
+    ! missing flow divided by the conductance there. Each sample stops
+    ! when its own k has settled (changes by less than 0.1 kcrit), or
+    ! after max_nr_iter steps.
+    !
+    ! MDK, 24/10/26
+    l_nr_active(:) = .TRUE.
     DO it = 1, max_nr_iter
       k_prev(:) = k_cur(:)
       k_cur(:)  = seg_k(psi_out)
       e_cur(:)  = seg_a(n_e_leaf, psi_out) - a_in(:)
-      psi_out(:) = psi_out(:) - (e_leaf(:,j) - e_cur(:))                       &
-                                / MAX(k_cur(:), TINY(1.0_real_jlslsm))
+      WHERE (l_nr_active(:))                                                   &
+        psi_out(:) = psi_out(:) - (e_leaf(:,j) - e_cur(:))                     &
+                                  / MAX(k_cur(:), TINY(1.0_real_jlslsm))
       ! Same runaway guard as the single segment (infeasible demand).
       psi_out(:) = MAX(psi_out(:), psi_in(:) - 5.0 * ABS(bs))
-      IF ( MAXVAL(ABS(k_cur(:) - k_prev(:))) < 0.1 * kcr ) EXIT
+      WHERE (ABS(k_cur(:) - k_prev(:)) < 0.1 * kcr) l_nr_active(:) = .FALSE.
+      IF ( .NOT. ANY(l_nr_active(:)) ) EXIT
     END DO
 
     ! Optionally make psi_out exact by bisection (see seg_bisect).

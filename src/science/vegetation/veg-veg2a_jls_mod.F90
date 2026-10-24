@@ -871,7 +871,6 @@ IF (l_triffid .AND.                                                            &
           ! With the TRIFFID store npp_dr came back as the carbon released
           ! from it, W = NPP - dC - overflow respiration: add those back so
           ! the store's net flux is not carried into the next period's NPP.
-          ! (An extra store input c_in would have to be subtracted here.)
           ! MDK, 18/10/26
           IF ( l_triffid_nsc .AND. ALLOCATED(nsc_dc_pft) )                     &
             npp_ac(l,n) = npp_ac(l,n) + ratio * (nsc_dc_pft(l,n)               &

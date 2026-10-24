@@ -950,8 +950,6 @@ IF (leaf_flux_mod == leaf_flux_stom_opt) THEN
 ,                               ainfo%surft_index                          &
 ,                               et_stom_surft_working                      &
 ,                               psparms%psi_root_zone_pft                  &
-,                               psparms%conductance_b_impaired_pft         &
-,                               psparms%conductance_c_impaired_pft         &
 ,                               psparms%kmax_impaired_pft                  &
 ,                               psparms%psi_leaf_extreme_pft               &
 ,                               psparms%psi_root_extreme_pft               &

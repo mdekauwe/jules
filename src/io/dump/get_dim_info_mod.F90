@@ -159,7 +159,7 @@ CASE ( 'sthzw_soilt', 'zw_soilt' )
 
 CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                        &
        'psi_leaf_desica', 'psi_stem_desica',                                    &
-       'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',                  &
+       'kmax_impaired',                                                        &
        'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',                 &
        'ximpair_kcap_leaf',                                                    &
        'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', &

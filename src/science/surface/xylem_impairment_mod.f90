@@ -592,8 +592,6 @@ SUBROUTINE canopy_impaired_psi_jls( land_pts                                   &
 ,                                   surface_index                              &
 ,                                   e_canopy                                   &
 ,                                   root_zone_psi                              &
-,                                   conductance_b                              &
-,                                   conductance_c                              &
 ,                                   kmax_pft                                   &
 ,                                   psi_leaf_extreme                           &
 ,                                   psi_root_extreme                           &
@@ -606,12 +604,12 @@ SUBROUTINE canopy_impaired_psi_jls( land_pts                                   &
 
 USE jules_surface_types_mod,  ONLY: npft
 USE ancil_info,               ONLY: nsurft
-USE pftparm, ONLY: kmax_pft_ref => kmax_pft, kcrit
+USE pftparm, ONLY: kmax_pft_ref => kmax_pft, kcrit, conductance_b_pft,         &
+                   conductance_c_pft   ! MDK, 24/10/26
 USE plant_hydraulic_path_mod, ONLY: ksr_path
 USE water_constants_mod, ONLY: Water_kg_per_mol
                             ! MDK, 21/10/26
 
-USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -632,12 +630,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! MDK, 21/10/26
 , root_zone_psi(land_pts, npft)                                                &
                              ! Water potential in the root zone (Pa)
-, conductance_b(land_pts, npft)                                                &
-                            ! Conductance parameter b for each plant
-                            ! functional type (Pa)
-, conductance_c(land_pts, npft)                                                &
-                            ! Conductance parameter c for each plant
-                            ! functional type (Pa)
 , kmax_pft(land_pts, npft)                                                     &
                             ! Maximum xylem conductance for each plant
                             ! functional type (mol m-2 s-1 Pa-1)
@@ -701,8 +693,15 @@ REAL(KIND=real_jlslsm) ::                                                      &
 , kmax_ref(land_pts)                                                           &
                             ! Unimpaired maximum xylem conductance
                             ! (mol m-2 s-1 Pa-1)
-, kcrit_pts(land_pts)
+, kcrit_pts(land_pts)                                                          &
                             ! Critical xylem conductance (mol m-2 s-1 Pa-1)
+, b_pts(land_pts), c_pts(land_pts)
+                            ! The PFT's vulnerability curve (b in Pa), which
+                            ! the memory and whole-trunk models never change
+                            ! (the per-point copies were for the retired
+                            ! refitted model 4).
+                            !
+                            ! MDK, 24/10/26
 
 ! Local variables
 
@@ -758,6 +757,8 @@ DO pft = 1, npft
   ! Leaf-basis (unscaled) curve, as this diagnostic has always used.
   kmax_ref(:)  = kmax_pft_ref(pft)
   kcrit_pts(:) = kcrit(pft)
+  b_pts(:)     = conductance_b_pft(pft)
+  c_pts(:)     = conductance_c_pft(pft)
 
     ! Calculate canopy water potential for points with open stomata
   CALL psi_leaf_impaired_jls( pft,                                             &
@@ -771,8 +772,8 @@ DO pft = 1, npft
                               kmax_ref,                                        &
                               kmax_pft(:,pft),                                 &
                               kcrit_pts,                                       &
-                              conductance_b(:,pft),                            &
-                              conductance_c(:,pft),                            &
+                              b_pts,                                           &
+                              c_pts,                                           &
                               psi_leaf_extreme(:,pft),                         &
                               psi_root_extreme(:,pft),                         &
                            ! INTENT OUT

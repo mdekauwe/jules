@@ -357,6 +357,12 @@ INTEGER :: i, j, k, l
 ! Taylor expansion variables
 REAL(KIND=real_jlslsm) :: leaf_k_new
 REAL(KIND=real_jlslsm) :: k_conversion_limit
+LOGICAL :: l_nr_active(n_e_leaf)
+                   ! Newton: samples still iterating (each sample stops on
+                   ! its own convergence, so the answer for one E does not
+                   ! depend on what else is in the call)
+                   !
+                   ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) :: reference_psi
 REAL(KIND=real_jlslsm) :: kmax_open(open_pnts)
                             ! kmax gathered onto the open-point index, for
@@ -588,6 +594,10 @@ CASE(psi_solver_newton)
     ! leaf_psi satisfies it) does not converge: leaf_k keeps shrinking
     ! and leaf_psi keeps stepping further negative, which drives leaf_k
     ! below kcrit so the feasibility mask (k > kcrit) rejects the sample.
+    ! Each sample stops when its own k has settled.
+    !
+    ! MDK, 24/10/26
+    l_nr_active(:) = .TRUE.
     DO i = 1, max_nr_iter
 
       ! Calculate the xylem conductance for the current leaf water
@@ -620,9 +630,10 @@ CASE(psi_solver_newton)
       ! already collapsed leaf_k to (numerically) 0; MAX(...) here does not
       ! change the update for any sample that is still within reach of a
       ! finite solution.
-      leaf_psi(:,j) = leaf_psi(:,j)                                            &
-             - (e_leaf(:,j) - e_leaf_current(:,j))                             &
-               / MAX(leaf_k(:,j), TINY(1.0_real_jlslsm))
+      WHERE (l_nr_active(:))                                                   &
+        leaf_psi(:,j) = leaf_psi(:,j)                                          &
+               - (e_leaf(:,j) - e_leaf_current(:,j))                           &
+                 / MAX(leaf_k(:,j), TINY(1.0_real_jlslsm))
 
       ! Guard against runaway steps for an infeasible sample: once leaf_k
       ! has collapsed there is no need to keep tracking the true (very
@@ -631,8 +642,9 @@ CASE(psi_solver_newton)
       leaf_psi(:,j) = MAX(leaf_psi(:,j),                                       &
                           root_zone_psi(l) - 5.0 * ABS(conductance_b(l)))
 
-      IF (MAXVAL(ABS(leaf_k(:,j) - leaf_k_prev(:,j)))                          &
-          < k_conversion_limit) EXIT
+      WHERE (ABS(leaf_k(:,j) - leaf_k_prev(:,j)) < k_conversion_limit)         &
+        l_nr_active(:) = .FALSE.
+      IF ( .NOT. ANY(l_nr_active(:)) ) EXIT
 
     END DO
 

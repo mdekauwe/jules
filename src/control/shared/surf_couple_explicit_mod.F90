@@ -639,8 +639,7 @@ CASE ( jules )
     psparms%psi_root_zone_pft,psparms%psi_leaf_pft,psparms%cica_ratio_pft,     &
     psparms%leaf_k_pft, psparms%gc_stom_pft,                                   &
     !p_s_parms (IN OUT) JBaguley
-    psparms%kmax_impaired_pft,psparms%conductance_b_impaired_pft,              &
-    psparms%conductance_c_impaired_pft,                                        &
+    psparms%kmax_impaired_pft,                                                 &
     psparms%psi_leaf_extreme_pft,psparms%psi_root_extreme_pft,                 &
     psparms%t_leaf_sun_pft, psparms%t_leaf_shd_pft, psparms%t_can_pft,         &
     psparms%t_leaf_clamp_pft,                                                  &

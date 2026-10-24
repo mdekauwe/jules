@@ -59,12 +59,13 @@ CONTAINS
 LOGICAL FUNCTION phen_bb_on( n )
 
 USE pftparm, ONLY: phen_bb_doy, phen_bb_gdd
+USE pftparm, ONLY: is_set   ! MDK, 24/10/26
 
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: n
 
-phen_bb_on = phen_bb_doy(n) > -1.0e29 .OR. phen_bb_gdd(n) > -1.0e29
+phen_bb_on = is_set(phen_bb_doy(n)) .OR. is_set(phen_bb_gdd(n))
 
 END FUNCTION phen_bb_on
 
@@ -100,6 +101,7 @@ END SUBROUTINE phen_bb_alloc
 SUBROUTINE phen_bb_update( land_pts, veg_pts, veg_index, ft, timestep, tair )
 
 USE pftparm, ONLY: phen_bb_doy, phen_bb_gdd, phen_bb_tbase
+USE pftparm, ONLY: is_set   ! MDK, 24/10/26
 USE model_time_mod, ONLY: current_time
 USE datetime_utils_mod, ONLY: day_of_year
 USE time_info_mod, ONLY: l_360, l_leap
@@ -153,13 +155,13 @@ DO j = 1,veg_pts
     phen_gdd(l,ft)    = 0.0
     phen_bb_day(l,ft) = -1.0
   END IF
-  IF (phen_bb_gdd(ft) > -1.0e29)                                               &
+  IF (is_set(phen_bb_gdd(ft)))                                                 &
     phen_gdd(l,ft) = phen_gdd(l,ft)                                            &
                      + MAX(tair(l) - tm - phen_bb_tbase(ft), 0.0)             &
                        * timestep / 86400.0
   IF (phen_bb_day(l,ft) < 0.0) THEN
-    IF ((phen_bb_doy(ft) > -1.0e29 .AND. doy >= phen_bb_doy(ft)) .OR.        &
-        (phen_bb_gdd(ft) > -1.0e29 .AND. phen_gdd(l,ft) >= phen_bb_gdd(ft))) &
+    IF ((is_set(phen_bb_doy(ft)) .AND. doy >= phen_bb_doy(ft)) .OR.            &
+        (is_set(phen_bb_gdd(ft)) .AND. phen_gdd(l,ft) >= phen_bb_gdd(ft)))     &
     THEN
       phen_bb_day(l,ft)  = doy
       phen_dormant(l,ft) = 0.0

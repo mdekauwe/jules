@@ -631,10 +631,12 @@ IF (l_ximpair_rec_nsc) THEN
   ! Count the time the root zone (~predawn) is wetter than
   ! ximpair_psi_growth, for the growth gate on the next repair, as a
   ! fraction of the store period (the TRIFFID period, or a day without
-  ! TRIFFID).
+  ! TRIFFID). ximpair_psi_growth is in MPa, psi_root in Pa.
+  !
+  ! MDK, 24/10/26
   store_days = 1.0
   IF (l_triffid) store_days = REAL(triffid_period)
-  WHERE (psi_root(:) >= ximpair_psi_growth(pft))                               &
+  WHERE (1.0e-6 * psi_root(:) >= ximpair_psi_growth(pft))                      &
     ximpair_grow_acc(:,pft) = ximpair_grow_acc(:,pft)                          &
                               + REAL(timestep_len) / (86400.0 * store_days)
 END IF

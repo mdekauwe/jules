@@ -99,7 +99,7 @@ SUBROUTINE jules_land_sf_explicit (                                            &
  soil_wp_soilt,soil_k_soilt,soil_root_k_soilt,psi_root_zone_pft,psi_leaf_pft,  &
  cica_ratio_pft,leaf_k_pft,gc_stom_pft,                                        &
  !p_s_parms (IN OUT) JBaguley
- k_max_impaired_pft,conductance_b_impaired_pft,conductance_c_impaired_pft,     &
+ k_max_impaired_pft,                                                           &
  psi_leaf_extreme_pft,psi_root_extreme_pft,                                    &
  t_leaf_sun_pft,t_leaf_shd_pft,t_can_pft,t_leaf_clamp_pft,                     &
  !urban_param (IN)
@@ -709,8 +709,6 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 !p_s_parms (IN OUT) JBaguley
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
  k_max_impaired_pft(land_pts,npft)                                             &
-,conductance_b_impaired_pft(land_pts,npft)                                     &
-,conductance_c_impaired_pft(land_pts,npft)                                     &
 ,psi_leaf_extreme_pft(land_pts,npft)                                           &
 ,psi_root_extreme_pft(land_pts,npft)
 
@@ -1309,8 +1307,7 @@ CALL physiol (                                                                 &
   soil_wp_soilt,soil_k_soilt,soil_root_k_soilt,psi_root_zone_pft,psi_leaf_pft, &
   cica_ratio_pft,leaf_k_pft,                                                   &
   !p_s_parms (IN OUT) JBaguley
-  k_max_impaired_pft, conductance_b_impaired_pft,                              &
-  conductance_c_impaired_pft, psi_leaf_extreme_pft, psi_root_extreme_pft,      &
+  k_max_impaired_pft, psi_leaf_extreme_pft, psi_root_extreme_pft,              &
   !leaf temperature (IN: drivers; OUT: sunlit/shaded/canopy)
   tl_1,lw_down,t_leaf_sun_pft,t_leaf_shd_pft,t_can_pft,                        &
   t_leaf_clamp_pft,                                                            &

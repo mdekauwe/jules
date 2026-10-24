@@ -1060,6 +1060,7 @@ SUBROUTINE init_pftparm_allocated()
 
 !No USE statements other than Dr Hook
 USE ereport_mod, ONLY: ereport
+USE pftparm, ONLY: is_set   ! MDK, 24/10/26
 USE parkind1,    ONLY: jprb, jpim
 USE yomhook,     ONLY: lhook, dr_hook
 
@@ -1517,10 +1518,10 @@ END DO
 
 ! Budburst for deciduous phenology: one of a fixed day or degree-days.
 ! MDK, 20/10/26
-IF ( ANY(phen_bb_doy(:) > -1.0e29 .AND. phen_bb_gdd(:) > -1.0e29) .OR.       &
-     ANY(phen_bb_doy(:) > -1.0e29 .AND.                                       &
+IF ( ANY(is_set(phen_bb_doy(:)) .AND. is_set(phen_bb_gdd(:))) .OR.             &
+     ANY(is_set(phen_bb_doy(:)) .AND.                                          &
          (phen_bb_doy(:) < 1.0 .OR. phen_bb_doy(:) > 366.0)) .OR.            &
-     ANY(phen_bb_gdd(:) > -1.0e29 .AND. phen_bb_gdd(:) <= 0.0) .OR.          &
+     ANY(is_set(phen_bb_gdd(:)) .AND. phen_bb_gdd(:) <= 0.0) .OR.              &
      ANY(phen_bb_min_days(:) < 0.0) .OR. ANY(phen_bb_min_days(:) > 366.0) ) THEN
   errcode = 101
   CALL ereport(RoutineName, errcode,                                           &
@@ -1557,14 +1558,14 @@ IF ( l_triffid_nsc ) THEN
                  '(the PFT fractions are fixed).')
   END IF
   ! MDK, 18/10/26
-  IF ( ANY(nsc_psi_turg_zero(:) > -1.0e29 .AND.                               &
+  IF ( ANY(is_set(nsc_psi_turg_zero(:)) .AND.                                  &
            nsc_psi_turg_full(:) <= nsc_psi_turg_zero(:)) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'The turgor-limited sink needs nsc_psi_turg_full_io > '   // &
                  'nsc_psi_turg_zero_io.')
   END IF
-  IF ( ANY(nsc_t_grow_zero(:) > -1.0e29 .AND.                                 &
+  IF ( ANY(is_set(nsc_t_grow_zero(:)) .AND.                                    &
            nsc_t_grow_full(:) <= nsc_t_grow_zero(:)) .OR.                     &
        ANY(nsc_overflow_resp(:) < 0.0) .OR. ANY(nsc_overflow_resp(:) > 1.0) ) &
   THEN
@@ -1575,12 +1576,12 @@ IF ( l_triffid_nsc ) THEN
   END IF
   ! Growing season: days of the year, the end after the start.
   ! MDK, 20/10/26
-  IF ( ANY(nsc_grow_start_doy(:) > -1.0e29 .AND.                              &
+  IF ( ANY(is_set(nsc_grow_start_doy(:)) .AND.                                 &
            (nsc_grow_start_doy(:) < 1.0 .OR. nsc_grow_start_doy(:) > 366.0))  &
-       .OR. ANY(nsc_grow_end_doy(:) > -1.0e29 .AND.                           &
+       .OR. ANY(is_set(nsc_grow_end_doy(:)) .AND.                              &
            (nsc_grow_end_doy(:) < 1.0 .OR. nsc_grow_end_doy(:) > 366.0))      &
-       .OR. ANY(nsc_grow_start_doy(:) > -1.0e29 .AND.                         &
-           nsc_grow_end_doy(:) > -1.0e29 .AND.                                &
+       .OR. ANY(is_set(nsc_grow_start_doy(:)) .AND.                            &
+           is_set(nsc_grow_end_doy(:)) .AND.                                   &
            nsc_grow_end_doy(:) <= nsc_grow_start_doy(:)) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
@@ -1589,7 +1590,7 @@ IF ( l_triffid_nsc ) THEN
   END IF
   ! Leaf flush: a day of the year and a positive duration.
   ! MDK, 20/10/26
-  IF ( ANY(nsc_flush_start_doy(:) > -1.0e29 .AND.                             &
+  IF ( ANY(is_set(nsc_flush_start_doy(:)) .AND.                                &
            (nsc_flush_start_doy(:) < 1.0 .OR. nsc_flush_start_doy(:) > 366.0  &
             .OR. nsc_flush_days(:) < 1.0 .OR. nsc_flush_days(:) > 366.0)) ) THEN
     errcode = 101
@@ -1625,7 +1626,7 @@ IF ( l_triffid_nsc ) THEN
                  'nsc_xylem_replace_io > 0 needs ximpair_reset_mmdd_io off.')
   END IF
   ! Leaf flush: a whole number of days.
-  IF ( ANY(nsc_flush_start_doy(:) > -1.0e29 .AND.                             &
+  IF ( ANY(is_set(nsc_flush_start_doy(:)) .AND.                                &
            ABS(nsc_flush_days(:) - ANINT(nsc_flush_days(:))) > 1.0e-6) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &

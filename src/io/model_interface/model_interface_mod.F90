@@ -177,7 +177,7 @@ END TYPE var_metadata
 ! or output. The CABLE land surface model adds 10 prognostics for tiled
 ! soil/snow prognostics.
 ! soil/snow prognostics.
-INTEGER, PARAMETER :: n_vars = 808 ! -4 ximpair_npp_prev/wood_prev/renew_mean/renew_wt (retired, MDK, 23/10/26), +5 hydmort_* (MDK, 21/10/26), +1 lambda_eff_pft (MDK, 22/10/26), +6 cut_q/w_store_pft, cut_w_store/psi_stem, cut_c_store, cut_w_shed_pft (MDK, 22/10/26), +3 phen_gdd/bb_day/dormant (MDK, 20/10/26), +1 d13c_disc_pft (MDK, 22/10/26), +6 sf_stom state (MDK, 22/10/26), +7 TRIFFID timer/accumulators (MDK, 22/10/26), +2 ximpair_rebuilt/lock_new (MDK, 20/10/26), +1 t_leaf_clamp_pft (MDK, 18/10/26), +19 TRIFFID store (nsc_*, ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc), +1 ximpair_kcap_leaf, upstream 723 + 10 stomatal optimisation
+INTEGER, PARAMETER :: n_vars = 806 ! -2 cond_b/c_impaired (retired with model 4, MDK, 24/10/26), -4 ximpair_npp_prev/wood_prev/renew_mean/renew_wt (retired, MDK, 23/10/26), +5 hydmort_* (MDK, 21/10/26), +1 lambda_eff_pft (MDK, 22/10/26), +6 cut_q/w_store_pft, cut_w_store/psi_stem, cut_c_store, cut_w_shed_pft (MDK, 22/10/26), +3 phen_gdd/bb_day/dormant (MDK, 20/10/26), +1 d13c_disc_pft (MDK, 22/10/26), +6 sf_stom state (MDK, 22/10/26), +7 TRIFFID timer/accumulators (MDK, 22/10/26), +2 ximpair_rebuilt/lock_new (MDK, 20/10/26), +1 t_leaf_clamp_pft (MDK, 18/10/26), +19 TRIFFID store (nsc_*, ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc), +1 ximpair_kcap_leaf, upstream 723 + 10 stomatal optimisation
                                     ! + 6 DESICA + gc_stom_pft + 6 xylem
                                     ! impairment + 11 xylem impairment state
                                     ! + 3 leaf temperatures + kplant_pft

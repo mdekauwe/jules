@@ -60,8 +60,7 @@ SUBROUTINE physiol (                                                           &
   !p_s_parms (out) JBaguley
   soil_wp_soilt, soil_k_soilt, soil_root_k_soilt, psi_root_zone_pft,           &
   psi_leaf_pft, cica_ratio_pft, leaf_k_pft, k_max_impaired_pft,                &
-  conductance_b_impaired_pft, conductance_c_impaired_pft, psi_leaf_extreme_pft,&
-  psi_root_extreme_pft,                                                        &
+  psi_leaf_extreme_pft, psi_root_extreme_pft,                                  &
   !leaf temperature (IN: drivers; OUT: sunlit/shaded/canopy)
   tl_1,lw_down,t_leaf_sun_pft,t_leaf_shd_pft,t_can_pft,                        &
   t_leaf_clamp_pft,                                                            &
@@ -123,7 +122,7 @@ USE jules_vegetation_mod, ONLY:                                                &
   l_som_capacitance_on   ! MDK, 23/10/26
 USE plant_hydraulic_path_mod, ONLY: ksr
 USE planet_constants_mod, ONLY: g
-USE pftparm, ONLY: root_psi_crit, fsmc_mod
+USE pftparm, ONLY: fsmc_mod
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
@@ -134,7 +133,8 @@ USE soil_evap_or_mod, ONLY: gsoil_or, w1_or
 USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft,       &
                    soil_litter_depth, or_z0soil_fac
 USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht   ! MDK, 20/10/26
-USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, sigl, lma, rmass, kmax_pft
+USE pftparm, ONLY: sigl, lma, rmass, kmax_pft, conductance_b_pft,             &
+                   conductance_c_pft
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs,                    &
                                l_spec_alb_bs
@@ -364,8 +364,6 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 !p_s_parms (IN OUT) JBaguley
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
  k_max_impaired_pft(land_pts,npft)                                             &
-,conductance_b_impaired_pft(land_pts,npft)                                     &
-,conductance_c_impaired_pft(land_pts,npft)                                     &
 ,psi_leaf_extreme_pft(land_pts,npft)                                           &
 ,psi_root_extreme_pft(land_pts,npft)
 !Leaf temperature (l_leaf_temp)
@@ -690,6 +688,13 @@ REAL(KIND=real_jlslsm), PARAMETER :: vonk_or = 0.4
 ! Soil supply limit on transpiration (l_som_supply_limit)
 INTEGER ::                                                                     &
   k_sup, kl_sup
+
+! The PFT's vulnerability curve on land points, for sf_stom (b in Pa).
+! Every impairment model uses it unchanged; the per-point copies
+! (conductance_b/c_impaired_pft) were for the retired refitted model 4.
+!
+! MDK, 24/10/26
+REAL(KIND=real_jlslsm) :: cond_b_pts(land_pts), cond_c_pts(land_pts)
       ! Loop indices.
 
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -697,11 +702,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Transpiration the soil can supply this timestep (kg m-2 s-1): this
       ! tile's smc (the moisture limit sf_evap applies to esoil) per
       ! timestep. Negative when the limit is off.
-  fsoil_sup,                                                                   &
+  fsoil_sup
       ! Fraction of the ground below the canopy seen by soil evaporation,
       ! as soil_evap computes it (exp(-0.5 LAI)).
-  e_root_sup
-      ! Root uptake limit (l_som_root_supply, kg m-2 s-1).
 
 ! Root mass for the soil-to-root conductance (see l_root_mass_fixed)
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -1366,7 +1369,7 @@ DO n = 1,npft
   ! NOTE: min_rootc_pft needs to be changed for dynamic root growth
   IF (l_irrig_dmd) THEN
     CALL smc_ext (land_pts,sm_levels,surft_pts(n),surft_index(:,n), n, f_root, &
-                  satcon_soilt(:,n,:),                      &
+                  satcon_soilt(:,m,:),                                         &
                   sthu_irr_soilt(:,m,:),                                       &
                   v_open,smvcst_soilt(:,m,:),                                  &
                   v_close,                                                     &
@@ -1553,6 +1556,8 @@ DO n = 1,npft
   END DO
 
   fsun_tmp(:,:) = fsun(:,n,:)
+  cond_b_pts(:) = conductance_b_pft(n)
+  cond_c_pts(:) = conductance_c_pft(n)
 
   CALL sf_stom (land_pts,land_index                                            &
 ,               surft_pts(n),surft_index(:,n),n                                &
@@ -1583,8 +1588,7 @@ DO n = 1,npft
 ,               methanol_pft(:,n),acetone_pft(:,n)                             &
 ,               open_index,open_pts                                            &
 ,               carbon_gain(:,n),hydraulic_cost(:,n),gc_som(:,n)               &
-,               k_max_impaired_pft(:,n), conductance_b_impaired_pft(:,n)       &
-,               conductance_c_impaired_pft(:,n)                                &
+,               k_max_impaired_pft(:,n), cond_b_pts, cond_c_pts                &
 ,               psi_leaf_extreme_pft(:,n), psi_root_extreme_pft(:,n)           &
                     !New arguments replacing USE statements
                     !crop_vars_mod (IN)
@@ -1647,7 +1651,7 @@ DO n = 1,npft
       !
       ! MDK, 23/10/26
       e_root_rs = el_pft(l,n)
-      IF ( l_som_capacitance_on .AND. n <= npft )                             &
+      IF ( l_som_capacitance_on )                                             &
         e_root_rs = MAX(el_pft(l,n) - cut_q_store(l,n) / m_h2o_rs, 0.0)
       psi_root_rs = psi_root_zone_pft(l,n)                                     &
                     - e_root_rs * m_h2o_rs * rho_water * g / ksum_rs

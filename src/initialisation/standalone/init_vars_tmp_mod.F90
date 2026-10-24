@@ -24,8 +24,7 @@ USE jules_vegetation_mod, ONLY: l_triffid, l_use_pft_psi, fsmc_shape,          &
 
 USE trif, ONLY: lai_min
 
-USE pftparm, ONLY: fsmc_mod, psi_close, psi_open, kmax_pft, conductance_b_pft, &
-                    conductance_c_pft
+USE pftparm, ONLY: fsmc_mod, psi_close, psi_open, kmax_pft
 USE ancil_info, ONLY: land_pts, nsoilt
 USE jules_sea_seaice_mod, ONLY: z0hsea, alpham, alphac, alphab, dtice
 USE C_kappai, ONLY: kappai, de
@@ -332,19 +331,15 @@ IF ((fsmc_shape == 1) .AND. ANY(fsmc_mod == 1)) THEN
 END IF
 
 !------------------------------------------------------------------
-! Initialise impared xylem conductance curve properties to the intact
-! curve, except where a damaged curve was read from the initial
-! conditions or a dump (impairment on); 0 there means intact.
+! Initialise the impaired kmax to the intact one, except where a damaged
+! value was read from the initial conditions or a dump (impairment on); 0
+! there means intact. (The impaired curve's b and c, which only the retired
+! refitted model 4 changed, are gone: every model uses the PFT's curve.
+! MDK, 24/10/26)
 !------------------------------------------------------------------
 DO i = 1, npft
   WHERE ( psparms%kmax_impaired_pft(:,i) <= 0.0 )
     psparms%kmax_impaired_pft(:,i) = kmax_pft(i)
-  END WHERE
-  WHERE ( psparms%conductance_b_impaired_pft(:,i) == 0.0 )
-    psparms%conductance_b_impaired_pft(:,i) = conductance_b_pft(i)
-  END WHERE
-  WHERE ( psparms%conductance_c_impaired_pft(:,i) == 0.0 )
-    psparms%conductance_c_impaired_pft(:,i) = conductance_c_pft(i)
   END WHERE
   ! The canopy conductance diagnostic keeps its last value while the stomata
   ! are shut; start it at the (possibly restored) impaired kmax, as it

@@ -368,16 +368,6 @@ DO i = 1,nvars
       CALL gather_land_field(psparms%kmax_impaired_pft(:,n), global_data_2d(:,n))
     END DO
 
-  CASE ( 'cond_b_impaired' )
-    DO n = 1,npft
-      CALL gather_land_field(psparms%conductance_b_impaired_pft(:,n), global_data_2d(:,n))
-    END DO
-
-  CASE ( 'cond_c_impaired' )
-    DO n = 1,npft
-      CALL gather_land_field(psparms%conductance_c_impaired_pft(:,n), global_data_2d(:,n))
-    END DO
-
   CASE ( 'psi_leaf_extreme' )
     DO n = 1,npft
       CALL gather_land_field(psparms%psi_leaf_extreme_pft(:,n), global_data_2d(:,n))
@@ -1292,7 +1282,7 @@ DO i = 1,nvars
       ! number of levels to global_data_2d.
     CASE ( 'canht', 'lai', 'years_since_harvest', 'harvest_doy', 'f_nsc',     &
            'psi_leaf_desica', 'psi_stem_desica',                               &
-           'kmax_impaired', 'cond_b_impaired', 'cond_c_impaired',              &
+           'kmax_impaired',                                                    &
            'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',             &
            'ximpair_kcap_leaf',                                                &
            'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', &

@@ -51,6 +51,7 @@ USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
 USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 USE jules_vegetation_mod, ONLY: xylem_impairment_none
+USE pftparm, ONLY: conductance_b_pft, conductance_c_pft   ! MDK, 24/10/26
 USE pftparm, ONLY: kmax_pft, kcrit, pft_xylem_impairment_model
 
 !Use variables
@@ -183,6 +184,8 @@ REAL :: workspace_levs(land_pts, sm_levels)
 REAL :: workspace_pft(land_pts, npft)
                                 ! Used in calculation of PFT variables
 REAL :: kmax_ref_plc(land_pts), kcrit_plc(land_pts), kx_plc(land_pts)
+REAL :: b_plc(land_pts), c_plc(land_pts)
+                                ! The PFT's curve (MDK, 24/10/26)
 REAL :: g_stem, g_leaf, psi_s
                                 ! PLC_pft with xylem impairment: unimpaired
                                 ! kmax_pft and kcrit, and the impaired xylem
@@ -3788,18 +3791,6 @@ CASE ( 'kmax_impaired' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-CASE ( 'cond_b_impaired' )
-  workspace_pft(:,:) = 0.0
-  workspace_pft(:,:) = psparms%conductance_b_impaired_pft
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
-CASE ( 'cond_c_impaired' )
-  workspace_pft(:,:) = 0.0
-  workspace_pft(:,:) = psparms%conductance_c_impaired_pft
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
 CASE ( 'psi_leaf_extreme' )
   workspace_pft(:,:) = 0.0
   workspace_pft(:,:) = psparms%psi_leaf_extreme_pft
@@ -4141,13 +4132,14 @@ CASE ('PLC_pft')
     ELSE
       kmax_ref_plc(:)  = kmax_pft(i)
       kcrit_plc(:)     = kcrit(i)
+      b_plc(:)         = conductance_b_pft(i)
+      c_plc(:)         = conductance_c_pft(i)
       CALL leaf_conductance_impaired_jls( i, land_pts,                         &
                                           psparms%psi_leaf_pft(:,i),           &
                                           kmax_ref_plc,                        &
                                           psparms%kmax_impaired_pft(:,i),      &
                                           kcrit_plc,                           &
-                                          psparms%conductance_b_impaired_pft(:,i), &
-                                          psparms%conductance_c_impaired_pft(:,i), &
+                                          b_plc, c_plc,                        &
                                           psparms%psi_leaf_extreme_pft(:,i),   &
                                           kx_plc )
       workspace_pft(:,i) = 100.0 * (1.0 - kx_plc(:) / kmax_pft(i))
@@ -4192,14 +4184,23 @@ CASE ('impaired_kmax_pft')
   ! Hydraulic conductance b parameter for each plant functional type following
   ! hydraulic impairment JBaguley
 CASE ('conductance_b_impaired_pft')
-  ! Pa in the model; written in MPa.
-  cube_land = cube_from_array(psparms%conductance_b_impaired_pft * 1.0e-6)
+  ! Pa in the model; written in MPa. No impairment model changes the curve
+  ! (that was the retired model 4), so this is the PFT's b, kept as an
+  ! output for existing output lists. MDK, 24/10/26
+  DO i = 1, npft
+    workspace_pft(:,i) = conductance_b_pft(i) * 1.0e-6
+  END DO
+  cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
   ! Hydraulic conductance c parameter for each plant functional type following
   ! hydraulic impairment JBaguley
 CASE ('conductance_c_impaired_pft')
-  cube_land = cube_from_array(psparms%conductance_c_impaired_pft)
+  ! The PFT's c (see conductance_b_impaired_pft). MDK, 24/10/26
+  DO i = 1, npft
+    workspace_pft(:,i) = conductance_c_pft(i)
+  END DO
+  cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
   ! Canopy water potential for each plant functional type JBaguley

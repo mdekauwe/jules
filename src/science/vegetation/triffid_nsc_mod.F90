@@ -166,10 +166,10 @@ MODULE triffid_nsc_mod
 ! Overflow respiration (nsc_overflow_resp > 0): of the carbon above C_max,
 ! that share is respired (nsc_resp_pft) instead of going to growth, so a
 ! sink-limited plant with a full store respires its surplus. The cap is
-! applied after all inputs to the store (NPP and the optional extra input
-! c_in). nsc_resp_pft is added to the plant respiration and NPP outputs
-! (extract_var, lagged by one store step), is part of resp_p_actual through
-! nsc_dc, and leaves the carbon-conservation check of veg2.
+! applied after the store's input (NPP). nsc_resp_pft is added to the plant
+! respiration and NPP outputs (extract_var, lagged by one store step), is
+! part of resp_p_actual through nsc_dc, and leaves the carbon-conservation
+! check of veg2.
 !
 ! Starvation (nsc_g_starv > 0, with l_veg_compete): an area disturbance,
 ! nsc_starv_pft, added to g_area in lotka, at the full rate when the
@@ -327,9 +327,10 @@ END SUBROUTINE triffid_nsc_alloc
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,       &
                               woodc, leafc, rootc, ht, lai_bal, npp, repair,  &
-                              pft_only, c_in )
+                              pft_only )
 
 USE jules_surface_types_mod, ONLY: npft, nnpft
+USE pftparm, ONLY: is_set, nsc_in_flush_window, nsc_limits_on   ! MDK, 24/10/26
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,  &
                                 l_triffid, l_nsc_wmax_norm
 USE datetime_utils_mod, ONLY: day_of_year, days_in_year
@@ -337,14 +338,13 @@ USE time_info_mod, ONLY: l_360, l_leap
 USE calc_c_comps_triffid_mod, ONLY: sapwood_c   ! MDK, 20/10/26
 USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                     &
                    nsc_flush, nsc_kc, nsc_reserve_frac, nsc_tau_load,        &
-                   nsc_wmax_fac, nsc_sapwood_frac, nsc_hold_plc,             &
+                   nsc_wmax_fac, nsc_hold_plc,                               &
                    nsc_g_starv, ximpair_psi_growth, nsc_repair_window,       &
-                   nsc_plc_background, nsc_la_sa, nsc_wood_density,          &
+                   nsc_plc_background,                                       &
                    nsc_psi_turg_zero, nsc_t_grow_zero, nsc_overflow_resp,    &
                    nsc_xylem_type, nsc_xylem_rate_max, nsc_ring_mmdd,        &
                    nsc_cmax, nsc_grow_start_doy, nsc_grow_end_doy,           &
                    nsc_flush_start_doy, nsc_flush_days
-USE jules_surface_mod, ONLY: cmass
 USE model_time_mod, ONLY: current_time
 USE trif, ONLY: g_root, g_wood
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_repair_pend,    &
@@ -387,10 +387,6 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 
 INTEGER, INTENT(IN), OPTIONAL :: pft_only
     ! Only this PFT (the daily step without TRIFFID); all PFTs if absent.
-
-REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: c_in(land_pts,npft)
-    ! Extra carbon into the store besides NPP (kg C m-2 per 360 days), taken
-    ! before the cap, so it can overflow.
 
 ! Local variables
 INTEGER :: n, t, l, n1, n2
@@ -451,14 +447,11 @@ DO n = n1,n2
   IF (l_rep) CALL ximpair_memory_alloc( land_pts )
 
   a_mean = MIN(dt / MAX(nsc_tau_load(n), TINY(1.0_real_jlslsm)), 1.0)
-  l_turg = nsc_psi_turg_zero(n) > -1.0e29 .OR. nsc_t_grow_zero(n) > -1.0e29 &
-           .OR. nsc_grow_start_doy(n) > -1.0e29                          &
-           .OR. nsc_grow_end_doy(n) > -1.0e29                            &
-           .OR. nsc_flush_start_doy(n) > -1.0e29
+  l_turg = nsc_limits_on(n)
   ! Leaf flush: days of this store step (the nd days up to today) in the
   ! flush and in the growing season.
   ! MDK, 20/10/26
-  l_flush = nsc_flush_start_doy(n) > -1.0e29
+  l_flush = is_set(nsc_flush_start_doy(n))
   f_flush = 0.0
   f_stem  = 1.0
   IF (l_flush) THEN
@@ -470,12 +463,11 @@ DO n = n1,n2
     DO k = 0,nd-1
       d = MODULO(doy_now - k - 1, n_days) + 1
       ! The flush window may cross the year end.
-      IF (MODULO(d - NINT(nsc_flush_start_doy(n)), n_days)                    &
-          < NINT(nsc_flush_days(n)))                                          &
+      IF (nsc_in_flush_window(n, d, n_days))                                   &
         f_flush = f_flush + 1.0 / REAL(NINT(nsc_flush_days(n)))
       ! Only the start of the stem window: its end is already in the
       ! growth factor (the release season).
-      IF (nsc_grow_start_doy(n) < -1.0e29 .OR.                                &
+      IF (.NOT. is_set(nsc_grow_start_doy(n)) .OR.                             &
           REAL(d) >= nsc_grow_start_doy(n))                                   &
         f_stem = f_stem + 1.0 / REAL(nd)
     END DO
@@ -558,7 +550,7 @@ DO n = n1,n2
     f_turg = 1.0
     IF (l_turg) THEN
       ! Turgor-limited sink, normalised so the full store releases W_max.
-      IF (nsc_turg_acc(l,n) > -1.0e29)                                         &
+      IF (is_set(nsc_turg_acc(l,n)))                                           &
         f_turg = MIN(MAX(nsc_turg_acc(l,n), 0.0), 1.0)
       nsc_turg_acc(l,n) = 0.0
       c_acc_max = c_max - c_res
@@ -578,9 +570,6 @@ DO n = n1,n2
 
     ! The regrowth paid above is part of the release.
     w = w + w_regrow + w_flush
-
-    ! Extra input, before the cap.
-    IF (PRESENT(c_in)) nsc_pft(l,n) = nsc_pft(l,n) + MAX(c_in(l,n), 0.0) * dt
 
     ! Overflow above the capacity goes to growth, less the share respired.
     nsc_resp_pft(l,n) = 0.0
@@ -603,7 +592,7 @@ DO n = n1,n2
     f_grow  = 1.0
     plc_rep = 0.0
     IF (l_rep) THEN
-      IF (ximpair_psi_growth(n) > -1.0e29)                                     &
+      IF (is_set(ximpair_psi_growth(n)))                                       &
         f_grow = MIN(MAX(ximpair_grow_acc(l,n), 0.0), 1.0)
       ! With the leaf flush, only in the growing season (cambium).
       f_grow = f_grow * f_stem
@@ -741,6 +730,7 @@ SUBROUTINE triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,   &
 
 USE jules_vegetation_mod, ONLY: l_triffid, triffid_period,                    &
                                 l_ximpair_rec_leaf_turn, l_nsc_wmax_norm
+USE pftparm, ONLY: is_set, nsc_limits_on, nsc_season_on   ! MDK, 24/10/26
 USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero,   &
                    nsc_t_grow_full, g_leaf_0, nsc_grow_start_doy,             &
                    nsc_grow_end_doy, nsc_flush_start_doy
@@ -774,10 +764,8 @@ REAL(KIND=real_jlslsm) :: period, f, a_t, a_yr, d_renew, f_season, doy,     &
                           doy_start
 LOGICAL :: l_lim, l_season
 
-l_season = nsc_grow_start_doy(ft) > -1.0e29 .OR. nsc_grow_end_doy(ft) > -1.0e29 &
-           .OR. nsc_flush_start_doy(ft) > -1.0e29
-l_lim = nsc_psi_turg_zero(ft) > -1.0e29 .OR. nsc_t_grow_zero(ft) > -1.0e29   &
-        .OR. l_season
+l_season = nsc_season_on(ft)
+l_lim = nsc_limits_on(ft)
 IF (.NOT. l_lim .AND. .NOT. l_ximpair_rec_leaf_turn) RETURN
 CALL triffid_nsc_alloc( land_pts )
 IF (l_ximpair_rec_leaf_turn) CALL ximpair_seg_state_alloc( land_pts )
@@ -795,19 +783,19 @@ IF (l_season) THEN
   ! With the leaf flush the release starts at budburst.
   ! MDK, 20/10/26
   doy_start = nsc_grow_start_doy(ft)
-  IF (nsc_flush_start_doy(ft) > -1.0e29) doy_start = nsc_flush_start_doy(ft)
-  IF (doy_start > -1.0e29 .AND. doy < doy_start) f_season = 0.0
-  IF (nsc_grow_end_doy(ft) > -1.0e29 .AND. doy >= nsc_grow_end_doy(ft))      &
+  IF (is_set(nsc_flush_start_doy(ft))) doy_start = nsc_flush_start_doy(ft)
+  IF (is_set(doy_start) .AND. doy < doy_start) f_season = 0.0
+  IF (is_set(nsc_grow_end_doy(ft)) .AND. doy >= nsc_grow_end_doy(ft))          &
     f_season = 0.0
 END IF
 
 DO j = 1,veg_pts
   l = veg_index(j)
   f = 1.0
-  IF (nsc_psi_turg_zero(ft) > -1.0e29)                                         &
+  IF (is_set(nsc_psi_turg_zero(ft)))                                           &
     f = MIN(MAX((1.0e-6 * psi_rz(l) - nsc_psi_turg_zero(ft))                   &
                 / (nsc_psi_turg_full(ft) - nsc_psi_turg_zero(ft)), 0.0), 1.0)
-  IF (nsc_t_grow_zero(ft) > -1.0e29) THEN
+  IF (is_set(nsc_t_grow_zero(ft))) THEN
     ! Daily running mean of the air temperature.
     IF (nsc_t_run(l,ft) < 0.0) nsc_t_run(l,ft) = tair(l)
     nsc_t_run(l,ft) = nsc_t_run(l,ft) + a_t * (tair(l) - nsc_t_run(l,ft))
@@ -816,7 +804,7 @@ DO j = 1,veg_pts
   END IF
   f = f * f_season
   IF (l_lim) THEN
-    IF (nsc_turg_acc(l,ft) < -1.0e29) nsc_turg_acc(l,ft) = 0.0
+    IF (.NOT. is_set(nsc_turg_acc(l,ft))) nsc_turg_acc(l,ft) = 0.0
     nsc_turg_acc(l,ft) = nsc_turg_acc(l,ft) + f * timestep / period
   END IF
   ! Running annual mean of the growth factor (leaf renewal, l_nsc_wmax_norm).
@@ -845,6 +833,7 @@ SUBROUTINE phen_psi_update( land_pts, veg_pts, veg_index, ft, timestep,      &
                             psi_rz )
 
 USE model_time_mod, ONLY: current_time
+USE pftparm, ONLY: is_set   ! MDK, 24/10/26
 USE pftparm, ONLY: phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min
 
 INTEGER, INTENT(IN) ::                                                         &
@@ -866,7 +855,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 INTEGER :: j, l
 REAL(KIND=real_jlslsm) :: psi_d
 
-IF (phen_psi_tlp(ft) < -1.0e29) RETURN
+IF (.NOT. is_set(phen_psi_tlp(ft))) RETURN
 CALL triffid_nsc_alloc( land_pts )
 
 DO j = 1,veg_pts

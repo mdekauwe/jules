@@ -2003,22 +2003,6 @@ CASE ( 'kmax_impaired' )
     psparms%kmax_impaired_pft(:,:) = const_val
   END IF
 
-CASE ( 'cond_b_impaired' )
-  IF ( PRESENT(cube) ) THEN
-    cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, psparms%conductance_b_impaired_pft(:,:))
-  ELSE
-    psparms%conductance_b_impaired_pft(:,:) = const_val
-  END IF
-
-CASE ( 'cond_c_impaired' )
-  IF ( PRESENT(cube) ) THEN
-    cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, psparms%conductance_c_impaired_pft(:,:))
-  ELSE
-    psparms%conductance_c_impaired_pft(:,:) = const_val
-  END IF
-
 CASE ( 'psi_leaf_extreme' )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)

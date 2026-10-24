@@ -84,7 +84,7 @@ USE theta_field_sizes, ONLY: t_i_length
 USE jules_surface_types_mod, ONLY: nnpft, ncpft, npft
 
 USE pftparm, ONLY:                                                             &
-        kmax_pft, conductance_b_pft, conductance_c_pft, kcrit, gcuticular,     &
+        kmax_pft, conductance_b_pft, conductance_c_pft, gcuticular,            &
         min_gl_pft, lai_ref_k   ! lai_ref_k: MDK, 21/10/26
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported model ids. JBaguley
@@ -159,7 +159,6 @@ USE cuticular_leak_state_mod, ONLY: cut_w_store, cut_psi_stem,               &
                                     cut_w_shed
 USE pftparm, ONLY: cap_stem, kcrit_fractional_loss, conductance_b_seg,        &
                    conductance_c_seg
-USE plant_hydraulic_path_mod, ONLY: som_psi_in_min
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: l_som_plant_segments
 USE pftparm, ONLY: pft_xylem_impairment_model
@@ -366,10 +365,10 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
                             ! INOUT Maximum stomatal conductance (m/s).
 ,conductance_b(land_pts)                                                       &
                             ! INOUT Conductance curve parameter b for each land
-                            ! point (Pa)
+                            ! point (Pa): the PFT's (never changed here).
 ,conductance_c(land_pts)                                                       &
                             ! INOUT Conductance curve parameter c for each land
-                            ! point (Pa)
+                            ! point: the PFT's.
 ,psi_leaf_extreme(land_pts)                                                    &
                             ! INOUT Extreme leaf water potential (Pa)
 ,psi_root_extreme(land_pts)
@@ -1170,7 +1169,6 @@ LOGICAL :: l_multilayer
 ! psi_leaf_jls's veg_index(open_index(j)) indexing select veg_index(j)
 ! directly, i.e. every vegetated point.
 INTEGER :: veg_pts_index(land_pts)
-REAL(KIND=real_jlslsm) :: k_eff(land_pts)
 
 
 
@@ -1308,6 +1306,18 @@ END DO
 !-----------------------------------------------------------------------------
 je_dummy(:) = 1.0
 fapar_dummy(:) = 1.0
+
+! The stomatal optimisation outputs are not set by every canopy (the fsmc
+! paths and, for gc_som, the multilayer canopy), so start them at 0 here.
+! gc_som is then set from gc after the canopy switch.
+!
+! MDK, 24/10/26
+el(:)             = 0.0
+psi_leaf(:)       = 0.0
+leaf_k(:)         = 0.0
+carbon_gain(:)    = 0.0
+hydraulic_cost(:) = 0.0
+gc_som(:)         = 0.0
 
 SELECT CASE ( can_rad_mod )
 CASE ( 4,5,6 )
@@ -2066,7 +2076,7 @@ CASE ( 5, 6 )
         !$OMP PARALLEL DO IF(veg_pts > 1) DEFAULT(NONE)                        &
         !$OMP             PRIVATE(l, m, kleaf_prof, kleaf_mean, kleaf_a)        &
         !$OMP             SHARED(ft, gl, ilayers, kn, knl, n, nleaf_top, nleaf_layer,  &
-        !$OMP   veg_index,dlai,can_rad_mod, veg_pts, kmax_pft, kcrit,          &
+        !$OMP   veg_index,dlai,can_rad_mod, veg_pts, kmax_pft,                 &
         !$OMP   kmax_per_lyr, kcrit_per_lyr, kmax_leaf_lyr, kcrit_leaf_lyr,    &
         !$OMP   share_sup, lai) SCHEDULE(STATIC)
             DO m = 1,veg_pts
@@ -3072,15 +3082,21 @@ CASE ( 1 )
           ! light-limited rate by up to fpar.
           acrc(l) = acr(l) * fpar(l)
 
-          ! Recalculate je now that jmaxc has been scaled up.
-          ! This is done here to keep the canopy scaling in a similar place to
-          ! the scaling in the leaf_flux_fsmc model.
-          IF ( pft_photo_model == photo_farquhar ) THEN
-            ! Calculate the electron flux (i2 is only set for Farquhar).
-            i2c(l) = i2(l) * fpar(l)
-            CALL calc_electron_flux( land_pts, veg_pts, veg_index, i2c, jmaxc, je)
-          END IF
+          ! Canopy light for the electron flux (i2 is only set for Farquhar).
+          IF ( pft_photo_model == photo_farquhar ) i2c(l) = i2(l) * fpar(l)
         END DO
+
+        ! Recalculate je now that jmaxc has been scaled up, once for all
+        ! points: calc_electron_flux loops over every vegetated point, so it
+        ! is called after the loop, not inside it. This is done here to keep
+        ! the canopy scaling in a similar place to the scaling in the
+        ! leaf_flux_fsmc model.
+        !
+        ! MDK, 24/10/26
+        IF ( pft_photo_model == photo_farquhar ) THEN
+          CALL calc_electron_flux( land_pts, veg_pts, veg_index, i2c, jmaxc,  &
+                                   je )
+        END IF
 
        ! Passing two dummy vars to make it consistent with multilyr, 29 Apr, MGDK
        l_multilayer = .FALSE.
@@ -3206,9 +3222,6 @@ CASE ( 1 )
         ! it for the layer uptake at the actual root potential
         ! (l_som_rhizo_series). (It used to be converted to kg here, a
         ! leftover with no other consumer.)
-
-        ! Pass the stomatal optimisation out
-        gc_som = gc
 
         ! leaf_k from stom_opt_mod is canopy scale (see kmax_bigleaf). Return
         ! it per unit leaf area, as the multilayer path does (kplant_pft).
@@ -3488,6 +3501,21 @@ CASE ( 7 )
     END DO
   ELSE
     n_pass_2l = iter
+    ! Without leaf temperatures both classes are at tstar, with the tile's
+    ! photosynthesis terms, so the class routines take the class arrays
+    ! either way (and the 13C discrimination reads set values).
+    !
+    ! MDK, 24/10/26
+    t_sun_lt(:)   = tstar(:)
+    t_shd_lt(:)   = tstar(:)
+    ccp_sun_lt(:) = ccp(:)
+    ccp_shd_lt(:) = ccp(:)
+    kc_sun_lt(:)  = kc(:)
+    kc_shd_lt(:)  = kc(:)
+    ko_sun_lt(:)  = ko(:)
+    ko_shd_lt(:)  = ko(:)
+    km_sun_lt(:)  = km(:)
+    km_shd_lt(:)  = km(:)
   END IF
 
   !---------------------------------------------------------------------------
@@ -3695,10 +3723,11 @@ CASE ( 7 )
     END IF
   END DO
 
-  ! As the big-leaf path: el in mol H2O m-2 s-1, leaf_k per unit leaf area,
-  ! and the stomatal optimisation conductance passed out.
+  ! As the big-leaf path: el in mol H2O m-2 s-1 and leaf_k per unit leaf
+  ! area. (gc_som is set after the canopy switch.)
+  !
+  ! MDK, 24/10/26
   leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
-  gc_som = gc
 
   ! Xylem impairment state update, once per timestep (after the humidity
   ! iteration, cf. k == iter in the big-leaf path), driven by the canopy
@@ -3736,6 +3765,12 @@ CASE DEFAULT
                'can_rad_mod should be 1, 4, 5, 6 or 7')
 
 END SELECT  ! can_rad_mod
+
+! Pass the stomatal optimisation conductance out, for every canopy. (The
+! cuticular leak and the store below reset it where they change gc.)
+!
+! MDK, 24/10/26
+IF ( leaf_flux_mod == leaf_flux_stom_opt ) gc_som(:) = gc(:)
 
 !-----------------------------------------------------------------------------
 ! DESICA: as the stomatal optimisation, no stomatal loss with no light
@@ -4818,56 +4853,34 @@ CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,       &
                      dqc, dq, qs_lt_c, q1, dq_lt_c, gbw_c, gbw_o, ra_ca_lt,    &
                      gl_o, g_soil_c, qs, dq_opt, r_bl_c, r_ca_c, g_oth_c )
 
-IF ( l_leaf_temp ) THEN
-  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
-                           share_sup, dq_opt, t_lt_c, pstar, gl_max_c,         &
-                           gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
-  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-  CALL stom_opt_mod (                                                          &
-          ! IN
-            land_pts, ft, open_pts, open_index,                                &
-            pft_photo_model, veg_pts, veg_index,                               &
-            ca, psi_src, acr_c, apar_c, oa, vcmax_c,                           &
-            kc_lt_c, ko_lt_c, ccp_lt_c, pstar,                                 &
-            km_lt_c, dq_opt, je_c, t_lt_c, je_dummy,                           &
-            fapar_dummy,                                                       &
-            kmax_c, kcrit_c, gl_max_eff, ipar,                                 &
-            l_multilayer, r_bl_c, r_ca_c, g_oth_c,                             &
-            kmax_ref_c, conductance_b, conductance_c,                          &
-            psi_leaf_extreme, psi_root_extreme, .TRUE.,                        &
-          ! IN OUT
-            rd_c,                                                              &
-          ! OUT
-            ci_c, anetl_c, el_c, flux_o3_c, fo3_c,                             &
-            gl_c, psi_leaf_c, cg_c, hc_c, leaf_k_c,                            &
-            psi_stem = psi_stem_c, lambda_eff = lam_c,                         &
-            lai_cost = lai_c                                                   &
-    )
-ELSE
-  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
-                           share_sup, dq_opt, tstar, pstar, gl_max_c,          &
-                           gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
-  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-  CALL stom_opt_mod (                                                          &
-          ! IN
-            land_pts, ft, open_pts, open_index,                                &
-            pft_photo_model, veg_pts, veg_index,                               &
-            ca, psi_src, acr_c, apar_c, oa, vcmax_c,                           &
-            kc, ko, ccp, pstar,                                                &
-            km, dq_opt, je_c, tstar, je_dummy, fapar_dummy,                    &
-            kmax_c, kcrit_c, gl_max_eff, ipar,                                 &
-            l_multilayer, r_bl_c, r_ca_c, g_oth_c,                             &
-            kmax_ref_c, conductance_b, conductance_c,                          &
-            psi_leaf_extreme, psi_root_extreme, .TRUE.,                        &
-          ! IN OUT
-            rd_c,                                                              &
-          ! OUT
-            ci_c, anetl_c, el_c, flux_o3_c, fo3_c, gl_c,                       &
-            psi_leaf_c, cg_c, hc_c, leaf_k_c,                                  &
-            psi_stem = psi_stem_c, lambda_eff = lam_c,                         &
-            lai_cost = lai_c                                                   &
-    )
-END IF
+! At the class's leaf temperature (l_leaf_temp), else tstar: the class
+! arrays hold the tile's values then (see the two-leaf set-up).
+!
+! MDK, 24/10/26
+CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,               &
+                         share_sup, dq_opt, t_lt_c, pstar, gl_max_c,           &
+                         gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
+CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
+CALL stom_opt_mod (                                                            &
+        ! IN
+          land_pts, ft, open_pts, open_index,                                  &
+          pft_photo_model, veg_pts, veg_index,                                 &
+          ca, psi_src, acr_c, apar_c, oa, vcmax_c,                             &
+          kc_lt_c, ko_lt_c, ccp_lt_c, pstar,                                   &
+          km_lt_c, dq_opt, je_c, t_lt_c, je_dummy,                             &
+          fapar_dummy,                                                         &
+          kmax_c, kcrit_c, gl_max_eff, ipar,                                   &
+          l_multilayer, r_bl_c, r_ca_c, g_oth_c,                               &
+          kmax_ref_c, conductance_b, conductance_c,                            &
+          psi_leaf_extreme, psi_root_extreme, .TRUE.,                          &
+        ! IN OUT
+          rd_c,                                                                &
+        ! OUT
+          ci_c, anetl_c, el_c, flux_o3_c, fo3_c,                               &
+          gl_c, psi_leaf_c, cg_c, hc_c, leaf_k_c,                              &
+          psi_stem = psi_stem_c, lambda_eff = lam_c,                           &
+          lai_cost = lai_c                                                     &
+  )
 
 ! Closed leaves get min_gl_pft from stom_opt_mod as a canopy value; share it
 ! by leaf area so the two classes together give big-leaf's (half each when
@@ -5171,34 +5184,22 @@ CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,       &
                      gl_o, g_soil_c, qs, dq_opt, r_bl_c, r_ca_c, g_oth_c )
 
 ! The soil-supply cap on gl, then ci, A, gl and E at the target E: at
-! the leaf temperature (l_leaf_temp), else at tstar.
-IF ( l_leaf_temp ) THEN
-  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
-                           share_sup, dq_opt, t_lt_c, pstar, gl_max_c,         &
-                           gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
-  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-  CALL stom_opt_at_e( land_pts, ft, open_pts, open_index, pft_photo_model,    &
-                      veg_index, rd_c, ca, psi_src, acr_c, apar_c, oa,        &
-                      vcmax_c, kc_lt_c, ko_lt_c, ccp_lt_c, pstar, km_lt_c,    &
-                      dq_opt, je_c, t_lt_c, je_dummy, fapar_dummy,             &
-                      ipar, kmax_c, kcrit_c, gl_max_eff, l_multilayer,        &
-                      r_bl_c, r_ca_c, g_oth_c, kmax_ref_c, conductance_b,     &
-                      conductance_c, psi_leaf_extreme, psi_root_extreme,      &
-                      .TRUE., e_tgt_c, ci_c, anetl_c, gl_c, el_c )
-ELSE
-  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
-                           share_sup, dq_opt, tstar, pstar, gl_max_c,          &
-                           gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
-  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-  CALL stom_opt_at_e( land_pts, ft, open_pts, open_index, pft_photo_model,    &
-                      veg_index, rd_c, ca, psi_src, acr_c, apar_c, oa,        &
-                      vcmax_c, kc, ko, ccp, pstar, km, dq_opt, je_c,           &
-                      tstar, je_dummy, fapar_dummy, ipar, kmax_c, kcrit_c,    &
-                      gl_max_eff, l_multilayer, r_bl_c, r_ca_c, g_oth_c,      &
-                      kmax_ref_c, conductance_b, conductance_c,               &
-                      psi_leaf_extreme, psi_root_extreme, .TRUE., e_tgt_c,    &
-                      ci_c, anetl_c, gl_c, el_c )
-END IF
+! the leaf temperature (l_leaf_temp), else at tstar (the class arrays hold
+! the tile's values then).
+!
+! MDK, 24/10/26
+CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,               &
+                         share_sup, dq_opt, t_lt_c, pstar, gl_max_c,           &
+                         gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
+CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
+CALL stom_opt_at_e( land_pts, ft, open_pts, open_index, pft_photo_model,      &
+                    veg_index, rd_c, ca, psi_src, acr_c, apar_c, oa,          &
+                    vcmax_c, kc_lt_c, ko_lt_c, ccp_lt_c, pstar, km_lt_c,      &
+                    dq_opt, je_c, t_lt_c, je_dummy, fapar_dummy,               &
+                    ipar, kmax_c, kcrit_c, gl_max_eff, l_multilayer,          &
+                    r_bl_c, r_ca_c, g_oth_c, kmax_ref_c, conductance_b,       &
+                    conductance_c, psi_leaf_extreme, psi_root_extreme,        &
+                    .TRUE., e_tgt_c, ci_c, anetl_c, gl_c, el_c )
 
 END SUBROUTINE two_leaf_class_at_e
 

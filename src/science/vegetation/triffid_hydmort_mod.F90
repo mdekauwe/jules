@@ -78,8 +78,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: hydmort_dead_pft(:,:)
 ! Smallest fraction of the cover killed in a step that is applied.
 REAL(KIND=real_jlslsm), PARAMETER :: hydmort_m_min = 1.0e-6
 
-CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='TRIFFID_HYDMORT_MOD'
-
 CONTAINS
 
 ! ---------------------------------------------------------------------

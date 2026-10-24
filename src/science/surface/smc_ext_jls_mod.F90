@@ -571,8 +571,6 @@ FUNCTION calc_norm_weights(npnts, nshyd, surft_pts, surft_index,               &
 !   This code is written to JULES coding standards v1.
 !-----------------------------------------------------------------------------
 
-USE ereport_mod, ONLY: ereport
-
 IMPLICIT NONE
 
 ! function arguments
@@ -598,7 +596,6 @@ REAL(KIND=real_jlslsm) :: norm_weights(npnts,nshyd)         ! Normalised weights
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
-INTEGER :: errcode
 
 CHARACTER(LEN=*), PARAMETER :: RoutineName='CALC_NORM_WEIGHTS'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
@@ -613,18 +610,7 @@ DO n = 1,nshyd
     norm_factor = SUM(weights(i,:))
 
     IF (norm_factor > 0.0) THEN
-      norm_weights(i,n) = MAX(weights(i,n) / norm_factor, 1.0e-9)
-    ELSE
-      WRITE(*,*) 'ERROR: Normalisation factor is zero in calc_norm_weights'
-      WRITE(*,*) 'npnts = ', npnts, ' nshyd = ', nshyd
-      WRITE(*,*) 'surft_pts = ', surft_pts
-      WRITE(*,*) 'surft_index = ', surft_index
-      WRITE(*,*) 'weights = ', weights(i,:)
-
-      errcode = 1
-      CALL ereport(RoutineName, errcode,                                         &
-                   'Normalisation factor is zero in calc_norm_weights')
-
+      norm_weights(i,n) = weights(i,n) / norm_factor
     END IF
   END DO
 END DO
