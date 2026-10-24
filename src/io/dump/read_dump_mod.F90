@@ -14,6 +14,7 @@ CONTAINS
 SUBROUTINE read_dump(file_name, identifiers)
 
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
+USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
 USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,           &
                                     cut_psi_stem, cut_c_store   ! MDK, 22/10/26
@@ -136,6 +137,7 @@ INTEGER :: seed_rain_len
 INTEGER :: i, j, m, n, s  ! Loop counters
 
 REAL :: trif_asteps_r   ! TRIFFID timer from the dump (MDK, 22/10/26)
+REAL :: phen_asteps_r   ! Phenology step count from the dump (MDK, 24/10/26)
 INTEGER :: ERROR  ! Variable to collect MPI errors - most MPI
                   ! implementations bail on error, so this is not checked.
 
@@ -502,6 +504,11 @@ DO i = 1,nvars
       ! < 0: not in the dump, so the timer keeps its start-of-run value.
       trif_asteps_r = -1.0
       IF ( var_ids(i) > 0 ) CALL file_read_var(FILE, var_ids(i), trif_asteps_r)
+
+      ! The phenology step count, as trif_asteps. MDK, 24/10/26
+    CASE ( 'phen_asteps' )
+      phen_asteps_r = -1.0
+      IF ( var_ids(i) > 0 ) CALL file_read_var(FILE, var_ids(i), phen_asteps_r)
 
       !CO2 ancil namelist
     CASE ( 'co2_mmr' )
@@ -1802,6 +1809,12 @@ DO i = 1,nvars
     CALL mpi_bcast(trif_asteps_r, 1, mpi_real,                                 &
          master_task_id, mpi_local_comm, ERROR)
     IF ( trif_asteps_r >= 0.0 ) asteps_since_triffid = NINT(trif_asteps_r)
+
+  ! MDK, 24/10/26
+  CASE ( 'phen_asteps' )
+    CALL mpi_bcast(phen_asteps_r, 1, mpi_real,                                 &
+         master_task_id, mpi_local_comm, ERROR)
+    IF ( phen_asteps_r >= 0.0 ) asteps_phen = NINT(phen_asteps_r)
 
   CASE ( 'npp_acc' )
     DO n = 1,npft

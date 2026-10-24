@@ -22,6 +22,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,      
     ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc, ximpair_rebuilt,  &
     ximpair_lock_new
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
+USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
 USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,           &
                                     cut_psi_stem, cut_c_store   ! MDK, 22/10/26
@@ -3186,6 +3187,16 @@ CASE ( 'trif_asteps' )
     asteps_since_triffid = NINT(co2_tmp(1))
   ELSE
     asteps_since_triffid = NINT(const_val)
+  END IF
+
+! The phenology step count. MDK, 24/10/26
+CASE ( 'phen_asteps' )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, co2_tmp)   ! a land-sized work array
+    asteps_phen = NINT(co2_tmp(1))
+  ELSE
+    asteps_phen = NINT(const_val)
   END IF
 
 CASE ( 'npp_acc' )

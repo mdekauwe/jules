@@ -183,6 +183,12 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              "smcl is not in the dump so will be calculated from sthuf " //    &
              "(restart exact only to rounding).")
+        CASE ( 'phen_asteps' )
+          ! Dumps written without it: phenology counts from the restart,
+          ! as before. MDK, 24/10/26
+          CALL log_warn("read_dump_shared",                                    &
+             "phen_asteps is not in the dump: phenology steps count " //       &
+             "from the restart (restart not exact).")
         CASE ( 'trif_asteps', 'npp_acc', 'resp_w_acc', 'g_leaf_acc',         &
                'g_leaf_phen_acc', 'gpp_acc', 'resp_s_acc' )
           ! TRIFFID's timer and accumulators: dumps written without them. The

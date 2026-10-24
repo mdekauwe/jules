@@ -287,6 +287,9 @@ END IF
 ! step, so a restart that is not on a TRIFFID step is exact (otherwise the
 ! steps restart from the dump time and the partial-period sums are lost).
 ! MDK, 22/10/26
+! The phenology step count, so a restart calls phenology on the days a
+! continuous run does. MDK, 24/10/26
+IF ( l_phenol ) CALL add_to_list( 'phen_asteps', nvars, identifiers )
 IF ( l_triffid ) THEN
   CALL add_to_list( 'trif_asteps', nvars, identifiers )
   CALL add_to_list( 'npp_acc', nvars, identifiers )

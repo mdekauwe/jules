@@ -11,6 +11,13 @@ IMPLICIT NONE
 
 INTEGER :: asteps_since_triffid
     ! Number of atmospheric timesteps since last call to TRIFFID
+INTEGER :: asteps_phen
+    ! Standalone: the timestep number for the phenology call, MOD(asteps_phen,
+    ! steps per phenol_period) = 0. It counts as timestep_number but is kept
+    ! in the dump (phen_asteps), so a restart calls phenology at the same
+    ! times as a continuous run (timestep_number restarts at 1).
+    !
+    ! MDK, 24/10/26
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='TRIFCTL'
 

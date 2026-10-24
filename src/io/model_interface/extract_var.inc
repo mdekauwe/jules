@@ -27,6 +27,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_grow_acc, &
                                        ximpair_rebuilt, ximpair_lock_new,     &
                                        ximpair_fmin_acc
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
+USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
 USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state   ! MDK, 22/10/26
 USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_w_store,                 &
                                     cut_psi_stem, cut_m_h2o,                   &
@@ -1501,6 +1502,12 @@ CASE ( 'o3_exp_fac' )
 ! TRIFFID's period timer and accumulators. MDK, 22/10/26
 CASE ( 'trif_asteps' )
   onedvar_tmp(:) = REAL(asteps_since_triffid)
+  cube_land = cube_from_array(onedvar_tmp)
+  cube = map_from_land(cube_land)
+
+! The phenology step count. MDK, 24/10/26
+CASE ( 'phen_asteps' )
+  onedvar_tmp(:) = REAL(asteps_phen)
   cube_land = cube_from_array(onedvar_tmp)
   cube = map_from_land(cube_land)
 

@@ -87,6 +87,7 @@ USE jules_vegetation_mod,         ONLY:                                        &
 
 #if ! defined(UM_JULES)
 USE model_time_mod,               ONLY: timestep_len
+USE trifctl,                      ONLY: asteps_phen   ! MDK, 24/10/26
 #endif
 
 USE timestep_mod,                 ONLY: timestep
@@ -291,7 +292,10 @@ IF (l_phenol) THEN
   phenol_call = MOD(REAL(a_step),                                              &
                     (REAL(phenol_period) * (rsec_per_day / timestep)))
 #else
-  phenol_call = MOD (a_step,                                                   &
+  ! asteps_phen, not a_step: it counts as the timestep number but comes
+  ! back from the dump, so a restart keeps the phenology days of a
+  ! continuous run. MDK, 24/10/26
+  phenol_call = MOD (asteps_phen,                                              &
                           phenol_period * isec_per_day / timestep_len)
 #endif
 END IF
@@ -408,7 +412,7 @@ IF ( triffid_call == 0 ) THEN
   ! can hard-code the arguments appropriately by setting m = 1
 
   m = 1
-  CALL veg2( land_pts, nsurft, a_step                                          &
+  CALL veg2( land_pts, nsurft, asteps_phen                                     &
             ,phenol_period, triffid_period                                     &
             ,trif_pts, trif_index, timestep_real                               &
             ,frac_agr_gb, frac_past_gb, frac_biocrop_gb, frac_vs               &
@@ -450,7 +454,7 @@ ELSE
   IF ( phenol_call == 0 ) THEN
     ! Run includes phenology,  but not dynamic vegetation
     ! therefore call veg1 rather than veg2
-    CALL veg1( land_pts, nsurft, a_step, phenol_period, timestep_real          &
+    CALL veg1( land_pts, nsurft, asteps_phen, phenol_period, timestep_real     &
               ,satcon_soilt(:,:,0), z0m_soil_gb, l_phenol                      &
               ,g_leaf_acc_pft, g_leaf_phen_acc_pft, frac_surft, lai_pft        &
               ,canht_pft, catch_snow_surft, catch_surft, infil_surft           &

@@ -10089,10 +10089,24 @@ DATA metadata(778) / var_metadata(                                             &
     "1"                                                                        &
   ) /
 !-----------------------------------------------------------------------------
+! Metadata for phen_asteps
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(779) / var_metadata(                                               &
+! String identifier
+    'phen_asteps',                                                             &
+! Variable type
+    var_type_surface,                                                          &
+! Long name
+    "Timestep count for the phenology call",                                   &
+! Units
+    "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
 ! Metadata for npp_acc
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(779) / var_metadata(                                             &
+DATA metadata(780) / var_metadata(                                             &
 ! String identifier
     'npp_acc',                                                                  &
 ! Variable type
@@ -10106,7 +10120,7 @@ DATA metadata(779) / var_metadata(                                             &
 ! Metadata for resp_w_acc
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(780) / var_metadata(                                             &
+DATA metadata(781) / var_metadata(                                             &
 ! String identifier
     'resp_w_acc',                                                               &
 ! Variable type
@@ -10120,7 +10134,7 @@ DATA metadata(780) / var_metadata(                                             &
 ! Metadata for g_leaf_acc
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(781) / var_metadata(                                             &
+DATA metadata(782) / var_metadata(                                             &
 ! String identifier
     'g_leaf_acc',                                                               &
 ! Variable type
@@ -10134,7 +10148,7 @@ DATA metadata(781) / var_metadata(                                             &
 ! Metadata for g_leaf_phen_acc
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(782) / var_metadata(                                             &
+DATA metadata(783) / var_metadata(                                             &
 ! String identifier
     'g_leaf_phen_acc',                                                          &
 ! Variable type
@@ -10148,7 +10162,7 @@ DATA metadata(782) / var_metadata(                                             &
 ! Metadata for gpp_acc
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(783) / var_metadata(                                             &
+DATA metadata(784) / var_metadata(                                             &
 ! String identifier
     'gpp_acc',                                                                  &
 ! Variable type
@@ -10162,7 +10176,7 @@ DATA metadata(783) / var_metadata(                                             &
 ! Metadata for resp_s_acc
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(784) / var_metadata(                                             &
+DATA metadata(785) / var_metadata(                                             &
 ! String identifier
     'resp_s_acc',                                                               &
 ! Variable type
@@ -10176,7 +10190,7 @@ DATA metadata(784) / var_metadata(                                             &
 ! Metadata for fvcmax_psi_state
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(785) / var_metadata(                                             &
+DATA metadata(786) / var_metadata(                                             &
 ! String identifier
     'fvcmax_psi_state',                                                         &
 ! Variable type
@@ -10190,7 +10204,7 @@ DATA metadata(785) / var_metadata(                                             &
 ! Metadata for cpl_gl_sun
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(786) / var_metadata(                                             &
+DATA metadata(787) / var_metadata(                                             &
 ! String identifier
     'cpl_gl_sun',                                                               &
 ! Variable type
@@ -10204,7 +10218,7 @@ DATA metadata(786) / var_metadata(                                             &
 ! Metadata for cpl_gl_shd
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(787) / var_metadata(                                             &
+DATA metadata(788) / var_metadata(                                             &
 ! String identifier
     'cpl_gl_shd',                                                               &
 ! Variable type
@@ -10218,7 +10232,7 @@ DATA metadata(787) / var_metadata(                                             &
 ! Metadata for cpl_gbw_sun
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(788) / var_metadata(                                             &
+DATA metadata(789) / var_metadata(                                             &
 ! String identifier
     'cpl_gbw_sun',                                                              &
 ! Variable type
@@ -10232,7 +10246,7 @@ DATA metadata(788) / var_metadata(                                             &
 ! Metadata for cpl_gbw_shd
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(789) / var_metadata(                                             &
+DATA metadata(790) / var_metadata(                                             &
 ! String identifier
     'cpl_gbw_shd',                                                              &
 ! Variable type
@@ -10246,7 +10260,7 @@ DATA metadata(789) / var_metadata(                                             &
 ! Metadata for cpl_ra_ca
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(790) / var_metadata(                                             &
+DATA metadata(791) / var_metadata(                                             &
 ! String identifier
     'cpl_ra_ca',                                                                &
 ! Variable type
@@ -10260,7 +10274,7 @@ DATA metadata(790) / var_metadata(                                             &
 ! Metadata for d13c_disc_pft
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(791) / var_metadata(                                             &
+DATA metadata(792) / var_metadata(                                             &
 ! String identifier
     'd13c_disc_pft',                                                           &
 ! Variable type
@@ -10274,7 +10288,7 @@ DATA metadata(791) / var_metadata(                                             &
 ! Metadata for phen_gdd
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(792) / var_metadata(                                             &
+DATA metadata(793) / var_metadata(                                             &
 ! String identifier
     'phen_gdd',                                                                 &
 ! Variable type
@@ -10288,7 +10302,7 @@ DATA metadata(792) / var_metadata(                                             &
 ! Metadata for phen_bb_day
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(793) / var_metadata(                                             &
+DATA metadata(794) / var_metadata(                                             &
 ! String identifier
     'phen_bb_day',                                                              &
 ! Variable type
@@ -10302,7 +10316,7 @@ DATA metadata(793) / var_metadata(                                             &
 ! Metadata for phen_dormant
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(794) / var_metadata(                                             &
+DATA metadata(795) / var_metadata(                                             &
 ! String identifier
     'phen_dormant',                                                             &
 ! Variable type
@@ -10316,7 +10330,7 @@ DATA metadata(794) / var_metadata(                                             &
 ! Metadata for the plant water store of the cuticular loss
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(795) / var_metadata(                                             &
+DATA metadata(796) / var_metadata(                                             &
 ! String identifier
     'cut_q_store_pft',                                                         &
 ! Variable type
@@ -10326,7 +10340,7 @@ DATA metadata(795) / var_metadata(                                             &
 ! Units
     "kg m-2 s-1"                                                               &
   ) /
-DATA metadata(796) / var_metadata(                                             &
+DATA metadata(797) / var_metadata(                                             &
 ! String identifier
     'cut_w_store_pft',                                                         &
 ! Variable type
@@ -10336,7 +10350,7 @@ DATA metadata(796) / var_metadata(                                             &
 ! Units
     "kg m-2"                                                                   &
   ) /
-DATA metadata(797) / var_metadata(                                             &
+DATA metadata(798) / var_metadata(                                             &
 ! String identifier
     'cut_w_store',                                                             &
 ! Variable type
@@ -10346,7 +10360,7 @@ DATA metadata(797) / var_metadata(                                             &
 ! Units
     "mol m-2"                                                                  &
   ) /
-DATA metadata(798) / var_metadata(                                             &
+DATA metadata(799) / var_metadata(                                             &
 ! String identifier
     'cut_psi_stem',                                                            &
 ! Variable type
@@ -10356,7 +10370,7 @@ DATA metadata(798) / var_metadata(                                             &
 ! Units
     "Pa"                                                                       &
   ) /
-DATA metadata(799) / var_metadata(                                             &
+DATA metadata(800) / var_metadata(                                             &
 ! String identifier
     'cut_c_store',                                                             &
 ! Variable type
@@ -10366,7 +10380,7 @@ DATA metadata(799) / var_metadata(                                             &
 ! Units
     "mol m-2 Pa-1"                                                             &
   ) /
-DATA metadata(800) / var_metadata(                                             &
+DATA metadata(801) / var_metadata(                                             &
 ! String identifier
     'cut_w_shed_pft',                                                          &
 ! Variable type
@@ -10380,7 +10394,7 @@ DATA metadata(800) / var_metadata(                                             &
 ! Metadata for lambda_eff_pft
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(801) / var_metadata(                                             &
+DATA metadata(802) / var_metadata(                                             &
 ! String identifier
     'lambda_eff_pft',                                                          &
 ! Variable type
@@ -10394,7 +10408,7 @@ DATA metadata(801) / var_metadata(                                             &
 ! Metadata for hydmort_g
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(802) / var_metadata(                                             &
+DATA metadata(803) / var_metadata(                                             &
 ! String identifier
     'hydmort_g',                                                                &
 ! Variable type
@@ -10408,7 +10422,7 @@ DATA metadata(802) / var_metadata(                                             &
 ! Metadata for hydmort_m
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(803) / var_metadata(                                             &
+DATA metadata(804) / var_metadata(                                             &
 ! String identifier
     'hydmort_m',                                                                &
 ! Variable type
@@ -10422,7 +10436,7 @@ DATA metadata(803) / var_metadata(                                             &
 ! Metadata for hydmort_dead
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(804) / var_metadata(                                             &
+DATA metadata(805) / var_metadata(                                             &
 ! String identifier
     'hydmort_dead',                                                             &
 ! Variable type
@@ -10436,7 +10450,7 @@ DATA metadata(804) / var_metadata(                                             &
 ! Metadata for hydmort_plc_peak
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(805) / var_metadata(                                             &
+DATA metadata(806) / var_metadata(                                             &
 ! String identifier
     'hydmort_plc_peak',                                                         &
 ! Variable type
@@ -10450,7 +10464,7 @@ DATA metadata(805) / var_metadata(                                             &
 ! Metadata for hydmort_pref
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(806) / var_metadata(                                             &
+DATA metadata(807) / var_metadata(                                             &
 ! String identifier
     'hydmort_pref',                                                             &
 ! Variable type

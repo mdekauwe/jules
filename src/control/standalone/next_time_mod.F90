@@ -39,7 +39,7 @@ USE output_mod, ONLY:                                                          &
 !  imported scalars (IN)
      dump_period, dump_period_unit, dump_period_year, dump_period_time
 
-USE trifctl, ONLY: asteps_since_triffid, trifctl_type
+USE trifctl, ONLY: asteps_since_triffid, trifctl_type, asteps_phen   ! MDK, 24/10/26
 
 USE jules_model_environment_mod,  ONLY: lsm_id, rivers
 
@@ -187,6 +187,7 @@ END IF
 current_time = next_tstep
 timestep_number = timestep_number + 1
 asteps_since_triffid = asteps_since_triffid + 1
+asteps_phen = asteps_phen + 1   ! MDK, 24/10/26
 
 ! Update the time step in seconds: the first time step is 1, not 0
 oasis_time = (timestep_number-1)*timestep_len

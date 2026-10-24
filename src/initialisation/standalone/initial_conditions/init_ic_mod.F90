@@ -1040,7 +1040,8 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   ! TRIFFID's timer at the start of a run (as init_time) and empty sums.
   ! MDK, 22/10/26
-  CASE ( 'trif_asteps' )
+  CASE ( 'trif_asteps', 'phen_asteps' )
+    ! (phen_asteps: as timestep_number at the start. MDK, 24/10/26)
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   CASE ( 'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc', 'gpp_acc', 'resp_s_acc' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)

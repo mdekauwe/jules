@@ -15,6 +15,7 @@ CONTAINS
 SUBROUTINE write_dump()
 
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
+USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
 USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,           &
                                     cut_psi_stem, cut_c_store   ! MDK, 22/10/26
@@ -1205,8 +1206,8 @@ DO i = 1,nvars
     CALL gather_land_field(water_resources%sfc_water_frac, global_data_1d)
 
     ! TRIFFID's period timer (written directly) and accumulators. MDK, 22/10/26
-  CASE ( 'trif_asteps' )
-    ! Nothing to do
+  CASE ( 'trif_asteps', 'phen_asteps' )
+    ! Nothing to do (phen_asteps: MDK, 24/10/26)
 
   CASE ( 'npp_acc' )
     DO n = 1,npft
@@ -1476,6 +1477,10 @@ DO i = 1,nvars
       ! TRIFFID's period timer. MDK, 22/10/26
     CASE ( 'trif_asteps' )
       CALL file_write_var(FILE, var_ids(i), REAL(asteps_since_triffid))
+
+      ! The phenology step count. MDK, 24/10/26
+    CASE ( 'phen_asteps' )
+      CALL file_write_var(FILE, var_ids(i), REAL(asteps_phen))
 
       !CO2 ancil namelist
     CASE ( 'co2_mmr' )

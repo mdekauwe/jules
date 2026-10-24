@@ -470,7 +470,8 @@ CASE ( 'conv_loss_frac', 'sfc_water_frac' )
 
   ! CO2 ancil namelist
   ! TRIFFID's period timer: a scalar. MDK, 22/10/26
-CASE ( 'trif_asteps' )
+CASE ( 'trif_asteps', 'phen_asteps' )
+  ! (phen_asteps, the phenology step count: MDK, 24/10/26)
   ndims = 1
   dim_names(1) = scalar_dim_name
   dim_sizes(1) = 1
