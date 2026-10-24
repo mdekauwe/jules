@@ -1703,6 +1703,9 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  xylem_impairment_whole_trunk,                 &
                                  ximpair_driver_leaf, ximpair_driver_stem,     &
                                  l_ximpair_leaf_loss, l_phenol
+USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground,             &
+                                l_ximpair_rec_nsc, l_trif_hydmort
+                                ! MDK, 24/10/26
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs, l_snow_albedo
 
@@ -2439,6 +2442,49 @@ IF ( l_ximpair_seg_memory ) THEN
     CALL ereport(routinename, ERROR,                                           &
     'l_ximpair_seg_memory needs a PFT with pft_xylem_impairment_model = 3')
   END IF
+END IF
+
+!-----------------------------------------------------------------------------
+! Combinations that run but give misleading results: warnings.
+!
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+IF ( l_som_plant_segments .AND. .NOT. l_ximpair_seg_memory .AND.               &
+     ANY( pft_xylem_impairment_model(1:npft) == xylem_impairment_memory ) )   &
+     THEN
+  ! The cap fraction comes from the PFT curve at the driver psi but is
+  ! applied to the stem and leaf segments, each on its own curve.
+  ERROR = -1
+  CALL ereport(routinename, ERROR,                                             &
+  'the memory model with l_som_plant_segments but without '                 // &
+  'l_ximpair_seg_memory damages the segments on the PFT curve: use '        // &
+  'l_ximpair_seg_memory')
+END IF
+IF ( l_ximpair_rec_nsc .AND.                                                   &
+     ANY( is_set(ximpair_psi_growth(1:npft)) .AND.                           &
+          is_set(nsc_psi_turg_zero(1:npft)) ) ) THEN
+  ! Both gate the repair on the predawn psi: about f_turg**2 f_grow.
+  ERROR = -1
+  CALL ereport(routinename, ERROR,                                             &
+  'ximpair_psi_growth and nsc_psi_turg_zero both set: the store repair '    // &
+  'is gated twice by the root-zone psi')
+END IF
+IF ( l_ximpair_leaf_loss .AND. kplant_model /= kplant_model_ground ) THEN
+  ! With leaf-basis k the conductance per leaf stays at the cap whatever
+  ! the LAI, so shedding only cuts E.
+  ERROR = -1
+  CALL ereport(routinename, ERROR,                                             &
+  'l_ximpair_leaf_loss with kplant_model = 0: shedding leaves gives no '    // &
+  'hydraulic benefit (leaf-basis k); use kplant_model = 1 for that')
+END IF
+IF ( l_trif_hydmort .AND.                                                      &
+     ANY( pft_xylem_impairment_model(1:npft) == xylem_impairment_memory .AND. &
+          hydmort_mu(1:npft) >= kcrit_fractional_loss(1:npft) ) ) THEN
+  ! The loss is capped at kcrit, so at most part of the stand can die.
+  ERROR = -1
+  CALL ereport(routinename, ERROR,                                             &
+  'hydmort_mu >= kcrit_fractional_loss: the loss (capped at kcrit) '        // &
+  'cannot reach the median lethal threshold')
 END IF
 
 !-----------------------------------------------------------------------------

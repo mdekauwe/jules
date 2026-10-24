@@ -3203,6 +3203,12 @@ CASE ( 1 )
        ! reference for the hydraulic cost.
        kmax_ref_bigleaf(:) = kmax_bigleaf(:)
        kmax_bigleaf(:) = k_max(:) * lai(:)
+       ! In spin-up, or without an impairment model, the intact kmax: the
+       ! impairment is off there (stom_opt_mod), so a damaged k_max from a
+       ! dump must not act as if it were intact. MDK, 24/10/26
+       IF ( is_spinup .OR. pft_xylem_impairment_model(ft) ==                   &
+                           xylem_impairment_none )                             &
+         kmax_bigleaf(:) = kmax_ref_bigleaf(:)
        ! kplant_model = 1: root and stem per unit ground area, the whole
        ! plant in series. The same factor on the impaired and intact plant
        ! and kcrit, so the damage fraction (k_max / kmax_pft) is unchanged;
@@ -3505,6 +3511,13 @@ CASE ( 7 )
                      / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
     kmax_shd_2l(l) = k_max(l) * lai(l) * nw_shd_2l(l)                          &
                      / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
+    ! In spin-up, or without an impairment model, the intact kmax (as big
+    ! leaf). MDK, 24/10/26
+    IF ( is_spinup .OR. pft_xylem_impairment_model(ft) ==                     &
+                        xylem_impairment_none ) THEN
+      kmax_sun_2l(l) = kmax_ref_sun_2l(l)
+      kmax_shd_2l(l) = kmax_ref_shd_2l(l)
+    END IF
     kcrit_sun_2l(l) = kcrit_of_path(ft, kmax_ref_sun_2l(l))
     kcrit_shd_2l(l) = kcrit_of_path(ft, kmax_ref_shd_2l(l))
     ! kplant_model = 1: root and stem per unit ground area, each class's
@@ -5792,6 +5805,9 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: n_cls_in
     ! when absent; with ml_leaf_temp_model = 2 those of all the layers).
     ! MDK, 19/10/26
 REAL(KIND=real_jlslsm) :: n_cls
+REAL(KIND=real_jlslsm) :: dq_eq, cap_eq
+    ! gc_eq: the tile's actual deficit qs(tstar) - q1 (kg kg-1) and the
+    ! cap on gc (m s-1). MDK, 24/10/26
 CHARACTER(LEN=300) :: clamp_msg
 
   ! Leaf temperatures used. A class with no leaf area takes the other's.
@@ -5816,19 +5832,28 @@ CHARACTER(LEN=300) :: clamp_msg
   ! the stomatal share,
   !   rho (qs(tstar) - q1) gc / (1 + ra (gc + g_s)) = el * m_h2o,
   ! so 1/gc is the r_eq above divided by 1 + ra g_s.
+  !
+  ! The deficit is the actual qs(tstar) - q1, not dq, which the stomatal
+  ! optimisation floors at dq_min: with the floor a near-saturated or
+  ! dewy step gave a huge gc that JULES then applied to the real
+  ! deficit. Below dq_min (or with condensation) the optimised gc is
+  ! kept. The cap is always finite: som_gl_max x LAI where the canopy
+  ! cap is off (supply-loss).
+  !
+  ! MDK, 24/10/26
   IF ( l_leaf_temp_gc_eq ) THEN
-    IF ( el(lp) * m_h2o_lt > TINY(1.0) ) THEN
-      r_eq = pstar(lp) / ( r * tstar(lp) ) * dq(lp) / ( el(lp) * m_h2o_lt )    &
+    dq_eq  = qs(lp) - q1(lp)
+    cap_eq = gc_cap
+    IF ( cap_eq <= 0.0 ) cap_eq = som_gl_max * lai(lp)
+    IF ( el(lp) * m_h2o_lt > TINY(1.0) .AND. dq_eq > 1.0e-4 ) THEN
+      r_eq = pstar(lp) / ( r * tstar(lp) ) * dq_eq / ( el(lp) * m_h2o_lt )     &
              - ra(lp)
       r_eq = r_eq / ( 1.0 + ra(lp) * g_soil_c(lp) )
       IF ( r_eq > 0.0 ) THEN
-        gc(lp) = 1.0 / r_eq
-        IF ( gc_cap > 0.0 ) gc(lp) = MIN(gc(lp), gc_cap)
-      ELSE IF ( gc_cap > 0.0 .AND. dq(lp) > 0.0 ) THEN
-        ! Demand above what any gc gives: the cap. (With dq <= 0 the
-        ! tile balance has condensation at any gc; keep the optimised
-        ! gc rather than condensing through stomata at the cap.)
-        gc(lp) = gc_cap
+        gc(lp) = MIN(1.0 / r_eq, cap_eq)
+      ELSE
+        ! Demand above what any gc gives: the cap.
+        gc(lp) = cap_eq
       END IF
     END IF
   END IF
@@ -6693,9 +6718,13 @@ DO ic = 1,nc
   END IF
 END DO
 
-! Canopy humidity: q_c = q1 + c_q sum(LE), c_q = ra / (rho lc); the soil's
-! LE is rho lc g_soil (qs_soil - q_c), so c_q rho lc = ra multiplies g_soil.
-c_q    = ra_x / ( rho * lc )
+! Canopy humidity: q_c = q1 + c_q sum(LE), c_q = ra / (rho L), with L the
+! latent heat at tc that the leaves' LE uses (lhv / m_h2o, J kg-1; it was
+! the constant lc, 2-3 % off at 25-35 C). The soil's vapour flux is
+! rho g_soil (qs_soil - q_c), so ra multiplies g_soil.
+!
+! MDK, 24/10/26
+c_q    = ra_x * m_h2o / ( rho * lhv )
 ! Only the classes whose LE is positive at the solved q_c take part, as the
 ! leaf heat balance below clips each class's LE at 0: a class that would
 ! condense (at night) adds no vapour to, and removes none from, the canopy

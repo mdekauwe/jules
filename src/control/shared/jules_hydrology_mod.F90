@@ -222,6 +222,14 @@ IF ( l_soil_evap_or .AND. or_k_min <= 0.0 ) THEN
                "or_k_min must be > 0")
 END IF
 
+! The Or soil conductance replaces the trunk one, so l_limit_gsoil (and the
+! PFT gsoil_f) have no effect with it. MDK, 24/10/26
+IF ( l_soil_evap_or .AND. l_limit_gsoil ) THEN
+  errorstatus = -101
+  CALL ereport(RoutineName, errorstatus,                                       &
+               "l_limit_gsoil has no effect with l_soil_evap_or")
+END IF
+
 END SUBROUTINE check_jules_hydrology
 
 !#############################################################################

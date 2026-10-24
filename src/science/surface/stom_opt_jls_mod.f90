@@ -408,8 +408,8 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
                             ! N-weighted.
                             !
                             ! MDK, 21/10/26
-REAL(KIND=real_jlslsm) ::                                                      &
- psi_stem_sample(0:som_n_sample, open_pts)
+REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
+ psi_stem_sample(:,:)
                             ! Stem water potential of each Ci sample.
 
 !-----------------------------------------------------------------------------
@@ -427,17 +427,17 @@ INTEGER ::                                                                     &
 ,errcode
                             ! Error code to pass to ereport.
 
-INTEGER ::                                                                     &
- optimal_index_flat(open_pts)
+INTEGER, ALLOCATABLE ::                                                        &
+ optimal_index_flat(:)
                             ! Index of the best sample for the flat search,
                             ! from the shared stom_opt_profit_max_select
                             ! helper.
 
-LOGICAL ::                                                                     &
- l_good_sample(som_n_sample, open_pts)                                         &
+LOGICAL, ALLOCATABLE ::                                                        &
+ l_good_sample(:,:)                                                            &
                             ! Feasibility mask for the single-pass
                             ! sox_opt_profit_model search.
-,l_good_sample_flat(som_n_sample, open_pts)
+,l_good_sample_flat(:,:)
                             ! Feasibility mask for the flat search.
 
 !-----------------------------------------------------------------------------
@@ -457,43 +457,48 @@ REAL(KIND=real_jlslsm) ::                                                      &
 
 ! -- Flat-search sample arrays (sox_opt_profit_model, and
 ! -- profit_max_profit_model with som_ci_search = 1) --
-REAL(KIND=real_jlslsm) ::                                                      &
- ci_sample(0:som_n_sample, open_pts)                                           &
+REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
+ ci_sample(:,:)                                           &
                             ! Internal CO2 pressure (Pa).
-,al_sample(0:som_n_sample, open_pts)                                           &
+,al_sample(:,:)                                           &
                             ! Net Leaf photosynthesis (mol CO2/m2/s).
-,gl_sample(0:som_n_sample, open_pts)                                           &
+,gl_sample(:,:)                                           &
                             ! Leaf conductance for H2O (m/s).
-,kl_sample(0:som_n_sample, open_pts)                                           &
+,kl_sample(:,:)                                           &
                             ! Whole-path conductance -dE/dpsi_leaf of each
                             ! sample (mol m-2 s-1 Pa-1).
                             !
                             ! MDK, 21/10/26
-,kl_hc_sample(0:som_n_sample, open_pts)                                        &
+,kl_hc_sample(:,:)                                        &
                             ! Conductance used for the hydraulic cost
                             ! (mol m-2 s-1 Pa-1) - see stom_opt_mod_ci.
                             !
                             ! MDK, 21/10/26
-,kl_SOX(0:som_n_sample, open_pts)                                              &
+,kl_SOX(:,:)                                              &
                             ! Conductance for the SOX_opt model: the whole
                             ! path at the mean of the leaf and root zone
                             ! water potentials (mol m-2 s-1 Pa-1).
                             !
                             ! MDK, 21/10/26
-,psi_sample(0:som_n_sample, open_pts)                                          &
+,psi_sample(:,:)                                          &
                             ! Water potential at leaf (Pa)
-,SOX_mean_psi(0:som_n_sample, open_pts)                                        &
+,SOX_mean_psi(:,:)                                        &
                             ! Mean water potential between leaf and root zone
                             ! (Pa). Used in SOX_opt model.
-,el_sample(0:som_n_sample, open_pts)                                           &
+,el_sample(:,:)                                           &
                             ! Transpiration rate (mol H2O/m2/s)
-,profit(0:som_n_sample, open_pts)                                              &
+,profit(:,:)                                              &
                             ! Profit for each leaf state
-,carbon_gain(0:som_n_sample, open_pts)                                         &
+,carbon_gain(:,:)                                         &
                             ! Carbon gain for each leaf state
-,hydraulic_cost(0:som_n_sample, open_pts)                                      &
+,hydraulic_cost(:,:)
                             ! Hydraulic cost for each leaf state
-,max_kl(open_pts)                                                              &
+!
+! (The sample arrays are allocatable, allocated only by the flat searches:
+! as automatic arrays they put about 13 x 101 x open_pts reals on the stack
+! on every call, the bounded search included. MDK, 24/10/26)
+REAL(KIND=real_jlslsm) ::                                                      &
+ max_kl(open_pts)                                                              &
                             ! Maximum conductance (mol m-2 s-1 Pa-1)
                             !
                             ! MDK, 21/10/26
@@ -1043,6 +1048,8 @@ END SUBROUTINE fast_path
 !-----------------------------------------------------------------------------
 SUBROUTINE profit_max_flat()
 
+CALL alloc_flat()
+
 !---------------------------------------------------------------------
 ! Flat grid: som_n_sample points over the full [ccp, ca] range, routed
 ! through the shared stom_opt_profit_max_select helper, run over
@@ -1083,6 +1090,31 @@ DO j = 1, open_pts_flat
 END DO
 
 END SUBROUTINE profit_max_flat
+
+!-----------------------------------------------------------------------------
+! Allocate the flat-search sample arrays (once per call of stom_opt_mod).
+!
+! MDK, 24/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE alloc_flat()
+IF ( ALLOCATED(ci_sample) ) RETURN
+ALLOCATE( ci_sample(0:som_n_sample, open_pts),                                 &
+          al_sample(0:som_n_sample, open_pts),                                 &
+          gl_sample(0:som_n_sample, open_pts),                                 &
+          kl_sample(0:som_n_sample, open_pts),                                 &
+          kl_hc_sample(0:som_n_sample, open_pts),                              &
+          kl_SOX(0:som_n_sample, open_pts),                                    &
+          psi_sample(0:som_n_sample, open_pts),                                &
+          SOX_mean_psi(0:som_n_sample, open_pts),                              &
+          el_sample(0:som_n_sample, open_pts),                                 &
+          profit(0:som_n_sample, open_pts),                                    &
+          carbon_gain(0:som_n_sample, open_pts),                               &
+          hydraulic_cost(0:som_n_sample, open_pts),                            &
+          psi_stem_sample(0:som_n_sample, open_pts),                           &
+          l_good_sample(som_n_sample, open_pts),                               &
+          l_good_sample_flat(som_n_sample, open_pts),                          &
+          optimal_index_flat(open_pts) )
+END SUBROUTINE alloc_flat
 
 !-----------------------------------------------------------------------------
 ! Set the outputs at land point l from Ci sample k of open point j of a
@@ -1129,6 +1161,8 @@ END SUBROUTINE take_sample
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE sox_flat_search()
+
+CALL alloc_flat()
 
 carbon_gain(:,:) = 0.0
 hydraulic_cost(:,:) = 0.0

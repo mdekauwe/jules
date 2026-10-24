@@ -355,7 +355,7 @@ USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                       &
                    nsc_xylem_type, nsc_xylem_rate_max, nsc_ring_mmdd,          &
                    nsc_cmax, nsc_grow_start_doy, nsc_grow_end_doy,             &
                    nsc_flush_start_doy, nsc_flush_days
-USE model_time_mod, ONLY: current_time
+USE model_time_mod, ONLY: current_time, is_spinup   ! is_spinup: MDK, 24/10/26
 USE trif, ONLY: g_root, g_wood
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_repair_pend,      &
                                        ximpair_grow_acc, ximpair_fmin_acc,     &
@@ -479,7 +479,9 @@ END IF
 DO n = n1,n2
 
   l_mem = pft_xylem_impairment_model(n) == xylem_impairment_memory
-  l_rep = l_ximpair_rec_nsc .AND. l_mem
+  ! Not in spin-up: the impairment is frozen there (the update skips it),
+  ! so the store would pay for the same loss at every step. MDK, 24/10/26
+  l_rep = l_ximpair_rec_nsc .AND. l_mem .AND. .NOT. is_spinup
   IF (l_rep) CALL ximpair_memory_alloc( land_pts )
 
   a_mean = MIN(dt / MAX(nsc_tau_load(n), TINY(1.0_real_jlslsm)), 1.0)

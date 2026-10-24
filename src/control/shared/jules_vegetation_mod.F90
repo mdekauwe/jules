@@ -501,9 +501,14 @@ INTEGER ::                                                                     &
   som_n_ci_golden_iter = 16,                                                   &
       ! Maximum golden-section iterations of the bounded Ci search, on
       ! top of the initial two-point bracket setup.
-  som_psi_solver = psi_solver_taylor,                                          &
+  som_psi_solver = psi_solver_newton,                                          &
       ! Leaf water potential from transpiration rate: 1 Taylor series,
-      ! 2 Newton-Raphson, 3 lookup table of the supply function.
+      ! 2 Newton-Raphson, 3 lookup table of the supply function. Default 2:
+      ! the Taylor solver holds k at the mid-path psi, so near failure it
+      ! overstates k several-fold and can diverge (it was the default before
+      ! 24/10/26; a warning is given if it is chosen).
+      !
+      ! MDK, 24/10/26
   som_ci_search = som_ci_flat,                                                 &
       ! Ci search of the stomatal optimisation: 1 flat grid, 2 bounded.
   discrimination_model = discrimination_off,                                   &
@@ -1438,8 +1443,16 @@ END IF
 
 ! Check that the som_psi_solver is suitable. JBaguley
 SELECT CASE( som_psi_solver )
-CASE ( psi_solver_taylor, psi_solver_newton, psi_solver_lut )
+CASE ( psi_solver_newton, psi_solver_lut )
   ! Valid values
+CASE ( psi_solver_taylor )
+  ! Valid, but inaccurate near hydraulic failure. MDK, 24/10/26
+  IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
+    errcode = -101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+       'som_psi_solver = 1 (Taylor) is inaccurate near hydraulic ' //          &
+       'failure: use 2 (Newton) or 3 (lookup table)')
+  END IF
 CASE DEFAULT
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &

@@ -25,6 +25,9 @@ USE jules_vegetation_mod, ONLY: l_triffid, l_use_pft_psi, fsmc_shape,          &
 USE trif, ONLY: lai_min
 
 USE pftparm, ONLY: fsmc_mod, psi_close, psi_open, kmax_pft
+USE pftparm, ONLY: kcrit, pft_xylem_impairment_model   ! MDK, 24/10/26
+USE jules_vegetation_mod, ONLY: xylem_impairment_memory   ! MDK, 24/10/26
+USE xylem_impairment_memory_mod, ONLY: ximpair_lock   ! MDK, 24/10/26
 USE ancil_info, ONLY: land_pts, nsoilt
 USE jules_sea_seaice_mod, ONLY: z0hsea, alpham, alphac, alphab, dtice
 USE C_kappai, ONLY: kappai, de
@@ -341,6 +344,26 @@ DO i = 1, npft
   WHERE ( psparms%kmax_impaired_pft(:,i) <= 0.0 )
     psparms%kmax_impaired_pft(:,i) = kmax_pft(i)
   END WHERE
+  ! Memory model: the dump holds the damaged kmax in absolute units. If
+  ! kmax_pft has changed since (a calibration member, a new parameter set),
+  ! that would read as extra damage, 1 - kmax_dump/kmax_pft. Rebuild it from
+  ! the dumped loss instead, kmax_pft (1 - ximpair_lock), where the kmax the
+  ! dump implies differs from kmax_pft (so a consistent restart is
+  ! unchanged).
+  !
+  ! MDK, 24/10/26
+  IF ( pft_xylem_impairment_model(i) == xylem_impairment_memory .AND.          &
+       ALLOCATED(ximpair_lock) ) THEN
+    WHERE ( ximpair_lock(:,i) > 0.0 .AND. ximpair_lock(:,i) < 1.0 .AND.        &
+            ABS( psparms%kmax_impaired_pft(:,i) / (1.0 - ximpair_lock(:,i))    &
+                 - kmax_pft(i) ) > 1.0e-6 * kmax_pft(i) )
+      psparms%kmax_impaired_pft(:,i) = MAX(kmax_pft(i)                         &
+                                           * (1.0 - ximpair_lock(:,i)),        &
+                                           kcrit(i))
+    END WHERE
+    WHERE ( ximpair_lock(:,i) <= 0.0 )                                         &
+      psparms%kmax_impaired_pft(:,i) = kmax_pft(i)
+  END IF
   ! The canopy conductance diagnostic keeps its last value while the stomata
   ! are shut; start it at the (possibly restored) impaired kmax, as it
   ! stands at night in a continuous run.
