@@ -3631,6 +3631,13 @@ CASE ( 7 )
   ! (som_store_coupling = 1) the store's flow out it sees in the first pass:
   ! last step's (0 where the store is not set).
   !
+  ! cut_q_store is deliberately not in the dump, so it is 0 after a restart.
+  ! That changes nothing for a dump written at midnight: q_f is used only at
+  ! lit points, and the night steps set cut_q_store before the first of
+  ! them (FR-Pue 2022: a restart with and without it in the dump gave
+  ! identical output). Only a dump written in daylight would differ, in its
+  ! first step's first pass.
+  !
   ! MDK, 24/10/26
   !---------------------------------------------------------------------------
   e_sup_use(:) = e_supply(:)

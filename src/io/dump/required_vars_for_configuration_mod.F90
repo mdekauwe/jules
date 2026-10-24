@@ -257,11 +257,13 @@ END IF
 ! MDK, 22/10/26
 IF ( l_som_vcmax_psi ) CALL add_to_list( 'fvcmax_psi_state', nvars, identifiers )
 ! The cuticular-loss store (its water and stem psi), so a restart
-! reproduces a continuous run.
-!
-! MDK, 22/10/26
+! reproduces a continuous run. Its flow out (cut_q_store) is left out on
+! purpose: see sf_stom (the store coupled to the optimiser), where it
+! starts at 0, which changes nothing for a dump written at midnight.
 ! (l_som_capacitance_on: with the stomatal optimisation only, and
-! l_som_plant_store folded in by check_jules_vegetation. MDK, 24/10/26)
+! l_som_plant_store folded in by check_jules_vegetation.)
+!
+! MDK, 24/10/26
 IF ( l_som_capacitance_on ) THEN
   CALL add_to_list( 'cut_w_store', nvars, identifiers )
   CALL add_to_list( 'cut_psi_stem', nvars, identifiers )
