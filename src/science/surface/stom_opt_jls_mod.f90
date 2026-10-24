@@ -2280,6 +2280,8 @@ INTEGER :: j, l
 
 REAL(KIND=real_jlslsm) :: max_al(open_pts), max_kl(open_pts)
 REAL(KIND=real_jlslsm) :: gain_off(open_pts)
+LOGICAL :: l_hyd_sample(n_sample)
+    ! Hydraulically feasible samples (no gl cap), for max_al. MDK, 24/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -2321,7 +2323,13 @@ END DO
 DO j = 1, open_pts
   l = veg_index(open_index(j))
   gain_off(j) = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
-  max_al(j) = MAXVAL(al_sample(1:,j) + gain_off(j), MASK = l_good_sample(:,j))
+  ! The gain normalisation over the hydraulically feasible samples, without
+  ! the gl cap (as Sperry et al. 2017; see scale_and_ends). MDK, 24/10/26
+  l_hyd_sample(:) = som_feasible( n_sample, psi_sample(1:,j),                  &
+                                  kl_sample(1:,j), gl_sample(1:,j),            &
+                                  psi_root_zone(l), kcrit(l), 0.0_real_jlslsm, &
+                                  .NOT. l_store_q_path )
+  max_al(j) = MAXVAL(al_sample(1:,j) + gain_off(j), MASK = l_hyd_sample(:))
 END DO
 
 ! (Also with the store's flow held fixed, l_store_q_path: see kl_hc_max
@@ -2548,6 +2556,15 @@ INTEGER :: i, j, l, side, idx1(land_pts)
 LOGICAL :: l_intact_search
                             ! Hold leaf psi (ximpair_hold_psi): .TRUE.
                             ! while the search runs on the intact path.
+LOGICAL :: l_no_glcap
+                            ! .TRUE. while the hydraulic edge is found for
+                            ! the gain normalisation: the gl cap (gl_max)
+                            ! is left out of the feasibility test.
+REAL(KIND=real_jlslsm) :: hy_ci, hy_al
+                            ! Ci and A at the hydraulic edge (the gain
+                            ! normalisation, as Sperry et al. 2017).
+                            !
+                            ! MDK, 24/10/26
 LOGICAL :: l_shut
                             ! The point was closed by a step of the point
                             ! loop.
@@ -2681,6 +2698,7 @@ l_cap = som_profit_model == cap_profit_model
 ! MDK, 22/10/26
 l_pm2 = som_profit_model == pm2_profit_model
 l_abs = l_cmax .OR. l_cgain .OR. l_sox .OR. l_cap .OR. l_pm2
+l_no_glcap = .FALSE.
 b_curve(:) = conductance_b_pft(pft)
 c_curve(:) = conductance_c_pft(pft)
 
@@ -2862,12 +2880,28 @@ CONTAINS
   l_shut = .FALSE.
   ! Normalisation; no carbon benefit from opening => closed, as for the flat
   ! search (stom_opt_profit_max_select).
-  max_al = e_al + g_off
+  !
+  ! The gain is normalised by A at the hydraulic edge (k = kcrit, or ci_top),
+  ! as Sperry et al. (2017): the largest A along the supply curve up to
+  ! failure. The gl cap (som_gl_max, the soil-supply cap) only cuts off the
+  ! search range. When the cap set the edge (its margin is the smaller), the
+  ! hydraulic edge is found beyond it; before, A at the capped edge was used,
+  ! which inflated the gain fraction and moved the optimum towards opening
+  ! wherever a cap bound before the hydraulics.
+  !
+  ! MDK, 24/10/26
+  hy_ci = e_ci
+  hy_al = e_al
+  IF ( gl_max(l) > 0.0 .AND. e_ci < ci_top ) THEN
+    IF ( (gl_max(l) - e_gl) / gl_max(l)                                        &
+         < (e_kl - kcrit(l)) / kmax(l) ) CALL hydraulic_edge()
+  END IF
+  max_al = hy_al + g_off
 
   ! With the nonstomatal limitation, normalise by the unlimited A at the edge
   ! so the gain-to-cost weighting is as without it (and the limitation
   ! lowers the gain fraction).
-  IF ( l_som_nsl ) max_al = photo_al(e_ci) + g_off
+  IF ( l_som_nsl ) max_al = photo_al(hy_ci) + g_off
   IF ( max_al <= 0.0 ) THEN
     CALL set_closed()
     l_shut = .TRUE.
@@ -2894,6 +2928,51 @@ CONTAINS
     best_khc = e_khc
   END IF
   END SUBROUTINE scale_and_ends
+
+  !---------------------------------------------------------------------------
+  ! The hydraulic edge beyond a gl cap, for the gain normalisation (hy_ci,
+  ! hy_al): the edge search with the cap left out of the feasibility test,
+  ! from the capped edge e_* to ci_top. The edge state e_* is restored
+  ! afterwards, so the search range is unchanged.
+  !
+  ! MDK, 24/10/26
+  !---------------------------------------------------------------------------
+  SUBROUTINE hydraulic_edge()
+  REAL(KIND=real_jlslsm) :: s_ci, s_al, s_gl, s_el, s_psi, s_kl, s_khc, s_g
+
+  s_ci  = e_ci
+  s_al  = e_al
+  s_gl  = e_gl
+  s_el  = e_el
+  s_psi = e_psi
+  s_kl  = e_kl
+  s_khc = e_khc
+  s_g   = e_g
+  l_no_glcap = .TRUE.
+
+  CALL eval_ci(ci_top)
+  IF ( ok_u ) THEN
+    ! Hydraulically feasible up to ci_top.
+    hy_ci = ci_top
+    hy_al = al_u
+  ELSE
+    ! From the capped edge (hydraulically feasible) to ci_top.
+    e_g = MAX((e_kl - kcrit(l)) / kmax(l), TINY(1.0_real_jlslsm))
+    CALL edge_by_margin()
+    hy_ci = e_ci
+    hy_al = e_al
+  END IF
+
+  l_no_glcap = .FALSE.
+  e_ci  = s_ci
+  e_al  = s_al
+  e_gl  = s_gl
+  e_el  = s_el
+  e_psi = s_psi
+  e_kl  = s_kl
+  e_khc = s_khc
+  e_g   = s_g
+  END SUBROUTINE hydraulic_edge
 
   !---------------------------------------------------------------------------
   ! Section 3: golden-section search for the maximum profit.
@@ -3254,10 +3333,11 @@ CONTAINS
   ! held fixed (l_store_q_path) the leaf may be wetter than the root zone:
   ! the store is a second source, wetter than the soil while it gives.
   ! (MDK, 24/10/26)
+  ! (Not the gl cap while l_no_glcap: the hydraulic edge. MDK, 24/10/26)
   ok_u = ( psi_u <= psi_root_zone(l) + TINY(psi_root_zone(l))                  &
            .OR. l_store_q_path )                                               &
          .AND. kl_u > kcrit(l)                                                 &
-         .AND. (gl_max(l) <= 0.0 .OR. gl_u <= gl_max(l))
+         .AND. (gl_max(l) <= 0.0 .OR. l_no_glcap .OR. gl_u <= gl_max(l))
   END SUBROUTINE eval_ci
 
   ! Conductance, transpiration, leaf psi and xylem k at internal CO2 ci for
@@ -3586,7 +3666,8 @@ CONTAINS
   ! decreasing in Ci, for the Illinois edge search.
   REAL(KIND=real_jlslsm) FUNCTION margin()
   margin = (kl_u - kcrit(l)) / kmax(l)
-  IF ( gl_max(l) > 0.0 ) margin = MIN(margin, (gl_max(l) - gl_u) / gl_max(l))
+  IF ( gl_max(l) > 0.0 .AND. .NOT. l_no_glcap )                                &
+    margin = MIN(margin, (gl_max(l) - gl_u) / gl_max(l))
   IF ( ok_u ) THEN
     margin = MAX(margin, TINY(1.0_real_jlslsm))
   ELSE
