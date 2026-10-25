@@ -916,6 +916,32 @@ REAL(KIND=real_jlslsm) :: q_f(land_pts)
                             ! som_store_coupling = 1: the store's flow out
                             ! at the stem node the optimiser sees (mol H2O
                             ! m-2 ground s-1; > 0: it gives, < 0: it refills).
+REAL(KIND=real_jlslsm) :: kref_cpl(land_pts), kmx_cpl(land_pts),              &
+                          kcr_cpl(land_pts)
+                            ! som_store_coupling = 1: the canopy's plant path
+                            ! for the store's balance (store_cpl_q): intact
+                            ! kmax, kmax (impaired) and kcrit of the whole
+                            ! canopy (mol m-2 ground s-1 Pa-1), set by each
+                            ! canopy scheme before its first store solve.
+                            !
+                            ! MDK, 25/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE :: el_sun_lyr(:,:), el_shd_lyr(:,:)
+                            ! som_store_coupling = 1, multilayer: each
+                            ! layer's sunlit and shaded E of the last pass
+                            ! (mol H2O m-2 leaf s-1; land_pts, ilayers).
+REAL(KIND=real_jlslsm) :: e_ml_prev(land_pts), q_sun_ml(land_pts),            &
+                          q_shd_ml(land_pts)
+                            ! The canopy E of the last pass (mol H2O m-2
+                            ! ground s-1), and this layer's sunlit and
+                            ! shaded parts of q_f (mol H2O m-2 leaf s-1):
+                            !
+                            !   q_c = q_f E_c / E,
+                            !
+                            ! from the last pass (by the layer's kmax share,
+                            ! share_sup, in the first pass or where E = 0),
+                            ! so the parts over the canopy add up to q_f.
+                            !
+                            ! MDK, 25/10/26
 REAL(KIND=real_jlslsm) :: q_f_sun(land_pts), q_f_shd(land_pts),                &
                           share_one(land_pts)
                             ! som_store_coupling = 1: the sunlit and shaded
@@ -939,7 +965,7 @@ REAL(KIND=real_jlslsm) :: e_sup_use(land_pts)
                             ! capped by (kg m-2 s-1; < 0: no cap): e_supply,
                             ! or with som_store_coupling = 1 e_supply + q_f,
                             ! as the soil supplies only E - q_f.
-REAL(KIND=real_jlslsm) :: e_be_2l(land_pts)
+REAL(KIND=real_jlslsm) :: e_be(land_pts)
                             ! som_store_coupling = 1: the canopy E the
                             ! store's balance is taken at (mol H2O m-2 s-1).
 REAL(KIND=real_jlslsm) :: q_be(land_pts), psi_st_be(land_pts),                 &
@@ -2112,8 +2138,39 @@ CASE ( 5, 6 )
         !
         ! MDK, 23/10/26
         n_tank_ml = 0
-        IF ( l_cap_store ) n_tank_ml = 1
+        IF ( l_cap_store .AND. .NOT. l_store_cpl ) n_tank_ml = 1
         ml_tank_pass = .FALSE.
+        ! The store coupled to the optimiser (som_store_coupling = 1),
+        ! multilayer: no store pass; the store's flow out the first pass
+        ! sees (last step's), the soil supply cap with it, and the canopy's
+        ! path for its balance (as the big leaf; no kplant_model = 1 here).
+        !
+        ! MDK, 25/10/26
+        e_sup_use(:) = e_supply(:)
+        IF ( l_store_cpl ) THEN
+          IF ( n_pass_ml < 2 ) THEN
+            errcode = 101
+            CALL ereport(RoutineName, errcode,                                 &
+                         'som_store_coupling = 1 needs at least 2 passes ' //  &
+                         '(multilayer: iter, or leaf_temp_iter)')
+          END IF
+          share_one(:) = 1.0
+          q_f(:)       = 0.0
+          e_ml_prev(:) = 0.0
+          DO m = 1,veg_pts
+            l = veg_index(m)
+            IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min )        &
+              q_f(l) = cut_q_store(l,ft) / cut_m_h2o
+            kref_cpl(l) = kmax_pft(ft) * lai(l)
+            kmx_cpl(l)  = kref_cpl(l) * ml_kfrac(l)
+            kcr_cpl(l)  = kcrit_of_path(ft, kref_cpl(l))
+          END DO
+          CALL store_cpl_supply()
+          IF ( ALLOCATED(el_sun_lyr) ) DEALLOCATE( el_sun_lyr, el_shd_lyr )
+          ALLOCATE( el_sun_lyr(land_pts,ilayers), el_shd_lyr(land_pts,ilayers) )
+          el_sun_lyr(:,:) = 0.0
+          el_shd_lyr(:,:) = 0.0
+        END IF
         DO k = 1,n_pass_ml + n_tank_ml
 
         ! The store's pass: E' from the totals of the last pass (before
@@ -2460,6 +2517,7 @@ CASE ( 5, 6 )
                          dlai(l) * 1.0e6 >  10.0 ) rd_shd(l) = 0.7 * rd_shd(l)
                   END DO
 
+                  IF ( l_store_cpl ) CALL store_cpl_ml_q( n, k )
                   ! Sunlit, then shaded leaf of the layer, each at its own
                   ! leaf temperature (MDK, 21/10/26).
                   CALL ml_class( vcmax_sun_ml, kc_sun_lt, ko_sun_lt,           &
@@ -2468,29 +2526,38 @@ CASE ( 5, 6 )
                                  rd_sun, ci_sun_ml, anetl_sun, el_sun,         &
                                  flux_o3_l_sun, fo3_l_sun, gl_sun,             &
                                  psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,     &
-                                 psi_stem_sun )
+                                 psi_stem_sun, q_sun_ml )
                   CALL ml_class( vcmax_shd_ml, kc_shd_lt, ko_shd_lt,           &
                                  ccp_shd_lt, km_shd_lt, dq_shd_lt,             &
                                  je_shd_ml, t_shd_lt, ones_c, fapar_shd(:,n),  &
                                  rd_shd, ci_shd_ml, anetl_shd, el_shd,         &
                                  flux_o3_l_shd, fo3_l_shd, gl_shd,             &
                                  psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,     &
-                                 psi_stem_shd )
+                                 psi_stem_shd, q_shd_ml )
+                  IF ( l_store_cpl ) THEN
+                    el_sun_lyr(:,n) = el_sun(:)
+                    el_shd_lyr(:,n) = el_shd(:)
+                  END IF
                 ELSE
                 ! share_sup: this layer's kmax share, set with kmax_leaf_lyr.
                 ! Added gs opt calls for sunlit and shaded. MDK, 29/04/26
+                IF ( l_store_cpl ) CALL store_cpl_ml_q( n, k )
                 CALL ml_class( vcmax, kc, ko, ccp, km, dqc, je, tstar,         &
                                je_sun_ratio, fapar_sun(:,n),                   &
                                rd_sun, ci_sun_ml, anetl_sun, el_sun,           &
                                flux_o3_l_sun, fo3_l_sun, gl_sun,               &
                                psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,       &
-                               psi_stem_sun )
+                               psi_stem_sun, q_sun_ml )
                 CALL ml_class( vcmax, kc, ko, ccp, km, dqc, je, tstar,         &
                                je_shd_ratio, fapar_shd(:,n),                   &
                                rd_shd, ci_shd_ml, anetl_shd, el_shd,           &
                                flux_o3_l_shd, fo3_l_shd, gl_shd,               &
                                psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,       &
-                               psi_stem_shd )
+                               psi_stem_shd, q_shd_ml )
+                IF ( l_store_cpl ) THEN
+                  el_sun_lyr(:,n) = el_sun(:)
+                  el_shd_lyr(:,n) = el_shd(:)
+                END IF
                 END IF
 
                 ! Closed leaves get min_gl_pft from stom_opt_mod, a canopy
@@ -2654,6 +2721,29 @@ CASE ( 5, 6 )
         !
         ! MDK, 23/10/26
         IF ( k /= n_pass_ml .OR. n_tank_ml == 0 ) gc_ml_prev(:) = gc(:)
+
+        ! The store coupled to the optimiser: its flow out for the next
+        ! pass, from its balance at this pass's canopy E, where some point
+        ! transpires (the last pass's balance is committed after the leak
+        ! block), and this pass's E for the layers' parts of q_f.
+        !
+        ! MDK, 25/10/26
+        IF ( l_store_cpl .AND. k < n_pass_ml ) THEN
+          DO m = 1,veg_pts
+            l = veg_index(m)
+            e_be(l)      = MAX(el(l), 0.0)
+            e_ml_prev(l) = e_be(l)
+          END DO
+          IF ( ANY(e_be(veg_index(1:veg_pts)) > 0.0) ) THEN
+            CALL store_cpl_q( .FALSE., e_be )
+            DO m = 1,veg_pts
+              l = veg_index(m)
+              IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min .AND.  &
+                   e_be(l) > 0.0 ) q_f(l) = q_be(l)
+            END DO
+            CALL store_cpl_supply()
+          END IF
+        END IF
 
         ! New leaf and canopy air temperatures for the next pass (none after
         ! the last pass, so the temperatures output are those used), as
@@ -3080,6 +3170,28 @@ CASE ( 1 )
     IF ( l_som_rhizo_series ) ksr_ds(:) = ksr(:)
   END IF
 
+  ! The store coupled to the optimiser (som_store_coupling = 1), big leaf:
+  ! the store's flow out the first pass sees, last step's, and the soil
+  ! supply cap with it (as the two-leaf canopy). e_sup_use is e_supply
+  ! otherwise.
+  !
+  ! MDK, 25/10/26
+  e_sup_use(:) = e_supply(:)
+  IF ( l_store_cpl ) THEN
+    IF ( iter < 2 ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode,                                       &
+                   'som_store_coupling = 1 needs iter >= 2 (big leaf)')
+    END IF
+    q_f(:) = 0.0
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min )              &
+        q_f(l) = cut_q_store(l,ft) / cut_m_h2o
+    END DO
+    CALL store_cpl_supply()
+  END IF
+
   DO i_pass = 1,n_pass
 
   IF ( stomata_model == stomata_desica ) THEN
@@ -3233,7 +3345,7 @@ CASE ( 1 )
          dq_opt(:) = dq(:)
          r_ca_c(:) = ra(:)
        END IF
-       CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,        &
+       CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use,       &
                                 share_sup, dq_opt, tstar, pstar,               &
                                 gl_max_bigleaf, gl_max_eff,                    &
                                 zero_c, r_ca_c, g_soil_c )
@@ -3263,6 +3375,18 @@ CASE ( 1 )
          kcrit_bigleaf(:)    = kcrit_bigleaf(:)    * kplant_scale(:)
        END IF
 
+       ! The store coupled to the optimiser: the canopy's path for its
+       ! balance, and its flow out held fixed for this search (one path,
+       ! share 1).
+       !
+       ! MDK, 25/10/26
+       IF ( l_store_cpl ) THEN
+         kref_cpl(:) = kmax_ref_bigleaf(:)
+         kmx_cpl(:)  = kmax_bigleaf(:)
+         kcr_cpl(:)  = kcrit_bigleaf(:)
+         CALL set_store_q_path( land_pts, veg_pts, veg_index, share_sup, q_f )
+       END IF
+
        CALL stom_opt_mod (                                                     &
               ! IN
                 land_pts, ft, open_pts, open_index,                            &
@@ -3280,6 +3404,28 @@ CASE ( 1 )
                 carbon_gain, hydraulic_cost, leaf_k,                           &
                 psi_stem = psi_stem                                            &
         )
+        IF ( l_store_cpl ) CALL clear_store_q_path()   ! MDK, 25/10/26
+
+        ! The store coupled to the optimiser: its flow out for the next pass,
+        ! from its balance at this pass's E, where some point transpires
+        ! (the last pass's balance is committed after the leak block).
+        !
+        ! MDK, 25/10/26
+        IF ( l_store_cpl .AND. k < iter ) THEN
+          DO m = 1,veg_pts
+            l = veg_index(m)
+            e_be(l) = MAX(el(l), 0.0)
+          END DO
+          IF ( ANY(e_be(veg_index(1:veg_pts)) > 0.0) ) THEN
+            CALL store_cpl_q( .FALSE., e_be )
+            DO m = 1,veg_pts
+              l = veg_index(m)
+              IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min .AND.  &
+                   e_be(l) > 0.0 ) q_f(l) = q_be(l)
+            END DO
+            CALL store_cpl_supply()
+          END IF
+        END IF
 
         ! Plant capacitance, big leaf: on the final pass of the humidity
         ! iteration,
@@ -3290,7 +3436,7 @@ CASE ( 1 )
         !      the store applies (stom_opt_at_e).
         !
         ! MDK, 23/10/26
-        IF ( l_cap_store .AND. k == iter ) THEN
+        IF ( l_cap_store .AND. .NOT. l_store_cpl .AND. k == iter ) THEN
           ! The optimiser's canopy E* and psi_leaf, and the open points.
           DO m = 1,veg_pts
             l = veg_index(m)
@@ -3687,7 +3833,17 @@ CASE ( 7 )
   share_one(:) = 1.0
   q_f_sun(:)   = 0.0
   q_f_shd(:)   = 0.0
-  IF ( l_store_cpl ) CALL store_cpl_split( .FALSE. )
+  IF ( l_store_cpl ) THEN
+    ! The canopy's path for the store's balance: the two classes together.
+    ! (MDK, 25/10/26)
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      kref_cpl(l) = kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l)
+      kmx_cpl(l)  = kmax_sun_2l(l) + kmax_shd_2l(l)
+      kcr_cpl(l)  = kcrit_sun_2l(l) + kcrit_shd_2l(l)
+    END DO
+    CALL store_cpl_split( .FALSE. )
+  END IF
 
   !---------------------------------------------------------------------------
   ! Iterate for the canopy humidity deficit, starting from the previous
@@ -3777,25 +3933,27 @@ CASE ( 7 )
     ! balance is committed after the leak block).
     !
     ! MDK, 24/10/26
+    ! (Only where some point transpires: q_f is used only by the next pass's
+    ! open points, so with E = 0 everywhere, e.g. at night, the solve is
+    ! skipped and q_f keeps its value. The IFs are nested: Fortran need not
+    ! short-circuit .AND., and e_be is set only with the store coupled.)
+    !
+    ! MDK, 25/10/26
     IF ( l_store_cpl .AND. k < n_pass_2l ) THEN
       DO m = 1,veg_pts
         l = veg_index(m)
-        e_be_2l(l) = MAX(el_sun(l) + el_shd(l), 0.0)
+        e_be(l) = MAX(el_sun(l) + el_shd(l), 0.0)
       END DO
-    END IF
-    ! (Only where some point transpires: q_f is used only by the next pass's
-    ! open points, so with E = 0 everywhere, e.g. at night, the solve is
-    ! skipped and q_f keeps its value. MDK, 25/10/26)
-    IF ( l_store_cpl .AND. k < n_pass_2l .AND.                                 &
-         ANY(e_be_2l(veg_index(1:veg_pts)) > 0.0) ) THEN
-      CALL store_cpl_q( .FALSE., e_be_2l )
-      DO m = 1,veg_pts
-        l = veg_index(m)
-        IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min .AND.        &
-             e_be_2l(l) > 0.0 ) q_f(l) = q_be(l)
-      END DO
-      CALL store_cpl_supply()
-      CALL store_cpl_split( .TRUE. )
+      IF ( ANY(e_be(veg_index(1:veg_pts)) > 0.0) ) THEN
+        CALL store_cpl_q( .FALSE., e_be )
+        DO m = 1,veg_pts
+          l = veg_index(m)
+          IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min .AND.      &
+               e_be(l) > 0.0 ) q_f(l) = q_be(l)
+        END DO
+        CALL store_cpl_supply()
+        CALL store_cpl_split( .TRUE. )
+      END IF
     END IF
 
     ! New leaf and canopy air temperatures for the next pass (none after
@@ -4171,8 +4329,19 @@ IF ( l_cap_store ) THEN
          gc(l) >= gl_cut_eff(l) ) CYCLE
     gc(l)     = gl_cut_eff(l)
     gc_som(l) = gc(l)
-    ! Canopy transpiration (mol H2O m-2 s-1), as el elsewhere.
-    el(l)     = e_of_g(gc(l), MAX(dqc(l), 0.0), pstar(l), tstar(l))
+    ! Canopy transpiration (mol H2O m-2 s-1), as el elsewhere: the tile's
+    ! flux at this gc, as sf_evap takes it (the stomatal share of the flux
+    ! through ra, shared with the soil conductance; see gc_eq in
+    ! lt_finish),
+    !
+    !   E = rho (qs(tstar) - q1) gc / (1 + ra (gc + g_s)) / M_w,
+    !
+    ! not gc dqc, which leaves out the soil's share of ra (~15-20 % high).
+    !
+    ! MDK, 25/10/26
+    el(l)     = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)         &
+                * gc(l) / ( 1.0 + ra(l) * ( gc(l) + g_soil_c(l) ) )            &
+                / m_h2o_lt
     lk_cut(l) = .TRUE.
   END DO
   ! The canopy path of the optimisation (cf. kmax_bigleaf).
@@ -4193,7 +4362,10 @@ IF ( l_cap_store ) THEN
   r_crit = 1.0 - kcrit_fractional_loss(ft)
   l_seg_cut = l_som_plant_segments .AND. .NOT. is_spinup .AND.                 &
               pft_xylem_impairment_model(ft) /= xylem_impairment_none
-  IF ( l_seg_cut ) THEN
+  ! (With the store coupled to the optimiser, always the segment curves:
+  ! its balance and the optimiser use the segments in spin-up and without
+  ! an impairment model too. MDK, 25/10/26)
+  IF ( l_seg_cut .OR. l_store_cpl ) THEN
     psi_fl_leaf = -ABS(conductance_b_seg(ft,3))                                &
                   * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,3))
     psi_fl_stem = -ABS(conductance_b_seg(ft,2))                                &
@@ -4266,9 +4438,9 @@ IF ( l_cap_store ) THEN
   IF ( l_store_cpl ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
-      e_be_2l(l) = MAX(el(l), 0.0)
+      e_be(l) = MAX(el(l), 0.0)
     END DO
-    CALL store_cpl_q( .TRUE., e_be_2l )
+    CALL store_cpl_q( .TRUE., e_be )
     IF ( l_som_cuticular_loss ) CALL store_cpl_leak_cut()
   END IF
   DO m = 1,veg_pts
@@ -4975,6 +5147,37 @@ END DO
 END SUBROUTINE store_cpl_split
 
 !-----------------------------------------------------------------------------
+! som_store_coupling = 1, multilayer: layer n's sunlit and shaded parts of
+! q_f per unit leaf area (q_sun_ml, q_shd_ml; see e_ml_prev) for pass k:
+! in proportion to the last pass's E of that leaf (el_sun_lyr, el_shd_lyr)
+! over the canopy E (e_ml_prev), or in the first pass, or where E = 0, by
+! the layer's kmax share (share_sup, per unit leaf area).
+!
+! MDK, 25/10/26
+!-----------------------------------------------------------------------------
+SUBROUTINE store_cpl_ml_q( n_l, k_p )
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: n_l, k_p
+                            ! The layer and the pass.
+
+INTEGER :: m, l
+
+DO m = 1,veg_pts
+  l = veg_index(m)
+  IF ( k_p > 1 .AND. e_ml_prev(l) > 0.0 ) THEN
+    q_sun_ml(l) = q_f(l) * MAX(el_sun_lyr(l,n_l), 0.0) / e_ml_prev(l)
+    q_shd_ml(l) = q_f(l) * MAX(el_shd_lyr(l,n_l), 0.0) / e_ml_prev(l)
+  ELSE
+    q_sun_ml(l) = q_f(l) * share_sup(l)
+    q_shd_ml(l) = q_f(l) * share_sup(l)
+  END IF
+END DO
+
+END SUBROUTINE store_cpl_ml_q
+
+!-----------------------------------------------------------------------------
 ! som_store_coupling = 1 with the leak (l_som_cuticular_loss): at leak points
 ! (lk_cut) where the committed leaf psi fell below psi_fl_leaf, the psi of
 ! the critical loss of conductance, the leak is cut to the E that leaves the
@@ -5002,23 +5205,23 @@ DO m = 1,veg_pts
   l_cut(l) = lk_cut(l) .AND. l_fl_hit(l) .AND. el(l) > 0.0 .AND.               &
              cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min
   e_lo(l) = 0.0
-  e_hi(l) = e_be_2l(l)
+  e_hi(l) = e_be(l)
 END DO
 IF ( .NOT. ANY(l_cut) ) RETURN
 
 DO it = 1,n_it_fl
   DO m = 1,veg_pts
     l = veg_index(m)
-    IF ( l_cut(l) ) e_be_2l(l) = 0.5 * (e_lo(l) + e_hi(l))
+    IF ( l_cut(l) ) e_be(l) = 0.5 * (e_lo(l) + e_hi(l))
   END DO
-  CALL store_cpl_q( .FALSE., e_be_2l, l_sel = l_cut )
+  CALL store_cpl_q( .FALSE., e_be, l_sel = l_cut )
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( .NOT. l_cut(l) ) CYCLE
     IF ( psi_l_be(l) < psi_fl_leaf ) THEN
-      e_hi(l) = e_be_2l(l)
+      e_hi(l) = e_be(l)
     ELSE
-      e_lo(l) = e_be_2l(l)
+      e_lo(l) = e_be(l)
     END IF
   END DO
 END DO
@@ -5026,12 +5229,12 @@ END DO
 DO m = 1,veg_pts
   l = veg_index(m)
   IF ( .NOT. l_cut(l) ) CYCLE
-  e_be_2l(l) = e_lo(l)
+  e_be(l) = e_lo(l)
   gc(l)      = gc(l) * e_lo(l) / el(l)
   gc_som(l)  = gc(l)
   el(l)      = e_lo(l)
 END DO
-CALL store_cpl_q( .TRUE., e_be_2l, l_sel = l_cut )
+CALL store_cpl_q( .TRUE., e_be, l_sel = l_cut )
 
 END SUBROUTINE store_cpl_leak_cut
 
@@ -5147,14 +5350,15 @@ END IF
 ! hold 0, not junk. MDK, 24/10/26)
 q_try(:)     = 0.0
 
-! The canopy's path (the two classes together) and the soil link in full.
+! The canopy's path (kref_cpl, kmx_cpl, kcr_cpl, set by the canopy scheme)
+! and the soil link in full.
 l_imp_be = .NOT. is_spinup .AND.                                               &
            pft_xylem_impairment_model(ft) /= xylem_impairment_none
 DO m = 1,veg_pts
   l = veg_index(m)
-  kref_c(l) = kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l)
-  kmx_c(l)  = kmax_sun_2l(l) + kmax_shd_2l(l)
-  kcr_c(l)  = kcrit_sun_2l(l) + kcrit_shd_2l(l)
+  kref_c(l) = kref_cpl(l)
+  kmx_c(l)  = kmx_cpl(l)
+  kcr_c(l)  = kcr_cpl(l)
   kcap_c(l) = kmx_c(l) / MAX(kref_c(l), TINY(1.0_real_jlslsm))
   share_sup(l) = 1.0
 END DO
@@ -5410,7 +5614,7 @@ END SUBROUTINE store_cpl_eval
 SUBROUTINE ml_class( vcmax_x, kc_x, ko_x, ccp_x, km_x, dq_x, je_x,             &
                      t_x, je_ratio_x, fapar_x, rd_c, ci_c, anetl_c, el_c,      &
                      flux_o3_c, fo3_c, gl_c, psi_leaf_c, cg_c, hc_c,           &
-                     leaf_k_c, psi_stem_c )
+                     leaf_k_c, psi_stem_c, q_c )
 IMPLICIT NONE
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
@@ -5429,6 +5633,11 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) :: psi_stem_c(land_pts)
                             ! plant segments).
                             !
                             ! MDK, 23/10/26
+REAL(KIND=real_jlslsm), INTENT(IN) :: q_c(land_pts)
+                            ! som_store_coupling = 1: this leaf's part of the
+                            ! store's flow out (mol H2O m-2 leaf s-1).
+                            !
+                            ! MDK, 25/10/26
 
 INTEGER :: i, l
 REAL(KIND=real_jlslsm) :: e_tgt_x(land_pts)
@@ -5437,9 +5646,12 @@ REAL(KIND=real_jlslsm) :: e_tgt_x(land_pts)
                             ! MDK, 23/10/26
 
 e_tgt_x(:) = 0.0
-CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply, share_sup,    &
+CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use, share_sup,   &
                          dq_x, t_x, pstar, gl_max_lf, gl_max_eff )
 CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
+! The store's flow out held fixed for this leaf's search. MDK, 25/10/26
+IF ( l_store_cpl ) CALL set_store_q_path( land_pts, veg_pts, veg_index,        &
+                                          share_one, q_c )
 CALL stom_opt_mod (                                                            &
     ! IN
     land_pts, ft, open_pts, open_index,                                        &
@@ -5457,6 +5669,7 @@ CALL stom_opt_mod (                                                            &
     gl_c, psi_leaf_c, cg_c, hc_c, leaf_k_c,                                    &
     psi_stem = psi_stem_c                                                      &
 )
+IF ( l_store_cpl ) CALL clear_store_q_path()   ! MDK, 25/10/26
 
 ! Plant capacitance (the multilayer store's pass): this leaf at
 !

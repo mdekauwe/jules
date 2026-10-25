@@ -594,8 +594,9 @@ INTEGER ::                                                                     &
       !    the leaf-temperature (or humidity) iteration by the store's
       !    balance at the stem node over the step (backward Euler), and that
       !    balance is committed at the final E, so the water is conserved.
-      !    Two-leaf canopy (can_rad_mod = 7), plant segments with the
-      !    Newton solver and the bounded Ci search, at least two passes;
+      !    Big-leaf, multilayer and two-leaf canopies (can_rad_mod 1, 5, 6,
+      !    7), plant segments with the Newton solver and the bounded Ci
+      !    search, at least two passes;
       !    with the cuticular loss the leak is cut where the leaf would end
       !    below psi at the critical loss of conductance.
       !
@@ -1943,8 +1944,8 @@ IF ( l_som_capacitance_on .AND. can_rad_mod == 4 ) THEN
 END IF
 ! The store coupled to the optimiser (som_store_coupling = 1): the store
 ! sits at the stem node of the plant segments, and is coded for the
-! two-leaf canopy with the Newton segment solver and the bounded Ci search
-! (with or without the cuticular loss).
+! big-leaf, multilayer and two-leaf canopies with the Newton segment solver
+! and the bounded Ci search (with or without the cuticular loss).
 !
 ! MDK, 25/10/26
 IF ( som_store_coupling < 0 .OR. som_store_coupling > 1 ) THEN
@@ -1966,10 +1967,12 @@ IF ( som_store_coupling == 1 ) THEN
                  'som_store_coupling = 1 requires l_som_plant_segments ' //    &
                  'and som_psi_solver = 2 (Newton)')
   END IF
-  IF ( can_rad_mod /= 7 ) THEN
+  IF ( can_rad_mod /= 1 .AND. can_rad_mod /= 5 .AND. can_rad_mod /= 6 .AND.   &
+       can_rad_mod /= 7 ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 'som_store_coupling = 1 is only coded for can_rad_mod = 7')
+                 'som_store_coupling = 1 is only coded for can_rad_mod = ' //  &
+                 '1, 5, 6 or 7')
   END IF
   IF ( stomata_model /= stomata_profit_max ) THEN
     errcode = 101
