@@ -19,6 +19,11 @@ MODULE canopy_diag_mod
 !   specific humidity (kg kg-1) of the leaf energy balance (l_leaf_temp).
 ! - h_leaf_pft, le_leaf_pft: the leaves' sensible and latent heat in that
 !   balance (W m-2, ground).
+! - gs_sun_pft, gs_shd_pft: the stomatal conductance the optimiser chose for
+!   the sunlit and the shaded leaves, per unit leaf area of each class (m
+!   s-1), and lai_sun_pft, the sunlit leaf area (m2 m-2); two-leaf canopy
+!   (can_rad_mod = 7) only. Comparable with leaf gas exchange. (MDK,
+!   25/10/26)
 !
 ! Allocated on first use; 0 where not set. Written by sf_stom (and physiol
 ! for gsoil_pft), read by extract_var.
@@ -32,11 +37,13 @@ IMPLICIT NONE
 
 PRIVATE
 PUBLIC :: gc_stomatal_pft, gsoil_pft, t_can_air_pft, q_can_air_pft,           &
-          h_leaf_pft, le_leaf_pft, h_leaf_pts, le_leaf_pts, canopy_diag_alloc
+          h_leaf_pft, le_leaf_pft, h_leaf_pts, le_leaf_pts, canopy_diag_alloc, &
+          gs_sun_pft, gs_shd_pft, lai_sun_pft
 
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE ::                                   &
   gc_stomatal_pft(:,:), gsoil_pft(:,:), t_can_air_pft(:,:),                   &
-  q_can_air_pft(:,:), h_leaf_pft(:,:), le_leaf_pft(:,:)
+  q_can_air_pft(:,:), h_leaf_pft(:,:), le_leaf_pft(:,:),                     &
+  gs_sun_pft(:,:), gs_shd_pft(:,:), lai_sun_pft(:,:)
     ! (land_pts, npft): see the header.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: h_leaf_pts(:), le_leaf_pts(:)
     ! (land_pts): the leaf balance's H and LE of the current PFT, passed
@@ -67,7 +74,9 @@ IF ( .NOT. ALLOCATED(gc_stomatal_pft) ) THEN
   ALLOCATE( gc_stomatal_pft(n_land_pts,npft), gsoil_pft(n_land_pts,npft),     &
             t_can_air_pft(n_land_pts,npft), q_can_air_pft(n_land_pts,npft),   &
             h_leaf_pft(n_land_pts,npft), le_leaf_pft(n_land_pts,npft),        &
-            h_leaf_pts(n_land_pts), le_leaf_pts(n_land_pts) )
+            h_leaf_pts(n_land_pts), le_leaf_pts(n_land_pts),                   &
+            gs_sun_pft(n_land_pts,npft), gs_shd_pft(n_land_pts,npft),         &
+            lai_sun_pft(n_land_pts,npft) )
   gc_stomatal_pft(:,:) = 0.0
   gsoil_pft(:,:)       = 0.0
   t_can_air_pft(:,:)   = 0.0
@@ -76,6 +85,9 @@ IF ( .NOT. ALLOCATED(gc_stomatal_pft) ) THEN
   le_leaf_pft(:,:)     = 0.0
   h_leaf_pts(:)        = 0.0
   le_leaf_pts(:)       = 0.0
+  gs_sun_pft(:,:)      = 0.0
+  gs_shd_pft(:,:)      = 0.0
+  lai_sun_pft(:,:)     = 0.0
 END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

@@ -176,6 +176,7 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_daily, triffid_nsc_turgor,              &
                            phen_psi_update
 USE jules_vegetation_mod, ONLY: discrimination_model, discrimination_off
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft, d13c_disc_alloc, d13c_disc_leaf
+USE canopy_diag_mod, ONLY: gs_sun_pft, gs_shd_pft, lai_sun_pft
 USE canopy_diag_mod, ONLY: canopy_diag_alloc, gc_stomatal_pft, t_can_air_pft,  &
                            q_can_air_pft, h_leaf_pft, le_leaf_pft,            &
                            h_leaf_pts, le_leaf_pts   ! MDK, 24/10/26
@@ -1363,6 +1364,9 @@ gc_som(:)         = 0.0
 ! Canopy diagnostics of this PFT (canopy_diag_mod). MDK, 24/10/26
 CALL canopy_diag_alloc( land_pts )
 gc_stomatal_pft(:,ft) = 0.0
+gs_sun_pft(:,ft)      = 0.0   ! MDK, 25/10/26
+gs_shd_pft(:,ft)      = 0.0
+lai_sun_pft(:,ft)     = 0.0
 t_can_air_pft(:,ft)   = 0.0
 q_can_air_pft(:,ft)   = 0.0
 h_leaf_pft(:,ft)      = 0.0
@@ -3896,6 +3900,15 @@ CASE ( 7 )
       flux_o3(l) = flux_o3_l_sun(l) + flux_o3_l_shd(l)
       fo3(l)     = f_sun_2l * fo3_l_sun(l) + (1.0 - f_sun_2l) * fo3_l_shd(l)
     END IF
+
+    ! The sunlit and shaded leaves' stomatal conductance per unit leaf
+    ! area of each class, as the optimiser chose it (gl_sun and gl_shd are
+    ! class totals per unit ground). MDK, 25/10/26
+    lai_sun_pft(l,ft) = lai_sun_2l(l)
+    IF ( lai_sun_2l(l) > EPSILON(0.0) )                                        &
+      gs_sun_pft(l,ft) = gl_sun(l) / lai_sun_2l(l)
+    IF ( lai_shd_2l(l) > EPSILON(0.0) )                                        &
+      gs_shd_pft(l,ft) = gl_shd(l) / lai_shd_2l(l)
 
     IF ( l_leaf_temp ) THEN
       ! Leaf temperatures used and the transpiration-equivalent gc

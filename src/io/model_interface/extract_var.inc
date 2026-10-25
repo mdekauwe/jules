@@ -45,6 +45,7 @@ USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,    &
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
 USE canopy_diag_mod, ONLY: gc_stomatal_pft, gsoil_pft, t_can_air_pft,          &
                            q_can_air_pft, h_leaf_pft, le_leaf_pft   ! MDK, 24/10/26
+USE canopy_diag_mod, ONLY: gs_sun_pft, gs_shd_pft, lai_sun_pft   ! MDK, 25/10/26
 USE stom_opt_jls_mod, ONLY: som_lambda_eff_pft   ! MDK, 22/10/26
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
 USE pftparm, ONLY: seg_kfac, seg_rel_k
@@ -3756,10 +3757,19 @@ CASE ('cica_ratio_pft')
 
 ! Canopy diagnostics (canopy_diag_mod; zero where not set; t and q missing
 ! where the PFT has no tile fraction). MDK, 24/10/26
-CASE ( 'gc_stomatal_pft', 'gsoil_pft', 'h_leaf_pft', 'le_leaf_pft' )
+CASE ( 'gc_stomatal_pft', 'gsoil_pft', 'h_leaf_pft', 'le_leaf_pft',          &
+       'gs_sun_pft', 'gs_shd_pft', 'lai_sun_pft' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(gc_stomatal_pft) ) THEN
     SELECT CASE ( get_string_identifier(var_id) )
+    ! Two-leaf sunlit and shaded leaf conductance and sunlit leaf area.
+    ! MDK, 25/10/26
+    CASE ( 'gs_sun_pft' )
+      workspace_pft(:,:) = gs_sun_pft
+    CASE ( 'gs_shd_pft' )
+      workspace_pft(:,:) = gs_shd_pft
+    CASE ( 'lai_sun_pft' )
+      workspace_pft(:,:) = lai_sun_pft
     CASE ( 'gc_stomatal_pft' )
       workspace_pft(:,:) = gc_stomatal_pft
     CASE ( 'gsoil_pft' )

@@ -10588,6 +10588,40 @@ DATA metadata(815) / var_metadata(                                             &
     "kg m-2 s-1"                                                               &
   ) /
 !-----------------------------------------------------------------------------
+! Metadata for gs_sun_pft, gs_shd_pft and lai_sun_pft (two-leaf canopy)
+! MDK, 25/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(818) / var_metadata(                                             &
+! String identifier
+    'gs_sun_pft',                                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Sunlit-leaf stomatal conductance per unit sunlit leaf area",             &
+! Units
+    "m s-1"                                                                    &
+  ) /
+DATA metadata(819) / var_metadata(                                             &
+! String identifier
+    'gs_shd_pft',                                                              &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Shaded-leaf stomatal conductance per unit shaded leaf area",             &
+! Units
+    "m s-1"                                                                    &
+  ) /
+DATA metadata(820) / var_metadata(                                             &
+! String identifier
+    'lai_sun_pft',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Sunlit leaf area index (two-leaf canopy)",                                &
+! Units
+    "m2 m-2"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
 ! Metadata for ximpair_area_w and ximpair_psi_stem (dump state)
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
