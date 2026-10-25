@@ -1030,11 +1030,12 @@ DO i = 1, nvars_required
   CASE ( 'kmax_impaired', 'psi_leaf_extreme', 'psi_root_extreme',              &
          'ximpair_lock' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
-  CASE ( 'ximpair_kcap_leaf', 'ximpair_fmin_acc' )
-    ! Leaf-segment cap fraction: 1 = intact.
+  CASE ( 'ximpair_kcap_leaf', 'ximpair_fmin_acc', 'ximpair_area_w' )
+    ! Leaf-segment cap fraction: 1 = intact. (ximpair_area_w: 1 = no
+    ! dilution pending; MDK, 25/10/26)
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   ! MDK, 17/10/26
-  CASE ( 'ximpair_rebuilt', 'ximpair_lock_new',                                &
+  CASE ( 'ximpair_rebuilt', 'ximpair_lock_new', 'ximpair_psi_stem',            &
          'ximpair_repair_pend', 'ximpair_grow_acc', 'nsc_npp_mean',            &
          'nsc_npp_wt', 'nsc_npp_day' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)

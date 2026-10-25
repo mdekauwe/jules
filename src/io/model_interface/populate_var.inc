@@ -20,7 +20,7 @@ USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
     ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc, ximpair_rebuilt,  &
-    ximpair_lock_new
+    ximpair_lock_new, ximpair_area_w
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
@@ -32,7 +32,7 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt,
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
-    ximpair_kcap_leaf
+    ximpair_kcap_leaf, ximpair_psi_stem
 USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft,  &
     hydmort_plc_peak   ! MDK, 21/10/26
 
@@ -2082,6 +2082,25 @@ CASE ( 'ximpair_fmin_acc' )
     CALL cube_get_data(cube_land, ximpair_fmin_acc(:,:))
   ELSE
     ximpair_fmin_acc(:,:) = const_val
+  END IF
+
+! MDK, 25/10/26
+CASE ( 'ximpair_area_w' )
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_area_w(:,:))
+  ELSE
+    ximpair_area_w(:,:) = const_val
+  END IF
+
+CASE ( 'ximpair_psi_stem' )
+  CALL ximpair_seg_state_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_psi_stem(:,:))
+  ELSE
+    ximpair_psi_stem(:,:) = const_val
   END IF
 
 CASE ( 'nsc_npp_day' )

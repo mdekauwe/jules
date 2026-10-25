@@ -161,7 +161,7 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
        'psi_leaf_desica', 'psi_stem_desica',                                   &
        'kmax_impaired',                                                        &
        'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',                 &
-       'ximpair_kcap_leaf',                                                    &
+       'ximpair_kcap_leaf', 'ximpair_psi_stem', 'ximpair_area_w',              &
        'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt',       &
            'ximpair_rebuilt', 'ximpair_lock_new',                              &
            'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc',           &

@@ -39,6 +39,7 @@ USE pftparm, ONLY: pft_xylem_impairment_model, nsc_psi_turg_zero,              &
 
 USE jules_vegetation_mod, ONLY: l_trif_hydmort   ! MDK, 21/10/26
 USE jules_vegetation_mod, ONLY: l_leaf_temp      ! MDK, 24/10/26
+USE jules_vegetation_mod, ONLY: xylem_impairment_memory   ! MDK, 25/10/26
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_triffid, l_phenol, l_veg_compete,            &
                                 l_crop, l_landuse,                             &
@@ -354,8 +355,17 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   CALL add_to_list( 'psi_root_extreme', nvars, identifiers )
   CALL add_to_list( 'ximpair_lock', nvars, identifiers )
   ! Per-segment memory: the leaf segment's own cap.
-  IF ( l_ximpair_seg_memory )                                                  &
+  ! (and the stem psi, for the PLC output until the first update;
+  ! MDK, 25/10/26)
+  IF ( l_ximpair_seg_memory ) THEN
     CALL add_to_list( 'ximpair_kcap_leaf', nvars, identifiers )
+    CALL add_to_list( 'ximpair_psi_stem', nvars, identifiers )
+  END IF
+  ! Dilution of the impaired kmax by TRIFFID's gain of area, applied at
+  ! the next update (memory model with competition). MDK, 25/10/26
+  IF ( l_veg_compete .AND.                                                     &
+       ANY( pft_xylem_impairment_model(:) == xylem_impairment_memory ) )       &
+    CALL add_to_list( 'ximpair_area_w', nvars, identifiers )
   ! Repair from the TRIFFID store queued for the next update.
   ! MDK, 17/10/26
   IF ( l_ximpair_rec_nsc ) THEN

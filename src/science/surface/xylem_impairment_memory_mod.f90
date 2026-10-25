@@ -58,7 +58,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_grow_acc(:,:)
 ! waits for a drought to ease.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_fmin_acc(:,:)
 ! ximpair_lock, ximpair_repair_pend, ximpair_rebuilt, ximpair_lock_new,
-! ximpair_grow_acc and ximpair_fmin_acc are written to and read from dumps
+! ximpair_grow_acc, ximpair_fmin_acc and ximpair_area_w (with
+! l_veg_compete) are written to and read from dumps
 ! (ximpair_memory_alloc allocates them). ximpair_npp_prev,
 ! ximpair_wood_prev, ximpair_renew_mean and ximpair_renew_wt went with the
 ! time-based recovery.
@@ -68,11 +69,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_fmin_acc(:,:)
 ! Factor (0-1) by which TRIFFID's gain of PFT area has diluted the stem
 ! damage (ximpair_dilute_area) since the last update, applied to the
 ! impaired kmax (kmax_impaired_pft, held by the surface code) at the next
-! update and then reset to 1. Not in the dump: after a restart the impaired
-! kmax is rebuilt from ximpair_lock, which is diluted at once.
+! update and then reset to 1. In the dump, so a restart between a TRIFFID
+! step and the next update is exact (allocated by ximpair_memory_alloc).
 !
 ! MDK, 25/10/26
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: ximpair_area_w(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_area_w(:,:)
 
 CONTAINS
 
@@ -91,10 +92,15 @@ CONTAINS
 ! - the leaf segment's loss (1 - ximpair_kcap_leaf);
 ! - the period's lowest intact stem fraction (1 - ximpair_fmin_acc) and
 !   the queued repair (ximpair_repair_pend), per unit of PFT area.
+! With hydraulic mortality (m_kill, the fraction of the old cover killed in
+! the step) the trees killed carry the mean damage and the area regrown in
+! their place is intact too, so w = frac_old (1 - m) / frac_new wherever
+! the cover is above the survivors', even if the net change is 0 or less.
 !
 ! MDK, 25/10/26
 ! ---------------------------------------------------------------------
-SUBROUTINE ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac )
+SUBROUTINE ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac,   &
+                                m_kill )
 
 USE jules_surface_types_mod, ONLY: npft, ntype
 USE jules_vegetation_mod, ONLY: xylem_impairment_memory
@@ -110,9 +116,14 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
       ! Areal fractions after the TRIFFID step.
   dfrac(land_pts,npft)
       ! Change in the areal fractions over the step.
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: m_kill(land_pts,npft)
+      ! Fraction of each PFT's old cover killed in the step (hydraulic
+      ! mortality, l_trif_hydmort).
+      !
+      ! MDK, 25/10/26
 
 INTEGER :: n, t, l
-REAL(KIND=real_jlslsm) :: w
+REAL(KIND=real_jlslsm) :: w, m, frac_surv
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -123,16 +134,20 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 IF ( ALLOCATED(ximpair_lock) ) THEN
   CALL ximpair_memory_alloc( land_pts )
-  IF ( .NOT. ALLOCATED(ximpair_area_w) ) THEN
-    ALLOCATE( ximpair_area_w(land_pts,npft) )
-    ximpair_area_w(:,:) = 1.0
-  END IF
   DO n = 1,npft
     IF ( pft_xylem_impairment_model(n) /= xylem_impairment_memory ) CYCLE
     DO t = 1,trif_pts
       l = trif_index(t)
-      IF ( dfrac(l,n) <= 0.0 .OR. frac(l,n) <= 0.0 ) CYCLE
-      w = MAX(frac(l,n) - dfrac(l,n), 0.0) / frac(l,n)
+      IF ( frac(l,n) <= 0.0 ) CYCLE
+      m = 0.0
+      IF ( PRESENT(m_kill) ) m = m_kill(l,n)
+      frac_surv = MAX(frac(l,n) - dfrac(l,n), 0.0) * (1.0 - m)
+      IF ( m > 0.0 ) THEN
+        IF ( frac(l,n) <= frac_surv ) CYCLE
+      ELSE
+        IF ( dfrac(l,n) <= 0.0 ) CYCLE
+      END IF
+      w = frac_surv / frac(l,n)
       ximpair_area_w(l,n)      = ximpair_area_w(l,n) * w
       ximpair_lock(l,n)        = ximpair_lock(l,n) * w
       ximpair_rebuilt(l,n)     = ximpair_rebuilt(l,n) * w
@@ -190,6 +205,11 @@ END IF
 IF (.NOT. ALLOCATED(ximpair_fmin_acc)) THEN
   ALLOCATE(ximpair_fmin_acc(n_land_pts, npft))
   ximpair_fmin_acc(:,:) = 1.0
+END IF
+! MDK, 25/10/26
+IF (.NOT. ALLOCATED(ximpair_area_w)) THEN
+  ALLOCATE(ximpair_area_w(n_land_pts, npft))
+  ximpair_area_w(:,:) = 1.0
 END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

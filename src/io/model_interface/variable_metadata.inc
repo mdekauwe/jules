@@ -10587,4 +10587,28 @@ DATA metadata(815) / var_metadata(                                             &
 ! Units
     "kg m-2 s-1"                                                               &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_area_w and ximpair_psi_stem (dump state)
+! MDK, 25/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(816) / var_metadata(                                             &
+! String identifier
+    'ximpair_area_w',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Area dilution of the stem damage pending for the next update",            &
+! Units
+    "1"                                                                        &
+  ) /
+DATA metadata(817) / var_metadata(                                             &
+! String identifier
+    'ximpair_psi_stem',                                                        &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Stem water potential at the last impairment update",                      &
+! Units
+    "Pa"                                                                       &
+  ) /
 #endif

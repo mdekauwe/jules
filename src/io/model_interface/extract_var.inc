@@ -25,7 +25,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_lock
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf, ximpair_psi_stem
 USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_grow_acc,  &
                                        ximpair_rebuilt, ximpair_lock_new,      &
-                                       ximpair_fmin_acc
+                                       ximpair_fmin_acc, ximpair_area_w
 USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
 USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
 USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state   ! MDK, 22/10/26
@@ -4111,6 +4111,19 @@ CASE ( 'ximpair_grow_acc' )
 CASE ( 'ximpair_fmin_acc' )
   workspace_pft(:,:) = 1.0
   IF ( ALLOCATED(ximpair_fmin_acc) ) workspace_pft(:,:) = ximpair_fmin_acc
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! MDK, 25/10/26
+CASE ( 'ximpair_area_w' )
+  workspace_pft(:,:) = 1.0
+  IF ( ALLOCATED(ximpair_area_w) ) workspace_pft(:,:) = ximpair_area_w
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_psi_stem' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(ximpair_psi_stem) ) workspace_pft(:,:) = ximpair_psi_stem
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

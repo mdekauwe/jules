@@ -221,6 +221,14 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
              "its 'not yet set' value (store filled at the first step).")
+        CASE ( 'ximpair_psi_stem', 'ximpair_area_w' )
+          ! Dumps written without them: the stem psi of the PLC output is
+          ! unset until the first update, and the area dilution of the
+          ! impaired kmax since the last update is lost (restart not exact
+          ! with l_veg_compete). MDK, 25/10/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts " //       &
+             "'not yet set' (restart not exact).")
         CASE ( 'cut_w_store', 'cut_psi_stem', 'cut_c_store' )
           ! Cuticular-loss store: dumps written without it start it full
           ! (the restart is then not exact).

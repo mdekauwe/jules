@@ -29,14 +29,14 @@ USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
     ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc, ximpair_rebuilt,  &
-    ximpair_lock_new
+    ximpair_lock_new, ximpair_area_w
 USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
                              phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
-    ximpair_kcap_leaf
+    ximpair_kcap_leaf, ximpair_psi_stem
 USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft,  &
     hydmort_plc_peak   ! MDK, 21/10/26
 
@@ -389,6 +389,19 @@ DO i = 1,nvars
     CALL ximpair_seg_state_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(ximpair_kcap_leaf(:,n), global_data_2d(:,n))
+    END DO
+
+  ! MDK, 25/10/26
+  CASE ( 'ximpair_psi_stem' )
+    CALL ximpair_seg_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(ximpair_psi_stem(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'ximpair_area_w' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(ximpair_area_w(:,n), global_data_2d(:,n))
     END DO
 
   ! MDK, 17/10/26
@@ -1294,7 +1307,7 @@ DO i = 1,nvars
            'psi_leaf_desica', 'psi_stem_desica',                               &
            'kmax_impaired',                                                    &
            'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',             &
-           'ximpair_kcap_leaf',                                                &
+           'ximpair_kcap_leaf', 'ximpair_psi_stem', 'ximpair_area_w',          &
            'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt',   &
            'ximpair_rebuilt', 'ximpair_lock_new',                              &
            'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc',           &

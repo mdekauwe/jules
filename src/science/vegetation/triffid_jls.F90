@@ -150,7 +150,8 @@ USE jules_vegetation_mod, ONLY: l_veg_compete, l_ht_compete,                   &
 USE triffid_nsc_mod, ONLY: triffid_nsc_store, triffid_nsc_area, nsc_dc_pft
 USE xylem_impairment_memory_mod, ONLY: ximpair_dilute_area   ! MDK, 25/10/26
 ! MDK, 21/10/26
-USE triffid_hydmort_mod, ONLY: triffid_hydmort, triffid_hydmort_cover
+USE triffid_hydmort_mod, ONLY: triffid_hydmort, triffid_hydmort_cover,       &
+                               hydmort_m_pft
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock
 
 USE parkind1, ONLY: jprb, jpim
@@ -1069,8 +1070,16 @@ IF ( l_triffid_nsc )                                                           &
 
 ! Xylem damage (memory model): area gained is new, intact xylem, so the
 ! damage is spread over the new area, as the store is. MDK, 25/10/26
-IF ( l_veg_compete )                                                           &
-  CALL ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac )
+! With hydraulic mortality the area killed and regrown in the step is
+! intact as well. MDK, 25/10/26
+IF ( l_veg_compete ) THEN
+  IF ( l_trif_hydmort ) THEN
+    CALL ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac,     &
+                              hydmort_m_pft )
+  ELSE
+    CALL ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac )
+  END IF
+END IF
 
 !-----------------------------------------------------------------------------
 ! N from fertiliser.
