@@ -31,7 +31,8 @@ PUBLIC :: psi_leaf_lut_jls                                                     &
 ,         lut_pft_curve                                                        &
 ,         init_supply_luts                                                     &
 ,         seg_lut_psi                                                          &
-,         build_supply_lut_seg
+,         build_supply_lut_seg                                                 &
+,         newton_psi_drop
 
 ! ---------------------------------------------------------------------
 ! Supply-function lookup table (som_psi_solver = psi_solver_lut),
@@ -807,6 +808,46 @@ IF ( sl_kfail_frac > 0.0 ) f_need = MIN(f_need, sl_kfail_frac)
 f_need = 0.5 * f_need / kfac
 
 END FUNCTION lut_f_crit
+
+! *****************************************************************************
+! Deepest drop below the root-side water potential that a Newton step for
+! the leaf-side psi may take (Pa, positive), on the curve (b, c; SOX or
+! Weibull). The floor stops runaway steps for a demand the curve cannot
+! supply, and such a sample is rejected only if k at the floor is below the
+! failure conductance (f = kcrit/kmax, or sl_kfail_frac when set and lower).
+! The fixed 5 |b| sat above that point for wide curves (Weibull c below
+! about 0.7, SOX c below about 1.8, or a small sl_kfail_frac), so demands
+! past E_crit were accepted with k above kcrit. The drop is now at least
+! 1.2 times the depth where f falls to the failure fraction,
+!
+!   Weibull: psi_f = b (-ln f)^(1/c),   SOX: psi_f = b (1/f - 1)^(1/c),
+!
+! and 5 |b| where that is deeper already (bit-for-bit there, e.g. FR-Pue,
+! c 0.84 with kcrit 5 %: 4.4 |b|).
+!
+! MDK, 25/10/26
+! *****************************************************************************
+ELEMENTAL FUNCTION newton_psi_drop( b, c, f_kcrit, l_sox ) RESULT( drop )
+
+USE jules_vegetation_mod, ONLY: sl_kfail_frac
+
+REAL(KIND=real_jlslsm), INTENT(IN) :: b, c, f_kcrit
+LOGICAL, INTENT(IN) :: l_sox
+REAL(KIND=real_jlslsm) :: drop
+
+REAL(KIND=real_jlslsm) :: f, x_f
+
+f = f_kcrit
+IF ( sl_kfail_frac > 0.0 ) f = MIN(f, sl_kfail_frac)
+f = MIN(MAX(f, 1.0e-12_real_jlslsm), 0.999_real_jlslsm)
+IF ( l_sox ) THEN
+  x_f = 1.0 / f - 1.0
+ELSE
+  x_f = -LOG(f)
+END IF
+drop = ABS(b) * MAX(5.0_real_jlslsm, 1.2 * x_f**(1.0 / c))
+
+END FUNCTION newton_psi_drop
 
 ! *****************************************************************************
 ! Grid of a supply table on the curve (b, c; SOX or Weibull): spacing dpsi

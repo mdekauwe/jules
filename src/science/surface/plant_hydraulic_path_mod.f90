@@ -9,7 +9,7 @@ MODULE plant_hydraulic_path_mod
 
 USE um_types, ONLY: real_jlslsm
 USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f, xylem_f_bc, incomplete_gamma
-USE supply_table_mod, ONLY: seg_lut_psi, build_supply_lut_seg
+USE supply_table_mod, ONLY: seg_lut_psi, build_supply_lut_seg, newton_psi_drop
 USE jules_vegetation_mod, ONLY: k_ground_ratio_max
 
 IMPLICIT NONE
@@ -529,6 +529,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
   kmx, kcr, bs, cs, fr, psi_cap, a_cap
       ! Segment kmax, kcrit, Weibull b (Pa) and c; cap fraction, the psi
       ! where the intact curve meets the cap and the intact integral there.
+REAL(KIND=real_jlslsm) :: drop_nr
+      ! Deepest Newton step below psi_in on the segment's curve (Pa,
+      ! newton_psi_drop).
+      !
+      ! MDK, 25/10/26
 REAL(KIND=real_jlslsm) :: e_seg(n_e_leaf)
       ! The flow the current segment carries: the leaf's E, or with the
       ! store's flow held fixed (l_store_q_path) E_r = E - q_f for the soil
@@ -610,6 +615,12 @@ DO j = 1, open_pnts
     kcr = kcrit(l) * seg_kmax_fac(pft,l,iseg)
     bs  = conductance_b_seg(pft,iseg)
     cs  = conductance_c_seg(pft,iseg)
+    ! Deepest Newton step below psi_in: k there is below the path's failure
+    ! fraction kcrit/kmax on this segment's curve (newton_psi_drop; 5 |bs|
+    ! unless the curve is wide). MDK, 25/10/26
+    drop_nr = newton_psi_drop(bs, cs,                                          &
+                              kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm)),  &
+                              .FALSE.)
 
     ! Cap on the stem and leaf segments (not the root) under xylem
     ! impairment: their conductance cannot exceed fr * kmx. psi_cap is
@@ -647,9 +658,9 @@ DO j = 1, open_pnts
     END IF
 
     ! First guess: the root-side conductance over the whole drop (Ohm's
-    ! law, psi_out = psi_in - E / k_in), no more than 5 |b| below psi_in.
+    ! law, psi_out = psi_in - E / k_in), no more than drop_nr below psi_in.
     psi_out(:) = psi_in(:) - e_seg(:) / MAX(k_in(:), TINY(1.0_real_jlslsm))
-    psi_out(:) = MAX(psi_out(:), psi_in(:) - 5.0 * ABS(bs))
+    psi_out(:) = MAX(psi_out(:), psi_in(:) - drop_nr)
     k_cur(:)   = k_in(:)
 
     ! Newton-Raphson for the leaf-side water potential: the segment carries
@@ -671,7 +682,7 @@ DO j = 1, open_pnts
         psi_out(:) = psi_out(:) - (e_seg(:) - e_cur(:))                        &
                                   / MAX(k_cur(:), TINY(1.0_real_jlslsm))
       ! Same runaway guard as the single segment (infeasible demand).
-      psi_out(:) = MAX(psi_out(:), psi_in(:) - 5.0 * ABS(bs))
+      psi_out(:) = MAX(psi_out(:), psi_in(:) - drop_nr)
       ! A flow back from the store (E_r < 0) larger than the segment can
       ! carry up to psi = 0: the leaf-side end at 0. (MDK, 24/10/26)
       IF ( l_store_q_path ) psi_out(:) = MIN(psi_out(:), 0.0_real_jlslsm)

@@ -2803,8 +2803,13 @@ CONTAINS
     l_edge = .FALSE.
 
     ! (edge_by_gl_cap finds the edge from A without the hydraulics, which
-    ! does not hold once A depends on psi_leaf.)
-    IF ( l_lut .AND. .NOT. l_som_nsl ) CALL edge_by_gl_cap()
+    ! does not hold once A depends on psi_leaf, nor from A and E at T0 once
+    ! each candidate has its own leaf temperature, l_leaf_temp_ci: the
+    ! edge would then be taken short of the true one. MDK, 25/10/26)
+    l_ltc_pt = .FALSE.
+    IF ( l_ltc ) l_ltc_pt = ltc_b(l) > 0.0
+    IF ( l_lut .AND. .NOT. l_som_nsl .AND. .NOT. l_ltc_pt )                    &
+      CALL edge_by_gl_cap()
     IF ( .NOT. l_edge ) CALL edge_by_margin()
   END IF
   END SUBROUTINE find_edge
@@ -3417,8 +3422,11 @@ CONTAINS
 
   ! The state at the last T at which A and gl were evaluated.
   al0_u = al_u
-  el_u = c_e * (dq(l) + ltc_s(l) * (tl - t_leaf(l)))
-  IF ( .NOT. l_som_coupled_e ) el_u = MAX(0.0, el_u)
+  ! E floored at 0 with or without coupled E, as in hydraulic_state: a leaf
+  ! cooled below the air's dew point (dawn, dusk, net longwave loss) gave
+  ! E < 0, a leaf psi above psi_root_zone, and so an infeasible Ci where
+  ! E = 0 keeps it open. MDK, 25/10/26
+  el_u = MAX(0.0, c_e * (dq(l) + ltc_s(l) * (tl - t_leaf(l))))
   END SUBROUTINE state_at_leaf_temp
 
   ! Leaf psi, conductance and the hydraulic-cost conductance (psi_u, kl_u,

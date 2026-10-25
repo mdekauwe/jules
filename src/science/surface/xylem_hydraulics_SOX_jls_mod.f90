@@ -222,7 +222,8 @@ SUBROUTINE psi_leaf_SOX_jls( pft,                                              &
 
 USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_newton,             &
                                 psi_solver_lut
-USE supply_table_mod, ONLY: psi_leaf_lut_jls, lut_pft_curve
+USE supply_table_mod, ONLY: psi_leaf_lut_jls, lut_pft_curve,              &
+                            newton_psi_drop
 
 USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
@@ -277,6 +278,11 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ! Local variables
 INTEGER :: i, j, l
 
+REAL(KIND=real_jlslsm) :: psi_nr_floor
+                            ! Lowest leaf psi a Newton step may reach
+                            ! (Pa): root_zone_psi less newton_psi_drop.
+                            !
+                            ! MDK, 25/10/26
 REAL(KIND=real_jlslsm) :: k_conv_tol
                             ! Convergence tolerance on k, 0.1 kcrit
                             ! (mol m-2 s-1 Pa-1).
@@ -384,11 +390,13 @@ SELECT CASE (psi_solver)
 !
 ! (corrected 23/10/26: this read psi_r - ..., but the code has always
 ! stepped from psi_l). The first guess is psi_l = psi_r - e_leaf / k(psi_r);
-! each step is kept no more than 5 |b| below psi_r, and the loop stops when
-! k changes by less than k_conv_tol (or after max_nr_iter steps). Each
-! sample stops on its own convergence (l_nr_active).
+! each step is kept above a floor below psi_r (newton_psi_drop: 5 |b|, or
+! deeper where k there would still be above the failure conductance, e.g.
+! c below about 1.8), and the loop stops when k changes by less than
+! k_conv_tol (or after max_nr_iter steps). Each sample stops on its own
+! convergence (l_nr_active).
 !
-! MDK, 24/10/26
+! MDK, 25/10/26
 ! ---------------------------------------------------------------------
 CASE(psi_solver_newton)
 
@@ -429,6 +437,12 @@ CASE(psi_solver_newton)
 
     ! Convergence tolerance for this point (10% of kcrit).
     k_conv_tol = 0.1 * kcrit(l)
+
+    ! Floor for the Newton steps, deep enough that k there is below the
+    ! failure conductance (newton_psi_drop). MDK, 25/10/26
+    psi_nr_floor = root_zone_psi(l)                                            &
+                   - newton_psi_drop(conductance_b(l), conductance_c(l),       &
+                       kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm)), .TRUE.)
 
     ! Iterate the water potential until converged, or until max_nr_iter is
     ! reached. See the max_nr_iter comment above for why a fixed 2
@@ -482,8 +496,7 @@ CASE(psi_solver_newton)
 
       ! Guard against runaway steps for an infeasible sample, as in
       ! psi_leaf_CW_jls.
-      leaf_psi(:,j) = MAX(leaf_psi(:,j),                                       &
-                          root_zone_psi(l) - 5.0 * ABS(conductance_b(l)))
+      leaf_psi(:,j) = MAX(leaf_psi(:,j), psi_nr_floor)
 
       WHERE (ABS(leaf_k(:,j) - leaf_k_prev(:,j)) < k_conv_tol)                 &
         l_nr_active(:) = .FALSE.
