@@ -2327,7 +2327,6 @@ SUBROUTINE stom_opt_profit_max_select(                                         &
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY: l_som_gain_gross
-USE plant_hydraulic_path_mod, ONLY: l_store_q_path   ! MDK, 24/10/26
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts                                                                     &
@@ -2413,15 +2412,12 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 ! ----------------------------------------------------------------------------
 !  Make mask of those samples that are physically reasonable.
 ! ----------------------------------------------------------------------------
-! (psi <= psi_root_zone is not required with the store's flow held fixed,
-! l_store_q_path: the store is a second source, wetter than the soil while
-! it gives; MDK, 24/10/26)
 DO j = 1, open_pts
   l = veg_index(open_index(j))
   l_good_sample(:,j) = som_feasible( n_sample, psi_sample(1:,j),               &
                                      kl_sample(1:,j), gl_sample(1:,j),         &
                                      psi_root_zone(l), kcrit(l), gl_max(l),    &
-                                     .NOT. l_store_q_path )
+                                     .TRUE. )
 END DO
 
 ! ----------------------------------------------------------------------------
@@ -2448,13 +2444,13 @@ DO j = 1, open_pts
   l_hyd_sample(:) = som_feasible( n_sample, psi_sample(1:,j),                  &
                                   kl_sample(1:,j), gl_sample(1:,j),            &
                                   psi_root_zone(l), kcrit(l), 0.0_real_jlslsm, &
-                                  .NOT. l_store_q_path )
+                                  .TRUE. )
   max_al(j) = MAXVAL(al_sample(1:,j) + gain_off(j), MASK = l_hyd_sample(:))
 END DO
 
-! (Also with the store's flow held fixed, l_store_q_path: see kl_hc_max
-! in stom_opt_mod. MDK, 24/10/26)
-IF (l_xylem_impairment .OR. l_store_q_path) THEN
+! (The store coupled to the optimiser needs the bounded search, so its flow
+! is never held fixed in this flat one.) MDK, 25/10/26
+IF (l_xylem_impairment) THEN
   ! Set the maximum conductance as equal to the current (unimpaired) root
   ! zone conductance. JBaguley
   DO j = 1, open_pts
@@ -3456,14 +3452,25 @@ CONTAINS
       !   f_hi = 1: g_hi = 1 - f(psi_leaf at full A) > 0
       !   f_lo = 0: no transpiration, psi_leaf = psi_root_zone,
       !             g_lo = -f(psi_root_zone) <= 0
+      ! With the store's flow held fixed (l_store_q_path) the leaf at no
+      ! transpiration is not at psi_root_zone: the store keeps it wetter
+      ! while it gives, so g_lo is taken at the leaf psi of the path at
+      ! E = 0 (the closed state, A = -Rd).
+      !
+      ! MDK, 25/10/26
       ag0  = al0_u + rd(l)
       f_hi = 1.0
       g_hi = 1.0 - nsl_factor(psi_u)
       f_lo = 0.0
       g_lo = -nsl_factor(psi_root_zone(l))
+      IF ( l_store_q_path ) THEN
+        CALL hydraulic_state(ci, -rd(l))
+        g_lo = -nsl_factor(psi_u)
+      END IF
 
       IF ( g_lo >= 0.0 ) THEN
-        ! The soil alone stops photosynthesis (psi_root <= psi_nsl0).
+        ! The leaf at no transpiration (the soil, or the store) alone stops
+        ! photosynthesis (psi <= psi_nsl0).
         CALL hydraulic_state(ci, -rd(l))
       ELSE
         ! The Illinois method (a modified regula falsi), used for every root

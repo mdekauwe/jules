@@ -109,7 +109,6 @@ USE jules_vegetation_mod, ONLY:                                                &
     som_gl_max, l_som_supply_limit,                                            &
     l_som_cuticular_loss, l_som_gravity, l_red, l_som_rhizo_series,            &
     l_som_coupled_e, l_som_capacitance_on, som_leaf_resist_frac,               &
-    l_som_leak_capacitance_only,                                               &
     l_som_vcmax_psi, kplant_model, kplant_model_ground,                        &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model,           &
     leaf_wind_ext, ml_leaf_temp_model, ml_leaf_temp_layers, l_leaf_temp_ci
@@ -950,12 +949,12 @@ REAL(KIND=real_jlslsm) :: q_be(land_pts), psi_st_be(land_pts),                 &
                             ! its flow out (mol H2O m-2 s-1), the stem node
                             ! psi at the end of the step and the leaf psi
                             ! (Pa).
-LOGICAL :: l_cap_only(land_pts), l_fl_hit(land_pts)
-                            ! som_store_coupling = 1 with the leak: the store
-                            ! alone pays E at this point (leak points with
-                            ! l_som_leak_capacitance_only); the committed
-                            ! leaf psi was below psi_fl_leaf before its floor
-                            ! (store_cpl_q).
+                            !
+                            ! MDK, 24/10/26
+LOGICAL :: l_fl_hit(land_pts)
+                            ! som_store_coupling = 1 with the leak: the
+                            ! committed leaf psi was below psi_fl_leaf before
+                            ! its floor (store_cpl_q).
                             !
                             ! MDK, 25/10/26
 REAL(KIND=real_jlslsm) :: k_be(land_pts)
@@ -966,8 +965,6 @@ REAL(KIND=real_jlslsm) :: k_be(land_pts)
                             ! kmax_shd_2l.
                             !
                             ! MDK, 25/10/26
-                            !
-                            ! MDK, 24/10/26
 LOGICAL :: l_cap_store
                             ! The stomatal optimisation's plant capacitance
                             ! is on (l_som_capacitance_on: l_som_capacitance
@@ -3679,7 +3676,6 @@ CASE ( 7 )
   ! MDK, 24/10/26
   !---------------------------------------------------------------------------
   e_sup_use(:) = e_supply(:)
-  l_cap_only(:) = .FALSE.
   IF ( l_store_cpl ) THEN
     q_f(:) = 0.0
     DO m = 1,veg_pts
@@ -4265,17 +4261,13 @@ IF ( l_cap_store ) THEN
   ! the stem node psi_st where the soil, root and stem carry E_r, and the
   ! leaf psi_leaf where the leaf segment then carries E. With the leak, the
   ! leak's E is cut where the leaf would end below psi_fl_leaf
-  ! (store_cpl_leak_cut), and with l_som_leak_capacitance_only the store
-  ! alone pays it (E_r = 0).
+  ! (store_cpl_leak_cut).
   !
   ! MDK, 25/10/26
   IF ( l_store_cpl ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
       e_be_2l(l) = MAX(el(l), 0.0)
-      ! With l_som_leak_capacitance_only the store alone pays the leak.
-      ! (MDK, 25/10/26)
-      l_cap_only(l) = l_som_leak_capacitance_only .AND. lk_cut(l)
     END DO
     CALL store_cpl_q( .TRUE., e_be_2l )
     IF ( l_som_cuticular_loss ) CALL store_cpl_leak_cut()
@@ -4297,7 +4289,8 @@ IF ( l_cap_store ) THEN
       CYCLE
     END IF
     ! som_store_coupling = 1, the store set: its balance at the final E.
-    ! (MDK, 24/10/26)
+    !
+    ! MDK, 24/10/26
     IF ( l_store_cpl .AND. cut_w_store(l,ft) <= 0.0 ) THEN
       psi0_store = cut_w_store(l,ft) / c_cut
       CALL store_commit( l, c_cut, psi0_store, psi_st_be(l) )
@@ -4305,7 +4298,8 @@ IF ( l_cap_store ) THEN
       psi_leaf(l) = psi_l_be(l)
       psi_stem(l) = psi_st_be(l)
       ! kplant without the store's shift, per unit leaf area as leaf_k.
-      ! (MDK, 25/10/26)
+      !
+      ! MDK, 25/10/26
       IF ( k_be(l) > 0.0 )                                                     &
         leaf_k(l) = k_be(l) / MAX(lai(l), TINY(1.0_real_jlslsm))
       CYCLE
@@ -4331,31 +4325,6 @@ IF ( l_cap_store ) THEN
       ! The fraction of the store's departure from its steady state left
       ! after the step (-).
       r_st = EXP(-timestep * tgt_kr(l) / c_cut)
-      ! l_som_leak_capacitance_only: where the leak binds, the store alone
-      ! pays it (no soil supply), so
-      !
-      !   psi_x = psi_x0 - E dt / C,
-      !
-      ! and E is cut where the leaf would end below psi_fl_leaf.
-      !
-      ! MDK, 23/10/26
-      IF ( l_som_leak_capacitance_only .AND. lk_cut(l) ) THEN
-        IF ( el(l) > 0.0 ) THEN
-          e_fl = MAX( (psi0_store - psi_fl_leaf)                               &
-                      / (timestep / c_cut + 1.0 / tgt_kl(l)), 0.0 )
-          IF ( e_fl < el(l) ) THEN
-            gc(l)     = gc(l) * e_fl / el(l)
-            gc_som(l) = gc(l)
-            el(l)     = e_fl
-          END IF
-        END IF
-        psi_st = psi0_store - MAX(el(l), 0.0) * timestep / c_cut
-        CALL store_commit( l, c_cut, psi0_store, psi_st )
-        cut_psi_stem(l,ft) = psi_st
-        psi_leaf(l) = psi_st - MAX(el(l), 0.0) / tgt_kl(l)
-        IF ( l_seg_cut ) psi_stem(l) = psi_st
-        CYCLE
-      END IF
       ! The leak cut to the largest E that leaves the leaf at psi_fl_leaf
       ! at the end of the step (the E' equation of store_target_e with the
       ! target psi_fl_leaf), with gc scaled to it.
@@ -4387,7 +4356,9 @@ IF ( l_cap_store ) THEN
     IF ( cut_w_store(l,ft) > 0.0 ) THEN
       cut_w_store(l,ft) = c_cut * psi_leaf(l)
       ! The store coupled to the optimiser sits at the stem node: it starts
-      ! at the step's stem psi. (MDK, 25/10/26)
+      ! at the step's stem psi.
+      !
+      ! MDK, 25/10/26
       IF ( l_store_cpl ) cut_w_store(l,ft) = c_cut * MIN(psi_stem(l), 0.0)
       CYCLE
     END IF
@@ -5011,8 +4982,9 @@ END SUBROUTINE store_cpl_split
 ! leaf there at the end of the step, as in the store's other mode: E is
 ! found by bisection on [0, el] around the store's balance (store_cpl_q,
 ! Newton segments), gc and el are scaled to it, and the balance is then
-! committed exactly. The leak points are few (stomata shut in a drought),
-! and the other points are solved again unchanged.
+! committed exactly. Only the cut points are solved (l_sel); the others
+! keep the balance already committed. 20 bisection steps leave E within
+! 1e-6 of el.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -5020,7 +4992,7 @@ SUBROUTINE store_cpl_leak_cut()
 
 IMPLICIT NONE
 
-INTEGER, PARAMETER :: n_it_fl = 30
+INTEGER, PARAMETER :: n_it_fl = 20
 INTEGER :: m, l, it
 LOGICAL :: l_cut(land_pts)
 REAL(KIND=real_jlslsm) :: e_lo(land_pts), e_hi(land_pts)
@@ -5040,7 +5012,7 @@ DO it = 1,n_it_fl
     l = veg_index(m)
     IF ( l_cut(l) ) e_be_2l(l) = 0.5 * (e_lo(l) + e_hi(l))
   END DO
-  CALL store_cpl_q( .FALSE., e_be_2l )
+  CALL store_cpl_q( .FALSE., e_be_2l, l_sel = l_cut )
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( .NOT. l_cut(l) ) CYCLE
@@ -5060,7 +5032,7 @@ DO m = 1,veg_pts
   gc_som(l)  = gc(l)
   el(l)      = e_lo(l)
 END DO
-CALL store_cpl_q( .TRUE., e_be_2l )
+CALL store_cpl_q( .TRUE., e_be_2l, l_sel = l_cut )
 
 END SUBROUTINE store_cpl_leak_cut
 
@@ -5086,20 +5058,26 @@ END SUBROUTINE store_cpl_leak_cut
 ! It is found by regula falsi (Illinois), with a bisection step whenever
 ! the bracket has shrunk by less than half. The iterations use the
 ! segments' Newton psi; with l_ex only the final evaluation is exact (the
-! bisection), which halves the cost of mode 1. q_be comes from that final
-! stem psi, so the store's water still balances exactly (MDK, 25/10/26).
+! bisection). q_be comes from that final stem psi, so the store's water
+! balances exactly.
 !
 ! Where q_lo >= E, the store is wetter than the soil by more than the
 ! step's E: it pays all of E (E_r = 0), psi_st = psi_x0 - E / C', and the
-! leaf is psi_st less the leaf segment's drop at E (taken from psi_src).
+! leaf is solved from psi_st with the leaf segment carrying E.
 !
-! Sets q_be (= C' (psi_x0 - psi_st), as store_commit takes it), psi_st_be
-! and psi_l_be, the leaf psi where the leaf segment carries E from psi_st.
-! Elsewhere q_be = 0, psi_st_be = psi_src and psi_l_be = psi_leaf.
+! With l_ex (the commit), psi is floored at the critical-loss psi of the
+! stem and leaf, q_be is capped at E, and k_be (kplant) is taken on the
+! path without the store's shift. Without l_ex, only points that transpire
+! are solved; with l_sel, only the selected points.
 !
-! MDK, 24/10/26
+! Sets q_be (= C' (psi_x0 - psi_st), as store_commit takes it), psi_st_be,
+! psi_l_be (the leaf psi where the leaf segment carries E from psi_st),
+! k_be and l_fl_hit. Elsewhere q_be = 0, psi_st_be = psi_src and psi_l_be
+! = psi_leaf (or, with l_sel, as they were).
+!
+! MDK, 25/10/26
 !-----------------------------------------------------------------------------
-SUBROUTINE store_cpl_q( l_ex, e_c )
+SUBROUTINE store_cpl_q( l_ex, e_c, l_sel )
 
 IMPLICIT NONE
 
@@ -5108,6 +5086,12 @@ LOGICAL, INTENT(IN) :: l_ex
                             ! .FALSE.: the Newton steps (between passes).
 REAL(KIND=real_jlslsm), INTENT(IN) :: e_c(land_pts)
                             ! Canopy transpiration (mol H2O m-2 s-1).
+LOGICAL, INTENT(IN), OPTIONAL :: l_sel(land_pts)
+                            ! Only these points are solved; the outputs at
+                            ! the others are left as they were (the leak
+                            ! cut).
+                            !
+                            ! MDK, 25/10/26
 
 INTEGER, PARAMETER :: n_it_be = 40
                             ! Most regula falsi steps.
@@ -5134,22 +5118,32 @@ REAL(KIND=real_jlslsm) ::                                                      &
   kref_c(land_pts), kmx_c(land_pts), kcr_c(land_pts), kcap_c(land_pts)
       ! The canopy's intact and impaired kmax, kcrit and their ratio.
 REAL(KIND=real_jlslsm) :: psi1(1,land_pts), st1(1,land_pts), k1(1,land_pts)
+                            ! One sample per point: the leaf and stem psi of
+                            ! the chain, and its conductance (k1, with
+                            ! l_ex).
+                            !
+                            ! MDK, 25/10/26
 REAL(KIND=real_jlslsm) :: psi_from(land_pts)
                             ! Where the chain starts (Pa): psi_src, or the
                             ! store's psi where it pays all of E.
                             !
                             ! MDK, 25/10/26
-                            ! One sample per point: the leaf and stem psi of
-                            ! the chain, and its conductance (k1, with
-                            ! l_ex; MDK, 25/10/26).
-                            !
-                            ! MDK, 24/10/26
 
-q_be(:)      = 0.0
-psi_st_be(:) = psi_src(:)
-psi_l_be(:)  = psi_leaf(:)
-k_be(:)      = 0.0
-l_fl_hit(:)  = .FALSE.
+IF ( PRESENT(l_sel) ) THEN
+  WHERE ( l_sel(:) )
+    q_be(:)      = 0.0
+    psi_st_be(:) = psi_src(:)
+    psi_l_be(:)  = psi_leaf(:)
+    k_be(:)      = 0.0
+    l_fl_hit(:)  = .FALSE.
+  END WHERE
+ELSE
+  q_be(:)      = 0.0
+  psi_st_be(:) = psi_src(:)
+  psi_l_be(:)  = psi_leaf(:)
+  k_be(:)      = 0.0
+  l_fl_hit(:)  = .FALSE.
+END IF
 ! (q_try is passed whole to set_store_q_path, so the points not solved
 ! hold 0, not junk. MDK, 24/10/26)
 q_try(:)     = 0.0
@@ -5175,15 +5169,20 @@ DO m = 1,veg_pts
   l_only(l) = .FALSE.
   IF ( cut_w_store(l,ft) > 0.0 .OR. lai(l) < lai_cut_min ) CYCLE
   ! Between passes (not l_ex) only where the point transpires: q_f is used
-  ! only by the next pass's open points. (MDK, 25/10/26)
+  ! only by the next pass's open points.
+  !
+  ! MDK, 25/10/26
   IF ( .NOT. l_ex .AND. e_c(l) <= 0.0 ) CYCLE
+  IF ( PRESENT(l_sel) ) THEN
+    IF ( .NOT. l_sel(l) ) CYCLE
+  END IF
   c_p(l)    = cut_c_store(l,ft) / timestep
   psi_x0(l) = cut_w_store(l,ft) / cut_c_store(l,ft)
   q_lo(l)   = c_p(l) * (psi_x0(l) - psi_src(l))
   q_hi(l)   = e_c(l)
   n_be = n_be + 1
   idx_be(n_be) = m
-  IF ( q_lo(l) >= q_hi(l) .OR. l_cap_only(l) ) THEN
+  IF ( q_lo(l) >= q_hi(l) ) THEN
     l_only(l)    = .TRUE.
     q_be(l)      = e_c(l)
     psi_st_be(l) = psi_x0(l) - e_c(l) / c_p(l)
@@ -5296,17 +5295,14 @@ END IF
 ! The commit: no psi below the critical-loss psi of the stem and leaf
 ! (where E cannot be carried the chain returns its floor), and the store's
 ! flow no more than E (its state then the store-pays-all one), so the store
-! never gives more than the transpiration and its water balances. Where the
-! store alone pays the leak (l_cap_only) the stem is not floored, so the
-! soil pays none of it; the leak cut keeps the leaf at psi_fl_leaf.
+! never gives more than the transpiration and its water balances.
 !
 ! MDK, 25/10/26
 IF ( l_ex ) THEN
   DO j = 1,n_be
     l = veg_index(idx_be(j))
     l_fl_hit(l) = psi_l_be(l) < psi_fl_leaf
-    IF ( .NOT. l_cap_only(l) )                                                 &
-      psi_st_be(l) = MAX(psi_st_be(l), psi_fl_stem)
+    psi_st_be(l) = MAX(psi_st_be(l), psi_fl_stem)
     psi_l_be(l) = MAX(psi_l_be(l), psi_fl_leaf)
     q_be(l)     = c_p(l) * (psi_x0(l) - psi_st_be(l))
     IF ( q_be(l) > e_c(l) ) THEN
@@ -5369,8 +5365,6 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: psi_from(land_pts)
                             ! absent).
                             !
                             ! MDK, 25/10/26
-                            !
-                            ! MDK, 24/10/26
 
 INTEGER :: j, l
 REAL(KIND=real_jlslsm) :: e1(1,land_pts), k1(1,land_pts), psi_in(land_pts)
