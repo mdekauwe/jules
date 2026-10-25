@@ -4790,6 +4790,11 @@ INTEGER, PARAMETER :: n_it_fl = 20
 INTEGER :: m, l, it
 LOGICAL :: l_cut(land_pts)
 REAL(KIND=real_jlslsm) :: e_lo(land_pts), e_hi(land_pts)
+REAL(KIND=real_jlslsm) :: a_cut, em_cut
+                            ! rho (qs(tstar) - q1) (kg m-3) and the cut E
+                            ! (kg m-2 s-1), for the exact gc.
+                            !
+                            ! MDK, 25/10/26
 
 l_cut(:) = .FALSE.
 DO m = 1,veg_pts
@@ -4818,11 +4823,22 @@ DO it = 1,n_it_fl
   END DO
 END DO
 
+! The gc that gives the cut E through the tile flux (the leak's E above,
+! not linear in gc),
+!   E M = A gc / (1 + ra (gc + g_s)),  A = rho (qs(tstar) - q1),
+! so gc = E M (1 + ra g_s) / (A - ra E M); A > ra E M, as E is below the
+! leak's E at the same A. MDK, 25/10/26
 DO m = 1,veg_pts
   l = veg_index(m)
   IF ( .NOT. l_cut(l) ) CYCLE
   e_be(l) = e_lo(l)
-  gc(l)      = gc(l) * e_lo(l) / el(l)
+  a_cut   = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)
+  em_cut  = e_lo(l) * m_h2o_lt
+  IF ( a_cut - ra(l) * em_cut > TINY(1.0_real_jlslsm) ) THEN
+    gc(l) = em_cut * ( 1.0 + ra(l) * g_soil_c(l) ) / ( a_cut - ra(l) * em_cut )
+  ELSE
+    gc(l) = gc(l) * e_lo(l) / el(l)
+  END IF
   gc_som(l)  = gc(l)
   el(l)      = e_lo(l)
 END DO
@@ -5232,9 +5248,25 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: q_c(land_pts)
                             ! MDK, 25/10/26
 
 INTEGER :: i, l
+REAL(KIND=real_jlslsm) :: e_sup_cls(land_pts)
+                            ! With the store: this leaf's supply, its kmax
+                            ! share of the soil supply plus its own part of
+                            ! the store's flow (kg m-2 s-1).
+                            !
+                            ! MDK, 25/10/26
 
-CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use, share_sup,   &
-                         dq_x, t_x, pstar, gl_max_lf, gl_max_eff )
+IF ( l_store_cpl ) THEN
+  ! The cap was share_sup (e_s + q_f), not the store flow this leaf is
+  ! given (q_c). MDK, 25/10/26
+  e_sup_cls(:) = e_supply(:)
+  WHERE ( e_supply(:) >= 0.0 )                                                 &
+    e_sup_cls(:) = MAX(share_sup(:) * e_supply(:) + q_c(:) * cut_m_h2o, 0.0)
+  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_cls,            &
+                           share_one, dq_x, t_x, pstar, gl_max_lf, gl_max_eff )
+ELSE
+  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use,            &
+                           share_sup, dq_x, t_x, pstar, gl_max_lf, gl_max_eff )
+END IF
 CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 ! The store's flow out held fixed for this leaf's search. MDK, 25/10/26
 IF ( l_store_cpl ) CALL set_store_q_path( land_pts, veg_pts, veg_index,        &
@@ -5306,6 +5338,12 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: q_f_c(land_pts)
                             ! MDK, 23/10/26
 
 INTEGER :: i, l, m
+REAL(KIND=real_jlslsm) :: e_sup_cls(land_pts)
+                            ! With the store: the class's supply, its kmax
+                            ! share of the soil supply plus its own part of
+                            ! the store's flow (kg m-2 s-1).
+                            !
+                            ! MDK, 25/10/26
 
 clos_pts = 0
 open_pts = 0
@@ -5347,9 +5385,21 @@ IF ( l_store_cpl ) CALL set_store_q_path( land_pts, veg_pts, veg_index,        &
 ! arrays hold the tile's values then (see the two-leaf set-up).
 !
 ! MDK, 24/10/26
-CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use,              &
-                         share_sup, dq_opt, t_lt_c, pstar, gl_max_c,           &
-                         gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
+IF ( l_store_cpl ) THEN
+  ! The class's kmax share of the soil supply plus its own part of the
+  ! store's flow (q_f_c), not share_sup (e_s + q_f). MDK, 25/10/26
+  e_sup_cls(:) = e_supply(:)
+  WHERE ( e_supply(:) >= 0.0 )                                                 &
+    e_sup_cls(:) = MAX(share_sup(:) * e_supply(:) + q_f_c(:) * cut_m_h2o,      &
+                       0.0)
+  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_cls,            &
+                           share_one, dq_opt, t_lt_c, pstar, gl_max_c,         &
+                           gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
+ELSE
+  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use,            &
+                           share_sup, dq_opt, t_lt_c, pstar, gl_max_c,         &
+                           gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
+END IF
 CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 CALL stom_opt_mod (                                                            &
         ! IN

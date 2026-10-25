@@ -1275,6 +1275,11 @@ CALL check_mpa('psi_nsl_onset_io',   psi_nsl_onset_io(1:npft))
 CALL check_mpa('psi_nsl0_io',        psi_nsl0_io(1:npft))
 CALL check_mpa('psi_vcmax_f_io',     psi_vcmax_f_io(1:npft))
 CALL check_mpa('psi_f_tuzet_io',     psi_f_tuzet_io(1:npft))
+! Already read in MPa; checked as the others. MDK, 25/10/26
+CALL check_mpa('nsc_psi_turg_full_io', nsc_psi_turg_full_io(1:npft))
+CALL check_mpa('nsc_psi_turg_zero_io', nsc_psi_turg_zero_io(1:npft))
+CALL check_mpa('phen_psi_tlp_io',    phen_psi_tlp_io(1:npft))
+CALL check_mpa('sox_p50_io',         sox_p50_io(1:npft))
 #if !defined(UM_JULES)
 calc_rz_psi(:)      = calc_rz_psi_io(1:npft) ! JBaguley
 fsmc_mod(:)         = fsmc_mod_io(1:npft)
@@ -2018,7 +2023,8 @@ END FUNCTION mpa_to_pa
 
 ! *****************************************************************************
 ! Stops the run if a water potential that is set is 1000 or more in size:
-! it is in Pa, not MPa (e.g. P50 -2.5e6 instead of -2.5).
+! it is in Pa, not MPa (e.g. P50 -2.5e6 instead of -2.5). Unset is rmdi, or
+! below -1e29 (the "not set" of nsc_psi_turg_* and phen_psi_tlp).
 !
 ! MDK, 25/10/26
 ! *****************************************************************************
@@ -2033,7 +2039,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: psi_mpa(:)
 INTEGER :: errcode
 
 IF ( ANY( ABS(psi_mpa(:) - rmdi) > EPSILON(1.0) .AND.                         &
-          ABS(psi_mpa(:)) >= 1000.0 ) ) THEN
+          psi_mpa(:) > -1.0e29 .AND. ABS(psi_mpa(:)) >= 1000.0 ) ) THEN
   errcode = 101
   CALL ereport('CHECK_MPA', errcode,                                           &
                TRIM(name) // ' is read in MPa (e.g. -2.5), not Pa '   //  &

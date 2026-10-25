@@ -792,7 +792,7 @@ USE pftparm, ONLY: is_set, nsc_limits_on, nsc_season_on   ! MDK, 24/10/26
 USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero,      &
                    nsc_t_grow_full, g_leaf_0, nsc_grow_start_doy,              &
                    nsc_grow_end_doy, nsc_flush_start_doy
-USE model_time_mod, ONLY: current_time
+USE model_time_mod, ONLY: current_time, is_spinup   ! is_spinup: MDK, 25/10/26
 USE datetime_utils_mod, ONLY: day_of_year
 USE time_info_mod, ONLY: l_360, l_leap
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
@@ -894,8 +894,10 @@ DO j = 1,veg_pts
     IF (nsc_ft_mean(l,ft) < 0.0) nsc_ft_mean(l,ft) = 1.0
     nsc_ft_mean(l,ft) = nsc_ft_mean(l,ft) + a_yr * (f - nsc_ft_mean(l,ft))
   END IF
-  ! Leaf renewal: production at the turnover rate, made while growing.
-  IF (l_ximpair_rec_leaf_turn) THEN
+  ! Leaf renewal: production at the turnover rate, made while growing. Not
+  ! in spin-up, where the stem damage is frozen (the update returns), so the
+  ! leaf cap does not heal on its own either. MDK, 25/10/26
+  IF (l_ximpair_rec_leaf_turn .AND. .NOT. is_spinup) THEN
     d_renew = MIN(g_leaf_0(ft) * f / MAX(nsc_ft_mean(l,ft), 0.05)              &
                   * timestep / (360.0 * 86400.0), 1.0)
     ximpair_kcap_leaf(l,ft) = 1.0 - (1.0 - ximpair_kcap_leaf(l,ft))            &

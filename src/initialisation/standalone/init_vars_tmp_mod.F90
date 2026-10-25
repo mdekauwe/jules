@@ -28,6 +28,7 @@ USE pftparm, ONLY: fsmc_mod, psi_close, psi_open, kmax_pft
 USE pftparm, ONLY: kcrit, pft_xylem_impairment_model   ! MDK, 24/10/26
 USE jules_vegetation_mod, ONLY: xylem_impairment_memory   ! MDK, 24/10/26
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock   ! MDK, 24/10/26
+USE xylem_impairment_memory_mod, ONLY: ximpair_area_w   ! MDK, 25/10/26
 USE ancil_info, ONLY: land_pts, nsoilt
 USE jules_sea_seaice_mod, ONLY: z0hsea, alpham, alphac, alphab, dtice
 USE C_kappai, ONLY: kappai, de
@@ -105,6 +106,11 @@ TYPE(forcing_type), INTENT(IN OUT) :: forcing
 
 ! Work variables
 REAL(KIND=real_jlslsm) :: phen ! Phenological state (=LAI/lai_bal)
+REAL(KIND=real_jlslsm) :: lock_u(land_pts)
+                        ! The dumped stem loss before the area dilution
+                        ! still pending (ximpair_lock / ximpair_area_w).
+                        !
+                        ! MDK, 25/10/26
 
 INTEGER :: i,l,n,ft,m  ! Loop counters
 
@@ -352,13 +358,22 @@ DO i = 1, npft
   ! unchanged).
   !
   ! MDK, 24/10/26
+  ! A dump written after TRIFFID gained area holds the diluted lock but the
+  ! impaired kmax before dilution, with the dilution pending in
+  ! ximpair_area_w (applied at the first update). The kmax is tested and
+  ! rebuilt from the undiluted loss, lock / area_w, so that update dilutes
+  ! it once. MDK, 25/10/26
   IF ( pft_xylem_impairment_model(i) == xylem_impairment_memory .AND.          &
        ALLOCATED(ximpair_lock) ) THEN
-    WHERE ( ximpair_lock(:,i) > 0.0 .AND. ximpair_lock(:,i) < 1.0 .AND.        &
-            ABS( psparms%kmax_impaired_pft(:,i) / (1.0 - ximpair_lock(:,i))    &
+    lock_u(:) = ximpair_lock(:,i)
+    IF ( ALLOCATED(ximpair_area_w) ) THEN
+      WHERE ( ximpair_area_w(:,i) > 0.0 .AND. ximpair_area_w(:,i) < 1.0 )      &
+        lock_u(:) = MIN(ximpair_lock(:,i) / ximpair_area_w(:,i), 0.999)
+    END IF
+    WHERE ( lock_u(:) > 0.0 .AND. lock_u(:) < 1.0 .AND.                        &
+            ABS( psparms%kmax_impaired_pft(:,i) / (1.0 - lock_u(:))            &
                  - kmax_pft(i) ) > 1.0e-6 * kmax_pft(i) )
-      psparms%kmax_impaired_pft(:,i) = MAX(kmax_pft(i)                         &
-                                           * (1.0 - ximpair_lock(:,i)),        &
+      psparms%kmax_impaired_pft(:,i) = MAX(kmax_pft(i) * (1.0 - lock_u(:)),    &
                                            kcrit(i))
     END WHERE
     WHERE ( ximpair_lock(:,i) <= 0.0 )                                         &
