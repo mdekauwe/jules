@@ -55,7 +55,7 @@ PUBLIC :: set_ksr_path                                                         &
 ! MDK, 24/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
 
-! Plant capacitance coupled to the optimiser (som_store_coupling = 1): the
+! Plant capacitance coupled to the optimiser (the capacitance store): the
 ! store's flow out at the stem node, held fixed for this leaf path while
 ! the optimiser searches (q_f, > 0: the store gives; < 0: it refills).
 ! With it set, the soil link, the root and the stem segments carry
@@ -150,7 +150,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE set_ksr_path
 
 ! *****************************************************************************
-! som_store_coupling = 1: set store_q_path, the store's flow out held fixed
+! the capacitance store: set store_q_path, the store's flow out held fixed
 ! for the next leaf path, as share * q (q per m2 ground, share as in
 ! set_ksr_path), and switch it on for the segment solver.
 !
@@ -188,7 +188,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE set_store_q_path
 
 ! *****************************************************************************
-! som_store_coupling = 1: switch store_q_path off again after the call it
+! the capacitance store: switch store_q_path off again after the call it
 ! was set for.
 !
 ! MDK, 24/10/26

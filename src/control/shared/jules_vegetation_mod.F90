@@ -512,7 +512,7 @@ INTEGER ::                                                                     &
       ! Ci search of the stomatal optimisation: 1 flat grid, 2 bounded.
       ! Default 2 (it was 1 before 25/10/26): the bounded search is faster,
       ! not limited to the grid, and the only one coded for hold_psi,
-      ! som_store_coupling = 1, l_leaf_temp_ci, l_som_nsl and models 6, 7,
+      ! the plant capacitance store, l_leaf_temp_ci, l_som_nsl and models 6, 7,
       ! 10 and 11. The flat grid is kept as a check where the profit may
       ! not have a single peak; utils/upgrade_nml_gce.py sets 1 in old
       ! namelists that relied on the default.
@@ -544,61 +544,38 @@ LOGICAL ::                                                                     &
       ! When .TRUE., leaf water loss never falls below a cuticular floor:
       ! the canopy conductance is MAX(gs, gcuticular_io * LAI). The floor is
       ! an uncontrolled leak, so it is not part of the optimisation and adds
-      ! no carbon; the extra water is taken from the soil through the
-      ! normal evaporation path (still bounded by the soil-supply cap when
-      ! l_som_supply_limit) and psi_leaf is re-solved for the total flux.
-      ! Under the stomatal optimisation: lit points only
-      ! (apar > 0), the full leak (not cut back near kcrit), psi solved on
-      ! the optimiser's path, and the xylem impairment update made after
-      ! the leak, so it drives the loss of conductance. The plant has one
-      ! water store (cap_stem * LAI): the soil gives what the path delivers
-      ! at the plant's psi, the store the rest, so psi falls over time and
-      ! no water is taken through a path that cannot carry it; psi is
-      ! floored at the critical loss of conductance (kcrit_fractional_loss).
-      ! DESICA: at night too, and cut to the largest flux with k > kcrit.
+      ! no carbon. Under the stomatal optimisation (profit max, with the
+      ! capacitance store, which it turns on): lit points only, the full
+      ! leak, its transpiration the tile's flux at that conductance, paid
+      ! by the store and the soil (the soil-supply cap applies) through the
+      ! store's balance, and cut where the leaf would end below the psi of
+      ! the critical loss of conductance (kcrit_fractional_loss); the xylem
+      ! impairment update is made after the leak, so it drives the loss of
+      ! conductance. DESICA: its own leak, at night too, cut to the largest
+      ! flux with k > kcrit.
       !
-      ! MDK, 22/10/26
+      ! MDK, 25/10/26
 
 LOGICAL ::                                                                     &
   l_som_capacitance = .FALSE.
-      ! Plant capacitance. When .TRUE., the stomatal optimisation has a plant
-      ! water store (the capacitance) at the
-      ! stem node (cap_stem times the reference leaf area of the
-      ! plant conductance), carried and dumped. The store changes the
-      ! transpiration: E' is the transpiration that brings the leaf
-      ! (psi_stem - E / k_leaf, k_leaf = k_plant / som_leaf_resist_frac) to
-      ! the optimiser's steady-state psi_leaf at the end of the step (its
-      ! risk level), so E' is above the optimiser's E while the store is
-      ! full (morning) and below it while the store refills (afternoon); A,
-      ! gl and ci are re-solved at E'. At long timesteps E' tends to the
-      ! optimiser's E. At lit points psi_leaf (which drives the embolism) is
-      ! that of the store. On with l_som_cuticular_loss whatever its value
-      ! (the leak drains the store). Big-leaf, multilayer (can_rad_mod 5, 6)
-      ! and two-leaf canopies.
-      !
-      ! MDK, 23/10/26
-
-INTEGER ::                                                                     &
-  som_store_coupling = 0
-      ! How the plant capacitance store meets the stomatal optimisation.
-      ! 0: the optimiser sees the soil only; the store then sets E', the
-      !    transpiration that brings the leaf to the optimiser's psi_leaf
-      !    at the end of the step (l_som_capacitance), so the store moves
-      !    the timing of the root uptake but not psi_leaf.
-      ! 1: the optimiser sees the store. Its flow out at the stem node, q_f,
-      !    is held fixed while the optimiser searches: the soil, root and
-      !    stem segments carry E - q_f and the leaf segment E, so a full
-      !    store (morning) leaves the stem and leaf wetter, the hydraulic
-      !    cost lower and the stomata more open; a refilling store
-      !    (afternoon) the reverse. q_f is updated between the passes of
-      !    the leaf-temperature (or humidity) iteration by the store's
-      !    balance at the stem node over the step (backward Euler), and that
-      !    balance is committed at the final E, so the water is conserved.
-      !    Big-leaf, multilayer and two-leaf canopies (can_rad_mod 1, 5, 6,
-      !    7), plant segments with the Newton solver and the bounded Ci
-      !    search, at least two passes;
-      !    with the cuticular loss the leak is cut where the leaf would end
-      !    below psi at the critical loss of conductance.
+      ! Plant capacitance. When .TRUE., the stomatal optimisation (profit
+      ! max) has a plant water store at the stem node of the root, stem
+      ! and leaf segments, of capacitance C = cap_stem times the reference
+      ! leaf area of the plant conductance, carried and dumped. The
+      ! optimiser sees it: the store's flow out at the stem node, q_f, is
+      ! held fixed while it searches, so the soil, root and stem carry
+      ! E - q_f and the leaf E. A full store (morning) leaves the stem and
+      ! leaf wetter at the same E, the hydraulic cost lower and the stomata
+      ! more open; a refilling store (afternoon, night) the reverse. q_f
+      ! is updated between the passes of the leaf-temperature (or humidity)
+      ! iteration by the store's balance at the stem node over the step
+      ! (backward Euler), committed at the final E, so the water is
+      ! conserved; sf_evap takes the store's flow off the soil extraction.
+      ! The store drives the leaf and stem psi, and so the embolism. Needs
+      ! the plant segments with the Newton solver, the bounded Ci search,
+      ! at least two passes, and the big-leaf, multilayer or two-leaf
+      ! canopy. On with l_som_cuticular_loss whatever its value (the leak
+      ! drains the store).
       !
       ! MDK, 25/10/26
 
@@ -1178,7 +1155,6 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_gain_gross,                                                          &
     l_som_cuticular_loss,                                                      &
     l_som_capacitance,                                                         &
-    som_store_coupling,                                                        &
     l_som_gravity, l_som_coupled_e,                                            &
     l_som_rhizo_mfp,                                                           &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                    &
@@ -1942,61 +1918,50 @@ IF ( l_som_capacitance_on .AND. can_rad_mod == 4 ) THEN
                'Plant capacitance (l_som_capacitance or ' //                   &
                'l_som_cuticular_loss) is not available with can_rad_mod = 4')
 END IF
-! The store coupled to the optimiser (som_store_coupling = 1): the store
-! sits at the stem node of the plant segments, and is coded for the
-! big-leaf, multilayer and two-leaf canopies with the Newton segment solver
-! and the bounded Ci search (with or without the cuticular loss).
+! The plant capacitance store sits at the stem node of the plant segments,
+! seen by the optimiser (its flow out held fixed in each pass of the
+! search). It is coded for profit max with the root, stem and leaf segments
+! and the Newton solver, the bounded Ci search and the big-leaf, multilayer
+! and two-leaf canopies (with or without the cuticular loss).
 !
 ! MDK, 25/10/26
-IF ( som_store_coupling < 0 .OR. som_store_coupling > 1 ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'som_store_coupling should be 0 or 1')
-END IF
-IF ( som_store_coupling == 1 ) THEN
-  IF ( .NOT. l_som_capacitance_on ) THEN
-    errcode = 101
-    CALL ereport("check_jules_vegetation", errcode,                            &
-                 'som_store_coupling = 1 requires the plant store ' //         &
-                 '(l_som_capacitance or l_som_cuticular_loss)')
-  END IF
+IF ( l_som_capacitance_on ) THEN
   IF ( .NOT. l_som_plant_segments .OR.                                         &
        som_psi_solver /= psi_solver_newton ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 'som_store_coupling = 1 requires l_som_plant_segments ' //    &
+                 'Plant capacitance (l_som_capacitance or ' //                 &
+                 'l_som_cuticular_loss) requires l_som_plant_segments ' //    &
                  'and som_psi_solver = 2 (Newton)')
   END IF
   IF ( can_rad_mod /= 1 .AND. can_rad_mod /= 5 .AND. can_rad_mod /= 6 .AND.   &
        can_rad_mod /= 7 ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 'som_store_coupling = 1 is only coded for can_rad_mod = ' //  &
+                 'Plant capacitance (l_som_capacitance or ' //                 &
+                 'l_som_cuticular_loss) is only coded for can_rad_mod = ' //   &
                  '1, 5, 6 or 7')
   END IF
   IF ( stomata_model /= stomata_profit_max ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 'som_store_coupling = 1 is only coded for profit max ' //     &
+                 'Plant capacitance (l_som_capacitance or ' //                 &
+                 'l_som_cuticular_loss) is only coded for profit max ' //     &
                  '(stomata_model = 4)')
   END IF
-  ! The flat grid search has its own psi <= psi_root_zone mask and k
-  ! reference; only the bounded search is coded for the store's flow.
-  !
-  ! MDK, 25/10/26
   IF ( som_ci_search /= som_ci_bounded ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 'som_store_coupling = 1 requires som_ci_search = 2 ' //       &
+                 'Plant capacitance (l_som_capacitance or ' //                 &
+                 'l_som_cuticular_loss) requires som_ci_search = 2 ' //        &
                  '(bounded)')
   END IF
-  ! (The leak, l_som_cuticular_loss, is coded with it. MDK, 25/10/26)
-  IF ( stomata_model == stomata_desica .OR.                                    &
-       l_som_skip_search_wellwatered ) THEN
+  IF ( l_som_skip_search_wellwatered ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 'som_store_coupling = 1 is not coded with ' //                &
-                 'DESICA or l_som_skip_search_wellwatered')
+                 'Plant capacitance (l_som_capacitance or ' //                 &
+                 'l_som_cuticular_loss) is not coded with ' //                 &
+                 'l_som_skip_search_wellwatered')
   END IF
 END IF
 
@@ -2417,9 +2382,6 @@ WRITE(lineBuffer,*) ' l_som_capacitance = ', l_som_capacitance   ! MDK, 23/10/26
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 
-WRITE(lineBuffer,*) ' som_store_coupling = ', som_store_coupling
-                                                  ! MDK, 24/10/26
-CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_ximpair_leaf_loss = ', l_ximpair_leaf_loss
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2580,8 +2542,8 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 26
-                                  ! +1 som_store_coupling (MDK, 24/10/26),
+INTEGER, PARAMETER :: n_int = 25
+                                  ! -1 som_store_coupling removed (MDK, 25/10/26),
                                   ! +1 discrimination_model (MDK, 22/10/26), +1
                                   ! kplant_model (MDK, 21/10/26), +1
                                   ! ml_leaf_temp_model (MDK, 19/10/26), +1
@@ -2654,7 +2616,6 @@ TYPE :: my_namelist
   INTEGER :: photo_jv_model
   INTEGER :: photo_model
   INTEGER :: stomata_model
-  INTEGER :: som_store_coupling   ! MDK, 24/10/26
   REAL(KIND=real_jlslsm) :: frac_min
   REAL(KIND=real_jlslsm) :: frac_seed
   REAL(KIND=real_jlslsm) :: pow
@@ -2774,7 +2735,6 @@ IF (mype == 0) THEN
   my_nml % photo_jv_model     = photo_jv_model
   my_nml % photo_model     = photo_model
   my_nml % stomata_model   = stomata_model
-  my_nml % som_store_coupling = som_store_coupling
   my_nml % frac_min        = frac_min
   my_nml % frac_seed       = frac_seed
   my_nml % pow             = pow
@@ -2887,7 +2847,6 @@ IF (mype /= 0) THEN
   photo_jv_model     = my_nml % photo_jv_model
   photo_model     = my_nml % photo_model
   stomata_model   = my_nml % stomata_model
-  som_store_coupling = my_nml % som_store_coupling
   frac_min        = my_nml % frac_min
   frac_seed       = my_nml % frac_seed
   pow             = my_nml % pow

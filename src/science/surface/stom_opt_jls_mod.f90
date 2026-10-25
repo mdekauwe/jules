@@ -16,7 +16,7 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='STOM_OPT_JLS_MOD'
 
 PRIVATE stom_opt_mod_ci, stom_opt_profit_max_select, stom_opt_bounded_search,  &
         stom_opt_supply_loss, g_eff_e, som_feasible
-PUBLIC stom_opt_mod, g_of_geff, som_path_psi, stom_opt_at_e, e_of_g,          &
+PUBLIC stom_opt_mod, g_of_geff, som_path_psi, e_of_g,                         &
        set_leaf_temp_ci, clear_leaf_temp_ci
 
 ! Diagnostic marginal water price at the optimum, lambda_eff = dA/dE
@@ -826,7 +826,7 @@ IF (l_xylem_impairment) THEN
   END IF
 END IF
 
-! The store's flow held fixed (l_store_q_path, som_store_coupling = 1): at
+! The store's flow held fixed (l_store_q_path, the capacitance store): at
 ! E near 0 the shifted chain carries -q_f, back towards the soil, a state
 ! the store's balance never allows. So the cost is measured against the
 ! unshifted path at zero flow (as with impairment), not the conductance
@@ -1365,195 +1365,6 @@ END SUBROUTINE sox_flat_search
 END SUBROUTINE stom_opt_mod
 
 !-----------------------------------------------------------------------------
-! Leaf fluxes at a prescribed transpiration (plant capacitance).
-!
-! Returns the
-!
-!   ci, net assimilation al, conductance gl and transpiration el
-!
-! at which the leaf transpires e_target (mol H2O m-2 s-1, as el), from the
-! same photosynthesis, gl(ci) and canopy coupling as stom_opt_mod_ci.
-!
-! E rises with ci, so:
-!
-!   1. the ci grid over [ccp, ca] is searched for the samples either side
-!      of e_target;
-!   2. a second grid inside that bracket refines it;
-!   3. ci, al, gl and el are interpolated linearly in E.
-!
-! Samples above gl_max (when > 0, the soil-supply cap) are not used; above
-! the largest usable E that sample is returned. The hydraulics are not
-! applied: the capacitance store pays the difference from the optimiser's
-! steady state.
-!
-! MDK, 23/10/26
-!-----------------------------------------------------------------------------
-SUBROUTINE stom_opt_at_e(                                                      &
-! IN
-        land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,       &
-        rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp,              &
-        pstar, km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax,             &
-        kcrit, gl_max, l_multilayer, r_bl, r_ca, g_oth,                        &
-        kmax_ref, conductance_b, conductance_c,                                &
-        psi_leaf_extreme, psi_root_extreme, l_xylem_impairment, e_target,      &
-! OUT
-        ci, al, gl, el                                                         &
-)
-
-USE jules_vegetation_mod, ONLY: som_n_sample
-USE parkind1, ONLY: jprb, jpim
-USE yomhook, ONLY: lhook, dr_hook
-
-IMPLICIT NONE
-
-LOGICAL, INTENT(IN) :: l_multilayer
-                            ! Called from the multilayer canopy.
-LOGICAL, INTENT(IN) :: l_xylem_impairment
-                            ! The impaired vulnerability curve is used (as
-                            ! stom_opt_mod).
-INTEGER, INTENT(IN) :: land_pts
-                            ! Number of land points.
-INTEGER, INTENT(IN) :: pft
-                            ! Plant functional type.
-INTEGER, INTENT(IN) :: open_pts
-                            ! Number of points to solve.
-INTEGER, INTENT(IN) :: open_index(land_pts)
-                            ! The points to solve, as indices of veg_index.
-INTEGER, INTENT(IN) :: pft_photo_model
-                            ! Photosynthesis model of the PFT.
-INTEGER, INTENT(IN) :: veg_index(land_pts)
-                            ! Land index of each vegetated point.
-REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
-  rd(land_pts), ca(land_pts), psi_root_zone(land_pts), acr(land_pts),          &
-  apar(land_pts), oi(land_pts), vcmax(land_pts), kc(land_pts), ko(land_pts),   &
-  ccp(land_pts), pstar(land_pts), km(land_pts), dq(land_pts),                  &
-  je(land_pts), t_leaf(land_pts), je_ratio(land_pts), fapar_lf(land_pts),      &
-  ipar(land_pts), kmax(land_pts), kcrit(land_pts), r_bl(land_pts),             &
-  r_ca(land_pts), g_oth(land_pts), kmax_ref(land_pts),                         &
-  conductance_b(land_pts), conductance_c(land_pts),                            &
-  psi_leaf_extreme(land_pts), psi_root_extreme(land_pts)
-                            ! Photosynthesis, coupling and hydraulic inputs,
-                            ! exactly as passed to stom_opt_mod_ci.
-REAL(KIND=real_jlslsm), INTENT(IN) :: gl_max(land_pts)
-                            ! Soil-supply cap on gl (m s-1; <= 0: none).
-REAL(KIND=real_jlslsm), INTENT(IN) :: e_target(land_pts)
-                            ! Target transpiration (mol H2O m-2 s-1).
-REAL(KIND=real_jlslsm), INTENT(IN OUT) :: ci(land_pts)
-                            ! Intercellular CO2 (Pa).
-REAL(KIND=real_jlslsm), INTENT(IN OUT) :: al(land_pts)
-                            ! Net assimilation (mol CO2 m-2 s-1).
-REAL(KIND=real_jlslsm), INTENT(IN OUT) :: gl(land_pts)
-                            ! Conductance (m s-1).
-REAL(KIND=real_jlslsm), INTENT(IN OUT) :: el(land_pts)
-                            ! Transpiration (mol H2O m-2 s-1). Only the
-                            ! points solved are set.
-                            !
-                            ! MDK, 23/10/26
-
-INTEGER :: ipass, i, j, l
-INTEGER :: ib(open_pts)
-                            ! The first usable sample at or above the target
-                            ! E, at each point.
-INTEGER :: n_ok(open_pts)
-                            ! The number of usable samples (within gl_max),
-                            ! at each point.
-REAL(KIND=real_jlslsm) :: ci_lo(land_pts), ci_hi(land_pts)
-                            ! The ci range searched (Pa).
-REAL(KIND=real_jlslsm) :: w
-                            ! Interpolation weight between two samples (-).
-REAL(KIND=real_jlslsm), DIMENSION(0:som_n_sample, open_pts) ::                 &
-  ci_s, al_s, gl_s, kl_s, psi_s, el_s, klhc_s
-                            ! The ci samples and their A, gl, conductance,
-                            ! psi_leaf and E (as stom_opt_mod_ci).
-                            !
-                            ! MDK, 23/10/26
-
-INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
-INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
-REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='STOM_OPT_AT_E'
-
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
-
-IF ( open_pts == 0 ) THEN
-  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-  RETURN
-END IF
-
-! Pass 1 searches the whole ci range [ccp, ca]; pass 2 the bracket around
-! the target E that pass 1 found.
-ci_lo(:) = MAX(ccp(:), 0.0)
-ci_hi(:) = ca(:)
-DO ipass = 1,2
-  CALL stom_opt_mod_ci(                                                        &
-      land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,         &
-      som_n_sample, ci_lo, ci_hi,                                              &
-      rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,         &
-      km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,               &
-      l_multilayer, r_bl, r_ca, g_oth,                                         &
-      kmax_ref, conductance_b, conductance_c,                                  &
-      psi_leaf_extreme, psi_root_extreme, l_xylem_impairment,                  &
-      ci_s, al_s, gl_s, kl_s, psi_s, el_s, klhc_s, l_photo_only = .TRUE. )
-  DO j = 1,open_pts
-    l = veg_index(open_index(j))
-
-    ! Usable samples: 1..n_ok (ci rising), those within gl_max.
-    n_ok(j) = som_n_sample
-    IF ( gl_max(l) > 0.0 ) THEN
-      DO i = 1,som_n_sample
-        IF ( gl_s(i,j) > gl_max(l) ) THEN
-          n_ok(j) = MAX(i - 1, 1)
-          EXIT
-        END IF
-      END DO
-    END IF
-
-    ! First usable sample at or above the target.
-    ib(j) = n_ok(j)
-    DO i = 1,n_ok(j)
-      IF ( el_s(i,j) >= e_target(l) ) THEN
-        ib(j) = i
-        EXIT
-      END IF
-    END DO
-
-    ! After pass 1: narrow the ci range to the bracket around the target.
-    IF ( ipass == 1 ) THEN
-      i = MAX(ib(j), 2)
-      ci_lo(l) = ci_s(i-1,j)
-      ci_hi(l) = ci_s(i,j)
-    END IF
-  END DO
-END DO
-
-! Interpolate linearly in E between the two samples either side of the
-! target. If the target is below the first sample, or above the largest
-! usable E (the soil-supply cap or ci = ca), that sample is returned.
-DO j = 1,open_pts
-  l = veg_index(open_index(j))
-  i = ib(j)
-  IF ( i == 1 .OR. el_s(i,j) < e_target(l) ) THEN
-    ci(l) = ci_s(i,j)
-    al(l) = al_s(i,j)
-    gl(l) = gl_s(i,j)
-    el(l) = el_s(i,j)
-  ELSE
-    w = (e_target(l) - el_s(i-1,j))                                            &
-        / MAX(el_s(i,j) - el_s(i-1,j), TINY(1.0_real_jlslsm))
-    ci(l) = ci_s(i-1,j) + w * (ci_s(i,j) - ci_s(i-1,j))
-    al(l) = al_s(i-1,j) + w * (al_s(i,j) - al_s(i-1,j))
-    gl(l) = gl_s(i-1,j) + w * (gl_s(i,j) - gl_s(i-1,j))
-    el(l) = el_s(i-1,j) + w * (el_s(i,j) - el_s(i-1,j))
-  END IF
-  gl(l) = MAX(gl(l), 0.0)
-  al(l) = MAX(al(l), -rd(l))
-END DO
-
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-
-END SUBROUTINE stom_opt_at_e
-
-!-----------------------------------------------------------------------------
 ! Transpiration E (mol H2O m-2 s-1) through conductance g (m s-1) at
 ! specific-humidity deficit dq (kg kg-1), surface pressure pstar (Pa) and
 ! temperature t (K): the molar density of air times the mole-fraction
@@ -1687,8 +1498,8 @@ al = wl - rd
 END FUNCTION leaf_net_photo
 
 !-----------------------------------------------------------------------------
-! The leaf states on a grid of Ci, for the flat searches, the fast path and
-! stom_opt_at_e. n_sample Ci values are spaced evenly on [ci_lo, ci_hi)
+! The leaf states on a grid of Ci, for the flat searches and the fast path.
+! n_sample Ci values are spaced evenly on [ci_lo, ci_hi)
 ! at each open point. Entry 0 is the closed state (see below). For each
 ! sample it returns A, gl, E, psi_leaf, the path conductance k and the
 ! conductance for the hydraulic cost (k_cost; kl_hc_sample). With
@@ -1759,7 +1570,8 @@ LOGICAL, INTENT(IN), OPTIONAL :: l_photo_only
                             ! .TRUE.: ci, A, gl and E of the samples only,
                             ! with no path solve (kl, psi and kl_hc are
                             ! returned as 0), for callers that use no
-                            ! hydraulics (stom_opt_at_e).
+                            ! hydraulics (none since the capacitance
+                            ! store's E-target mode was removed).
                             !
                             ! MDK, 24/10/26
 
