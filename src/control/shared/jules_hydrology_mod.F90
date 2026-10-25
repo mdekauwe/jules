@@ -242,6 +242,14 @@ IF ( l_soil_evap_or .AND. l_limit_gsoil ) THEN
                "l_limit_gsoil has no effect with l_soil_evap_or")
 END IF
 
+! l_or_fsoil scales the Or conductance, so it does nothing without it.
+! MDK, 25/10/26
+IF ( l_or_fsoil .AND. .NOT. l_soil_evap_or ) THEN
+  errorstatus = -101
+  CALL ereport(RoutineName, errorstatus,                                       &
+               "l_or_fsoil has no effect without l_soil_evap_or")
+END IF
+
 END SUBROUTINE check_jules_hydrology
 
 !#############################################################################

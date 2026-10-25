@@ -525,10 +525,14 @@ INTEGER ::                                                                     &
       ! RETIRED input: setting it stops the run; use som_psi_solver (same
       ! values). Still read so namelists that leave it unset run.
       ! MDK, 24/10/26
-  som_profit_model = 1
+  som_profit_model = imdi
       ! Profit used by the stomatal optimisation (1: profit max, 2: SOX).
-      ! Derived from stomata_model; a namelist value is ignored (it was read
-      ! with the retired leaf_flux_mod = 2). JBaguley; MDK, 24/10/26
+      ! Derived from stomata_model; a namelist value is ignored, with a
+      ! warning (it was read with the retired leaf_flux_mod = 2). Unset
+      ! (imdi) in the namelist, and 1 for models without the optimisation,
+      ! as before.
+      !
+      ! JBaguley; MDK, 25/10/26
 
 LOGICAL ::                                                                     &
   l_som_gain_gross = .FALSE.
@@ -767,11 +771,16 @@ REAL(KIND=real_jlslsm) ::                                                      &
   leaf_width = 0.05
       ! Characteristic leaf width (m), for the leaf boundary layer
       ! conductance (l_leaf_temp).
-INTEGER ::                                                                     &
+INTEGER, PARAMETER ::                                                          &
   leaf_temp_iter = 3
       ! Number of passes of the two-leaf stomatal optimisation with
       ! l_leaf_temp (each pass is one stom_opt_mod call per leaf, then a
-      ! leaf temperature update). iter (3) without l_leaf_temp.
+      ! leaf temperature update). iter (3) without l_leaf_temp. No longer
+      ! in the namelist: with 1 pass the leaf temperature was never updated
+      ! and stayed at the first step's value for the whole run, and every
+      ! run used 3.
+      !
+      ! MDK, 25/10/26
 REAL(KIND=real_jlslsm) ::                                                      &
   leaf_shelter = 1.0
       ! With l_leaf_temp, sheltering factor dividing the forced-convection
@@ -1148,7 +1157,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,    &
     sl_kfail_frac,                                                             &
     l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
-    l_leaf_temp, leaf_width, leaf_temp_iter, l_leaf_temp_gc_eq,                &
+    l_leaf_temp, leaf_width, l_leaf_temp_gc_eq,                                &
     l_leaf_temp_ci,                                                            &
     leaf_shelter, leaf_aero_model, l_leaf_coexp_lai, leaf_wind_ext,            &
     ml_leaf_temp_model, kplant_model,                                          &
@@ -1233,6 +1242,14 @@ IMPLICIT NONE
 ! leaf_flux_mod and som_profit_model from it. The old namelist form
 ! (leaf_flux_mod = 2 with som_profit_model) stops (retired 24/10/26).
 !-----------------------------------------------------------------------------
+IF ( som_profit_model /= imdi ) THEN
+  ! MDK, 25/10/26
+  errcode = -101 ! warning
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'som_profit_model is set from stomata_model; the namelist ' //  &
+               'value is ignored.')
+END IF
+som_profit_model = profit_max_profit_model
 SELECT CASE ( stomata_model )
 CASE ( stomata_profit_max, stomata_sox_opt, stomata_cmax, stomata_cgain,       &
        stomata_supply_loss, stomata_cap, stomata_pm2 )
@@ -1272,6 +1289,16 @@ CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical,                 &
 CASE DEFAULT
   ! Reported below.
 END SELECT
+
+! som_gl_max is in m/s (0.02 m/s is about 0.8 mol m-2 s-1). A value above
+! 0.1 m/s is most likely in mol m-2 s-1, which in m/s turns the cap off.
+! MDK, 25/10/26
+IF ( leaf_flux_mod == leaf_flux_stom_opt .AND. som_gl_max > 0.1 ) THEN
+  errcode = -101 ! warning
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'som_gl_max is in m/s (default 0.02, ~0.8 mol m-2 s-1); ' //    &
+               'the value set looks like mol m-2 s-1.')
+END IF
 
 ! Phenology or TRIFFID cannot be used with the aggregate surface scheme
 IF ( l_aggregate .AND. (l_phenol .OR. l_triffid) ) THEN
@@ -2034,12 +2061,6 @@ IF ( l_leaf_temp .AND. ( can_rad_mod < 5 .OR. can_rad_mod > 7 .OR.             &
                'stomata_model=4 to 7 or 9')
 END IF
 
-IF ( l_leaf_temp .AND. leaf_temp_iter < 1 ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_leaf_temp needs leaf_temp_iter >= 1')
-END IF
-
 IF ( l_leaf_temp .AND. ( leaf_shelter <= 0.0 .OR. leaf_aero_model < 0 .OR.     &
                          leaf_aero_model > 2 ) ) THEN
   errcode = 101
@@ -2125,6 +2146,17 @@ IF ( l_som_nsl .AND. ( ( stomata_model /= stomata_profit_max .AND.             &
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_som_nsl requires stomata_model=4 (or 10) and ' //            &
                'som_ci_search=2')
+END IF
+
+! Both water limits on photosynthesis: A = f_vc(psi_soil) f_nsl(psi_leaf)
+! A0. Each is fitted on its own to the same kind of data, so together they
+! count the drought limit about twice. MDK, 25/10/26
+IF ( l_som_nsl .AND. l_som_vcmax_psi ) THEN
+  errcode = -101 ! warning
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_nsl and l_som_vcmax_psi are both on: photosynthesis ' // &
+               'is limited by soil and leaf water potential together; ' //     &
+               'each was fitted alone.')
 END IF
 
 IF ( l_aggregate .AND. ANY(l_vegdrag_pft) ) THEN
@@ -2542,7 +2574,8 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 25
+INTEGER, PARAMETER :: n_int = 24
+                                  ! -1 leaf_temp_iter (MDK, 25/10/26),
                                   ! -1 som_store_coupling removed (MDK, 25/10/26),
                                   ! +1 discrimination_model (MDK, 22/10/26), +1
                                   ! kplant_model (MDK, 21/10/26), +1
@@ -2595,7 +2628,6 @@ TYPE :: my_namelist
   INTEGER :: triffid_period
   INTEGER :: can_model
   INTEGER :: can_rad_mod
-  INTEGER :: leaf_temp_iter
   INTEGER :: leaf_aero_model
   INTEGER :: ml_leaf_temp_model
   INTEGER :: kplant_model
@@ -2772,7 +2804,6 @@ IF (mype == 0) THEN
   my_nml % ml_leaf_temp_model = ml_leaf_temp_model
   my_nml % kplant_model = kplant_model
   my_nml % leaf_shelter = leaf_shelter
-  my_nml % leaf_temp_iter = leaf_temp_iter
   my_nml % leaf_width = leaf_width
   my_nml % leaf_wind_ext = leaf_wind_ext
   my_nml % l_som_plant_segments = l_som_plant_segments
@@ -2884,7 +2915,6 @@ IF (mype /= 0) THEN
   ml_leaf_temp_model = my_nml % ml_leaf_temp_model
   kplant_model = my_nml % kplant_model
   leaf_shelter = my_nml % leaf_shelter
-  leaf_temp_iter = my_nml % leaf_temp_iter
   leaf_width = my_nml % leaf_width
   leaf_wind_ext = my_nml % leaf_wind_ext
   l_som_plant_segments = my_nml % l_som_plant_segments

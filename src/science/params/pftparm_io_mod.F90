@@ -192,7 +192,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   p88_io(npft_max) = rmdi,                                                     & ! JBaguley
   ! Root / stem / leaf segments (l_som_plant_segments): resistance shares
   ! (defaults from Wang et al. 2019, root:stem:leaf kmax 1000:2000:2000) and
-  ! optional segment P50/P88 (Pa; missing = the PFT's p50_io/p88_io).
+  ! optional segment P50/P88 (MPa; missing = the PFT's p50_io/p88_io).
   seg_frac_root_io(npft_max) = 0.5,                                            &
   seg_frac_stem_io(npft_max) = 0.25,                                           &
   seg_frac_leaf_io(npft_max) = 0.25,                                           &
@@ -217,7 +217,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! MDK, 23/10/26
   gcuticular_io(npft_max) = 3.0,                                               &
   ! Nonstomatal limitation (l_som_nsl): onset and zero point of the
-  ! leaf-psi ramp on photosynthesis (Pa; missing = pftparm defaults 0 and
+  ! leaf-psi ramp on photosynthesis (MPa; missing = pftparm defaults 0 and
   ! -3 MPa, i.e. Dewar et al. 2022 Eqn 3(b)). Onset at the turgor loss
   ! point is an optional variant.
   psi_nsl_onset_io(npft_max) = rmdi,                                           &
@@ -247,9 +247,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! values (De Kauwe et al. 2020). Capacitances per unit leaf area (mmol H2O
   ! m-2 leaf MPa-1); leaf default from Xu et al. (2016) Table S3
   ! (1.5e-3 kg m-2 MPa-1), stem default ~Q. ilex (SurEau, Ruffault 2022).
+  ! psi_f_tuzet_io in MPa (MDK, 25/10/26).
   g1_tuzet_io(npft_max) = 4.19,                                                &
   sf_tuzet_io(npft_max) = 2.0,                                                 &
-  psi_f_tuzet_io(npft_max) = -2.05e6,                                          &
+  psi_f_tuzet_io(npft_max) = -2.05,                                            &
   cap_leaf_io(npft_max) = 83.3,                                                &
   ! cap_stem is also the size of the stomatal optimisation's plant
   ! capacitance (l_som_capacitance): C = cap_stem x L_ref, mmol H2O m-2
@@ -1155,7 +1156,8 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 ximpair_driver_stem, l_triffid_nsc,            &
                                 l_ximpair_rec_nsc, l_veg_compete,              &
                                 l_ximpair_seg_memory,                          &
-                                l_trif_hydmort, l_som_capacitance_on
+                                l_trif_hydmort, l_som_capacitance_on,          &
+                                leaf_flux_mod, leaf_flux_stom_opt, l_trif_eq
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1252,6 +1254,28 @@ tleaf_of(:)     = tleaf_of_io(1:npft)
 
 ! Hydrological, thermal and other "physical" characteristics.
 #if !defined(UM_JULES)
+! Water potentials are read in MPa, as kmax_pft_io is per MPa, and held in
+! Pa in the model (mpa_to_pa). A value of 1000 or more in size is still in
+! Pa (an old namelist; utils/upgrade_nml_gce.py converts them).
+!
+! MDK, 25/10/26
+CALL check_mpa('psi_close_io',       psi_close_io(1:npft))
+CALL check_mpa('psi_open_io',        psi_open_io(1:npft))
+CALL check_mpa('root_psi_crit_io',   root_psi_crit_io(1:npft))
+#endif
+CALL check_mpa('p50_io',             p50_io(1:npft))
+CALL check_mpa('p88_io',             p88_io(1:npft))
+CALL check_mpa('p50_root_io',        p50_root_io(1:npft))
+CALL check_mpa('p50_stem_io',        p50_stem_io(1:npft))
+CALL check_mpa('p50_leaf_io',        p50_leaf_io(1:npft))
+CALL check_mpa('p88_root_io',        p88_root_io(1:npft))
+CALL check_mpa('p88_stem_io',        p88_stem_io(1:npft))
+CALL check_mpa('p88_leaf_io',        p88_leaf_io(1:npft))
+CALL check_mpa('psi_nsl_onset_io',   psi_nsl_onset_io(1:npft))
+CALL check_mpa('psi_nsl0_io',        psi_nsl0_io(1:npft))
+CALL check_mpa('psi_vcmax_f_io',     psi_vcmax_f_io(1:npft))
+CALL check_mpa('psi_f_tuzet_io',     psi_f_tuzet_io(1:npft))
+#if !defined(UM_JULES)
 calc_rz_psi(:)      = calc_rz_psi_io(1:npft) ! JBaguley
 fsmc_mod(:)         = fsmc_mod_io(1:npft)
 ! Keep the pftparm_alloc default (1e-9) where unset; copying rmdi would
@@ -1262,9 +1286,9 @@ gcuticular(:)      = gcuticular_io(1:npft)
 lai_ref_k(:)       = lai_ref_k_io(1:npft)   ! MDK, 21/10/26
 ! Nonstomatal limitation ramp: keep the pftparm_alloc defaults where unset.
 WHERE (ABS(psi_nsl_onset_io(1:npft) - rmdi) > EPSILON(1.0))                  &
-  psi_nsl_onset(:) = psi_nsl_onset_io(1:npft)
+  psi_nsl_onset(:) = mpa_to_pa(psi_nsl_onset_io(1:npft))
 WHERE (ABS(psi_nsl0_io(1:npft) - rmdi) > EPSILON(1.0))                       &
-  psi_nsl0(:) = psi_nsl0_io(1:npft)
+  psi_nsl0(:) = mpa_to_pa(psi_nsl0_io(1:npft))
 WHERE (ABS(fsmc_q_io(1:npft) - rmdi) > EPSILON(1.0)) fsmc_q(:) = fsmc_q_io(1:npft)
 IF ( ANY(fsmc_q(:) <= 0.0) ) THEN
   errcode = 101
@@ -1305,7 +1329,7 @@ IF ( stomata_model == stomata_supply_loss .AND.                                &
 END IF
 ! Soil-water down-regulation of capacity: keep the defaults where unset.
 WHERE (ABS(psi_vcmax_f_io(1:npft) - rmdi) > EPSILON(1.0))                    &
-  psi_vcmax_f(:) = psi_vcmax_f_io(1:npft)
+  psi_vcmax_f(:) = mpa_to_pa(psi_vcmax_f_io(1:npft))
 WHERE (ABS(sf_vcmax_io(1:npft) - rmdi) > EPSILON(1.0))                       &
   sf_vcmax(:) = sf_vcmax_io(1:npft)
 IF ( l_som_vcmax_psi .AND. ( ANY(psi_vcmax_f(:) >= 0.0) .OR.                  &
@@ -1336,7 +1360,7 @@ IF ( l_som_vcmax_psi .AND. ( ANY(psi_vcmax_fmin(:) < 0.0) .OR.               &
 END IF
 g1_tuzet(:)         = g1_tuzet_io(1:npft)
 sf_tuzet(:)         = sf_tuzet_io(1:npft)
-psi_f_tuzet(:)      = psi_f_tuzet_io(1:npft)
+psi_f_tuzet(:)      = mpa_to_pa(psi_f_tuzet_io(1:npft))
 ! mmol m-2 leaf MPa-1 -> mol m-2 leaf Pa-1, as for kmax_pft.
 cap_leaf(:)         = cap_leaf_io(1:npft) * 1.0e-9
 cap_stem(:)         = cap_stem_io(1:npft) * 1.0e-9
@@ -1350,9 +1374,9 @@ IF ( l_som_capacitance_on .AND. ANY(cap_stem_io(1:npft) <= 0.0) ) THEN
                'l_som_capacitance needs cap_stem_io > 0.')
 END IF
 min_rootc_pft(:)    = min_rootc_pft_io(1:npft) ! JBaguley
-psi_close(:)        = psi_close_io(1:npft)
-psi_open(:)         = psi_open_io(1:npft)
-root_psi_crit(:)    = root_psi_crit_io(1:npft) ! JBaguley
+psi_close(:)        = mpa_to_pa(psi_close_io(1:npft))
+psi_open(:)         = mpa_to_pa(psi_open_io(1:npft))
+root_psi_crit(:)    = mpa_to_pa(root_psi_crit_io(1:npft)) ! JBaguley
 root_radi_pft(:)    = root_radi_pft_io(1:npft) ! JBaguley
 rootc_density_pft(:)= rootc_density_pft_io(1:npft) ! JBaguley
 #endif
@@ -1423,8 +1447,8 @@ kcrit_fractional_loss(:) = kcrit_fractional_loss_io(1:npft)
 ! kmax_pft_io is in mmol m-2 s-1 MPa-1; the model works in
 ! mol m-2 s-1 Pa-1: x 1e-3 (mmol -> mol) x 1e-6 (MPa-1 -> Pa-1)
 kmax_pft(:)     = kmax_pft_io(1:npft) * 1.0e-9
-P50(:)          = p50_io(1:npft)
-P88(:)          = p88_io(1:npft)
+P50(:)          = mpa_to_pa(p50_io(1:npft))
+P88(:)          = mpa_to_pa(p88_io(1:npft))
 ! SOX parameters
 sox_a(:)        = sox_a_io(1:npft)
 sox_p50(:)      = sox_p50_io(1:npft)
@@ -1669,6 +1693,16 @@ IF ( l_ximpair_rec_nsc ) THEN
                  'carbon, alongside the store repair (l_ximpair_rec_nsc).')
   END IF
 END IF
+! Equilibrium TRIFFID changes the cover without the dilution of the
+! memory model's damage (ximpair_dilute_area runs after lotka, not
+! lotka_eq), so cover gained keeps the old damage. MDK, 25/10/26
+IF ( l_trif_eq .AND. l_veg_compete .AND.                                       &
+     ANY(pft_xylem_impairment_model(:) == xylem_impairment_memory) ) THEN
+  errcode = -101
+  CALL ereport(RoutineName, errcode,                                           &
+               'l_trif_eq: xylem damage is not diluted when the ' //           &
+               'equilibrium solve gains PFT cover.')
+END IF
 ! The time-based recovery of the memory model (l_ximpair_rec_growth,
 ! ximpair_tau_stem_io, ximpair_rec_years_io, ximpair_tau_rec_io and their
 ! helpers) was retired in favour of the store repair; namelists that still
@@ -1692,6 +1726,37 @@ DO i = 1, npft
                  'kcrit_fractional_loss_io must be below 1.')
   END IF
 
+  ! The stomatal optimisation runs the plant hydraulics for every PFT, so
+  ! each needs a conductance model and a critical loss: unset, they were
+  ! copied as imdi and rmdi (psi_crit then NaN) and the run went on. And
+  ! it takes the root-zone psi and the soil-to-root link from
+  ! fsmc_mod = 2; with 0 or 1 it ran without them after a warning.
+  !
+  ! MDK, 25/10/26
+  IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
+    IF ( pft_conductance_model(i) /= 1 .AND.                                   &
+         pft_conductance_model(i) /= 2 ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode,                                       &
+                   'The stomatal optimisation needs ' //                       &
+                   'pft_conductance_model_io = 1 or 2 for every PFT.')
+    END IF
+    IF ( kcrit_fractional_loss(i) < 0.0 ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode,                                       &
+                   'The stomatal optimisation needs ' //                       &
+                   'kcrit_fractional_loss_io (0 to 1) for every PFT.')
+    END IF
+#if !defined(UM_JULES)
+    IF ( fsmc_mod(i) /= 2 ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode,                                       &
+                   'The stomatal optimisation needs fsmc_mod_io = 2 for ' //   &
+                   'every PFT (root-zone psi and soil-to-root conductance).')
+    END IF
+#endif
+  END IF
+
   ! Calculate critical conductance
   kcrit(i) = (1-kcrit_fractional_loss(i))*kmax_pft(i)
 
@@ -1709,6 +1774,15 @@ DO i = 1, npft
       CALL ereport(RoutineName, errcode,                                       &
                'kmax_pft_io must be > 1e-4, in mmol m-2 s-1 MPa-1 (e.g. ' //   &
                '0.9), not mol m-2 s-1 Pa-1 (e.g. 0.9e-9).')
+    END IF
+    ! P50 and P88 must be set (unset, rmdi passed the tests below).
+    ! MDK, 25/10/26
+    IF ( ABS(P50(i) - rmdi) < EPSILON(1.0) .OR.                                &
+         ABS(P88(i) - rmdi) < EPSILON(1.0) ) THEN
+      errcode = 101  !  a hard error
+      CALL ereport(RoutineName, errcode,                                       &
+               'p50_io and p88_io must be set (MPa) with ' //                  &
+               'pft_conductance_model_io = 1 or 2.')
     END IF
     ! Raise error if P50 is not less than zero.
     IF (0.0 <= P50(i)) THEN
@@ -1802,8 +1876,8 @@ ENDDO
 DO i = 1, npft
   seg_frac(:) = [ seg_frac_root_io(i), seg_frac_stem_io(i),                   &
                   seg_frac_leaf_io(i) ]
-  p50_seg(:)  = [ p50_root_io(i), p50_stem_io(i), p50_leaf_io(i) ]
-  p88_seg(:)  = [ p88_root_io(i), p88_stem_io(i), p88_leaf_io(i) ]
+  p50_seg(:)  = mpa_to_pa([ p50_root_io(i), p50_stem_io(i), p50_leaf_io(i) ])
+  p88_seg(:)  = mpa_to_pa([ p88_root_io(i), p88_stem_io(i), p88_leaf_io(i) ])
   IF ( l_som_plant_segments .AND. pft_conductance_model(i) /= 1 ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
@@ -1920,5 +1994,52 @@ END DO
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
 END SUBROUTINE init_pftparm_allocated
+
+! *****************************************************************************
+! A water potential read in MPa, in Pa for the model; unset (rmdi) stays
+! unset.
+!
+! MDK, 25/10/26
+! *****************************************************************************
+ELEMENTAL FUNCTION mpa_to_pa( psi_mpa ) RESULT( psi_pa )
+
+USE missing_data_mod, ONLY: rmdi
+
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_mpa
+REAL(KIND=real_jlslsm) :: psi_pa
+
+IF ( ABS(psi_mpa - rmdi) > EPSILON(1.0) ) THEN
+  psi_pa = psi_mpa * 1.0e6
+ELSE
+  psi_pa = rmdi
+END IF
+
+END FUNCTION mpa_to_pa
+
+! *****************************************************************************
+! Stops the run if a water potential that is set is 1000 or more in size:
+! it is in Pa, not MPa (e.g. P50 -2.5e6 instead of -2.5).
+!
+! MDK, 25/10/26
+! *****************************************************************************
+SUBROUTINE check_mpa( name, psi_mpa )
+
+USE missing_data_mod, ONLY: rmdi
+USE ereport_mod, ONLY: ereport
+
+CHARACTER(LEN=*), INTENT(IN) :: name
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_mpa(:)
+
+INTEGER :: errcode
+
+IF ( ANY( ABS(psi_mpa(:) - rmdi) > EPSILON(1.0) .AND.                         &
+          ABS(psi_mpa(:)) >= 1000.0 ) ) THEN
+  errcode = 101
+  CALL ereport('CHECK_MPA', errcode,                                           &
+               TRIM(name) // ' is read in MPa (e.g. -2.5), not Pa '   //  &
+               '(-2.5e6); utils/upgrade_nml_gce.py converts old namelists.')
+END IF
+
+END SUBROUTINE check_mpa
 
 END MODULE pftparm_io
