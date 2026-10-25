@@ -314,6 +314,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_overflow_resp_io(npft_max) = rmdi,                                       &
   nsc_xylem_rate_max_io(npft_max) = rmdi,                                      &
   nsc_cmax_io(npft_max) = rmdi,                                                &
+  nsc_xylem_cond_ratio_io(npft_max) = rmdi,                                    &
   phen_psi_tlp_io(npft_max) = rmdi,                                            &
   phen_dfbleaf_io(npft_max) = rmdi,                                            &
   phen_ndays_io(npft_max) = rmdi,                                              &
@@ -401,6 +402,7 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_grow_start_doy_io, nsc_grow_end_doy_io, nsc_flush_start_doy_io,         &
   nsc_flush_days_io,                                                          &
   nsc_xylem_type_io, nsc_ring_mmdd_io, nsc_cmax_io, phen_psi_tlp_io,           &
+  nsc_xylem_cond_ratio_io,                                                     &
   nsc_xylem_replace_io,                                                        &
   phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io,                         &
   phen_bb_doy_io, phen_bb_gdd_io, phen_bb_tbase_io, phen_bb_min_days_io
@@ -443,13 +445,15 @@ INTEGER, PARAMETER :: n_int = 11 * npft_max ! = the INTEGER arrays in
                                            ! impairment + 2 store; -1
                                            ! ximpair_growth_basis retired,
                                            ! MDK, 23/10/26)
-INTEGER, PARAMETER :: n_real = 179 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 180 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL pftparm arrays incl. xylem
                                              ! impairment; +1 lai_ref_k_io,
                                              ! +3 hydmort_*;
                                              ! MDK, 21/10/26; -5 time-based
                                              ! recovery retired, MDK,
-                                             ! 23/10/26)
+                                             ! 23/10/26; +1
+                                             ! nsc_xylem_cond_ratio_io,
+                                             ! MDK, 25/10/26)
 
 TYPE :: my_namelist
   SEQUENCE
@@ -635,6 +639,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_overflow_resp_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_xylem_rate_max_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_cmax_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_xylem_cond_ratio_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_psi_tlp_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_dfbleaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_ndays_io(npft_max)
@@ -843,6 +848,7 @@ IF (mype == 0) THEN
   my_nml % nsc_overflow_resp_io = nsc_overflow_resp_io
   my_nml % nsc_xylem_rate_max_io = nsc_xylem_rate_max_io
   my_nml % nsc_cmax_io = nsc_cmax_io
+  my_nml % nsc_xylem_cond_ratio_io = nsc_xylem_cond_ratio_io
   my_nml % phen_psi_tlp_io = phen_psi_tlp_io
   my_nml % phen_dfbleaf_io = phen_dfbleaf_io
   my_nml % phen_ndays_io = phen_ndays_io
@@ -1039,6 +1045,7 @@ IF (mype /= 0) THEN
   nsc_overflow_resp_io = my_nml % nsc_overflow_resp_io
   nsc_xylem_rate_max_io = my_nml % nsc_xylem_rate_max_io
   nsc_cmax_io = my_nml % nsc_cmax_io
+  nsc_xylem_cond_ratio_io = my_nml % nsc_xylem_cond_ratio_io
   phen_psi_tlp_io = my_nml % phen_psi_tlp_io
   phen_dfbleaf_io = my_nml % phen_dfbleaf_io
   phen_ndays_io = my_nml % phen_ndays_io
@@ -1138,6 +1145,7 @@ USE pftparm, ONLY:                                                             &
   nsc_xylem_replace,                                                          &
   nsc_grow_start_doy, nsc_grow_end_doy, nsc_flush_start_doy, nsc_flush_days,  &
   nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min,          &
+  nsc_xylem_cond_ratio,                                                       &
   phen_bb_doy, phen_bb_gdd, phen_bb_tbase, phen_bb_min_days
 
 
@@ -1156,6 +1164,7 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 ximpair_driver_stem, l_triffid_nsc,            &
                                 l_ximpair_rec_nsc, l_veg_compete,              &
                                 l_ximpair_seg_memory,                          &
+                                l_nsc_xylem_ring_renewal,                      &
                                 l_trif_hydmort, l_som_capacitance_on,          &
                                 leaf_flux_mod, leaf_flux_stom_opt, l_trif_eq
 USE jules_soil_mod, ONLY: l_bound_soil_wp
@@ -1523,6 +1532,11 @@ DO i = 1, npft
   IF (ABS(nsc_xylem_rate_max_io(i) - rmdi) > EPSILON(1.0))                     &
     nsc_xylem_rate_max(i) = nsc_xylem_rate_max_io(i)
   IF (ABS(nsc_cmax_io(i) - rmdi) > EPSILON(1.0)) nsc_cmax(i) = nsc_cmax_io(i)
+  ! Ring renewal's conductance ratio.
+  !
+  ! MDK, 25/10/26
+  IF (ABS(nsc_xylem_cond_ratio_io(i) - rmdi) > EPSILON(1.0))                   &
+    nsc_xylem_cond_ratio(i) = nsc_xylem_cond_ratio_io(i)
   IF (ABS(phen_psi_tlp_io(i) - rmdi) > EPSILON(1.0))                           &
     phen_psi_tlp(i) = phen_psi_tlp_io(i)
   IF (ABS(phen_dfbleaf_io(i) - rmdi) > EPSILON(1.0))                           &
@@ -1662,6 +1676,26 @@ IF ( l_triffid_nsc ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'nsc_xylem_replace_io > 0 needs ximpair_reset_mmdd_io off.')
+  END IF
+  ! Carbon-paid ring renewal: the new ring's conductance ratio is >= 0.
+  ! Ring-porous stems can not take nsc_xylem_replace = 2 (above), so ring
+  ! renewal is diffuse-porous only.
+  !
+  ! MDK, 25/10/26
+  IF ( ANY(nsc_xylem_cond_ratio(:) < 0.0) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_xylem_cond_ratio_io must be >= 0.')
+  END IF
+  IF ( l_nsc_xylem_ring_renewal .AND.                                          &
+       .NOT. ANY(nsc_xylem_replace(:) == 2 .AND.                               &
+                 pft_xylem_impairment_model(:) == xylem_impairment_memory) )   &
+    THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'l_nsc_xylem_ring_renewal is on but no PFT has '          // &
+                 'nsc_xylem_replace_io = 2 with the memory impairment '    // &
+                 'model: it does nothing.')
   END IF
   ! Leaf flush: a whole number of days.
   IF ( ANY(is_set(nsc_flush_start_doy(:)) .AND.                                &

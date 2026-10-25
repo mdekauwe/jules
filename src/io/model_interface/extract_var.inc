@@ -42,6 +42,8 @@ USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,    &
                            nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day,  &
                            phen_fbleaf, phen_nlow, phen_nhigh, nsc_regrow_acc, &
                            phen_psi_acc
+USE triffid_nsc_mod, ONLY: nsc_wmax_hold_pft, nsc_xylem_prod_pft,              &
+                           nsc_xylem_renew_pft   ! MDK, 25/10/26
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
 USE canopy_diag_mod, ONLY: gc_stomatal_pft, gsoil_pft, t_can_air_pft,          &
                            q_can_air_pft, h_leaf_pft, le_leaf_pft   ! MDK, 24/10/26
@@ -4109,6 +4111,28 @@ CASE ( 'nsc_resp' )
 CASE ( 'nsc_repair' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(nsc_repair_pft) ) workspace_pft(:,:) = nsc_repair_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! W_max hold and ring renewal diagnostics.
+!
+! MDK, 25/10/26
+CASE ( 'nsc_wmax_hold' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_wmax_hold_pft) ) workspace_pft(:,:) = nsc_wmax_hold_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_xylem_prod' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_xylem_prod_pft) ) workspace_pft(:,:) = nsc_xylem_prod_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_xylem_renew' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_xylem_renew_pft) )                                       &
+    workspace_pft(:,:) = nsc_xylem_renew_pft
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

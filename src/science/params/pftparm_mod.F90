@@ -469,10 +469,17 @@ nsc_ring_mmdd(:)                                                               &
                  !  first: the rebuilt xylem keeps its own memory, so later
                  !  droughts damage it (it is built embolism free). 2 = two
                  !  pools, proportional: the new xylem replaces the old
-                 !  pool as it is, intact and embolised alike (sapwood
-                 !  turnover, as Paschalis et al. 2023 replace the oldest
-                 !  xylem), so only that share of the damage is repaired.
-                 !  MDK, 20/10/26
+                 !  pool at random, intact and embolised alike (dilution,
+                 !  the form of the leaf renewal; not the oldest xylem
+                 !  first), so a replaced share rho of the stem removes
+                 !  rho e_old / (1 - r_n) of the old pool's embolised share
+                 !  e_old (r_n the rebuilt share), for the store repair
+                 !  sized as for rule 1. With l_nsc_xylem_ring_renewal the
+                 !  stem is instead renewed by TRIFFID's wood growth, as
+                 !  one pool (random replacement of the whole stem), and
+                 !  the store pays no repair.
+                 !
+                 !  MDK, 25/10/26
 
 REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
  kmax_pft(:)                                                                   &
@@ -656,7 +663,12 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  (ximpair_lock) is above nsc_hold_plc, so the damaged
                  !  plant keeps the sink of the intact one (Trugman et al.
                  !  hold W_max, set by tree size, through recovery).
-                 !  1 = never held.
+                 !  1 = never held. With l_nsc_hold_drought, tested
+                 !  against the loss the recent water status imposes above
+                 !  the background, (1 - ximpair_fmin_acc) -
+                 !  nsc_plc_background, instead of ximpair_lock.
+                 !
+                 !  MDK, 25/10/26
 ,nsc_g_starv(:)                                                               &
                  ! Carbon-starvation mortality (per 360 days, an area
                  !  disturbance added to g_area in lotka), at the full rate
@@ -698,7 +710,14 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  from the pipe model on the balanced leaf area, as in
                  !  FATES: X = LAI_bal / nsc_la_sa h nsc_wood_density cmass
                  !  (sapwood area x height, area-preserving branching, no
-                 !  taper). 0: X = nsc_sapwood_frac woodc.
+                 !  taper). 0: X = nsc_sapwood_frac woodc. With
+                 !  l_nsc_xylem_ring_renewal X is the denominator of the
+                 !  ring's share of the conductance (G dt / X), so it sets
+                 !  the stem's recovery time directly: nsc_la_sa (and
+                 !  nsc_wood_density) must then be measured values. X does
+                 !  not set kmax.
+                 !
+                 !  MDK, 25/10/26
 ,nsc_wood_density(:)                                                         &
                  ! Wood density (kg dry matter m-3) for the pipe-model xylem.
 ,nsc_psi_turg_full(:)                                                         &
@@ -774,13 +793,31 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Store capacity C_max (kg C m-2 of the PFT); > 0 sets it
                  !  directly (e.g. from measured NSC concentrations times
                  !  biomass), 0 = nsc_flush x (leaf + root carbon).
-,nsc_xylem_rate_max(:)
+,nsc_xylem_rate_max(:)                                                        &
                  ! Store repair (l_ximpair_rec_nsc): fraction of the
                  !  conducting xylem the cambium can build per year.
                  !  nsc_xylem_type 1: cap on the repair rate while growing
-                 !  (times the growth factor of the turgor and cold limits);
-                 !  0 = no cap. nsc_xylem_type 2: the earlywood ring as a
-                 !  fraction of the conducting xylem (> 0).
+                 !  (times the growth factor of the turgor and cold limits,
+                 !  f_t; with l_nsc_xylem_rate_norm divided by its annual
+                 !  mean, so this is the fraction built per year; without
+                 !  it the annual cap is this times <f_t>); 0 = no cap.
+                 !  nsc_xylem_type 2: the earlywood ring as a fraction of
+                 !  the conducting xylem (> 0).
+                 !
+                 !  MDK, 25/10/26
+,nsc_xylem_cond_ratio(:)
+                 ! Carbon-paid ring renewal (l_nsc_xylem_ring_renewal,
+                 !  nsc_xylem_replace = 2): w_cond, the conductance per
+                 !  unit carbon of the new ring relative to the mean
+                 !  conducting sapwood (>= 0; default 1, all sapwood
+                 !  conducts alike). A measurable anatomical ratio: the
+                 !  radial profile of sap flux density (outer rings
+                 !  against the sapwood mean) or ring-by-ring specific
+                 !  conductivity. The new ring (TRIFFID's gross wood
+                 !  production G) renews w_cond G dt / X of the stem's
+                 !  conductance. 0 makes the rings dilute nothing (a test).
+                 !
+                 !  MDK, 25/10/26
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -1199,6 +1236,7 @@ ALLOCATE( nsc_flush_days(npft))
 ALLOCATE( nsc_overflow_resp(npft))
 ALLOCATE( nsc_xylem_rate_max(npft))
 ALLOCATE( nsc_cmax(npft))
+ALLOCATE( nsc_xylem_cond_ratio(npft))   ! MDK, 25/10/26
 ALLOCATE( phen_psi_tlp(npft))
 ALLOCATE( phen_dfbleaf(npft))
 ALLOCATE( phen_ndays(npft))
@@ -1281,6 +1319,7 @@ nsc_flush_days(:) = 45.0
 nsc_overflow_resp(:) = 0.0
 nsc_xylem_rate_max(:) = 0.0
 nsc_cmax(:) = 0.0
+nsc_xylem_cond_ratio(:) = 1.0   ! MDK, 25/10/26
 phen_psi_tlp(:) = -1.0e30
 phen_dfbleaf(:) = 0.05
 phen_ndays(:) = 10.0
@@ -1663,6 +1702,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_xylem_rate_max = ',nsc_xylem_rate_max
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_cmax = ',nsc_cmax
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_xylem_cond_ratio = ',nsc_xylem_cond_ratio
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_psi_tlp = ',phen_psi_tlp
 CALL jules_print('pftparm',lineBuffer)

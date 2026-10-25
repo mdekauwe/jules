@@ -148,6 +148,7 @@ USE jules_vegetation_mod, ONLY: l_veg_compete, l_ht_compete,                   &
 
 ! MDK, 17/10/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_store, triffid_nsc_area, nsc_dc_pft
+USE triffid_nsc_mod, ONLY: triffid_nsc_ring_renewal   ! MDK, 25/10/26
 USE xylem_impairment_memory_mod, ONLY: ximpair_dilute_area   ! MDK, 25/10/26
 ! MDK, 21/10/26
 USE triffid_hydmort_mod, ONLY: triffid_hydmort, triffid_hydmort_cover,       &
@@ -847,6 +848,19 @@ DO n = 1,npft
                       + n_demand_spread_pft(:,n)
 
 END DO  !  PFTs
+
+!-----------------------------------------------------------------------------
+! Carbon-paid ring renewal (l_nsc_xylem_ring_renewal): the wood just grown
+! is the new xylem ring, which dilutes the stem damage of rule-2 PFTs. No
+! carbon moves (before the height update: the sapwood is that the store
+! saw).
+!
+! MDK, 25/10/26
+!-----------------------------------------------------------------------------
+IF ( l_triffid_nsc )                                                           &
+  CALL triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index, r_gamma,      &
+                                 ht, lai_bal_pft, woodc_pft, dwood_pft,        &
+                                 wood_litc_pft )
 
 !-----------------------------------------------------------------------------
 ! Diagnose the new value of Canopy Height, Leaf Area Index and Total

@@ -986,6 +986,70 @@ LOGICAL ::                                                                     &
       ! is allowed (spring flush drawn from the store) while the annual
       ! release still matches NPP. .FALSE.: W_max = running mean NPP.
       ! MDK, 18/10/26
+  l_nsc_xylem_rate_norm = .FALSE.,                                             &
+      ! Store repair (l_ximpair_rec_nsc), diffuse-porous stem
+      ! (nsc_xylem_type 1): the cambial cap on the repair,
+      ! nsc_xylem_rate_max f_t X per year, is divided by the running annual
+      ! mean of the growth factor <f_t> (nsc_ft_mean), as the leaf renewal
+      ! (l_ximpair_rec_leaf_turn) and l_nsc_wmax_norm are, so that
+      ! nsc_xylem_rate_max_io is the fraction of the sapwood the cambium can
+      ! rebuild per year, made while growth is allowed. .FALSE.: the cap is
+      ! scaled by f_t only, so its annual total is nsc_xylem_rate_max <f_t>
+      ! (about a quarter of nsc_xylem_rate_max at FR-Pue, <f_t> ~ 0.27).
+      ! The cambium's window (the share of the step after
+      ! nsc_grow_start_doy, with the leaf flush) still applies on top, so
+      ! the realised annual cap is nsc_xylem_rate_max times the share of
+      ! the year's growth factor inside that window. Needs the turgor or
+      ! cold limits (otherwise f_t = 1 and this does nothing). Ring-porous
+      ! stems (nsc_xylem_type 2) are not affected: there
+      ! nsc_xylem_rate_max is the earlywood ring's share of the sapwood,
+      ! built once a year, not a rate. As for l_nsc_wmax_norm, <f_t> is
+      ! floored at 0.05 (a hard-coded guard), and it starts at 1, so the
+      ! cap is low in the first year of a run without spin-up. Switching
+      ! this on from a dump without nsc_ft_mean needs nsc_ft_mean in the
+      ! initial conditions.
+      !
+      ! MDK, 25/10/26
+  l_nsc_xylem_ring_renewal = .FALSE.,                                          &
+      ! Carbon-paid ring renewal for PFTs with proportional replacement
+      ! (nsc_xylem_replace = 2; needs TRIFFID, not equilibrium TRIFFID, and
+      ! l_ximpair_rec_nsc): the stem recovers by its new xylem ring, which
+      ! is the wood TRIFFID grows from the store's release, instead of by a
+      ! repair paid from the store. Each TRIFFID step the gross wood
+      ! production G = dC_W / dt + g_wood C_W (the local wood increment
+      ! plus the turnover replaced; the carbon to spreading is not wood)
+      ! renews the share rho = nsc_xylem_cond_ratio G dt / X of the stem's
+      ! conductance (X the conducting sapwood), and the whole stem's loss
+      ! is diluted, L -> L (1 - rho): new xylem replaces old at random,
+      ! intact and embolised alike (one pool; the two-pool state is
+      ! folded in and kept at 0), as leaf renewal dilutes the leaf. No cap,
+      ! no damage term and no background floor; no carbon is drawn or sent
+      ! to litter (TRIFFID already grows this wood), so with the switch on
+      ! the carbon budget is that of no repair and only the hydraulics (and
+      ! what they feed) change. The store paces the renewal through its
+      ! release W. Rules 0 and 1 keep the store-paid repair; ring-porous
+      ! stems can not take rule 2. .FALSE.: rule 2 is repaired from the
+      ! store, sized as for rule 1.
+      !
+      ! MDK, 25/10/26
+  l_nsc_hold_drought = .FALSE.,                                                &
+      ! TRIFFID store: the running mean of NPP behind W_max is held only
+      ! while the recent water status imposes a stem loss above the
+      ! background embolism by more than nsc_hold_plc,
+      !   (1 - ximpair_fmin_acc) - nsc_plc_background > nsc_hold_plc,
+      ! with ximpair_fmin_acc the worst intact stem fraction, a memory that
+      ! decays with e-folding nsc_repair_window (needs l_ximpair_rec_nsc).
+      ! This holds through dry summers with a loss above background +
+      ! nsc_hold_plc and, after a large peak, until the memory decays
+      ! (about nsc_repair_window ln(peak / threshold); into the next spring
+      ! at FR-Pue), but it clears every wet season. Never held in spin-up
+      ! (the impairment is frozen there). .FALSE.: held while the locked
+      ! stem loss ximpair_lock is above nsc_hold_plc, which a slowly
+      ! diluting legacy loss (rule 2, ring renewal) can keep for decades,
+      ! freezing W_max: ring renewal needs this switch (a warning is given
+      ! otherwise).
+      !
+      ! MDK, 25/10/26
   l_som_fast = .FALSE.
       ! RETIRED input: .TRUE. stops the run; use som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table). Still read so namelists that
@@ -1157,6 +1221,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_ximpair_leaf_loss, l_ximpair_seg_memory,                                 &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
     l_nsc_wmax_norm, l_trif_hydmort,                                           &
+    l_nsc_xylem_rate_norm, l_nsc_xylem_ring_renewal, l_nsc_hold_drought,       &
     ximpair_stomatal_response,                                                 &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,    &
     sl_kfail_frac,                                                             &
@@ -2226,6 +2291,29 @@ IF ( l_nsc_wmax_norm .AND. .NOT. l_triffid_nsc ) THEN
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_nsc_wmax_norm needs the TRIFFID store (l_triffid_nsc=T)')
 END IF
+! The stem recovery switches act on the store repair.
+!
+! MDK, 25/10/26
+IF ( (l_nsc_xylem_rate_norm .OR. l_nsc_xylem_ring_renewal .OR.                &
+      l_nsc_hold_drought) .AND. .NOT. l_ximpair_rec_nsc ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_xylem_rate_norm, l_nsc_xylem_ring_renewal and ' //       &
+               'l_nsc_hold_drought need the store repair '              //     &
+               '(l_ximpair_rec_nsc=T)')
+END IF
+IF ( l_nsc_xylem_ring_renewal .AND. .NOT. l_nsc_hold_drought ) THEN
+  errcode = -101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_xylem_ring_renewal without l_nsc_hold_drought: the ' //  &
+               'slowly diluting stem loss will hold W_max for years')
+END IF
+IF ( l_nsc_xylem_ring_renewal .AND. (.NOT. l_triffid .OR. l_trif_eq) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_xylem_ring_renewal needs dynamic TRIFFID '        //     &
+               '(l_triffid=T, l_trif_eq=F): the new ring is its wood growth')
+END IF
 IF ( l_phen_psi .AND. .NOT. l_phenol ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2436,6 +2524,13 @@ WRITE(lineBuffer,*) ' l_phen_psi = ', l_phen_psi
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_wmax_norm = ', l_nsc_wmax_norm
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_xylem_rate_norm = ', l_nsc_xylem_rate_norm
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_xylem_ring_renewal = ',                            &
+                    l_nsc_xylem_ring_renewal
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_hold_drought = ', l_nsc_hold_drought
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' ximpair_stomatal_response = ', ximpair_stomatal_response
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2595,7 +2690,10 @@ INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 54 + npft_max
+INTEGER, PARAMETER :: n_log = 57 + npft_max
+                                  ! +3 l_nsc_xylem_rate_norm,
+                                  ! l_nsc_xylem_ring_renewal,
+                                  ! l_nsc_hold_drought (MDK, 25/10/26)
                                   ! -1 l_som_coupled_e (MDK, 25/10/26)
                                   ! -3 l_som_plant_store,
                                   ! l_som_cuticular_floor and
@@ -2702,6 +2800,9 @@ TYPE :: my_namelist
   LOGICAL :: l_ximpair_rec_leaf_turn
   LOGICAL :: l_phen_psi
   LOGICAL :: l_nsc_wmax_norm
+  LOGICAL :: l_nsc_xylem_rate_norm
+  LOGICAL :: l_nsc_xylem_ring_renewal
+  LOGICAL :: l_nsc_hold_drought
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_rhizo_mfp
   LOGICAL :: l_nrun_mid_trif
@@ -2823,6 +2924,9 @@ IF (mype == 0) THEN
   my_nml % l_ximpair_rec_leaf_turn = l_ximpair_rec_leaf_turn
   my_nml % l_phen_psi = l_phen_psi
   my_nml % l_nsc_wmax_norm = l_nsc_wmax_norm
+  my_nml % l_nsc_xylem_rate_norm = l_nsc_xylem_rate_norm
+  my_nml % l_nsc_xylem_ring_renewal = l_nsc_xylem_ring_renewal
+  my_nml % l_nsc_hold_drought = l_nsc_hold_drought
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
@@ -2933,6 +3037,9 @@ IF (mype /= 0) THEN
   l_ximpair_rec_leaf_turn = my_nml % l_ximpair_rec_leaf_turn
   l_phen_psi = my_nml % l_phen_psi
   l_nsc_wmax_norm = my_nml % l_nsc_wmax_norm
+  l_nsc_xylem_rate_norm = my_nml % l_nsc_xylem_rate_norm
+  l_nsc_xylem_ring_renewal = my_nml % l_nsc_xylem_ring_renewal
+  l_nsc_hold_drought = my_nml % l_nsc_hold_drought
   l_som_gravity = my_nml % l_som_gravity
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif

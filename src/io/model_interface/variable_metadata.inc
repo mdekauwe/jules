@@ -10645,4 +10645,40 @@ DATA metadata(817) / var_metadata(                                             &
 ! Units
     "Pa"                                                                       &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_wmax_hold (MDK, 25/10/26)
+!-----------------------------------------------------------------------------
+DATA metadata(821) / var_metadata(                                             &
+! String identifier
+    'nsc_wmax_hold',                                                           &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "1 if the NPP running mean behind W_max was held at the last store step",  &
+! Units
+    "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_xylem_prod and nsc_xylem_renew (MDK, 25/10/26)
+!-----------------------------------------------------------------------------
+DATA metadata(822) / var_metadata(                                             &
+! String identifier
+    'nsc_xylem_prod',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ring renewal: gross wood production (new ring), per m2 of the PFT",        &
+! Units
+    "kg m-2 per 360days"                                                       &
+  ) /
+DATA metadata(823) / var_metadata(                                             &
+! String identifier
+    'nsc_xylem_renew',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ring renewal: share of the stem conductance renewed per 360 days",        &
+! Units
+    "per 360days"                                                              &
+  ) /
 #endif

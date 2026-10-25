@@ -31,9 +31,12 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock(:,:)
 
 ! Stem conductance rebuilt by xylem regrown from the TRIFFID store
 ! (l_ximpair_rec_nsc), as a fraction of kmax, queued by triffid_nsc_store
-! at the TRIFFID step and applied (then cleared) at the next update.
+! at the TRIFFID step and applied (then cleared) at the next update. With
+! ring renewal (l_nsc_xylem_ring_renewal, rule 2) it is instead the share
+! of the stem's conductance renewed by the wood TRIFFID grew, which dilutes
+! the stem's loss.
 !
-! MDK, 17/10/26
+! MDK, 25/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_repair_pend(:,:)
 
 ! Two-pool stem memory (nsc_xylem_replace > 0): the share of the stem's
@@ -625,6 +628,7 @@ USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
                                 l_ximpair_rec_leaf_turn,                       &
                                 triffid_period, l_trif_hydmort
+USE jules_vegetation_mod, ONLY: l_nsc_xylem_ring_renewal   ! MDK, 25/10/26
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_psi_stem,                    &
                                           ximpair_seg_state_alloc
@@ -673,8 +677,13 @@ REAL(KIND=real_jlslsm) :: rep_l, r_n, m_n, e_new, e_old, d_old, d_new
                             ! and rebuilt pools.
                             !
                             ! MDK, 24/10/26
-LOGICAL :: l_two
-                            ! Two-pool stem memory (nsc_xylem_replace > 0).
+LOGICAL :: l_two, l_ring
+                            ! Two-pool stem memory (nsc_xylem_replace > 0);
+                            ! ring renewal of the stem
+                            ! (l_nsc_xylem_ring_renewal, rule 2: one
+                            ! pool).
+                            !
+                            ! MDK, 25/10/26
 
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_x(n_land_pts), k_x(n_land_pts), kmax_pts(n_land_pts),                    &
@@ -746,10 +755,30 @@ END IF
 !-----------------------------------------------------------------------------
 
 ! MDK, 17/10/26
+l_ring = l_ximpair_rec_nsc .AND. l_nsc_xylem_ring_renewal .AND.               &
+         nsc_xylem_replace(pft) == 2
 IF (l_ximpair_rec_nsc) THEN
   ! Xylem rebuilt from the TRIFFID store since the last update.
   CALL ximpair_memory_alloc( n_land_pts )
-  IF (nsc_xylem_replace(pft) > 0) THEN
+  IF (l_ring) THEN
+    ! Ring renewal: repair_pend is the share of the stem's conductance
+    ! renewed by the new ring since the last update, new and old xylem
+    ! replaced alike (random), so the whole stem's loss is diluted by it,
+    ! L -> L (1 - rho). The stem is one pool: the two-pool state is folded
+    ! in (its loss is already in kcap) and kept at 0, so damage to young
+    ! xylem is diluted too, and the damage below is the one-pool ratchet.
+    ! Points with nothing queued are left untouched.
+    !
+    ! MDK, 25/10/26
+    ximpair_rebuilt(:,pft)  = 0.0
+    ximpair_lock_new(:,pft) = 0.0
+    DO l = 1, n_land_pts
+      rep_l = ximpair_repair_pend(l,pft)
+      IF (rep_l <= 0.0) CYCLE
+      kcap(l) = kmax_pts(l) * (1.0 - MAX(1.0 - kcap(l) / kmax_pts(l), 0.0)    &
+                                     * (1.0 - MIN(rep_l, 1.0)))
+    END DO
+  ELSE IF (nsc_xylem_replace(pft) > 0) THEN
     ! Two pools: the stem's loss is the old pool's embolised share plus
     ! the rebuilt pool's share times its own worst loss. The new xylem
     ! (repair_pend, as a share of the stem) is built embolism free.
@@ -842,7 +871,10 @@ END IF
 ! Damage: the cap can not exceed the intact conductance at the damage
 ! driver. Only points with open stomata (i.e. under tension) are damaged.
 !-----------------------------------------------------------------------------
-l_two = l_ximpair_rec_nsc .AND. nsc_xylem_replace(pft) > 0
+! With ring renewal the stem is one pool (plain ratchet).
+!
+! MDK, 25/10/26
+l_two = l_ximpair_rec_nsc .AND. nsc_xylem_replace(pft) > 0 .AND. .NOT. l_ring
 IF (l_ximpair_seg_memory) THEN
   ! Per segment: the stem by psi_stem on the stem curve, the leaf by
   ! psi_leaf on the leaf curve (the segments' intact Weibull curves).
