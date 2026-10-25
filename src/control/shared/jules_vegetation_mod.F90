@@ -905,7 +905,11 @@ LOGICAL ::                                                                     &
       ! Unlike l_som_nsl it does not act in wet soil and does not depend on
       ! the midday leaf psi. Stomatal optimisation models 4-7 and 9-11 with
       ! photo_model = 2; C4 PFTs (Collatz) get no down-regulation, as it is
-      ! applied in the Farquhar branch only. MDK, 24/10/26
+      ! applied in the Farquhar branch only. Dark respiration is not scaled
+      ! (it is set from Vcmax before the factor), so neither is the stem and
+      ! root maintenance respiration scaled from it.
+      !
+      ! MDK, 25/10/26
 ! How the stomata respond to xylem impairment (ximpair_stomatal_response).
 ! In both, the stomata decide on the intact (undamaged) path; they differ in
 ! what is held when the damaged path cannot do what the intact one would.

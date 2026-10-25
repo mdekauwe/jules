@@ -1756,8 +1756,7 @@ CASE ( photo_farquhar )
   CALL leaf_temp_responses( ft, land_pts, veg_pts, veg_index,                  &
                             pft_photo_model, tstar, oa, acr, actj, actv,       &
                             dsj, dsv, ccp, kc, ko, km, denom, qtenf_term,      &
-                            vcmax_temp, jmax_temp, i2,                         &
-                            f_vc = f_vc )
+                            vcmax_temp, jmax_temp, i2 )
 
 CASE DEFAULT
   errcode = 101  !  a hard error
@@ -1903,7 +1902,7 @@ CASE ( 4 )
     CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,        &
                                 veg_index, denom, jmax_temp, jv25,             &
                                 nleaf_layer, qtenf_term, vcmax_temp,           &
-                                jmax, rd_dark, vcmax )
+                                jmax, rd_dark, vcmax, f_vc = f_vc )
 
     !-------------------------------------------------------------------------
     ! Iterate to ensure that the canopy humidity deficit is consistent with
@@ -2254,7 +2253,7 @@ CASE ( 5, 6 )
             CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,&
                                         veg_index, denom, jmax_temp, jv25,     &
                                         nleaf_layer, qtenf_term, vcmax_temp,   &
-                                        jmax, rd_dark, vcmax )
+                                        jmax, rd_dark, vcmax, f_vc = f_vc )
 
             IF ( pft_photo_model == photo_farquhar ) THEN
             !-------------------------------------------------------------------
@@ -2827,7 +2826,7 @@ ELSE
       CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,      &
                                   veg_index, denom, jmax_temp, jv25,           &
                                   nleaf_layer, qtenf_term, vcmax_temp,         &
-                                  jmax, rd_dark, vcmax )
+                                  jmax, rd_dark, vcmax, f_vc = f_vc )
 
       IF ( pft_photo_model == photo_farquhar ) THEN
       !-----------------------------------------------------------------------
@@ -3060,7 +3059,7 @@ CASE ( 1 )
   CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,          &
                               veg_index, denom, jmax_temp, jv25,               &
                               nleaf_top, qtenf_term, vcmax_temp,               &
-                              jmax, rd, vcmax )
+                              jmax, rd, vcmax, f_vc = f_vc )
 
   IF ( pft_photo_model == photo_farquhar ) THEN
     ! Calculate the electron flux.
@@ -3496,7 +3495,7 @@ CASE ( 7 )
   CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,          &
                               veg_index, denom, jmax_temp, jv25,               &
                               nleaf_top, qtenf_term, vcmax_temp,               &
-                              jmax, rd, vcmax )
+                              jmax, rd, vcmax, f_vc = f_vc )
 
   !---------------------------------------------------------------------------
   ! Aggregate the layer profile into the two leaf classes.
@@ -6353,12 +6352,12 @@ dq_c(:)    = 0.0
 CALL leaf_temp_responses( ft, land_pts, veg_pts, veg_index,                    &
                           pft_photo_model, t_leaf, oa, acr0, actj, actv,       &
                           dsj, dsv, ccp, kc, ko, km, denom_t, qtenf_t,         &
-                          vtemp, jtemp, i2_t, f_vc = f_vc )
+                          vtemp, jtemp, i2_t )
 
 CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,            &
                             veg_index, denom_t, jtemp, jv25,                   &
                             nleaf_top, qtenf_t, vtemp,                         &
-                            jmax_t, rd_t, vcmax_t )
+                            jmax_t, rd_t, vcmax_t, f_vc = f_vc )
 
 DO m = 1,veg_pts
   l = veg_index(m)
@@ -6387,7 +6386,7 @@ END SUBROUTINE leaf_class_at_temp
 SUBROUTINE leaf_temp_responses( ft, land_pts, veg_pts, veg_index,              &
                                 pft_photo_model, t_leaf, oa, acr, actj, actv,  &
                                 dsj, dsv, ccp, kc, ko, km, denom, qtenf_term,  &
-                                vcmax_temp, jmax_temp, i2, f_vc )
+                                vcmax_temp, jmax_temp, i2 )
 
 ! Temperature responses of the photosynthesis parameters at leaf
 ! temperature t_leaf: denom, qtenf_term, ccp, kc, ko (Collatz; C3 only for
@@ -6423,10 +6422,6 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
   jmax_temp(land_pts), i2(land_pts)
       ! IN OUT: each model sets only its own terms (and ccp stays zero for
       ! C4 with Collatz).
-
-REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: f_vc(land_pts)
-      ! Soil-water capacity factor (l_som_vcmax_psi, vcmax_psi_factor):
-      ! Vcmax and Jmax (Farquhar) are scaled by it.
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
   t_ref = zerodegc + 25.0,                                                     &
@@ -6515,15 +6510,8 @@ CASE ( photo_farquhar )
   END DO
 !$OMP END PARALLEL DO
 
-  ! Soil-water down-regulation of photosynthetic capacity (l_som_vcmax_psi;
-  ! see vcmax_psi_factor). Applied to Vcmax and Jmax, so Rd follows.
-  IF ( PRESENT(f_vc) ) THEN
-    DO m = 1,veg_pts
-      l = veg_index(m)
-      vcmax_temp(l) = vcmax_temp(l) * f_vc(l)
-      jmax_temp(l)  = jmax_temp(l)  * f_vc(l)
-    END DO
-  END IF
+  ! (The soil-water factor of Vcmax and Jmax, l_som_vcmax_psi, is applied
+  ! in calc_photo_parameters, after dark respiration. MDK, 25/10/26)
 
 END SELECT
 
@@ -6620,7 +6608,7 @@ END SUBROUTINE vcmax_psi_factor
 SUBROUTINE calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,      &
                                   veg_index, denom, jmax_temp, jv25,           &
                                   nleaf, qtenf_term, vcmax_temp,               &
-                                  jmax, rd_dark, vcmax )
+                                  jmax, rd_dark, vcmax, f_vc )
 
 ! Calculate the maximum rates of carboxylation of Rubisco and electron
 ! transport, and dark respiration without light inhibition.
@@ -6685,6 +6673,14 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
     ! Dark respiration before light inhibition (mol CO2/m2/s).
   vcmax(land_pts)
     ! Maximum rate of carboxylation of Rubisco (mol CO2/m2/s).
+
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: f_vc(land_pts)
+    ! Soil-water capacity factor (l_som_vcmax_psi, vcmax_psi_factor):
+    ! Vcmax and Jmax (Farquhar) are scaled by it after dark respiration is
+    ! set, so it does not reach Rd, nor the stem and root maintenance
+    ! respiration scaled from Rd.
+    !
+    ! MDK, 25/10/26
 
 !-----------------------------------------------------------------------------
 ! Local scalar variables.
@@ -6853,6 +6849,15 @@ DO m = 1,veg_pts
 END DO
 !$OMP END DO NOWAIT
 !$OMP END PARALLEL
+
+! The soil-water factor (l_som_vcmax_psi), after Rd. MDK, 25/10/26
+IF ( PRESENT(f_vc) .AND. pft_photo_model == photo_farquhar ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    vcmax(l) = vcmax(l) * f_vc(l)
+    jmax(l)  = jmax(l)  * f_vc(l)
+  END DO
+END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
