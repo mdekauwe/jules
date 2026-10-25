@@ -181,7 +181,7 @@ END SUBROUTINE hydmort_accumulate
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_hydmort( land_pts, trif_pts, trif_index, r_gamma, lock )
 
-USE jules_surface_types_mod, ONLY: npft
+USE jules_surface_types_mod, ONLY: npft, nnpft
 USE pftparm, ONLY: hydmort_mu, hydmort_width, hydmort_plc_bg
 
 USE parkind1, ONLY: jprb, jpim
@@ -220,7 +220,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL hydmort_alloc( land_pts )
 
-DO n = 1, npft
+! Natural PFTs only (lotka): crop PFTs (n > nnpft) take no hydraulic
+! mortality. MDK, 25/10/26
+DO n = 1, nnpft
   DO t = 1, trif_pts
     l = trif_index(t)
     p_peak = MAX(hydmort_plc_peak(l,n), lock(l,n))
@@ -254,7 +256,7 @@ SUBROUTINE triffid_hydmort_cover( land_pts, trif_pts, trif_index, frac,        &
                                   frac_na, frac_nofire, dfrac, dfrac_na,       &
                                   dfrac_nofire )
 
-USE jules_surface_types_mod, ONLY: npft, ntype, soil
+USE jules_surface_types_mod, ONLY: npft, nnpft, ntype, soil
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -294,7 +296,7 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='TRIFFID_HYDMORT_COVER'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-DO n = 1, npft
+DO n = 1, nnpft   ! natural PFTs only (MDK, 25/10/26)
   DO t = 1, trif_pts
     l = trif_index(t)
     dlost = hydmort_m_pft(l,n) * frac(l,n)

@@ -3381,19 +3381,20 @@ CONTAINS
   !   T = (ltc_a - ltc_b c_e (dq0 - ltc_s T0)) / (1 + ltc_b c_e ltc_s).
   ! A, and so gl, depend on T through the photosynthesis parameters, which
   ! are scaled from T0 as exp(ltc_dl (T - T0)). This fixed point is
-  ! iterated from T0 (n_ltc_iter at most, to tol_ltc); T stays within
-  ! dt_ltc of T0.
+  ! iterated from T0 a fixed n_ltc_iter times (a tolerance test made the
+  ! count, and so profit(Ci), jump between neighbouring Ci, which can move
+  ! the golden section by 1-3 % of its range); T stays within dt_ltc of T0.
   !
-  ! MDK, 24/10/26
+  ! MDK, 25/10/26
   !-------------------------------------------------------------------------
   SUBROUTINE state_at_leaf_temp(ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci
   REAL(KIND=real_jlslsm) :: tl, tl_new, f(n_ltc_par), c_e
   INTEGER :: it
   INTEGER, PARAMETER :: n_ltc_iter = 4
-  REAL(KIND=real_jlslsm), PARAMETER :: tol_ltc = 0.01, dt_ltc = 10.0
-                            ! Iterations, tolerance (K) and the largest
-                            ! change from T0 (K).
+  REAL(KIND=real_jlslsm), PARAMETER :: dt_ltc = 10.0
+                            ! Iterations and the largest change from T0
+                            ! (K).
 
   tl = t_leaf(l)
   DO it = 1, n_ltc_iter
@@ -3416,7 +3417,7 @@ CONTAINS
     tl_new = ( ltc_a(l) - ltc_b(l) * c_e * (dq(l) - ltc_s(l) * t_leaf(l)) )    &
              / ( 1.0 + ltc_b(l) * c_e * ltc_s(l) )
     tl_new = MIN(MAX(tl_new, t_leaf(l) - dt_ltc), t_leaf(l) + dt_ltc)
-    IF ( ABS(tl_new - tl) < tol_ltc .OR. it == n_ltc_iter ) EXIT
+    IF ( it == n_ltc_iter ) EXIT
     tl = tl_new
   END DO
 

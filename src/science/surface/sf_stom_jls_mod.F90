@@ -869,6 +869,12 @@ REAL(KIND=real_jlslsm) :: kmax_ref_sun_2l(land_pts), kmax_ref_shd_2l(land_pts)
                             ! under xylem impairment, as kmax_ref_bigleaf).
                             !
                             ! MDK, 24/10/26
+INTEGER :: n_lit
+                            ! Number of lit points in open_land_index (for
+                            ! the impairment update and the leak), kept apart
+                            ! from open_pts, which goes with open_index.
+                            !
+                            ! MDK, 25/10/26
 INTEGER :: open_land_index(land_pts)
                             ! Land point of each open point (i.e.
                             ! veg_index(open_index(:))), for the impairment
@@ -1364,6 +1370,7 @@ gc_som(:)         = 0.0
 ! Canopy diagnostics of this PFT (canopy_diag_mod). MDK, 24/10/26
 CALL canopy_diag_alloc( land_pts )
 gc_stomatal_pft(:,ft) = 0.0
+n_lit = 0   ! MDK, 25/10/26
 gs_sun_pft(:,ft)      = 0.0   ! MDK, 25/10/26
 gs_shd_pft(:,ft)      = 0.0
 lai_sun_pft(:,ft)     = 0.0
@@ -2053,12 +2060,8 @@ CASE ( 5, 6 )
         ! MDK, 25/10/26
         e_sup_use(:) = e_supply(:)
         IF ( l_store_cpl ) THEN
-          IF ( n_pass_ml < 2 ) THEN
-            errcode = 101
-            CALL ereport(RoutineName, errcode,                                 &
-                         'the capacitance store needs at least 2 passes ' //  &
-                         '(multilayer: iter, or leaf_temp_iter)')
-          END IF
+          ! (It needs at least 2 passes: iter and leaf_temp_iter are both
+          ! fixed at 3. MDK, 25/10/26)
           share_one(:) = 1.0
           q_f(:)       = 0.0
           e_ml_prev(:) = 0.0
@@ -2626,8 +2629,17 @@ CASE ( 5, 6 )
             CALL store_cpl_q( .FALSE., e_be )
             DO m = 1,veg_pts
               l = veg_index(m)
-              IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min .AND.  &
-                   e_be(l) > 0.0 ) q_f(l) = q_be(l)
+              ! A point still closed keeps last step's q_f, often a night refill
+              ! (< 0): floored at 0, so if it opens in the next pass it is
+              ! not searched with its root flow raised by the refill.
+              ! MDK, 25/10/26
+              IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min ) THEN
+                IF ( e_be(l) > 0.0 ) THEN
+                  q_f(l) = q_be(l)
+                ELSE
+                  q_f(l) = MAX(q_f(l), 0.0)
+                END IF
+              END IF
             END DO
             CALL store_cpl_supply()
           END IF
@@ -2752,17 +2764,17 @@ CASE ( 5, 6 )
         !
         ! MDK, 23/10/26
         IF ( l_ml_ximp .AND. .NOT. l_cap_store ) THEN
-          open_pts = 0
+          n_lit = 0
           DO m = 1,veg_pts
             l = veg_index(m)
             IF ( apar(l) > 0.0 ) THEN
-              open_pts = open_pts + 1
-              open_land_index(open_pts) = l
+              n_lit = n_lit + 1
+              open_land_index(n_lit) = l
             END IF
           END DO
           CALL update_xylem_impairment(                                        &
                 ! IN
-                  land_pts, open_pts, open_land_index, ft, psi_leaf, psi_src,  &
+                  land_pts, n_lit, open_land_index, ft, psi_leaf, psi_src,     &
                   psi_stem,                                                    &
                 ! IN OUT
                   k_max, psi_leaf_extreme, psi_root_extreme,                   &
@@ -3066,11 +3078,7 @@ CASE ( 1 )
   ! MDK, 25/10/26
   e_sup_use(:) = e_supply(:)
   IF ( l_store_cpl ) THEN
-    IF ( iter < 2 ) THEN
-      errcode = 101
-      CALL ereport(RoutineName, errcode,                                       &
-                   'the capacitance store needs iter >= 2 (big leaf)')
-    END IF
+    ! (It needs iter >= 2: iter is fixed at 3. MDK, 25/10/26)
     q_f(:) = 0.0
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -3308,8 +3316,17 @@ CASE ( 1 )
             CALL store_cpl_q( .FALSE., e_be )
             DO m = 1,veg_pts
               l = veg_index(m)
-              IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min .AND.  &
-                   e_be(l) > 0.0 ) q_f(l) = q_be(l)
+              ! A point still closed keeps last step's q_f, often a night refill
+              ! (< 0): floored at 0, so if it opens in the next pass it is
+              ! not searched with its root flow raised by the refill.
+              ! MDK, 25/10/26
+              IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min ) THEN
+                IF ( e_be(l) > 0.0 ) THEN
+                  q_f(l) = q_be(l)
+                ELSE
+                  q_f(l) = MAX(q_f(l), 0.0)
+                END IF
+              END IF
             END DO
             CALL store_cpl_supply()
           END IF
@@ -3339,7 +3356,8 @@ CASE ( 1 )
           ! NOTE: open_index indexes veg_index, while update_xylem_impairment
           !       indexes the land arrays with it directly, so pass it the
           !       land points of the open stomata.
-          DO m = 1, open_pts
+          n_lit = open_pts
+          DO m = 1, n_lit
             open_land_index(m) = veg_index(open_index(m))
           END DO
 
@@ -3351,7 +3369,7 @@ CASE ( 1 )
             CALL update_xylem_impairment(                                      &
                   ! IN
                     land_pts,                                                  &
-                    open_pts,                                                  &
+                    n_lit,                                                     &
                     open_land_index,                                           &
                     ft,                                                        &
                     psi_leaf,                                                  &
@@ -3618,13 +3636,8 @@ CASE ( 7 )
     km_shd_lt(:)  = km(:)
   END IF
   ! The store coupled to the optimiser updates q_f between passes, so it
-  ! needs at least two. MDK, 25/10/26
-  IF ( l_store_cpl .AND. n_pass_2l < 2 ) THEN
-    errcode = 101
-    CALL ereport(RoutineName, errcode,                                         &
-                 'the capacitance store needs at least 2 leaf ' //            &
-                 'temperature passes (leaf_temp_iter, or iter)')
-  END IF
+  ! needs at least two: iter and leaf_temp_iter are both fixed at 3.
+  ! MDK, 25/10/26
 
   !---------------------------------------------------------------------------
   ! Coupled transpiration: first guesses of the class conductances and leaf
@@ -3793,8 +3806,17 @@ CASE ( 7 )
         CALL store_cpl_q( .FALSE., e_be )
         DO m = 1,veg_pts
           l = veg_index(m)
-          IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min .AND.      &
-               e_be(l) > 0.0 ) q_f(l) = q_be(l)
+          ! A point still closed keeps last step's q_f, often a night refill
+          ! (< 0): floored at 0, so if it opens in the next pass it is
+          ! not searched with its root flow raised by the refill.
+          ! MDK, 25/10/26
+          IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min ) THEN
+            IF ( e_be(l) > 0.0 ) THEN
+              q_f(l) = q_be(l)
+            ELSE
+              q_f(l) = MAX(q_f(l), 0.0)
+            END IF
+          END IF
         END DO
         CALL store_cpl_supply()
         CALL store_cpl_split( .TRUE. )
@@ -3933,12 +3955,12 @@ CASE ( 7 )
   ! were never used by it, so they are no longer computed.
   !
   ! MDK, 22/10/26
-  open_pts = 0
+  n_lit = 0
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( apar_sun_2l(l) > 0.0 .OR. apar_shd_2l(l) > 0.0 ) THEN
-      open_pts = open_pts + 1
-      open_land_index(open_pts) = l
+      n_lit = n_lit + 1
+      open_land_index(n_lit) = l
     END IF
   END DO
   ! With the plant store or the cuticular loss (l_cap_store), the update
@@ -3948,7 +3970,7 @@ CASE ( 7 )
   IF ( .NOT. l_cap_store ) THEN
     CALL update_xylem_impairment(                                              &
           ! IN
-            land_pts, open_pts, open_land_index, ft, psi_leaf, psi_src,        &
+            land_pts, n_lit, open_land_index, ft, psi_leaf, psi_src,           &
             psi_stem,                                                          &
           ! IN OUT
             k_max, psi_leaf_extreme, psi_root_extreme,                         &
@@ -4115,18 +4137,18 @@ IF ( l_cap_store ) THEN
   ! The multilayer canopy has no lit set from its own path: the points
   ! with absorbed PAR. MDK, 23/10/26
   IF ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) THEN
-    open_pts = 0
+    n_lit = 0
     DO m = 1,veg_pts
       l = veg_index(m)
       IF ( apar(l) > 0.0 ) THEN
-        open_pts = open_pts + 1
-        open_land_index(open_pts) = l
+        n_lit = n_lit + 1
+        open_land_index(n_lit) = l
       END IF
     END DO
   END IF
   lk_cut(:)  = .FALSE.
   lit_cut(:) = .FALSE.
-  DO m = 1,open_pts
+  DO m = 1,n_lit
     l = open_land_index(m)
     lit_cut(l) = apar(l) >= apar_cut_min
   END DO
@@ -4283,7 +4305,7 @@ IF ( l_cap_store ) THEN
   ! MDK, 23/10/26
   CALL update_xylem_impairment(                                                &
           ! IN
-            land_pts, open_pts, open_land_index, ft, psi_leaf, psi_src,        &
+            land_pts, n_lit, open_land_index, ft, psi_leaf, psi_src,           &
             psi_stem,                                                          &
           ! IN OUT
             k_max, psi_leaf_extreme, psi_root_extreme,                         &
@@ -4839,6 +4861,10 @@ DO m = 1,veg_pts
   ELSE
     gc(l) = gc(l) * e_lo(l) / el(l)
   END IF
+  ! No lower than the closed canopy's conductance, min_gl_pft (a canopy
+  ! value), when even the source psi is below the floor (e_lo = 0).
+  ! MDK, 25/10/26
+  gc(l) = MAX(gc(l), min_gl_pft(ft))
   gc_som(l)  = gc(l)
   el(l)      = e_lo(l)
 END DO
@@ -4978,7 +5004,10 @@ n_be = 0
 DO m = 1,veg_pts
   l = veg_index(m)
   l_only(l) = .FALSE.
-  IF ( cut_w_store(l,ft) > 0.0 .OR. lai(l) < lai_cut_min ) CYCLE
+  ! (No capacity, as from a dump without cut_c_store: the store's psi
+  ! W / C is undefined, so it is taken as not set. MDK, 25/10/26)
+  IF ( cut_w_store(l,ft) > 0.0 .OR. cut_c_store(l,ft) <= 0.0 .OR.              &
+       lai(l) < lai_cut_min ) CYCLE
   ! Between passes (not l_ex) only where the point transpires: q_f is used
   ! only by the next pass's open points.
   !
@@ -5114,12 +5143,15 @@ IF ( l_ex ) THEN
     l = veg_index(idx_be(j))
     l_fl_hit(l) = psi_l_be(l) < psi_fl_leaf
     psi_st_be(l) = MAX(psi_st_be(l), psi_fl_stem)
-    psi_l_be(l) = MAX(psi_l_be(l), psi_fl_leaf)
     q_be(l)     = c_p(l) * (psi_x0(l) - psi_st_be(l))
     IF ( q_be(l) > e_c(l) ) THEN
       psi_st_be(l) = psi_x0(l) - e_c(l) / c_p(l)
       q_be(l)      = e_c(l)
     END IF
+    ! The leaf floor, but never wetter than the stem it draws from (with
+    ! a leaf segment more vulnerable than the stem, psi_fl_leaf can lie
+    ! above the floored stem). MDK, 25/10/26
+    psi_l_be(l) = MAX(psi_l_be(l), MIN(psi_fl_leaf, psi_st_be(l)))
   END DO
 END IF
 

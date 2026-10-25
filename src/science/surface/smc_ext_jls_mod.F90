@@ -465,12 +465,20 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
     psi_root_zone = calc_weighted_mean(npnts, nshyd, surft_pts, surft_index,   &
                                        psi, wt_ext)
 
+    ! (Frozen or all-dry soil: the k-weighted psi here is the Webb psi of
+    ! hyd_psi_mod, which can reach tens of MPa, and the impairment drivers
+    ! on psi_root_zone (2, 3) then see it at cold sites. MDK, 25/10/26)
+    !
     ! If psi_root_zone is exactly zero (no weights at this point), use the
     ! thickness-weighted mean over the rooted layers instead (as CABLE),
     ! or over all layers if no layer has roots.
     !
+    ! (This PFT's points only: psi of the others is not this PFT's.
+    ! MDK, 25/10/26)
+    !
     ! MDK, 23/10/26
-    DO i = 1,npnts
+    DO j = 1,surft_pts
+      i = surft_index(j)
       IF (psi_root_zone(i) == 0.0) THEN
         soil_weights(:) = MERGE(dzsoil(1:nshyd), 0.0_real_jlslsm,              &
                                 f_root(i,:) > 0.0)
@@ -548,7 +556,9 @@ ELSE
     ! the layer height. This occurs when fsmc, and subsequently wt_ext, is zero
     !for all layers.
     soil_weights(:) = dzsoil(:) / SUM(dzsoil(:))
-    DO i = 1,npnts
+    ! This PFT's points only. MDK, 25/10/26
+    DO j = 1,surft_pts
+      i = surft_index(j)
       IF (psi_root_zone(i) == 0.0) THEN
         psi_root_zone(i) = SUM(psi(i,:) * soil_weights(:))
       END IF
@@ -883,12 +893,21 @@ rootc_pft_local(:) = root_mass(:)
 !
 ! Where f_{r,j} is the root fraction in the layer, m_{r} is the total root
 ! mass (kg) and rho_{r} is the root density (kg m-3).
+! A layer with no roots (f_root or the root mass 0), or with more root
+! volume than soil (f m >= rho dz, a log <= 0), has no conductance: guarded,
+! as f = 0 divided by zero (a trap under -ffpe-trap=zero). MDK, 25/10/26
 DO n = 1,nshyd
   DO j = 1,surft_pts
     i = surft_index(j)
-    soil_to_root_k(i,n) = 4 * pi * soil_k(i,n)                                 &
-                          / LOG(rootc_density_pft(ft) * dzsoil(n)              &
-                                / (f_root(i,n) * rootc_pft_local(i)))
+    IF ( f_root(i,n) * rootc_pft_local(i) > 0.0 .AND.                          &
+         rootc_density_pft(ft) * dzsoil(n) >                                   &
+         1.0001 * f_root(i,n) * rootc_pft_local(i) ) THEN
+      soil_to_root_k(i,n) = 4 * pi * soil_k(i,n)                               &
+                            / LOG(rootc_density_pft(ft) * dzsoil(n)            &
+                                  / (f_root(i,n) * rootc_pft_local(i)))
+    ELSE
+      soil_to_root_k(i,n) = 0.0
+    END IF
   END DO
 END DO
 

@@ -97,12 +97,16 @@ CONTAINS
 ! their place is intact too, so w = frac_old (1 - m) / frac_new wherever
 ! the cover is above the survivors', even if the net change is 0 or less.
 !
+! (The survivors' cover frac_old (1 - m) is approximate where lotka does not
+! remove exactly m frac_old: the old lotka without l_ht_compete, and the
+! frac_seed floor. MDK, 25/10/26)
+!
 ! MDK, 25/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac,   &
                                 m_kill )
 
-USE jules_surface_types_mod, ONLY: npft, ntype
+USE jules_surface_types_mod, ONLY: npft, nnpft, ntype
 USE jules_vegetation_mod, ONLY: xylem_impairment_memory
 USE pftparm, ONLY: pft_xylem_impairment_model
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
@@ -134,7 +138,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 IF ( ALLOCATED(ximpair_lock) ) THEN
   CALL ximpair_memory_alloc( land_pts )
-  DO n = 1,npft
+  ! Natural PFTs only: lotka changes their cover (crop cover is set
+  ! elsewhere). MDK, 25/10/26
+  DO n = 1,nnpft
     IF ( pft_xylem_impairment_model(n) /= xylem_impairment_memory ) CYCLE
     DO t = 1,trif_pts
       l = trif_index(t)

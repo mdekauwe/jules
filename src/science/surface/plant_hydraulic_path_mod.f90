@@ -615,11 +615,13 @@ DO j = 1, open_pnts
     kcr = kcrit(l) * seg_kmax_fac(pft,l,iseg)
     bs  = conductance_b_seg(pft,iseg)
     cs  = conductance_c_seg(pft,iseg)
-    ! Deepest Newton step below psi_in: k there is below the path's failure
-    ! fraction kcrit/kmax on this segment's curve (newton_psi_drop; 5 |bs|
-    ! unless the curve is wide). MDK, 25/10/26
+    ! Deepest Newton step below psi_in: k there is below the path's kcrit
+    ! on this segment's curve, a fraction kcrit / kmx of the segment's own
+    ! kmax (newton_psi_drop; 5 |bs| unless the curve is wide). (It was
+    ! kcrit/kmax, which for a short, wide segment could leave k above the
+    ! path's kcrit.) MDK, 25/10/26
     drop_nr = newton_psi_drop(bs, cs,                                          &
-                              kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm)),  &
+                              kcrit(l) / MAX(kmx, TINY(1.0_real_jlslsm)),      &
                               .FALSE.)
 
     ! Cap on the stem and leaf segments (not the root) under xylem

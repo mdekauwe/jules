@@ -1586,6 +1586,15 @@ IF ( l_triffid_nsc ) THEN
                  'nsc_g_starv_io > 0 has no effect without l_veg_compete ' // &
                  '(the PFT fractions are fixed).')
   END IF
+  ! The NPP mean is updated only while the stem loss is at most
+  ! nsc_hold_plc, and loss up to nsc_plc_background is never repaired, so
+  ! a hold below the background freezes W_max for good. MDK, 25/10/26
+  IF ( ANY(nsc_hold_plc(:) < nsc_plc_background(:)) ) THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_hold_plc_io < nsc_plc_background_io: the store '     // &
+                 'maximum stops updating once the background loss is set.')
+  END IF
   ! MDK, 18/10/26
   IF ( ANY(is_set(nsc_psi_turg_zero(:)) .AND.                                  &
            nsc_psi_turg_full(:) <= nsc_psi_turg_zero(:)) ) THEN
