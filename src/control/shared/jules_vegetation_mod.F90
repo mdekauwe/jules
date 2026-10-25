@@ -600,10 +600,14 @@ LOGICAL ::                                                                     &
 
 LOGICAL ::                                                                     &
   l_som_coupled_e = .TRUE.
-      ! On by default since 9 Oct 2026: a recalibration with it on (FR-Pue,
-      ! profit max) gave the same parameters and fit as with it off (see
-      ! NOTE_coupled_e_handoff_2026-10-08). Where it is not supported (see
-      ! the restrictions below) check_jules_vegetation turns it off.
+      ! Not a namelist input since 25 Oct 2026: always on where it is
+      ! supported, and check_jules_vegetation turns it off elsewhere (see
+      ! the restrictions below). (On by default since 9 Oct 2026: a
+      ! recalibration with it on (FR-Pue, profit max) gave the same
+      ! parameters and fit as with it off; NOTE_coupled_e_handoff_2026-10-08.)
+      ! It also carries the CO2 path through the leaf boundary layer.
+      !
+      ! MDK, 25/10/26
       ! When .TRUE., the stomatal optimisation (stomata_model = 4 to 7, 10, 11;
       ! can_rad_mod = 1 or 7) evaluates the transpiration of each trial
       ! stomatal conductance g with the resistances it passes through,
@@ -1164,7 +1168,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_gain_gross,                                                          &
     l_som_cuticular_loss,                                                      &
     l_som_capacitance,                                                         &
-    l_som_gravity, l_som_coupled_e,                                            &
+    l_som_gravity,                                                             &
     l_som_rhizo_mfp,                                                           &
     som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                    &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,     &
@@ -1532,8 +1536,9 @@ IF ( l_som_coupled_e .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.          &
   ! Say so only for a stomatal optimisation run (it is on by default).
   IF ( leaf_flux_mod == leaf_flux_stom_opt )                                   &
     CALL jules_print('check_jules_vegetation',                                 &
-                     'l_som_coupled_e set to .FALSE.: it applies only to ' //  &
-                     'stomata_model = 4 to 7, 10 or 11 with can_rad_mod 1 or 7')
+                     'Coupled transpiration (l_som_coupled_e) is off: it ' //  &
+                     'applies only to stomata_model = 4 to 7, 10 or 11 ' //    &
+                     'with can_rad_mod 1 or 7')
 END IF
 ! Supply-loss stomata: the profit-max hydraulics, on the Ci axis.
 IF ( stomata_model == stomata_supply_loss .AND.                                &
@@ -2590,7 +2595,8 @@ INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 55 + npft_max
+INTEGER, PARAMETER :: n_log = 54 + npft_max
+                                  ! -1 l_som_coupled_e (MDK, 25/10/26)
                                   ! -3 l_som_plant_store,
                                   ! l_som_cuticular_floor and
                                   ! l_som_leak_capacitance_only removed (MDK,
@@ -2697,7 +2703,6 @@ TYPE :: my_namelist
   LOGICAL :: l_phen_psi
   LOGICAL :: l_nsc_wmax_norm
   LOGICAL :: l_som_gravity
-  LOGICAL :: l_som_coupled_e
   LOGICAL :: l_som_rhizo_mfp
   LOGICAL :: l_nrun_mid_trif
   LOGICAL :: l_trif_init_accum
@@ -2819,7 +2824,6 @@ IF (mype == 0) THEN
   my_nml % l_phen_psi = l_phen_psi
   my_nml % l_nsc_wmax_norm = l_nsc_wmax_norm
   my_nml % l_som_gravity = l_som_gravity
-  my_nml % l_som_coupled_e = l_som_coupled_e
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
   my_nml % l_trif_init_accum   = l_trif_init_accum
@@ -2930,7 +2934,6 @@ IF (mype /= 0) THEN
   l_phen_psi = my_nml % l_phen_psi
   l_nsc_wmax_norm = my_nml % l_nsc_wmax_norm
   l_som_gravity = my_nml % l_som_gravity
-  l_som_coupled_e = my_nml % l_som_coupled_e
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif
   l_trif_init_accum = my_nml % l_trif_init_accum
