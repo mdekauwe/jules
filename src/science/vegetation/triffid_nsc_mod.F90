@@ -545,8 +545,13 @@ DO n = n1,n2
       plc = MIN(MAX(ximpair_lock(l,n), 0.0), 1.0)
 
     ! Maximum loading from the running mean of NPP (bias-corrected), held
-    ! while the stem is damaged.
-    IF (plc <= nsc_hold_plc(n)) THEN
+    ! while the stem is damaged. Not held until the mean has formed (one
+    ! e-folding of weight): a run started without spin-up in a damaged
+    ! season, or with the store switched on from a damaged dump, otherwise
+    ! had W_max = 0 for good (no release, so no repair to lift the hold).
+    ! MDK, 25/10/26
+    IF (plc <= nsc_hold_plc(n) .OR.                                            &
+        nsc_npp_wt(l,n) < 1.0 - EXP(-1.0)) THEN
       nsc_npp_mean(l,n) = nsc_npp_mean(l,n) + a_mean * (npp(l,n)               &
                           - nsc_npp_mean(l,n))
       nsc_npp_wt(l,n)   = nsc_npp_wt(l,n) + a_mean * (1.0 - nsc_npp_wt(l,n))
