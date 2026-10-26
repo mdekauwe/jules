@@ -417,12 +417,13 @@ LOGICAL ::                                                                     &
        ! NPP enters a non-structural carbon store and TRIFFID grows from the
        ! carbon the store releases, W = W_max C_a / (k_c C_max + C_a)
        ! (Michaelis-Menten loading), not from the NPP of the step. The
-       ! store buffers carbon deficits (it pays for negative NPP) and, with
-       ! l_ximpair_rec_nsc, pays for xylem repair. Not with l_sugar or
-       ! l_trif_eq. Without l_triffid it runs daily with the prescribed LAI
-       ! and height (store and repair only). See triffid_nsc_mod and
-       ! NOTES_nsc_storage.md.
-       ! MDK, 17/10/26
+       ! store buffers carbon deficits (it pays for negative NPP) and paces
+       ! the stem's ring renewal (l_ximpair_rec_nsc) through the growth it
+       ! releases. Not with l_sugar or l_trif_eq. Without l_triffid it
+       ! runs daily with the prescribed LAI and height (store only). See
+       ! triffid_nsc_mod and NOTES_nsc_storage.md.
+       !
+       ! MDK, 26/10/26
    l_trif_hydmort = .FALSE.,                                                   &
        ! Hydraulic (drought) mortality in TRIFFID: the stand's lethal losses
        ! of conductance are spread logistically about hydmort_mu (width
@@ -925,8 +926,10 @@ INTEGER ::                                                                     &
 LOGICAL ::                                                                     &
       ! (l_ximpair_rec_growth, the memory model's time-based recovery from
       ! new xylem grown from carbon gain, was retired 23/10/26 in favour of
-      ! the store repair, l_ximpair_rec_nsc; it is in the git history.
-      ! MDK, 23/10/26)
+      ! the store repair, l_ximpair_rec_nsc, itself replaced by ring
+      ! renewal 26/10/26; both are in the git history.)
+      !
+      ! MDK, 26/10/26
   l_ximpair_leaf_loss = .FALSE.,                                               &
       ! Xylem impairment model 3 (memory) with TRIFFID phenology (l_phenol):
       ! cap the phenological state at what the damaged xylem can supply,
@@ -939,23 +942,30 @@ LOGICAL ::                                                                     &
       ! segment, each damaged by the water potential at its own leaf-side end
       ! (psi_stem, psi_leaf) on its own vulnerability curve
       ! (conductance_b/c_seg). The leaf segment recovers with leaf turnover
-      ! (ximpair_tau_leaf), the stem by the store repair (l_ximpair_rec_nsc).
+      ! (ximpair_tau_leaf), the stem by ring renewal (l_ximpair_rec_nsc).
       ! ximpair_psi_driver is then not used. .FALSE.: one cap on both segments
-      ! (as before). (MDK, 23/10/26: ximpair_tau_stem retired.)
+      ! (as before). (ximpair_tau_stem retired 23/10/26.)
+      !
+      ! MDK, 26/10/26
   l_ximpair_rec_nsc = .FALSE.,                                                 &
-      ! Memory model (pft_xylem_impairment_model = 3) with the TRIFFID
-      ! storage pool (l_triffid_nsc): the stem's lost conductance recovers
-      ! only by regrowing xylem, paid for from the store (Trugman et al.
-      ! 2018, Ecol. Lett. 21: 1552). At each TRIFFID step a fraction u of
-      ! the carbon released from the store rebuilds the lost conducting
-      ! sapwood, u = X/(X + L) (1 - m_L L / W) (their Eqn 5, no xylem
-      ! turnover), with X the live stemwood and L the leaf and fine-root
-      ! carbon the damaged xylem supports; see triffid_nsc_mod. The only
-      ! recovery of the stem (the time-based terms were retired 23/10/26);
-      ! the leaf segment keeps ximpair_tau_leaf. Use with l_ximpair_leaf_loss
-      ! (ximpair_leaf_sens = 1) for their leaf area in proportion to the
+      ! Stem recovery by ring renewal: memory model
+      ! (pft_xylem_impairment_model = 3) with the TRIFFID storage pool
+      ! (l_triffid_nsc) and dynamic TRIFFID (l_triffid, not l_trif_eq). At
+      ! each TRIFFID step the wood TRIFFID grows from the store's release,
+      ! its gross wood production G, is the new xylem ring, which renews
+      ! the share rho = nsc_xylem_cond_ratio G dt / X of the stem's
+      ! conductance (X the conducting sapwood) and dilutes the whole stem's
+      ! loss, L -> L (1 - rho), as leaf renewal does the leaf's. No store
+      ! carbon is spent on it. The W_max hold (nsc_hold_plc) then holds
+      ! the store's sink only while the drought adds new damage. See
+      ! triffid_nsc_mod. The only recovery of the stem (the time-based
+      ! terms were retired 23/10/26, the store-paid repair of Trugman et
+      ! al. 2018 26/10/26); the leaf segment keeps ximpair_tau_leaf or
+      ! l_ximpair_rec_leaf_turn. Use with l_ximpair_leaf_loss
+      ! (ximpair_leaf_sens = 1) for leaf area in proportion to the
       ! functional xylem.
-      ! MDK, 17/10/26
+      !
+      ! MDK, 26/10/26
   l_ximpair_rec_leaf_turn = .FALSE.,                                           &
       ! Per-segment memory (l_ximpair_seg_memory) with the TRIFFID store
       ! (l_triffid_nsc): the leaf segment recovers by leaf renewal, not by
@@ -2187,8 +2197,9 @@ IF ( l_red .AND. .NOT. l_triffid ) THEN
                'RED needs to be run with l_triffid=T')
 END IF
 
-! TRIFFID storage pool and the xylem repair it pays for.
-! MDK, 17/10/26
+! TRIFFID storage pool and the stem's ring renewal it paces.
+!
+! MDK, 26/10/26
 IF ( l_triffid_nsc .AND. l_triffid .AND. l_trif_eq ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &

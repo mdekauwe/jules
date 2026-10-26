@@ -448,40 +448,15 @@ ximpair_psi_driver(:),                                                         &
                  !       3: Root zone water potential
                  !       4: Stem water potential (leaf-side end of the stem
                  !          segment; needs l_som_plant_segments)
-ximpair_reset_mmdd(:),                                                         &
+ximpair_reset_mmdd(:)
                  ! Month and day (month*100 + day, e.g. 401 = 1 April) on
                  !  which the memory impairment model's embolism is reset
                  !  (e.g. new earlywood in ring-porous species). 0 disables.
-nsc_xylem_type(:),                                                             &
-                 ! Store repair (l_ximpair_rec_nsc): 1 diffuse-porous (repair
-                 !  whenever growth is allowed, on all the conducting xylem,
-                 !  capped by nsc_xylem_rate_max), 2 ring-porous (the stem
-                 !  is rebuilt once a year, at nsc_ring_mmdd, by the new
-                 !  earlywood ring, paid from the store).
-nsc_ring_mmdd(:)                                                               &
-                 ! Month and day (month*100 + day) of the earlywood rebuild
-                 !  of nsc_xylem_type 2.
-                 ! MDK, 18/10/26
-,nsc_xylem_replace(:)
-                 ! Store repair, nsc_xylem_type 1: what the new xylem
-                 !  replaces. 0 = one stem memory (the rebuilt xylem shares
-                 !  the stem's worst loss). 1 = two pools, embolised xylem
-                 !  first: the rebuilt xylem keeps its own memory, so later
-                 !  droughts damage it (it is built embolism free). 2 = ring
-                 !  renewal: no store repair; the stem is renewed by the
-                 !  wood TRIFFID grows, its gross wood production G (wood
-                 !  increment plus the turnover replaced), which renews the
-                 !  share nsc_xylem_cond_ratio G dt / X of the stem's
-                 !  conductance (X the conducting sapwood, the pipe model
-                 !  with nsc_la_sa > 0) and dilutes the whole stem's loss
-                 !  by it (one pool; new xylem replaces old at random,
-                 !  intact and embolised alike, as leaf renewal does; not
-                 !  the oldest xylem first). No store carbon is used. The
-                 !  W_max hold then tests new drought damage only
-                 !  (nsc_hold_plc). Needs l_triffid_nsc, l_ximpair_rec_nsc
-                 !  and dynamic TRIFFID (the run stops otherwise). The
-                 !  store-paid proportional repair that rule 2 was before
-                 !  was removed.
+                 !  Not with stem recovery (l_ximpair_rec_nsc).
+                 ! (nsc_xylem_type, nsc_ring_mmdd and nsc_xylem_replace, the
+                 !  wood anatomy and replacement rules of the store-paid
+                 !  stem repair, were removed with it: ring renewal is the
+                 !  only stem recovery.)
                  !
                  !  MDK, 26/10/26
 
@@ -608,20 +583,14 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  (l_ximpair_leaf_loss): the phenological state is capped
                  !  at 1 - ximpair_leaf_sens * (1 - k_cap/kmax). 1 keeps leaf
                  !  area in proportion to the conducting capacity, 0 disables.
-,ximpair_psi_growth(:)                                                         &
-                 ! Root-zone (~predawn) water potential below which no new
-                 !  conducting xylem grows, the growth gate of the store
-                 !  repair (l_ximpair_rec_nsc; MPa, as nsc_psi_turg_* and
-                 !  phen_psi_tlp). Stem growth at Puechabon stops
-                 !  near predawn -1.1 MPa (Lempereur et al. 2015, New Phytol
-                 !  207: 579), so recovery falls in the growth windows (spring
-                 !  and autumn), not in summer drought. Default -1e30: no gate.
                  ! (ximpair_tau_rec, ximpair_psi_refill, ximpair_wood_alloc,
                  !  ximpair_growth_basis, ximpair_rec_years and
                  !  ximpair_tau_stem, the time-based recovery of the memory
-                 !  model, were retired; see l_ximpair_rec_nsc.)
+                 !  model, were retired; see l_ximpair_rec_nsc. So was
+                 !  ximpair_psi_growth, the growth gate of the store-paid
+                 !  repair.)
                  !
-                 ! MDK, 24/10/26
+                 ! MDK, 26/10/26
 ,ximpair_tau_leaf(:)                                                          &
                  ! Per-segment memory (l_ximpair_seg_memory): e-folding time
                  !  (years of calendar time) of the leaf (leaf and twig)
@@ -655,26 +624,27 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,nsc_wmax_fac(:)                                                              &
                  ! W_max = nsc_wmax_fac * running-mean NPP (>= 0).
 ,nsc_sapwood_frac(:)                                                           &
-                 ! Conducting xylem rebuilt by l_ximpair_rec_nsc, as a
-                 !  fraction of the wood carbon: X = nsc_sapwood_frac woodc
+                 ! Conducting xylem X renewed by the rings (stem recovery,
+                 !  l_ximpair_rec_nsc, with nsc_la_sa = 0), as a fraction
+                 !  of the wood carbon: X = nsc_sapwood_frac woodc
                  !  (Trugman et al. Table S2, healthy sapwood cross-sectional
                  !  area fraction SA = 0.6, applied to the stem biomass).
                  !  1 / a_ws gives the JULES live (respiring) stemwood,
                  !  eta_sl h LAI_bal.
+                 !
+                 !  MDK, 26/10/26
 ,nsc_hold_plc(:)                                                               &
-                 ! The running mean of NPP that sets W_max is held (not
-                 !  updated) while the stem's loss of conductance
-                 !  (ximpair_lock) is above nsc_hold_plc, so the damaged
-                 !  plant keeps the sink of the intact one (Trugman et al.
-                 !  hold W_max, set by tree size, through recovery).
-                 !  1 = never held. Ring renewal (nsc_xylem_replace = 2):
-                 !  held only at store steps with new drought damage, when
-                 !  the worst loss the water status imposed, P = 1 -
+                 ! With stem recovery (l_ximpair_rec_nsc), the running mean
+                 !  of NPP that sets W_max is held (not updated) at store
+                 !  steps with new drought damage, so the damaged plant
+                 !  keeps the sink of the intact one (Trugman et al. hold
+                 !  W_max, set by tree size, through recovery): when the
+                 !  worst loss the water status imposed, P = 1 -
                  !  ximpair_fmin_acc, is at the locked loss (the embolism
-                 !  ratchet binding) and P > nsc_hold_plc; never in
-                 !  spin-up (triffid_nsc_mod header). nsc_hold_plc is an
-                 !  absolute stem loss for every rule (no background
-                 !  subtracted).
+                 !  ratchet binding) and P > nsc_hold_plc, an absolute stem
+                 !  loss of conductance. 1 = never held. Never held in
+                 !  spin-up or without stem recovery (triffid_nsc_mod
+                 !  header).
                  !
                  !  MDK, 26/10/26
 ,nsc_g_starv(:)                                                               &
@@ -702,24 +672,21 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  MDK, 21/10/26
 ,nsc_repair_window(:)                                                         &
                  ! E-folding time (days) of the memory of the worst stem
-                 !  conductance since a store step (ximpair_fmin_acc): loss
-                 !  re-imposed within this window is not repaired, so mild
-                 !  midday losses that recur through a dry season are not
-                 !  repaid again and again. 0 = reset at each store step.
-,nsc_plc_background(:)                                                        &
-                 ! Stem loss of conductance (fraction) up to which the store
-                 !  does not pay for repair: small seasonal embolism is
-                 !  background that healthy trees carry, not damage. After
-                 !  a drought the stem is rebuilt to this loss, not to 0.
-                 !  0 = off.
+                 !  conductance the water status imposed
+                 !  (ximpair_fmin_acc), decayed at each store step, for the
+                 !  W_max hold (nsc_hold_plc). 0 = reset at each store
+                 !  step. (nsc_plc_background, the loss the store repair
+                 !  did not pay for, was removed with it.)
+                 !
+                 !  MDK, 26/10/26
 ,nsc_la_sa(:)                                                                 &
                  ! Leaf area per sapwood area (m2 m-2; the inverse Huber
-                 !  value). > 0: the conducting xylem the store rebuilds is
+                 !  value). > 0: the conducting xylem the rings renew is
                  !  from the pipe model on the balanced leaf area, as in
                  !  FATES: X = LAI_bal / nsc_la_sa h nsc_wood_density cmass
                  !  (sapwood area x height, area-preserving branching, no
-                 !  taper). 0: X = nsc_sapwood_frac woodc. With ring renewal
-                 !  (nsc_xylem_replace = 2) X is the denominator of the
+                 !  taper). 0: X = nsc_sapwood_frac woodc. With stem
+                 !  recovery (l_ximpair_rec_nsc) X is the denominator of the
                  !  ring's share of the conductance (G dt / X), so it sets
                  !  the stem's recovery time directly: nsc_la_sa (and
                  !  nsc_wood_density) must then be measured values. X does
@@ -758,11 +725,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  nsc_flush_start_doy (budburst) the store's release
                  !  starts, and the year's new leaf carbon (g_leaf_0 x leaf
                  !  carbon) is drawn from the store evenly over
-                 !  nsc_flush_days days. The growing season
-                 !  (nsc_grow_start_doy, nsc_grow_end_doy) then gates only
-                 !  the cambium (xylem repair and its cap). Unset (< -1e29)
-                 !  = no leaf flush.
-                 !  MDK, 20/10/26
+                 !  nsc_flush_days days. Unset (< -1e29) = no leaf flush.
+                 !
+                 !  MDK, 26/10/26
 ,nsc_overflow_resp(:)                                                          &
                  ! Share of the store carbon above C_max that is respired
                  !  (overflow respiration) instead of going to growth
@@ -801,23 +766,12 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Store capacity C_max (kg C m-2 of the PFT); > 0 sets it
                  !  directly (e.g. from measured NSC concentrations times
                  !  biomass), 0 = nsc_flush x (leaf + root carbon).
-,nsc_xylem_rate_max(:)                                                        &
-                 ! Store repair (l_ximpair_rec_nsc): fraction of the
-                 !  conducting xylem the cambium can build per year.
-                 !  nsc_xylem_type 1: cap on the repair rate while growing
-                 !  (times the growth factor of the turgor and cold limits,
-                 !  f_t, and the cambium's window f_stem), so the annual
-                 !  cap is this times the mean of f_t f_stem over the year
-                 !  (<f_t> ~ 0.27 at FR-Pue; less once the cambium window
-                 !  is applied, which it is only when nsc_flush_start_doy
-                 !  is set); 0 = no cap. Not used by ring renewal
-                 !  (nsc_xylem_replace = 2). nsc_xylem_type 2: the
-                 !  earlywood ring as a fraction of the conducting xylem
-                 !  (> 0).
+                 ! (nsc_xylem_rate_max, the cambial cap of the store-paid
+                 !  repair, was removed with it.)
                  !
                  !  MDK, 26/10/26
 ,nsc_xylem_cond_ratio(:)
-                 ! Ring renewal (nsc_xylem_replace = 2): w_cond, the
+                 ! Ring renewal (stem recovery, l_ximpair_rec_nsc): w_cond, the
                  !  conductance per unit carbon of the new ring relative
                  !  to the mean conducting sapwood (>= 0; default 1, all
                  !  sapwood conducts alike). A measurable anatomical ratio:
@@ -826,6 +780,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  conductivity. The new ring (TRIFFID's gross wood
                  !  production G) renews w_cond G dt / X of the stem's
                  !  conductance. 0 makes the rings dilute nothing (a test).
+                 !  Ring-porous stems, which conduct mostly in the newest
+                 !  earlywood, have w_cond > 1 (there is no separate
+                 !  ring-porous scheme).
                  !
                  !  MDK, 26/10/26
 
@@ -1217,7 +1174,6 @@ ALLOCATE( conductance_b_seg(npft,3))
 ALLOCATE( conductance_c_seg(npft,3))
 ALLOCATE( ximpair_reset_mmdd(npft))
 ALLOCATE( ximpair_leaf_sens(npft))
-ALLOCATE( ximpair_psi_growth(npft))
 ALLOCATE( ximpair_tau_leaf(npft))
 ! MDK, 17/10/26
 ALLOCATE( nsc_flush(npft))
@@ -1232,7 +1188,6 @@ ALLOCATE( hydmort_mu(npft))
 ALLOCATE( hydmort_width(npft))
 ALLOCATE( hydmort_plc_bg(npft))
 ALLOCATE( nsc_repair_window(npft))
-ALLOCATE( nsc_plc_background(npft))
 ALLOCATE( nsc_la_sa(npft))
 ALLOCATE( nsc_wood_density(npft))
 ALLOCATE( nsc_psi_turg_full(npft))
@@ -1244,7 +1199,6 @@ ALLOCATE( nsc_grow_end_doy(npft))
 ALLOCATE( nsc_flush_start_doy(npft))
 ALLOCATE( nsc_flush_days(npft))
 ALLOCATE( nsc_overflow_resp(npft))
-ALLOCATE( nsc_xylem_rate_max(npft))
 ALLOCATE( nsc_cmax(npft))
 ALLOCATE( nsc_xylem_cond_ratio(npft))   ! MDK, 25/10/26
 ALLOCATE( phen_psi_tlp(npft))
@@ -1255,9 +1209,6 @@ ALLOCATE( phen_bb_doy(npft))
 ALLOCATE( phen_bb_gdd(npft))
 ALLOCATE( phen_bb_tbase(npft))
 ALLOCATE( phen_bb_min_days(npft))
-ALLOCATE( nsc_xylem_type(npft))
-ALLOCATE( nsc_ring_mmdd(npft))
-ALLOCATE( nsc_xylem_replace(npft))
 
 leaf_crit(:) = 0.0
 pft_conductance_model(:) = 0
@@ -1300,7 +1251,6 @@ conductance_b_seg(:,:) = 1.0
 conductance_c_seg(:,:) = 1.0
 ximpair_reset_mmdd(:) = 0
 ximpair_leaf_sens(:) = 0.0
-ximpair_psi_growth(:) = -1.0e30
 ximpair_tau_leaf(:) = 0.0
 ! MDK, 17/10/26
 nsc_flush(:) = 2.0
@@ -1315,7 +1265,6 @@ hydmort_mu(:) = 0.88
 hydmort_width(:) = 0.08
 hydmort_plc_bg(:) = 0.1
 nsc_repair_window(:) = 60.0
-nsc_plc_background(:) = 0.01
 nsc_la_sa(:) = 0.0
 nsc_wood_density(:) = 600.0
 nsc_psi_turg_full(:) = -1.0e30
@@ -1327,7 +1276,6 @@ nsc_grow_end_doy(:) = -1.0e30
 nsc_flush_start_doy(:) = -1.0e30
 nsc_flush_days(:) = 45.0
 nsc_overflow_resp(:) = 0.0
-nsc_xylem_rate_max(:) = 0.0
 nsc_cmax(:) = 0.0
 nsc_xylem_cond_ratio(:) = 1.0   ! MDK, 25/10/26
 phen_psi_tlp(:) = -1.0e30
@@ -1338,9 +1286,6 @@ phen_bb_doy(:) = -1.0e30
 phen_bb_gdd(:) = -1.0e30
 phen_bb_tbase(:) = 0.0
 phen_bb_min_days(:) = 0.0
-nsc_xylem_type(:) = 1
-nsc_ring_mmdd(:) = 401
-nsc_xylem_replace(:) = 0
 
 ! SOX parameters
 ALLOCATE( sox_a(npft))
@@ -1656,8 +1601,6 @@ WRITE(lineBuffer,*)' pft_xylem_impairment_model = ',pft_xylem_impairment_model
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_leaf_sens = ',ximpair_leaf_sens
 CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' ximpair_psi_growth = ',ximpair_psi_growth
-CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_tau_leaf = ',ximpair_tau_leaf
 CALL jules_print('pftparm',lineBuffer)
 ! MDK, 17/10/26
@@ -1685,8 +1628,6 @@ WRITE(lineBuffer,*)' hydmort_plc_bg = ',hydmort_plc_bg
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_repair_window = ',nsc_repair_window
 CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_plc_background = ',nsc_plc_background
-CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_la_sa = ',nsc_la_sa
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_wood_density = ',nsc_wood_density
@@ -1709,8 +1650,6 @@ WRITE(lineBuffer,*)' nsc_flush_days = ',nsc_flush_days
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_overflow_resp = ',nsc_overflow_resp
 CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_xylem_rate_max = ',nsc_xylem_rate_max
-CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_cmax = ',nsc_cmax
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_xylem_cond_ratio = ',nsc_xylem_cond_ratio
@@ -1730,12 +1669,6 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_bb_tbase = ',phen_bb_tbase
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_bb_min_days = ',phen_bb_min_days
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_xylem_type = ',nsc_xylem_type
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_ring_mmdd = ',nsc_ring_mmdd
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_xylem_replace = ',nsc_xylem_replace
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_psi_driver = ',ximpair_psi_driver
 CALL jules_print('pftparm',lineBuffer)
@@ -1770,8 +1703,8 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  ximpair_driver_leaf, ximpair_driver_stem,     &
                                  l_ximpair_leaf_loss, l_phenol
 USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground,             &
-                                l_ximpair_rec_nsc, l_trif_hydmort
-                                ! MDK, 24/10/26
+                                l_trif_hydmort
+                                ! MDK, 26/10/26
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs, l_snow_albedo
 
@@ -2527,15 +2460,6 @@ IF ( l_som_plant_segments .AND. .NOT. l_ximpair_seg_memory .AND.               &
   'l_ximpair_seg_memory damages the segments on the PFT curve: use '        // &
   'l_ximpair_seg_memory')
 END IF
-IF ( l_ximpair_rec_nsc .AND.                                                   &
-     ANY( is_set(ximpair_psi_growth(1:npft)) .AND.                           &
-          is_set(nsc_psi_turg_zero(1:npft)) ) ) THEN
-  ! Both gate the repair on the predawn psi: about f_turg**2 f_grow.
-  ERROR = -1
-  CALL ereport(routinename, ERROR,                                             &
-  'ximpair_psi_growth and nsc_psi_turg_zero both set: the store repair '    // &
-  'is gated twice by the root-zone psi')
-END IF
 IF ( l_ximpair_leaf_loss .AND. kplant_model /= kplant_model_ground ) THEN
   ! With leaf-basis k the conductance per leaf stays at the cap whatever
   ! the LAI, so shedding only cuts E.
@@ -2552,22 +2476,6 @@ IF ( l_trif_hydmort .AND.                                                      &
   CALL ereport(routinename, ERROR,                                             &
   'hydmort_mu >= kcrit_fractional_loss: the loss (capped at kcrit) '        // &
   'cannot reach the median lethal threshold')
-END IF
-
-!-----------------------------------------------------------------------------
-! The growth gate ximpair_psi_growth is in MPa (it was read in Pa before
-! 24/10/26), as nsc_psi_turg_* and phen_psi_tlp. Stop on a value in Pa
-! (e.g. -1.1e6), which would otherwise close the gate for good.
-!
-! MDK, 24/10/26
-!-----------------------------------------------------------------------------
-IF ( ANY( is_set(ximpair_psi_growth(1:npft)) .AND.                             &
-          ( ximpair_psi_growth(1:npft) < -100.0 .OR.                          &
-            ximpair_psi_growth(1:npft) > 0.0 ) ) ) THEN
-  ERROR = 1
-  CALL ereport(routinename, ERROR,                                             &
-  'ximpair_psi_growth is in MPa (e.g. -1.1), not Pa; it should be '         // &
-  'between -100 and 0')
 END IF
 
 !-----------------------------------------------------------------------------

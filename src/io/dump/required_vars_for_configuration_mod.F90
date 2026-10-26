@@ -34,8 +34,7 @@ USE jules_soil_ecosse_mod, ONLY: l_soil_N
 
 USE pftparm, ONLY: pft_xylem_impairment_model, nsc_psi_turg_zero,              &
                    nsc_t_grow_zero, nsc_grow_start_doy, nsc_grow_end_doy,      &
-                   nsc_flush_start_doy, nsc_xylem_replace, phen_bb_doy,        &
-                   phen_bb_gdd
+                   nsc_flush_start_doy, phen_bb_doy, phen_bb_gdd
 
 USE jules_vegetation_mod, ONLY: l_trif_hydmort   ! MDK, 21/10/26
 USE jules_vegetation_mod, ONLY: l_leaf_temp      ! MDK, 24/10/26
@@ -366,22 +365,13 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   IF ( l_veg_compete .AND.                                                     &
        ANY( pft_xylem_impairment_model(:) == xylem_impairment_memory ) )       &
     CALL add_to_list( 'ximpair_area_w', nvars, identifiers )
-  ! Repair from the TRIFFID store queued for the next update.
-  ! MDK, 17/10/26
+  ! Stem recovery by ring renewal: the share queued for the next update,
+  ! and the memory of the worst imposed stem loss for the W_max hold.
+  !
+  ! MDK, 26/10/26
   IF ( l_ximpair_rec_nsc ) THEN
     CALL add_to_list( 'ximpair_repair_pend', nvars, identifiers )
-    CALL add_to_list( 'ximpair_grow_acc', nvars, identifiers )
     CALL add_to_list( 'ximpair_fmin_acc', nvars, identifiers )
-    ! Two-pool stem memory: embolism replacement (rule 1) only. Ring
-    ! renewal (rule 2) keeps the stem as one pool: it needs only
-    ! ximpair_repair_pend (the queued share), and ximpair_fmin_acc with
-    ! ximpair_lock for its W_max hold, all listed above.
-    !
-    ! MDK, 26/10/26
-    IF ( ANY(nsc_xylem_replace(:) == 1) ) THEN
-      CALL add_to_list( 'ximpair_rebuilt', nvars, identifiers )
-      CALL add_to_list( 'ximpair_lock_new', nvars, identifiers )
-    END IF
   END IF
 END IF
 

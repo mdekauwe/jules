@@ -1035,8 +1035,7 @@ DO i = 1, nvars_required
     ! dilution pending; MDK, 25/10/26)
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   ! MDK, 17/10/26
-  CASE ( 'ximpair_rebuilt', 'ximpair_lock_new', 'ximpair_psi_stem',            &
-         'ximpair_repair_pend', 'ximpair_grow_acc', 'nsc_npp_mean',            &
+  CASE ( 'ximpair_psi_stem', 'ximpair_repair_pend', 'nsc_npp_mean',            &
          'nsc_npp_wt', 'nsc_npp_day' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   ! TRIFFID's timer at the start of a run (as init_time) and empty sums.

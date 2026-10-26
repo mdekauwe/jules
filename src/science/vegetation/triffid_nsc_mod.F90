@@ -31,109 +31,63 @@ MODULE triffid_nsc_mod
 ! to TRIFFID as negative growth (the vegetation shrinks), which is the JULES
 ! form of their starvation.
 !
-! Xylem repair (l_ximpair_rec_nsc, with the memory impairment model): the
-! stem's lost conductance recovers only by regrowing xylem paid for from the
-! store. With the loss of conductance PLC = ximpair_lock, the functional
-! xylem is f_x = 1 - PLC of X = nsc_sapwood_frac woodc, the conducting
-! sapwood (Trugman et al. Table S2: sapwood fraction SA = 0.6 of the stem
-! biomass; 1 / a_ws would be the JULES live stemwood, eta_sl h LAI_bal,
-! which at FR-Pue is about a sixth of that), or, with nsc_la_sa > 0, the
-! pipe model on the balanced leaf area as in FATES, X = LAI_bal /
-! nsc_la_sa h nsc_wood_density cmass (from measured leaf:sapwood area and
-! wood density, independent of the TRIFFID wood), and the leaves and fine roots
-! the plant keeps are L = f_x (leaf + root) (Trugman et al. Eqn 2, leaf area
-! in proportion to functional xylem; l_ximpair_leaf_loss sheds the canopy to
-! match). Their optimal share of W rebuilding xylem, with no xylem turnover
-! (their m_X = 0), is
-!   u = X / (X + L) (1 - m_L L / W)                (Eqn 5)
-! with m_L L the leaf and fine-root turnover (g_leaf_0, g_root) of what is
-! kept. Here m_L L is the turnover TRIFFID charges against the growth W
-! - repair: the leaves kept, (1 - PLC) g_leaf_0 leafc, all the roots,
-! g_root rootc (TRIFFID does not shed them), and the wood, g_wood woodc
-! (the repair carbon is litter, not wood, so wood turnover is not paid by
-! the repair; their m_X = 0). Only the loss the current water status does
-! not re-impose is repaired, PLC_r = PLC - (1 - f_min), with f_min the
-! lowest intact stem conductance fraction seen (ximpair_fmin_acc), whose
-! memory decays back to intact with e-folding time nsc_repair_window days
-! (0 = since the last store step). Loss up to nsc_plc_background is
-! background embolism the store does not pay for: the stem is rebuilt to
-! that loss, not to 0. The repair, min(u W dt, PLC_r X), restores
-! conductance in proportion,
-! dPLC = -repair / X, at the next xylem impairment update. TRIFFID's
-! allometry fixes the wood carbon, so the repair carbon leaves as litter
-! (the embolised conduits it replaces are retired). With
-! ximpair_psi_growth (MPa) set, the repair is scaled by the fraction of time
-! since the last TRIFFID step that the root zone was wetter than it (no stem
-! growth in drought; ximpair_grow_acc).
-!
-! Wood anatomy (nsc_xylem_type). 1, diffuse-porous (the default, as above):
-! repair whenever growth is allowed, on all the conducting xylem X, at most
-! nsc_xylem_rate_max f_t X per year (f_t the growth factor of the turgor
-! and cold limits, 1 without them; the cambium builds a ring a year, so a
-! few % of the sapwood a year; 0 = no cap). 2, ring-porous: water moves
-! mostly in the current earlywood ring, X_r = nsc_xylem_rate_max X, built
-! each spring from the store. Once a year, at the first store step on or
-! after nsc_ring_mmdd, the repairable loss is rebuilt in full, at a cost of
-! PLC_r X_r drawn from the store (as part of W, to litter), or in part if
-! the accessible store is short; there is no repair the rest of the year.
-!
-! Replacement rule (nsc_xylem_replace, diffuse-porous, memory model): 0,
-! one stem memory, repaired from the store as above; 1, embolism
-! replacement, the same store-paid repair, with the two-pool memory of
-! xylem_impairment_memory_mod: the new xylem replaces embolised xylem
-! first, so the repair X dPLC removes dPLC of loss (active repair: the
-! total is set by the damage, PLC_r X, the speed by the cambial cap), and
-! the rebuilt xylem keeps its own damage memory.
-!
-! 2, ring renewal (needs dynamic TRIFFID): no repair from the store. The
-! stem recovers as the leaf does, by new tissue at the rate the plant pays
-! for it. The new ring is the wood TRIFFID grows in the step from the
-! store's release W (after the leaves and fine roots), its gross wood
-! production
+! Stem recovery (l_ximpair_rec_nsc, with the memory impairment model and
+! dynamic TRIFFID): ring renewal. The stem's lost conductance recovers as
+! the leaf's does, by new tissue at the rate the plant pays for it, and
+! nothing is drawn from the store for it. The new ring is the wood TRIFFID
+! grows in the step from the store's release W (after the leaves and fine
+! roots), its gross wood production
 !   G = dC_W / dt + g_wood C_W     (vegcarb: the local wood increment plus
 !                                   the replacement of wood turnover; the
 !                                   carbon to spreading is not wood),
-! so nothing is drawn from the store or sent to litter, and the carbon
-! budget is that of no repair. The ring's share of the stem conductance,
-! rho = nsc_xylem_cond_ratio G dt / X (the new xylem's conductance per unit
-! carbon relative to the mean sapwood X, the pipe-model sapwood when
-! nsc_la_sa > 0), dilutes the whole stem's loss, L -> L (1 - rho), as leaf
-! renewal dilutes the leaf's (random replacement of old and new xylem,
-! intact and embolised alike, one pool; no cap, damage term or background
-! floor). The store paces it through W: NPP, the turgor, cold and season
-! gates, the flush and the accessible store (triffid_nsc_ring_renewal).
-! (The store-paid proportional repair rule 2 had before, which paid the
-! rule-1 carbon for a rho e_old / (1 - r_n) gain, was removed.)
+! so the carbon budget is that of no recovery. The ring's share of the
+! stem conductance,
+!   rho = nsc_xylem_cond_ratio G dt / X,
+! with X the conducting sapwood (nsc_sapwood_frac woodc, or with
+! nsc_la_sa > 0 the pipe model on the balanced leaf area as in FATES,
+! X = LAI_bal / nsc_la_sa h nsc_wood_density cmass) and
+! nsc_xylem_cond_ratio the new xylem's conductance per unit carbon
+! relative to the mean sapwood, dilutes the whole stem's loss,
+! L -> L (1 - rho), as leaf renewal dilutes the leaf's (random
+! replacement of old and new xylem, intact and embolised alike, one pool;
+! no cap, damage term or background floor). The store paces it through W:
+! NPP, the turgor, cold and season gates, the flush and the accessible
+! store (triffid_nsc_ring_renewal). With l_ximpair_leaf_loss the canopy
+! is shed in proportion to the stem's functional xylem (Trugman et al.
+! Eqn 2).
+! (The store-paid repair, Trugman et al. Eqn 5, with its replacement
+! rules 0 and 1, ring-porous earlywood rebuild, cambial cap, background
+! loss and growth gate, nsc_xylem_replace, nsc_xylem_type,
+! nsc_xylem_rate_max, nsc_plc_background, nsc_ring_mmdd and
+! ximpair_psi_growth, was removed on 26/10/26; it is in the git history
+! at 6133017.)
 !
-! W_max hold. Rules 0 and 1: W_max is held while the stem is damaged
-! (ximpair_lock > nsc_hold_plc), as Trugman et al. hold it through
-! recovery: the damaged plant keeps loading for the intact sink, which is
-! what runs the store down. Rule 2: a stem renewed by its rings keeps a
+! W_max hold (with stem recovery on): a stem renewed by its rings keeps a
 ! legacy loss for decades, which would freeze W_max, so the running mean
-! of NPP is held only while the stem takes new drought damage: at a store
-! step where
+! of NPP is held only while the stem takes new drought damage, as
+! Trugman et al. hold it through recovery: at a store step where
 !   P >= L - 1e-6   and   P > nsc_hold_plc,
 ! with L = ximpair_lock, the locked stem loss, and P = 1 -
 ! ximpair_fmin_acc, the worst loss the water status imposed (a memory of
 ! the worst intact stem fraction with e-folding nsc_repair_window, taken
-! before this step's decay). nsc_hold_plc is an absolute stem loss, as
-! for rules 0 and 1. P reaches L only when the embolism ratchet is
-! binding, i.e. the drought is adding loss beyond what the stem already
-! carries, in this store step. Any binding ratchet counts, however small
-! the new damage: at a site with repeated, similar dry summers, a summer
-! that comes within the year's ring dilution of the legacy loss holds the
-! mean too. Summer losses below the legacy loss are not held. For a
-! nsc_repair_window much shorter than the ring renewal time (dt / rho,
-! decades) the hold usually ends at the first store step without new
-! damage: the decayed memory then falls below L (e.g. with a 60-day
-! window and a 10-day TRIFFID period, P drops 15 % a step). Two
-! exceptions: past kcrit the stem cap is floored at kcrit, so P exceeds
-! L and the hold runs on for about ln(P / L) nsc_repair_window / dt
-! more steps while the memory decays; and with a window longer than
-! about dt / rho the memory decays more slowly than the rings dilute L,
-! so the hold need not end. Never held in spin-up (the impairment is
-! frozen there, so there is no new damage). nsc_wmax_hold_pft is 1 when
-! the mean was held (diagnostic).
+! before this step's decay). nsc_hold_plc is an absolute stem loss.
+! P reaches L only when the embolism ratchet is binding, i.e. the drought
+! is adding loss beyond what the stem already carries, in this store
+! step. Any binding ratchet counts, however small the new damage: at a
+! site with repeated, similar dry summers, a summer that comes within the
+! year's ring dilution of the legacy loss holds the mean too. Summer
+! losses below the legacy loss are not held. For a nsc_repair_window much
+! shorter than the ring renewal time (dt / rho, decades) the hold usually
+! ends at the first store step without new damage: the decayed memory
+! then falls below L (e.g. with a 60-day window and a 10-day TRIFFID
+! period, P drops 15 % a step). Two exceptions: past kcrit the stem cap
+! is floored at kcrit, so P exceeds L and the hold runs on for about
+! ln(P / L) nsc_repair_window / dt more steps while the memory decays;
+! and with a window longer than about dt / rho the memory decays more
+! slowly than the rings dilute L, so the hold need not end. Never held in
+! spin-up (the impairment is frozen there, so there is no new damage), nor
+! without stem recovery (l_ximpair_rec_nsc off: no new-damage memory).
+! nsc_wmax_hold_pft is 1 when the mean was held (diagnostic).
 !
 ! Turgor-limited sink (nsc_psi_turg_zero set): growth needs turgor (Lockhart),
 ! so the release is limited by the plant's water status, not only by the
@@ -177,9 +131,7 @@ MODULE triffid_nsc_mod
 ! the year's new leaf carbon, g_leaf_0 x leaf carbon, is drawn from the
 ! accessible store evenly over nsc_flush_days days (part of W, like the
 ! regrowth after drought shedding). The draw only moves when carbon leaves
-! the store: over a year the release still balances NPP. The growing
-! season then gates only the cambium: xylem repair and its cap are scaled
-! by the share of the store step's days inside it.
+! the store: over a year the release still balances NPP.
 !
 ! Leaf renewal (l_ximpair_rec_leaf_turn, with the per-segment memory): new
 ! leaves arrive intact, so the leaf segment's loss falls by the fraction of
@@ -235,8 +187,9 @@ MODULE triffid_nsc_mod
 ! runs for that PFT with a one-day step. Leaf, root and wood carbon come
 ! from the prescribed height through the TRIFFID allometry
 ! (calc_c_comps_triffid at the balanced LAI). The release W leaves the store
-! (there is no growth to feed), the repair rebuilds the stem cap as with
-! TRIFFID, and nsc_starv is a diagnostic only (the PFT fractions are fixed).
+! (there is no growth to feed), there is no stem recovery (it needs TRIFFID
+! wood growth), and nsc_starv is a diagnostic only (the PFT fractions are
+! fixed).
 !
 ! MDK, 26/10/26
 !
@@ -249,7 +202,7 @@ IMPLICIT NONE
 PRIVATE
 
 PUBLIC :: nsc_wmax_hold_pft, nsc_xylem_prod_pft, nsc_xylem_renew_pft   ! MDK, 25/10/26
-PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft, nsc_repair_pft,     &
+PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,                     &
           nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft,  &
           nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, phen_nhigh,         &
           phen_fbleaf, nsc_regrow_acc, phen_psi_update,                        &
@@ -264,10 +217,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_pft(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_mean(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_wt(:,:)
 ! Diagnostics of the last TRIFFID step (kg C m-2 per 360 days): the carbon
-! released from the store (W, which TRIFFID grows from), the part of it
-! that rebuilt xylem, and the net flux into the store (NPP - W).
+! released from the store (W, which TRIFFID grows from) and the net flux
+! into the store (NPP - W).
+!
+! MDK, 26/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_load_pft(:,:)
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_repair_pft(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_dc_pft(:,:)
 ! Overflow respiration of the last store step (kg C m-2 per 360 days).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_resp_pft(:,:)
@@ -276,7 +230,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_resp_pft(:,:)
 !
 ! MDK, 25/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_wmax_hold_pft(:,:)
-! Ring renewal (rule 2), last TRIFFID step: the new ring, TRIFFID's
+! Ring renewal (stem recovery), last TRIFFID step: the new ring, TRIFFID's
 ! gross wood production G (kg C m-2 of the PFT per 360 days; the wood
 ! TRIFFID grows, not extra), and the share of the stem conductance it
 ! renews, w_cond G / X (per 360 days). Diagnostics.
@@ -349,10 +303,6 @@ IF (.NOT. ALLOCATED(nsc_load_pft)) THEN
   ALLOCATE(nsc_load_pft(n_land_pts, npft))
   nsc_load_pft(:,:) = 0.0
 END IF
-IF (.NOT. ALLOCATED(nsc_repair_pft)) THEN
-  ALLOCATE(nsc_repair_pft(n_land_pts, npft))
-  nsc_repair_pft(:,:) = 0.0
-END IF
 IF (.NOT. ALLOCATED(nsc_dc_pft)) THEN
   ALLOCATE(nsc_dc_pft(n_land_pts, npft))
   nsc_dc_pft(:,:) = 0.0
@@ -410,36 +360,30 @@ END SUBROUTINE triffid_nsc_alloc
 
 ! ---------------------------------------------------------------------
 ! One TRIFFID step of the store. On return npp holds W, the carbon released
-! from the store (kg C m-2 per 360 days), and repair the part of W that
-! rebuilds xylem (TRIFFID grows from W - repair; the repair goes to
-! litter). The repaired fraction of conductance is queued in
-! ximpair_repair_pend for the next xylem impairment update.
+! from the store (kg C m-2 per 360 days), which TRIFFID grows from. With
+! stem recovery (l_ximpair_rec_nsc) it also sets the W_max hold and decays
+! the memory of the worst imposed stem loss (ximpair_fmin_acc); the ring
+! renewal itself is triffid_nsc_ring_renewal, after vegcarb.
+!
+! MDK, 26/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,         &
-                              woodc, leafc, rootc, ht, lai_bal, npp, repair,   &
-                              pft_only )
+                              leafc, rootc, npp, pft_only )
 
 USE jules_surface_types_mod, ONLY: npft, nnpft
 USE pftparm, ONLY: is_set, nsc_in_flush_window, nsc_limits_on   ! MDK, 24/10/26
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,    &
-                                l_triffid, l_nsc_wmax_norm
+                                l_nsc_wmax_norm
 USE datetime_utils_mod, ONLY: day_of_year, days_in_year
 USE time_info_mod, ONLY: l_360, l_leap
-USE calc_c_comps_triffid_mod, ONLY: sapwood_c   ! MDK, 20/10/26
 USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                       &
                    nsc_flush, nsc_kc, nsc_reserve_frac, nsc_tau_load,          &
                    nsc_wmax_fac, nsc_hold_plc,                                 &
-                   nsc_g_starv, ximpair_psi_growth, nsc_repair_window,         &
-                   nsc_plc_background,                                         &
+                   nsc_g_starv, nsc_repair_window,                             &
                    nsc_psi_turg_zero, nsc_t_grow_zero, nsc_overflow_resp,      &
-                   nsc_xylem_type, nsc_xylem_rate_max, nsc_ring_mmdd,          &
-                   nsc_cmax, nsc_grow_start_doy, nsc_grow_end_doy,             &
-                   nsc_flush_start_doy, nsc_flush_days
-USE pftparm, ONLY: nsc_xylem_replace   ! MDK, 25/10/26
+                   nsc_cmax, nsc_flush_start_doy, nsc_flush_days
 USE model_time_mod, ONLY: current_time, is_spinup   ! is_spinup: MDK, 24/10/26
-USE trif, ONLY: g_root, g_wood
-USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_repair_pend,      &
-                                       ximpair_grow_acc, ximpair_fmin_acc,     &
+USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_fmin_acc,         &
                                        ximpair_memory_alloc
 
 USE parkind1, ONLY: jprb, jpim
@@ -456,25 +400,15 @@ INTEGER, INTENT(IN) ::                                                         &
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   r_gamma,                                                                     &
     ! Inverse TRIFFID timestep (/360 days).
-  woodc(land_pts,npft),                                                        &
-    ! Wood carbon (kg C m-2).
   leafc(land_pts,npft),                                                        &
     ! Leaf carbon at the balanced LAI (kg C m-2).
-  rootc(land_pts,npft),                                                        &
+  rootc(land_pts,npft)
     ! Root carbon (kg C m-2).
-  ht(land_pts,npft),                                                           &
-    ! Canopy height (m).
-  lai_bal(land_pts,npft)
-    ! Balanced LAI (for the pipe-model xylem, nsc_la_sa > 0).
 
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
   npp(land_pts,npft)
     ! IN NPP, OUT the carbon released from the store, W
     ! (kg C m-2 per 360 days).
-
-REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
-  repair(land_pts,npft)
-    ! Carbon rebuilding xylem (kg C m-2 per 360 days), part of W.
 
 INTEGER, INTENT(IN), OPTIONAL :: pft_only
     ! Only this PFT (the daily step without TRIFFID); all PFTs if absent.
@@ -493,19 +427,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   c_old,                                                                       &
     ! Store at the start of the step (kg C m-2).
   plc,                                                                         &
-    ! Repair: stem loss of conductance (0-1).
-  x_s,                                                                         &
-    ! Repair: conducting xylem (kg C m-2).
-  l_tot,                                                                       &
-    ! Repair: leaf and fine root of the intact plant (kg C m-2).
-  turn_l,                                                                      &
-    ! Repair: turnover TRIFFID charges against growth (per 360 days).
-  u,                                                                           &
-    ! Repair: share of W that rebuilds xylem.
-  f_grow,                                                                      &
-    ! Repair: growth gate (0-1).
-  plc_rep,                                                                     &
-    ! Repair: repairable loss of conductance (0-1).
+    ! Stem loss of conductance (0-1).
   f_turg,                                                                      &
     ! Turgor-limited sink: turgor factor (0-1).
   c_acc_max,                                                                   &
@@ -513,32 +435,29 @@ REAL(KIND=real_jlslsm) ::                                                      &
   w_regrow
     ! Phenology regrowth drawn from the store (per 360 days).
     !
-    ! MDK, 24/10/26
-LOGICAL :: l_rep, l_mem, l_turg, l_ring_now, l_flush
-    ! Xylem repair on, memory impairment model, growth limits on, earlywood
-    ! rebuild in this store step, leaf flush on.
-    !
-    ! MDK, 24/10/26
-INTEGER :: doy_now, doy_ring, k, d, nd
-    ! Day of year now and of nsc_ring_mmdd; day counter, day of year and
-    ! number of days of this store step.
-    !
-    ! MDK, 24/10/26
-REAL(KIND=real_jlslsm) :: f_flush, f_stem, w_flush
-    ! Leaf flush: share of the year's flush in this step, share of the
-    ! step's days in the growing season (cambium), flush draw (per 360 days).
-REAL(KIND=real_jlslsm) :: x_r
-    ! Ring-porous: earlywood ring (kg C m-2).
-    !
-    ! MDK, 24/10/26
-REAL(KIND=real_jlslsm) :: plc_hold, plc_imp
-    ! W_max hold: the loss tested against nsc_hold_plc; rule 2, the worst
-    ! loss the water status imposed, 1 - ximpair_fmin_acc.
+    ! MDK, 26/10/26
+LOGICAL :: l_rep, l_mem, l_turg, l_flush
+    ! Stem recovery on (ring renewal and the W_max hold), memory
+    ! impairment model, growth limits on, leaf flush on.
     !
     ! MDK, 26/10/26
-LOGICAL :: l_ring, l_held
-    ! Ring renewal for this PFT (nsc_xylem_replace = 2: no store repair);
-    ! the running mean of NPP held at this point.
+INTEGER :: doy_now, k, d, nd
+    ! Day of year now; day counter, day of year and number of days of
+    ! this store step.
+    !
+    ! MDK, 26/10/26
+REAL(KIND=real_jlslsm) :: f_flush, w_flush
+    ! Leaf flush: share of the year's flush in this step, flush draw (per
+    ! 360 days).
+    !
+    ! MDK, 26/10/26
+REAL(KIND=real_jlslsm) :: plc_hold, plc_imp
+    ! W_max hold: the loss tested against nsc_hold_plc, and the worst loss
+    ! the water status imposed, 1 - ximpair_fmin_acc.
+    !
+    ! MDK, 26/10/26
+LOGICAL :: l_held
+    ! The running mean of NPP held at this point.
     !
     ! MDK, 26/10/26
 INTEGER :: n_days
@@ -546,10 +465,8 @@ INTEGER :: n_days
     !
     ! MDK, 24/10/26
 
-REAL(KIND=real_jlslsm), PARAMETER :: x_min = 1.0e-6
-    ! Minimum conducting xylem for repair (kg C m-2).
 REAL(KIND=real_jlslsm), PARAMETER :: tol_ratchet = 1.0e-6
-    ! Rule-2 W_max hold: the imposed loss counts as at the locked loss (the
+    ! W_max hold: the imposed loss counts as at the locked loss (the
     ! embolism ratchet binding: new damage) within this (the ratchet sets
     ! the two equal to rounding).
     !
@@ -565,7 +482,6 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 CALL triffid_nsc_alloc( land_pts )
 
 dt = 1.0 / r_gamma
-repair(:,:) = 0.0
 n1 = 1
 n2 = nnpft
 IF (PRESENT(pft_only)) THEN
@@ -577,59 +493,31 @@ DO n = n1,n2
 
   l_mem = pft_xylem_impairment_model(n) == xylem_impairment_memory
   ! Not in spin-up: the impairment is frozen there (the update skips it),
-  ! so the store would pay for the same loss at every step. MDK, 24/10/26
-  l_rep = l_ximpair_rec_nsc .AND. l_mem .AND. .NOT. is_spinup
-  IF (l_rep) CALL ximpair_memory_alloc( land_pts )
-  ! Rule 2: ring renewal (triffid_nsc_ring_renewal) instead of the store
-  ! repair, and the new-damage W_max hold.
+  ! so there is no new damage to hold W_max for.
   !
   ! MDK, 26/10/26
-  l_ring = nsc_xylem_replace(n) == 2
+  l_rep = l_ximpair_rec_nsc .AND. l_mem .AND. .NOT. is_spinup
+  IF (l_rep) CALL ximpair_memory_alloc( land_pts )
 
   a_mean = MIN(dt / MAX(nsc_tau_load(n), TINY(1.0_real_jlslsm)), 1.0)
   l_turg = nsc_limits_on(n)
   ! Leaf flush: days of this store step (the nd days up to today) in the
-  ! flush and in the growing season.
+  ! flush.
   !
-  ! MDK, 20/10/26
+  ! MDK, 26/10/26
   l_flush = is_set(nsc_flush_start_doy(n))
   f_flush = 0.0
-  f_stem  = 1.0
   IF (l_flush) THEN
     n_days  = days_in_year(current_time%year, l_360, l_leap)
     doy_now = day_of_year(current_time%year, current_time%month,               &
                           current_time%day, l_360, l_leap)
     nd = MAX(NINT(dt * 360.0), 1)
-    f_stem = 0.0
     DO k = 0,nd-1
       d = MODULO(doy_now - k - 1, n_days) + 1
       ! The flush window may cross the year end.
       IF (nsc_in_flush_window(n, d, n_days))                                   &
         f_flush = f_flush + 1.0 / REAL(NINT(nsc_flush_days(n)))
-      ! Only the start of the stem window: its end is already in the
-      ! growth factor (the release season).
-      IF (.NOT. is_set(nsc_grow_start_doy(n)) .OR.                             &
-          REAL(d) >= nsc_grow_start_doy(n))                                    &
-        f_stem = f_stem + 1.0 / REAL(nd)
     END DO
-  END IF
-  ! Ring-porous: is the earlywood date within this store step?
-  l_ring_now = .FALSE.
-  IF (nsc_xylem_type(n) == 2) THEN
-    n_days   = days_in_year(current_time%year, l_360, l_leap)
-    doy_now  = day_of_year(current_time%year, current_time%month,              &
-                           current_time%day, l_360, l_leap)
-    IF (l_360) THEN
-      doy_ring = day_of_year(current_time%year, nsc_ring_mmdd(n) / 100,        &
-                             MIN(MOD(nsc_ring_mmdd(n), 100), 30), l_360,       &
-                             l_leap)
-    ELSE
-      doy_ring = day_of_year(current_time%year, nsc_ring_mmdd(n) / 100,        &
-                             MOD(nsc_ring_mmdd(n), 100), l_360, l_leap)
-    END IF
-    doy_ring = MIN(doy_ring, n_days)
-    ! Within this store step, wrapping over the new year.
-    l_ring_now = MODULO(doy_now - doy_ring, n_days) < MAX(NINT(dt * 360.0), 1)
   END IF
 
   DO t = 1,trif_pts
@@ -641,34 +529,24 @@ DO n = n1,n2
     IF (nsc_pft(l,n) < 0.0) nsc_pft(l,n) = c_max
     c_old = nsc_pft(l,n)
 
-    ! Stem loss of conductance (0 before the first impairment update).
-    plc = 0.0
-    IF (l_mem .AND. ALLOCATED(ximpair_lock))                                   &
-      plc = MIN(MAX(ximpair_lock(l,n), 0.0), 1.0)
-
-    ! Maximum loading from the running mean of NPP (bias-corrected), held
-    ! while the stem is damaged. Not held until the mean has formed (one
-    ! e-folding of weight): a run started without spin-up in a damaged
-    ! season, or with the store switched on from a damaged dump, otherwise
-    ! had W_max = 0 for good (no release, so no repair to lift the hold).
-    ! Rule 2 (ring renewal): held only while the stem takes new drought
+    ! Maximum loading from the running mean of NPP (bias-corrected). Not
+    ! held until the mean has formed (one e-folding of weight): a run
+    ! started without spin-up in a damaged season, or with the store
+    ! switched on from a damaged dump, otherwise had W_max = 0 for good.
+    ! With stem recovery, held only while the stem takes new drought
     ! damage, i.e. the worst loss the water status imposed (P = 1 -
-    ! ximpair_fmin_acc, before its decay below) is at the locked loss (the
-    ! embolism ratchet is binding) and above nsc_hold_plc. The threshold
-    ! is an absolute stem loss, as for rules 0 and 1 (no background
-    ! subtracted), so nsc_hold_plc means the same for every rule. A legacy
-    ! loss the rings only slowly dilute, and summer losses below it, do
-    ! not hold W_max. Never held in spin-up (l_rep false: the impairment
-    ! is frozen, no new damage).
+    ! ximpair_fmin_acc, before its decay below) is at the locked loss L
+    ! (the embolism ratchet is binding) and above nsc_hold_plc, an
+    ! absolute stem loss. A legacy loss the rings only slowly dilute, and
+    ! summer losses below it, do not hold W_max. Never held in spin-up or
+    ! without stem recovery (l_rep false).
     !
     ! MDK, 26/10/26
-    plc_hold = plc
-    IF (l_ring) THEN
-      plc_hold = 0.0
-      IF (l_rep) THEN
-        plc_imp = 1.0 - MIN(MAX(ximpair_fmin_acc(l,n), 0.0), 1.0)
-        IF (plc_imp >= plc - tol_ratchet) plc_hold = plc_imp
-      END IF
+    plc_hold = 0.0
+    IF (l_rep) THEN
+      plc = MIN(MAX(ximpair_lock(l,n), 0.0), 1.0)
+      plc_imp = 1.0 - MIN(MAX(ximpair_fmin_acc(l,n), 0.0), 1.0)
+      IF (plc_imp >= plc - tol_ratchet) plc_hold = plc_imp
     END IF
     l_held = .TRUE.
     IF (plc_hold <= nsc_hold_plc(n) .OR.                                       &
@@ -755,23 +633,12 @@ DO n = n1,n2
                            * MAX(1.0 - c_acc / (nsc_kc(n) * c_max), 0.0)
     END IF
 
-    ! Xylem repair from the released carbon, only while the root zone is
-    ! wetter than ximpair_psi_growth (if set).
-    f_grow  = 1.0
-    plc_rep = 0.0
+    ! The memory of the worst intact stem fraction decays back to intact
+    ! with e-folding time nsc_repair_window (days; 0 = reset), for the
+    ! W_max hold.
+    !
+    ! MDK, 26/10/26
     IF (l_rep) THEN
-      IF (is_set(ximpair_psi_growth(n)))                                       &
-        f_grow = MIN(MAX(ximpair_grow_acc(l,n), 0.0), 1.0)
-      ! With the leaf flush, only in the growing season (cambium).
-      f_grow = f_grow * f_stem
-      ximpair_grow_acc(l,n) = 0.0
-      ! Only the loss the water status of the recent past does not
-      ! re-impose. The memory of the worst stem conductance decays back to
-      ! intact with e-folding time nsc_repair_window (days; 0 = reset).
-      plc_rep = MAX(plc - (1.0 - MIN(MAX(ximpair_fmin_acc(l,n), 0.0), 1.0)),   &
-                    0.0)
-      ! Loss up to nsc_plc_background is background embolism, not repaid.
-      plc_rep = MAX(MIN(plc_rep, plc - nsc_plc_background(n)), 0.0)
       IF (nsc_repair_window(n) > 0.0) THEN
         ximpair_fmin_acc(l,n) = 1.0 - (1.0 - ximpair_fmin_acc(l,n))            &
                                 * EXP(-dt * 360.0 / nsc_repair_window(n))
@@ -779,58 +646,9 @@ DO n = n1,n2
         ximpair_fmin_acc(l,n) = 1.0
       END IF
     END IF
-    ! Ring renewal (rule 2): no repair from the store; the new ring is
-    ! TRIFFID's own wood growth (triffid_nsc_ring_renewal, after vegcarb).
-    !
-    ! MDK, 26/10/26
-    IF (l_rep .AND. .NOT. l_ring .AND.                                         &
-        (w > 0.0 .OR. nsc_xylem_type(n) == 2)) THEN
-      ! Pipe model on the balanced leaf area, or a fraction of the wood.
-      x_s = sapwood_c(n, ht(l,n), lai_bal(l,n), woodc(l,n))   ! MDK, 20/10/26
-      IF (nsc_xylem_type(n) == 2) THEN
-        ! Ring-porous: the earlywood rebuild, once a year, from the store
-        ! (not gated by the turgor or growth limits, nor capped: the new
-        ! ring is the conducting system, built at the spring date).
-        x_r = nsc_xylem_rate_max(n) * x_s
-        IF (l_ring_now .AND. plc_rep > 0.0 .AND. x_r > x_min) THEN
-          repair(l,n) = MIN(plc_rep * x_r,                                     &
-                            MAX(nsc_pft(l,n) - c_res, 0.0)) / dt
-          nsc_pft(l,n) = nsc_pft(l,n) - repair(l,n) * dt
-          w = w + repair(l,n)
-          ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                  &
-                                     + repair(l,n) * dt / x_r
-        END IF
-      ELSE IF (plc_rep > 0.0 .AND. x_s > x_min) THEN
-        ! X and L both scale with f_x, so X / (X + L) is that of the intact
-        ! plant; the turnover is what TRIFFID charges against the growth
-        ! W - repair (leaves kept, all roots, wood).
-        l_tot  = leafc(l,n) + rootc(l,n)
-        IF (l_triffid) THEN
-          turn_l = (1.0 - plc) * g_leaf_0(n) * leafc(l,n)                      &
-                   + g_root(n) * rootc(l,n) + g_wood(n) * woodc(l,n)
-        ELSE
-          ! Without TRIFFID (no TRIFFID turnover to keep up; the trif
-          ! parameters are not read): their leaf and fine-root turnover of
-          ! what is kept, at g_leaf_0, and m_X = 0.
-          turn_l = (1.0 - plc) * g_leaf_0(n) * l_tot
-        END IF
-        ! The leaf flush's carbon is for leaves: not shared with xylem.
-        u = x_s / (x_s + l_tot) * MAX(1.0 - turn_l / MAX(w - w_flush,          &
-                                                         TINY(1.0)), 0.0)
-        repair(l,n) = MIN(f_grow * u * MAX(w - w_flush, 0.0),                  &
-                          plc_rep * x_s / dt)
-        ! Cambial production limit.
-        IF (nsc_xylem_rate_max(n) > 0.0)                                       &
-          repair(l,n) = MIN(repair(l,n), nsc_xylem_rate_max(n) * f_turg        &
-                                         * f_stem * x_s)
-        ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                    &
-                                   + repair(l,n) * dt / x_s
-      END IF
-    END IF
 
     npp(l,n)            = w
     nsc_load_pft(l,n)   = w
-    nsc_repair_pft(l,n) = repair(l,n)
     nsc_dc_pft(l,n)     = (nsc_pft(l,n) - c_old) * r_gamma
 
   END DO
@@ -1135,8 +953,10 @@ END SUBROUTINE phen_psi_update
 ! ---------------------------------------------------------------------
 ! The store without TRIFFID (l_triffid off), called from sf_stom every time
 ! step for PFT ft after NPP: sums the day's NPP, and at the last time step of
-! the day runs the store step for ft with a one-day step, with leaf, root
-! and wood carbon from the prescribed height (TRIFFID allometry).
+! the day runs the store step for ft with a one-day step, with leaf and
+! root carbon from the prescribed height (TRIFFID allometry).
+!
+! MDK, 26/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_daily( land_pts, veg_pts, veg_index, ft, timestep,      &
                               ht, npp )
@@ -1167,16 +987,15 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
     ! NPP of this time step (kg C m-2 s-1).
 
 INTEGER :: j, l
-REAL(KIND=real_jlslsm) :: c_veg, lai_b
-    ! Vegetation carbon (kg C m-2) and balanced LAI from the allometry.
+REAL(KIND=real_jlslsm) :: c_veg, lai_b, woodc
+    ! Vegetation carbon (kg C m-2), balanced LAI and wood carbon (kg C m-2)
+    ! from the allometry.
     !
-    ! MDK, 24/10/26
-REAL(KIND=real_jlslsm), ALLOCATABLE :: woodc(:,:), leafc(:,:), rootc(:,:),     &
-                                       npp_d(:,:), repair(:,:), ht_p(:,:),     &
-                                       laib_p(:,:)
+    ! MDK, 26/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE :: leafc(:,:), rootc(:,:), npp_d(:,:)
     ! Inputs and outputs of triffid_nsc_store for this PFT (see there).
     !
-    ! MDK, 24/10/26
+    ! MDK, 26/10/26
 
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_day = 86400.0
 REAL(KIND=real_jlslsm), PARAMETER :: days_per_trif_year = 360.0
@@ -1201,39 +1020,31 @@ IF (REAL(current_time%time) + timestep < sec_per_day - 0.5) THEN
   RETURN
 END IF
 
-ALLOCATE(woodc(land_pts,npft), leafc(land_pts,npft), rootc(land_pts,npft),     &
-         npp_d(land_pts,npft), repair(land_pts,npft), ht_p(land_pts,npft),     &
-         laib_p(land_pts,npft))
-woodc(:,:) = 0.0
-ht_p(:,:) = 0.0
-laib_p(:,:) = 0.0
+ALLOCATE(leafc(land_pts,npft), rootc(land_pts,npft), npp_d(land_pts,npft))
 leafc(:,:) = 0.0
 rootc(:,:) = 0.0
 npp_d(:,:) = 0.0
 DO j = 1,veg_pts
   l = veg_index(j)
   CALL calc_c_comps_triffid(ft, ht(l), lai_b, leafc(l,ft), rootc(l,ft),        &
-                            woodc(l,ft), c_veg)
-  ht_p(l,ft)   = ht(l)
-  laib_p(l,ft) = lai_b
+                            woodc, c_veg)
   ! The day's NPP (kg C m-2) as a rate per 360 days (TRIFFID units).
   npp_d(l,ft) = nsc_npp_day(l,ft) * days_per_trif_year
   nsc_npp_day(l,ft) = 0.0
 END DO
 
 CALL triffid_nsc_store( land_pts, veg_pts, veg_index, days_per_trif_year,      &
-                        woodc, leafc, rootc, ht_p, laib_p, npp_d, repair,      &
-                        pft_only = ft )
+                        leafc, rootc, npp_d, pft_only = ft )
 
-DEALLOCATE(woodc, leafc, rootc, npp_d, repair, ht_p, laib_p)
+DEALLOCATE(leafc, rootc, npp_d)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE triffid_nsc_daily
 
 ! ---------------------------------------------------------------------
-! Ring renewal (nsc_xylem_replace = 2, with l_ximpair_rec_nsc): called by
-! triffid after vegcarb. The new ring is TRIFFID's gross wood production of
+! Stem recovery by ring renewal (l_ximpair_rec_nsc): called by triffid
+! after vegcarb. The new ring is TRIFFID's gross wood production of
 ! the step, G = dwood / dt + g_wood C_W,old (wood_litc, the turnover
 ! replaced), per 360 days, never negative. Its share of the stem
 ! conductance, nsc_xylem_cond_ratio G dt / X (X the conducting sapwood
@@ -1250,8 +1061,7 @@ SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
 
 USE jules_surface_types_mod, ONLY: npft, nnpft
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory
-USE pftparm, ONLY: pft_xylem_impairment_model, nsc_xylem_replace,              &
-                   nsc_xylem_cond_ratio
+USE pftparm, ONLY: pft_xylem_impairment_model, nsc_xylem_cond_ratio
 USE calc_c_comps_triffid_mod, ONLY: sapwood_c
 USE model_time_mod, ONLY: is_spinup
 USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend,                    &
@@ -1305,8 +1115,7 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
   CALL triffid_nsc_alloc( land_pts )
   CALL ximpair_memory_alloc( land_pts )
   DO n = 1,nnpft
-    IF (nsc_xylem_replace(n) /= 2 .OR.                                         &
-        pft_xylem_impairment_model(n) /= xylem_impairment_memory) CYCLE
+    IF (pft_xylem_impairment_model(n) /= xylem_impairment_memory) CYCLE
     DO t = 1,trif_pts
       l = trif_index(t)
       nsc_xylem_prod_pft(l,n)  = 0.0

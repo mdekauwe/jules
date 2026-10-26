@@ -24,8 +24,7 @@ USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, ainfo, trif_vars,      &
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
-    ximpair_repair_pend, ximpair_grow_acc, ximpair_fmin_acc, ximpair_rebuilt,  &
-    ximpair_lock_new, ximpair_area_w
+    ximpair_repair_pend, ximpair_fmin_acc, ximpair_area_w
 USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
                              phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
@@ -233,10 +232,9 @@ DO i = 1,nvars
            'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',             &
            'ximpair_kcap_leaf', 'ximpair_psi_stem', 'ximpair_area_w',          &
            'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt',   &
-           'ximpair_rebuilt', 'ximpair_lock_new',                              &
            'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc',           &
            'gpp_acc', 'hydmort_pref', 'hydmort_dead', 'hydmort_plc_peak',      &
-           'ximpair_grow_acc', 'ximpair_fmin_acc', 'nsc_npp_day',              &
+           'ximpair_fmin_acc', 'nsc_npp_day',                                  &
            'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',      &
            'cpl_gbw_shd', 'cpl_ra_ca',                                         &
            'nsc_turg_acc', 'nsc_t_run',                                        &
@@ -694,28 +692,10 @@ DO i = 1,nvars
     END DO
 
   ! MDK, 17/10/26
-  CASE ( 'ximpair_rebuilt' )
-    CALL ximpair_memory_alloc( land_pts )
-    DO n = 1,npft
-      CALL scatter_land_field(global_data_2d(:,n), ximpair_rebuilt(:,n))
-    END DO
-
-  CASE ( 'ximpair_lock_new' )
-    CALL ximpair_memory_alloc( land_pts )
-    DO n = 1,npft
-      CALL scatter_land_field(global_data_2d(:,n), ximpair_lock_new(:,n))
-    END DO
-
   CASE ( 'ximpair_repair_pend' )
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), ximpair_repair_pend(:,n))
-    END DO
-
-  CASE ( 'ximpair_grow_acc' )
-    CALL ximpair_memory_alloc( land_pts )
-    DO n = 1,npft
-      CALL scatter_land_field(global_data_2d(:,n), ximpair_grow_acc(:,n))
     END DO
 
   CASE ( 'ximpair_fmin_acc' )

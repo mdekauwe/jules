@@ -9787,7 +9787,7 @@ DATA metadata(755) / var_metadata(                                             &
   ) /
 !-----------------------------------------------------------------------------
 ! Metadata for ximpair_repair_pend
-! MDK, 17/10/26
+! MDK, 26/10/26
 !-----------------------------------------------------------------------------
 DATA metadata(756) / var_metadata(                                             &
 ! String identifier
@@ -9795,7 +9795,7 @@ DATA metadata(756) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Stem conductance rebuilt from the TRIFFID store, queued / kmax",          &
+    "Share of the stem renewed by new wood rings, queued (ring renewal)",      &
 ! Units
     "1"                                                                        &
   ) /
@@ -9852,35 +9852,9 @@ DATA metadata(760) / var_metadata(                                             &
     "kg m-2 per 360days"                                                       &
   ) /
 !-----------------------------------------------------------------------------
-! Metadata for nsc_repair
-!-----------------------------------------------------------------------------
-DATA metadata(761) / var_metadata(                                             &
-! String identifier
-    'nsc_repair',                                                              &
-! Variable type
-    var_type_pft,                                                              &
-! Long name
-    "Carbon from the TRIFFID store rebuilding xylem (l_ximpair_rec_nsc)",      &
-! Units
-    "kg m-2 per 360days"                                                       &
-  ) /
-!-----------------------------------------------------------------------------
-! Metadata for ximpair_grow_acc
-!-----------------------------------------------------------------------------
-DATA metadata(762) / var_metadata(                                             &
-! String identifier
-    'ximpair_grow_acc',                                                        &
-! Variable type
-    var_type_pft,                                                              &
-! Long name
-    "Time above ximpair_psi_growth since the TRIFFID step / TRIFFID period",   &
-! Units
-    "1"                                                                        &
-  ) /
-!-----------------------------------------------------------------------------
 ! Metadata for nsc_starv
 !-----------------------------------------------------------------------------
-DATA metadata(763) / var_metadata(                                             &
+DATA metadata(761) / var_metadata(                                             &
 ! String identifier
     'nsc_starv',                                                               &
 ! Variable type
@@ -9893,7 +9867,7 @@ DATA metadata(763) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for ximpair_fmin_acc
 !-----------------------------------------------------------------------------
-DATA metadata(764) / var_metadata(                                             &
+DATA metadata(762) / var_metadata(                                             &
 ! String identifier
     'ximpair_fmin_acc',                                                        &
 ! Variable type
@@ -9906,7 +9880,7 @@ DATA metadata(764) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for nsc_npp_day
 !-----------------------------------------------------------------------------
-DATA metadata(765) / var_metadata(                                             &
+DATA metadata(763) / var_metadata(                                             &
 ! String identifier
     'nsc_npp_day',                                                             &
 ! Variable type
@@ -9919,7 +9893,7 @@ DATA metadata(765) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for nsc_turg_acc
 !-----------------------------------------------------------------------------
-DATA metadata(766) / var_metadata(                                             &
+DATA metadata(764) / var_metadata(                                             &
 ! String identifier
     'nsc_turg_acc',                                                            &
 ! Variable type
@@ -9932,7 +9906,7 @@ DATA metadata(766) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for nsc_resp
 !-----------------------------------------------------------------------------
-DATA metadata(767) / var_metadata(                                             &
+DATA metadata(765) / var_metadata(                                             &
 ! String identifier
     'nsc_resp',                                                                &
 ! Variable type
@@ -9945,7 +9919,7 @@ DATA metadata(767) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for nsc_t_run
 !-----------------------------------------------------------------------------
-DATA metadata(768) / var_metadata(                                             &
+DATA metadata(766) / var_metadata(                                             &
 ! String identifier
     'nsc_t_run',                                                               &
 ! Variable type
@@ -9958,7 +9932,7 @@ DATA metadata(768) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for nsc_ft_mean
 !-----------------------------------------------------------------------------
-DATA metadata(769) / var_metadata(                                             &
+DATA metadata(767) / var_metadata(                                             &
 ! String identifier
     'nsc_ft_mean',                                                             &
 ! Variable type
@@ -9971,7 +9945,7 @@ DATA metadata(769) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for phen_psi_acc
 !-----------------------------------------------------------------------------
-DATA metadata(770) / var_metadata(                                             &
+DATA metadata(768) / var_metadata(                                             &
 ! String identifier
     'phen_psi_acc',                                                          &
 ! Variable type
@@ -9984,7 +9958,7 @@ DATA metadata(770) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for phen_nlow
 !-----------------------------------------------------------------------------
-DATA metadata(771) / var_metadata(                                             &
+DATA metadata(769) / var_metadata(                                             &
 ! String identifier
     'phen_nlow',                                                             &
 ! Variable type
@@ -9997,7 +9971,7 @@ DATA metadata(771) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for phen_nhigh
 !-----------------------------------------------------------------------------
-DATA metadata(772) / var_metadata(                                             &
+DATA metadata(770) / var_metadata(                                             &
 ! String identifier
     'phen_nhigh',                                                            &
 ! Variable type
@@ -10010,7 +9984,7 @@ DATA metadata(772) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for phen_fbleaf
 !-----------------------------------------------------------------------------
-DATA metadata(773) / var_metadata(                                             &
+DATA metadata(771) / var_metadata(                                             &
 ! String identifier
     'phen_fbleaf',                                                           &
 ! Variable type
@@ -10023,7 +9997,7 @@ DATA metadata(773) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for nsc_regrow_acc
 !-----------------------------------------------------------------------------
-DATA metadata(774) / var_metadata(                                             &
+DATA metadata(772) / var_metadata(                                             &
 ! String identifier
     'nsc_regrow_acc',                                                        &
 ! Variable type
@@ -10037,7 +10011,7 @@ DATA metadata(774) / var_metadata(                                             &
 ! Metadata for t_leaf_clamp_pft
 ! MDK, 18/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(775) / var_metadata(                                             &
+DATA metadata(773) / var_metadata(                                             &
 ! String identifier
     't_leaf_clamp_pft',                                                      &
 ! Variable type
@@ -10048,38 +10022,10 @@ DATA metadata(775) / var_metadata(                                             &
     "1"                                                                       &
   ) /
 !-----------------------------------------------------------------------------
-! Metadata for ximpair_rebuilt
-! MDK, 20/10/26
-!-----------------------------------------------------------------------------
-DATA metadata(776) / var_metadata(                                             &
-! String identifier
-    'ximpair_rebuilt',                                                          &
-! Variable type
-    var_type_pft,                                                              &
-! Long name
-    "Share of the stem xylem rebuilt from the store (two-pool memory)",         &
-! Units
-    "1"                                                                        &
-  ) /
-!-----------------------------------------------------------------------------
-! Metadata for ximpair_lock_new
-! MDK, 20/10/26
-!-----------------------------------------------------------------------------
-DATA metadata(777) / var_metadata(                                             &
-! String identifier
-    'ximpair_lock_new',                                                         &
-! Variable type
-    var_type_pft,                                                              &
-! Long name
-    "Worst loss of conductance of the rebuilt stem xylem (two-pool)",           &
-! Units
-    "1"                                                                        &
-  ) /
-!-----------------------------------------------------------------------------
 ! Metadata for trif_asteps
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(778) / var_metadata(                                             &
+DATA metadata(774) / var_metadata(                                             &
 ! String identifier
     'trif_asteps',                                                              &
 ! Variable type
@@ -10093,7 +10039,7 @@ DATA metadata(778) / var_metadata(                                             &
 ! Metadata for phen_asteps
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(779) / var_metadata(                                               &
+DATA metadata(775) / var_metadata(                                               &
 ! String identifier
     'phen_asteps',                                                             &
 ! Variable type
@@ -10107,7 +10053,7 @@ DATA metadata(779) / var_metadata(                                              
 ! Metadata for npp_acc
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(780) / var_metadata(                                             &
+DATA metadata(776) / var_metadata(                                             &
 ! String identifier
     'npp_acc',                                                                  &
 ! Variable type
@@ -10121,7 +10067,7 @@ DATA metadata(780) / var_metadata(                                             &
 ! Metadata for resp_w_acc
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(781) / var_metadata(                                             &
+DATA metadata(777) / var_metadata(                                             &
 ! String identifier
     'resp_w_acc',                                                               &
 ! Variable type
@@ -10135,7 +10081,7 @@ DATA metadata(781) / var_metadata(                                             &
 ! Metadata for g_leaf_acc
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(782) / var_metadata(                                             &
+DATA metadata(778) / var_metadata(                                             &
 ! String identifier
     'g_leaf_acc',                                                               &
 ! Variable type
@@ -10149,7 +10095,7 @@ DATA metadata(782) / var_metadata(                                             &
 ! Metadata for g_leaf_phen_acc
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(783) / var_metadata(                                             &
+DATA metadata(779) / var_metadata(                                             &
 ! String identifier
     'g_leaf_phen_acc',                                                          &
 ! Variable type
@@ -10163,7 +10109,7 @@ DATA metadata(783) / var_metadata(                                             &
 ! Metadata for gpp_acc
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(784) / var_metadata(                                             &
+DATA metadata(780) / var_metadata(                                             &
 ! String identifier
     'gpp_acc',                                                                  &
 ! Variable type
@@ -10177,7 +10123,7 @@ DATA metadata(784) / var_metadata(                                             &
 ! Metadata for resp_s_acc
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(785) / var_metadata(                                             &
+DATA metadata(781) / var_metadata(                                             &
 ! String identifier
     'resp_s_acc',                                                               &
 ! Variable type
@@ -10191,7 +10137,7 @@ DATA metadata(785) / var_metadata(                                             &
 ! Metadata for fvcmax_psi_state
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(786) / var_metadata(                                             &
+DATA metadata(782) / var_metadata(                                             &
 ! String identifier
     'fvcmax_psi_state',                                                         &
 ! Variable type
@@ -10205,7 +10151,7 @@ DATA metadata(786) / var_metadata(                                             &
 ! Metadata for cpl_gl_sun
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(787) / var_metadata(                                             &
+DATA metadata(783) / var_metadata(                                             &
 ! String identifier
     'cpl_gl_sun',                                                               &
 ! Variable type
@@ -10219,7 +10165,7 @@ DATA metadata(787) / var_metadata(                                             &
 ! Metadata for cpl_gl_shd
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(788) / var_metadata(                                             &
+DATA metadata(784) / var_metadata(                                             &
 ! String identifier
     'cpl_gl_shd',                                                               &
 ! Variable type
@@ -10233,7 +10179,7 @@ DATA metadata(788) / var_metadata(                                             &
 ! Metadata for cpl_gbw_sun
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(789) / var_metadata(                                             &
+DATA metadata(785) / var_metadata(                                             &
 ! String identifier
     'cpl_gbw_sun',                                                              &
 ! Variable type
@@ -10247,7 +10193,7 @@ DATA metadata(789) / var_metadata(                                             &
 ! Metadata for cpl_gbw_shd
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(790) / var_metadata(                                             &
+DATA metadata(786) / var_metadata(                                             &
 ! String identifier
     'cpl_gbw_shd',                                                              &
 ! Variable type
@@ -10261,7 +10207,7 @@ DATA metadata(790) / var_metadata(                                             &
 ! Metadata for cpl_ra_ca
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(791) / var_metadata(                                             &
+DATA metadata(787) / var_metadata(                                             &
 ! String identifier
     'cpl_ra_ca',                                                                &
 ! Variable type
@@ -10275,7 +10221,7 @@ DATA metadata(791) / var_metadata(                                             &
 ! Metadata for d13c_disc_pft
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(792) / var_metadata(                                             &
+DATA metadata(788) / var_metadata(                                             &
 ! String identifier
     'd13c_disc_pft',                                                           &
 ! Variable type
@@ -10289,7 +10235,7 @@ DATA metadata(792) / var_metadata(                                             &
 ! Metadata for phen_gdd
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(793) / var_metadata(                                             &
+DATA metadata(789) / var_metadata(                                             &
 ! String identifier
     'phen_gdd',                                                                 &
 ! Variable type
@@ -10303,7 +10249,7 @@ DATA metadata(793) / var_metadata(                                             &
 ! Metadata for phen_bb_day
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(794) / var_metadata(                                             &
+DATA metadata(790) / var_metadata(                                             &
 ! String identifier
     'phen_bb_day',                                                              &
 ! Variable type
@@ -10317,7 +10263,7 @@ DATA metadata(794) / var_metadata(                                             &
 ! Metadata for phen_dormant
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(795) / var_metadata(                                             &
+DATA metadata(791) / var_metadata(                                             &
 ! String identifier
     'phen_dormant',                                                             &
 ! Variable type
@@ -10331,7 +10277,7 @@ DATA metadata(795) / var_metadata(                                             &
 ! Metadata for the plant water store of the cuticular loss
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(796) / var_metadata(                                             &
+DATA metadata(792) / var_metadata(                                             &
 ! String identifier
     'cut_q_store_pft',                                                         &
 ! Variable type
@@ -10341,7 +10287,7 @@ DATA metadata(796) / var_metadata(                                             &
 ! Units
     "kg m-2 s-1"                                                               &
   ) /
-DATA metadata(797) / var_metadata(                                             &
+DATA metadata(793) / var_metadata(                                             &
 ! String identifier
     'cut_w_store_pft',                                                         &
 ! Variable type
@@ -10351,7 +10297,7 @@ DATA metadata(797) / var_metadata(                                             &
 ! Units
     "kg m-2"                                                                   &
   ) /
-DATA metadata(798) / var_metadata(                                             &
+DATA metadata(794) / var_metadata(                                             &
 ! String identifier
     'cut_w_store',                                                             &
 ! Variable type
@@ -10361,7 +10307,7 @@ DATA metadata(798) / var_metadata(                                             &
 ! Units
     "mol m-2"                                                                  &
   ) /
-DATA metadata(799) / var_metadata(                                             &
+DATA metadata(795) / var_metadata(                                             &
 ! String identifier
     'cut_psi_stem',                                                            &
 ! Variable type
@@ -10371,7 +10317,7 @@ DATA metadata(799) / var_metadata(                                             &
 ! Units
     "Pa"                                                                       &
   ) /
-DATA metadata(800) / var_metadata(                                             &
+DATA metadata(796) / var_metadata(                                             &
 ! String identifier
     'cut_c_store',                                                             &
 ! Variable type
@@ -10381,7 +10327,7 @@ DATA metadata(800) / var_metadata(                                             &
 ! Units
     "mol m-2 Pa-1"                                                             &
   ) /
-DATA metadata(801) / var_metadata(                                             &
+DATA metadata(797) / var_metadata(                                             &
 ! String identifier
     'cut_w_shed_pft',                                                          &
 ! Variable type
@@ -10395,7 +10341,7 @@ DATA metadata(801) / var_metadata(                                             &
 ! Metadata for lambda_eff_pft
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(802) / var_metadata(                                             &
+DATA metadata(798) / var_metadata(                                             &
 ! String identifier
     'lambda_eff_pft',                                                          &
 ! Variable type
@@ -10409,7 +10355,7 @@ DATA metadata(802) / var_metadata(                                             &
 ! Metadata for hydmort_g
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(803) / var_metadata(                                             &
+DATA metadata(799) / var_metadata(                                             &
 ! String identifier
     'hydmort_g',                                                                &
 ! Variable type
@@ -10423,7 +10369,7 @@ DATA metadata(803) / var_metadata(                                             &
 ! Metadata for hydmort_m
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(804) / var_metadata(                                             &
+DATA metadata(800) / var_metadata(                                             &
 ! String identifier
     'hydmort_m',                                                                &
 ! Variable type
@@ -10437,7 +10383,7 @@ DATA metadata(804) / var_metadata(                                             &
 ! Metadata for hydmort_dead
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(805) / var_metadata(                                             &
+DATA metadata(801) / var_metadata(                                             &
 ! String identifier
     'hydmort_dead',                                                             &
 ! Variable type
@@ -10451,7 +10397,7 @@ DATA metadata(805) / var_metadata(                                             &
 ! Metadata for hydmort_plc_peak
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(806) / var_metadata(                                             &
+DATA metadata(802) / var_metadata(                                             &
 ! String identifier
     'hydmort_plc_peak',                                                         &
 ! Variable type
@@ -10465,7 +10411,7 @@ DATA metadata(806) / var_metadata(                                             &
 ! Metadata for hydmort_pref
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(807) / var_metadata(                                             &
+DATA metadata(803) / var_metadata(                                             &
 ! String identifier
     'hydmort_pref',                                                             &
 ! Variable type
@@ -10479,7 +10425,7 @@ DATA metadata(807) / var_metadata(                                             &
 ! Metadata for gc_stomatal_pft
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(808) / var_metadata(                                             &
+DATA metadata(804) / var_metadata(                                             &
 ! String identifier
     'gc_stomatal_pft',                                                         &
 ! Variable type
@@ -10493,7 +10439,7 @@ DATA metadata(808) / var_metadata(                                             &
 ! Metadata for gsoil_pft
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(809) / var_metadata(                                             &
+DATA metadata(805) / var_metadata(                                             &
 ! String identifier
     'gsoil_pft',                                                               &
 ! Variable type
@@ -10507,7 +10453,7 @@ DATA metadata(809) / var_metadata(                                             &
 ! Metadata for t_can_air_pft
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(810) / var_metadata(                                             &
+DATA metadata(806) / var_metadata(                                             &
 ! String identifier
     't_can_air_pft',                                                           &
 ! Variable type
@@ -10521,7 +10467,7 @@ DATA metadata(810) / var_metadata(                                             &
 ! Metadata for q_can_air_pft
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(811) / var_metadata(                                             &
+DATA metadata(807) / var_metadata(                                             &
 ! String identifier
     'q_can_air_pft',                                                           &
 ! Variable type
@@ -10535,7 +10481,7 @@ DATA metadata(811) / var_metadata(                                             &
 ! Metadata for h_leaf_pft
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(812) / var_metadata(                                             &
+DATA metadata(808) / var_metadata(                                             &
 ! String identifier
     'h_leaf_pft',                                                              &
 ! Variable type
@@ -10549,7 +10495,7 @@ DATA metadata(812) / var_metadata(                                             &
 ! Metadata for le_leaf_pft
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(813) / var_metadata(                                             &
+DATA metadata(809) / var_metadata(                                             &
 ! String identifier
     'le_leaf_pft',                                                             &
 ! Variable type
@@ -10563,7 +10509,7 @@ DATA metadata(813) / var_metadata(                                             &
 ! Metadata for esoil_surf_gb
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(814) / var_metadata(                                             &
+DATA metadata(810) / var_metadata(                                             &
 ! String identifier
     'esoil_surf_gb',                                                           &
 ! Variable type
@@ -10577,7 +10523,7 @@ DATA metadata(814) / var_metadata(                                             &
 ! Metadata for cut_e_leak_pft
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(815) / var_metadata(                                             &
+DATA metadata(811) / var_metadata(                                             &
 ! String identifier
     'cut_e_leak_pft',                                                          &
 ! Variable type
@@ -10591,7 +10537,7 @@ DATA metadata(815) / var_metadata(                                             &
 ! Metadata for gs_sun_pft, gs_shd_pft and lai_sun_pft (two-leaf canopy)
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(818) / var_metadata(                                             &
+DATA metadata(814) / var_metadata(                                             &
 ! String identifier
     'gs_sun_pft',                                                              &
 ! Variable type
@@ -10601,7 +10547,7 @@ DATA metadata(818) / var_metadata(                                             &
 ! Units
     "m s-1"                                                                    &
   ) /
-DATA metadata(819) / var_metadata(                                             &
+DATA metadata(815) / var_metadata(                                             &
 ! String identifier
     'gs_shd_pft',                                                              &
 ! Variable type
@@ -10611,7 +10557,7 @@ DATA metadata(819) / var_metadata(                                             &
 ! Units
     "m s-1"                                                                    &
   ) /
-DATA metadata(820) / var_metadata(                                             &
+DATA metadata(816) / var_metadata(                                             &
 ! String identifier
     'lai_sun_pft',                                                             &
 ! Variable type
@@ -10625,7 +10571,7 @@ DATA metadata(820) / var_metadata(                                             &
 ! Metadata for ximpair_area_w and ximpair_psi_stem (dump state)
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
-DATA metadata(816) / var_metadata(                                             &
+DATA metadata(812) / var_metadata(                                             &
 ! String identifier
     'ximpair_area_w',                                                          &
 ! Variable type
@@ -10635,7 +10581,7 @@ DATA metadata(816) / var_metadata(                                             &
 ! Units
     "1"                                                                        &
   ) /
-DATA metadata(817) / var_metadata(                                             &
+DATA metadata(813) / var_metadata(                                             &
 ! String identifier
     'ximpair_psi_stem',                                                        &
 ! Variable type
@@ -10648,7 +10594,7 @@ DATA metadata(817) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for nsc_wmax_hold (MDK, 25/10/26)
 !-----------------------------------------------------------------------------
-DATA metadata(821) / var_metadata(                                             &
+DATA metadata(817) / var_metadata(                                             &
 ! String identifier
     'nsc_wmax_hold',                                                           &
 ! Variable type
@@ -10661,7 +10607,7 @@ DATA metadata(821) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 ! Metadata for nsc_xylem_prod and nsc_xylem_renew (MDK, 25/10/26)
 !-----------------------------------------------------------------------------
-DATA metadata(822) / var_metadata(                                             &
+DATA metadata(818) / var_metadata(                                             &
 ! String identifier
     'nsc_xylem_prod',                                                          &
 ! Variable type
@@ -10671,7 +10617,7 @@ DATA metadata(822) / var_metadata(                                             &
 ! Units
     "kg m-2 per 360days"                                                       &
   ) /
-DATA metadata(823) / var_metadata(                                             &
+DATA metadata(819) / var_metadata(                                             &
 ! String identifier
     'nsc_xylem_renew',                                                         &
 ! Variable type

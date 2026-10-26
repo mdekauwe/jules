@@ -57,10 +57,6 @@ INTEGER ::                                                                     &
   pft_xylem_impairment_model_io(npft_max) = imdi,                              & ! JBaguley
   ximpair_psi_driver_io(npft_max) = imdi,                                      &
   ximpair_reset_mmdd_io(npft_max) = imdi,                                      &
-  ! MDK, 18/10/26
-  nsc_xylem_type_io(npft_max) = imdi,                                          &
-  nsc_ring_mmdd_io(npft_max) = imdi,                                           &
-  nsc_xylem_replace_io(npft_max) = imdi,                                       &
   seg_root_vc_io(npft_max) = 0
       ! Root segment vulnerability curve (l_som_plant_segments):
       !   0: from p50_root_io / p88_root_io as given
@@ -285,7 +281,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
   sox_p50_io(npft_max) = rmdi,                                                 &
   sox_rp_min_io(npft_max) = rmdi,                                              &
   ximpair_leaf_sens_io(npft_max) = rmdi,                                       &
-  ximpair_psi_growth_io(npft_max) = rmdi,                                      &
   ximpair_tau_leaf_io(npft_max) = rmdi,                                        &
   ! MDK, 17/10/26
   nsc_flush_io(npft_max) = rmdi,                                               &
@@ -300,7 +295,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
   hydmort_width_io(npft_max) = rmdi,                                           &
   hydmort_plc_bg_io(npft_max) = rmdi,                                          &
   nsc_repair_window_io(npft_max) = rmdi,                                       &
-  nsc_plc_background_io(npft_max) = rmdi,                                      &
   nsc_la_sa_io(npft_max) = rmdi,                                               &
   nsc_wood_density_io(npft_max) = rmdi,                                        &
   nsc_psi_turg_full_io(npft_max) = rmdi,                                       &
@@ -312,7 +306,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_flush_start_doy_io(npft_max) = rmdi,                                     &
   nsc_flush_days_io(npft_max) = rmdi,                                          &
   nsc_overflow_resp_io(npft_max) = rmdi,                                       &
-  nsc_xylem_rate_max_io(npft_max) = rmdi,                                      &
   nsc_cmax_io(npft_max) = rmdi,                                                &
   nsc_xylem_cond_ratio_io(npft_max) = rmdi,                                    &
   phen_psi_tlp_io(npft_max) = rmdi,                                            &
@@ -391,19 +384,18 @@ NAMELIST  / jules_pftparm/                                                     &
   sox_a_io,        sox_p50_io,       sox_rp_min_io,                            &
   ximpair_psi_driver_io,                                                       &
   ximpair_reset_mmdd_io,             ximpair_leaf_sens_io,                     &
-  ximpair_psi_growth_io,             ximpair_tau_leaf_io,                      &
+  ximpair_tau_leaf_io,                                                         &
   nsc_flush_io,    nsc_kc_io,        nsc_reserve_frac_io,                      &
   nsc_tau_load_io, nsc_wmax_fac_io,  nsc_sapwood_frac_io,                      &
   nsc_hold_plc_io, nsc_g_starv_io, nsc_repair_window_io,                       &
   hydmort_mu_io, hydmort_width_io, hydmort_plc_bg_io,                          &
-  nsc_plc_background_io, nsc_la_sa_io, nsc_wood_density_io,                   &
+  nsc_la_sa_io, nsc_wood_density_io,                                           &
   nsc_psi_turg_full_io, nsc_psi_turg_zero_io, nsc_t_grow_zero_io,              &
-  nsc_t_grow_full_io, nsc_overflow_resp_io, nsc_xylem_rate_max_io,            &
+  nsc_t_grow_full_io, nsc_overflow_resp_io,                                    &
   nsc_grow_start_doy_io, nsc_grow_end_doy_io, nsc_flush_start_doy_io,         &
   nsc_flush_days_io,                                                          &
-  nsc_xylem_type_io, nsc_ring_mmdd_io, nsc_cmax_io, phen_psi_tlp_io,           &
+  nsc_cmax_io, phen_psi_tlp_io,                                                &
   nsc_xylem_cond_ratio_io,                                                     &
-  nsc_xylem_replace_io,                                                        &
   phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io,                         &
   phen_bb_doy_io, phen_bb_gdd_io, phen_bb_tbase_io, phen_bb_min_days_io
 
@@ -440,20 +432,23 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 2
-INTEGER, PARAMETER :: n_int = 11 * npft_max ! = the INTEGER arrays in
-                                           ! my_namelist (5 + 4 xylem
-                                           ! impairment + 2 store; -1
-                                           ! ximpair_growth_basis retired,
-                                           ! MDK, 23/10/26)
-INTEGER, PARAMETER :: n_real = 180 * npft_max ! = the REAL arrays in
-                                             ! my_namelist (all REAL pftparm arrays incl. xylem
-                                             ! impairment; +1 lai_ref_k_io,
-                                             ! +3 hydmort_*;
-                                             ! MDK, 21/10/26; -5 time-based
-                                             ! recovery retired, MDK,
-                                             ! 23/10/26; +1
-                                             ! nsc_xylem_cond_ratio_io,
-                                             ! MDK, 25/10/26)
+INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
+                                          ! my_namelist: c3, irrig_pft,
+                                          ! orient, pft_conductance_model,
+                                          ! pft_xylem_impairment_model,
+                                          ! ximpair_psi_driver,
+                                          ! ximpair_reset_mmdd,
+                                          ! seg_root_vc
+                                          !
+                                          ! MDK, 26/10/26
+INTEGER, PARAMETER :: n_real = 177 * npft_max ! = the REAL arrays in
+                                             ! my_namelist (all REAL
+                                             ! pftparm arrays incl. xylem
+                                             ! impairment, the store and
+                                             ! hydmort; count the REAL
+                                             ! declarations of the type)
+                                             !
+                                             ! MDK, 26/10/26
 
 TYPE :: my_namelist
   SEQUENCE
@@ -464,9 +459,6 @@ TYPE :: my_namelist
   INTEGER :: pft_xylem_impairment_model_io(npft_max) ! JBaguley
   INTEGER :: ximpair_psi_driver_io(npft_max)
   INTEGER :: ximpair_reset_mmdd_io(npft_max)
-  INTEGER :: nsc_xylem_type_io(npft_max)
-  INTEGER :: nsc_ring_mmdd_io(npft_max)
-  INTEGER :: nsc_xylem_replace_io(npft_max)
   INTEGER :: seg_root_vc_io(npft_max)
   REAL(KIND=real_jlslsm) :: a_wl_io(npft_max)
   REAL(KIND=real_jlslsm) :: a_ws_io(npft_max)
@@ -611,7 +603,6 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: sox_p50_io(npft_max)
   REAL(KIND=real_jlslsm) :: sox_rp_min_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_leaf_sens_io(npft_max)
-  REAL(KIND=real_jlslsm) :: ximpair_psi_growth_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_tau_leaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_flush_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_kc_io(npft_max)
@@ -625,7 +616,6 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: hydmort_width_io(npft_max)
   REAL(KIND=real_jlslsm) :: hydmort_plc_bg_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_repair_window_io(npft_max)
-  REAL(KIND=real_jlslsm) :: nsc_plc_background_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_la_sa_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_wood_density_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_psi_turg_full_io(npft_max)
@@ -637,7 +627,6 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_flush_start_doy_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_flush_days_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_overflow_resp_io(npft_max)
-  REAL(KIND=real_jlslsm) :: nsc_xylem_rate_max_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_cmax_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_xylem_cond_ratio_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_psi_tlp_io(npft_max)
@@ -698,9 +687,6 @@ IF (mype == 0) THEN
   my_nml % pft_xylem_impairment_model_io = pft_xylem_impairment_model_io ! JBaguley
   my_nml % ximpair_psi_driver_io = ximpair_psi_driver_io
   my_nml % ximpair_reset_mmdd_io = ximpair_reset_mmdd_io
-  my_nml % nsc_xylem_type_io = nsc_xylem_type_io
-  my_nml % nsc_ring_mmdd_io = nsc_ring_mmdd_io
-  my_nml % nsc_xylem_replace_io = nsc_xylem_replace_io
   my_nml % seg_root_vc_io = seg_root_vc_io
   my_nml % dcatch_dlai_io = dcatch_dlai_io
   my_nml % deact_jmax_io  = deact_jmax_io
@@ -820,7 +806,6 @@ IF (mype == 0) THEN
   my_nml % sox_p50_io     = sox_p50_io
   my_nml % sox_rp_min_io  = sox_rp_min_io
   my_nml % ximpair_leaf_sens_io = ximpair_leaf_sens_io
-  my_nml % ximpair_psi_growth_io = ximpair_psi_growth_io
   my_nml % ximpair_tau_leaf_io = ximpair_tau_leaf_io
   my_nml % nsc_flush_io = nsc_flush_io
   my_nml % nsc_kc_io = nsc_kc_io
@@ -834,7 +819,6 @@ IF (mype == 0) THEN
   my_nml % hydmort_width_io = hydmort_width_io
   my_nml % hydmort_plc_bg_io = hydmort_plc_bg_io
   my_nml % nsc_repair_window_io = nsc_repair_window_io
-  my_nml % nsc_plc_background_io = nsc_plc_background_io
   my_nml % nsc_la_sa_io = nsc_la_sa_io
   my_nml % nsc_wood_density_io = nsc_wood_density_io
   my_nml % nsc_psi_turg_full_io = nsc_psi_turg_full_io
@@ -846,7 +830,6 @@ IF (mype == 0) THEN
   my_nml % nsc_flush_start_doy_io = nsc_flush_start_doy_io
   my_nml % nsc_flush_days_io = nsc_flush_days_io
   my_nml % nsc_overflow_resp_io = nsc_overflow_resp_io
-  my_nml % nsc_xylem_rate_max_io = nsc_xylem_rate_max_io
   my_nml % nsc_cmax_io = nsc_cmax_io
   my_nml % nsc_xylem_cond_ratio_io = nsc_xylem_cond_ratio_io
   my_nml % phen_psi_tlp_io = phen_psi_tlp_io
@@ -895,9 +878,6 @@ IF (mype /= 0) THEN
   pft_xylem_impairment_model_io = my_nml % pft_xylem_impairment_model_io ! JBaguley
   ximpair_psi_driver_io = my_nml % ximpair_psi_driver_io
   ximpair_reset_mmdd_io = my_nml % ximpair_reset_mmdd_io
-  nsc_xylem_type_io = my_nml % nsc_xylem_type_io
-  nsc_ring_mmdd_io = my_nml % nsc_ring_mmdd_io
-  nsc_xylem_replace_io = my_nml % nsc_xylem_replace_io
   seg_root_vc_io = my_nml % seg_root_vc_io
   dcatch_dlai_io  = my_nml % dcatch_dlai_io
   deact_jmax_io   = my_nml % deact_jmax_io
@@ -1017,7 +997,6 @@ IF (mype /= 0) THEN
   sox_p50_io      = my_nml % sox_p50_io
   sox_rp_min_io   = my_nml % sox_rp_min_io
   ximpair_leaf_sens_io = my_nml % ximpair_leaf_sens_io
-  ximpair_psi_growth_io = my_nml % ximpair_psi_growth_io
   ximpair_tau_leaf_io = my_nml % ximpair_tau_leaf_io
   nsc_flush_io = my_nml % nsc_flush_io
   nsc_kc_io = my_nml % nsc_kc_io
@@ -1031,7 +1010,6 @@ IF (mype /= 0) THEN
   hydmort_width_io = my_nml % hydmort_width_io
   hydmort_plc_bg_io = my_nml % hydmort_plc_bg_io
   nsc_repair_window_io = my_nml % nsc_repair_window_io
-  nsc_plc_background_io = my_nml % nsc_plc_background_io
   nsc_la_sa_io = my_nml % nsc_la_sa_io
   nsc_wood_density_io = my_nml % nsc_wood_density_io
   nsc_psi_turg_full_io = my_nml % nsc_psi_turg_full_io
@@ -1043,7 +1021,6 @@ IF (mype /= 0) THEN
   nsc_flush_start_doy_io = my_nml % nsc_flush_start_doy_io
   nsc_flush_days_io = my_nml % nsc_flush_days_io
   nsc_overflow_resp_io = my_nml % nsc_overflow_resp_io
-  nsc_xylem_rate_max_io = my_nml % nsc_xylem_rate_max_io
   nsc_cmax_io = my_nml % nsc_cmax_io
   nsc_xylem_cond_ratio_io = my_nml % nsc_xylem_cond_ratio_io
   phen_psi_tlp_io = my_nml % phen_psi_tlp_io
@@ -1133,16 +1110,14 @@ USE pftparm, ONLY:                                                             &
   leaf_crit,       z0v,                                                        & !JBaguley
   sox_a,           sox_p50,          sox_rp_min,                               &
   ximpair_psi_driver,                ximpair_reset_mmdd,                       &
-  ximpair_leaf_sens,                 ximpair_psi_growth,                       &
-  ximpair_tau_leaf,                                                            &
+  ximpair_leaf_sens,                 ximpair_tau_leaf,                         &
   nsc_flush,       nsc_kc,           nsc_reserve_frac,                         &
   nsc_tau_load,    nsc_wmax_fac,     nsc_sapwood_frac,                         &
   nsc_hold_plc,    nsc_g_starv,      nsc_repair_window,                        &
   hydmort_mu,      hydmort_width,    hydmort_plc_bg,                         &
-  nsc_plc_background, nsc_la_sa,     nsc_wood_density,                        &
+  nsc_la_sa,       nsc_wood_density,                                          &
   nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero, nsc_t_grow_full,      &
-  nsc_overflow_resp, nsc_xylem_rate_max, nsc_xylem_type, nsc_ring_mmdd,       &
-  nsc_xylem_replace,                                                          &
+  nsc_overflow_resp,                                                           &
   nsc_grow_start_doy, nsc_grow_end_doy, nsc_flush_start_doy, nsc_flush_days,  &
   nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min,          &
   nsc_xylem_cond_ratio,                                                       &
@@ -1155,7 +1130,6 @@ USE c_z0h_z0m,    ONLY: z0h_z0m,  z0h_z0m_classic
 
 USE jules_surface_types_mod, ONLY: npft
 USE jules_surface_types_mod, ONLY: nnpft   ! MDK, 26/10/26
-USE jules_print_mgr, ONLY: jules_print     ! MDK, 26/10/26
 
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 l_som_vcmax_psi, stomata_model, stomata_cmax,  &
@@ -1177,10 +1151,6 @@ INTEGER :: errcode
 INTEGER :: iseg
 REAL(KIND=real_jlslsm) :: seg_frac(3), p50_seg(3), p88_seg(3)
 REAL(KIND=real_jlslsm) :: a_root   ! Christoffersen root curve shape (seg_root_vc_io = 1)
-CHARACTER(LEN=256) :: info_line
-                      ! One-off message for ring-renewal PFTs.
-                      !
-                      ! MDK, 26/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -1481,8 +1451,6 @@ DO i = 1, npft
     ximpair_reset_mmdd(i) = ximpair_reset_mmdd_io(i)
   IF (ABS(ximpair_leaf_sens_io(i) - rmdi) > EPSILON(1.0))                      &
     ximpair_leaf_sens(i) = ximpair_leaf_sens_io(i)
-  IF (ABS(ximpair_psi_growth_io(i) - rmdi) > EPSILON(1.0))                     &
-    ximpair_psi_growth(i) = ximpair_psi_growth_io(i)
   IF (ABS(ximpair_tau_leaf_io(i) - rmdi) > EPSILON(1.0))                       &
     ximpair_tau_leaf(i) = ximpair_tau_leaf_io(i)
   ! MDK, 17/10/26
@@ -1510,8 +1478,6 @@ DO i = 1, npft
     hydmort_plc_bg(i) = hydmort_plc_bg_io(i)
   IF (ABS(nsc_repair_window_io(i) - rmdi) > EPSILON(1.0))                      &
     nsc_repair_window(i) = nsc_repair_window_io(i)
-  IF (ABS(nsc_plc_background_io(i) - rmdi) > EPSILON(1.0))                    &
-    nsc_plc_background(i) = nsc_plc_background_io(i)
   IF (ABS(nsc_la_sa_io(i) - rmdi) > EPSILON(1.0))                              &
     nsc_la_sa(i) = nsc_la_sa_io(i)
   IF (ABS(nsc_wood_density_io(i) - rmdi) > EPSILON(1.0))                       &
@@ -1534,8 +1500,6 @@ DO i = 1, npft
     nsc_flush_days(i) = nsc_flush_days_io(i)
   IF (ABS(nsc_overflow_resp_io(i) - rmdi) > EPSILON(1.0))                      &
     nsc_overflow_resp(i) = nsc_overflow_resp_io(i)
-  IF (ABS(nsc_xylem_rate_max_io(i) - rmdi) > EPSILON(1.0))                     &
-    nsc_xylem_rate_max(i) = nsc_xylem_rate_max_io(i)
   IF (ABS(nsc_cmax_io(i) - rmdi) > EPSILON(1.0)) nsc_cmax(i) = nsc_cmax_io(i)
   ! Ring renewal's conductance ratio.
   !
@@ -1558,10 +1522,6 @@ DO i = 1, npft
     phen_bb_tbase(i) = phen_bb_tbase_io(i)
   IF (ABS(phen_bb_min_days_io(i) - rmdi) > EPSILON(1.0))                       &
     phen_bb_min_days(i) = phen_bb_min_days_io(i)
-  IF (nsc_xylem_type_io(i) /= imdi) nsc_xylem_type(i) = nsc_xylem_type_io(i)
-  IF (nsc_ring_mmdd_io(i) /= imdi) nsc_ring_mmdd(i) = nsc_ring_mmdd_io(i)
-  IF (nsc_xylem_replace_io(i) /= imdi)                                         &
-    nsc_xylem_replace(i) = nsc_xylem_replace_io(i)
 END DO
 
 ! Budburst for deciduous phenology: one of a fixed day or degree-days.
@@ -1586,17 +1546,15 @@ IF ( l_triffid_nsc ) THEN
        ANY(nsc_tau_load(:) <= 0.0) .OR. ANY(nsc_wmax_fac(:) < 0.0) .OR.       &
        ANY(nsc_sapwood_frac(:) <= 0.0) .OR. ANY(nsc_sapwood_frac(:) > 1.0) .OR. &
        ANY(nsc_hold_plc(:) < 0.0) .OR. ANY(nsc_g_starv(:) < 0.0) .OR.         &
-       ANY(nsc_repair_window(:) < 0.0) .OR.                                   &
-       ANY(nsc_plc_background(:) < 0.0) .OR.                                 &
-       ANY(nsc_plc_background(:) >= 1.0) .OR.                                &
+       ANY(nsc_repair_window(:) < 0.0) .OR. ANY(nsc_cmax(:) < 0.0) .OR.       &
        ANY(nsc_la_sa(:) < 0.0) .OR. ANY(nsc_wood_density(:) <= 0.0) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'l_triffid_nsc needs nsc_flush_io, nsc_kc_io, '            // &
                  'nsc_tau_load_io > 0, 0 <= nsc_reserve_frac_io < 1, '      // &
                  '0 < nsc_sapwood_frac_io <= 1 and nsc_wmax_fac_io, '       // &
-                 'nsc_hold_plc_io, nsc_g_starv_io, nsc_repair_window_io ' // &
-                 '>= 0, 0 <= nsc_plc_background_io < 1, '                // &
+                 'nsc_hold_plc_io, nsc_g_starv_io, nsc_repair_window_io, ' // &
+                 'nsc_cmax_io >= 0, '                                      // &
                  'nsc_la_sa_io >= 0 and nsc_wood_density_io > 0.')
   END IF
   IF ( ANY(nsc_g_starv(:) > 0.0) .AND. .NOT. l_veg_compete ) THEN
@@ -1604,15 +1562,6 @@ IF ( l_triffid_nsc ) THEN
     CALL ereport(RoutineName, errcode,                                         &
                  'nsc_g_starv_io > 0 has no effect without l_veg_compete ' // &
                  '(the PFT fractions are fixed).')
-  END IF
-  ! The NPP mean is updated only while the stem loss is at most
-  ! nsc_hold_plc, and loss up to nsc_plc_background is never repaired, so
-  ! a hold below the background freezes W_max for good. MDK, 25/10/26
-  IF ( ANY(nsc_hold_plc(:) < nsc_plc_background(:)) ) THEN
-    errcode = -101
-    CALL ereport(RoutineName, errcode,                                         &
-                 'nsc_hold_plc_io < nsc_plc_background_io: the store '     // &
-                 'maximum stops updating once the background loss is set.')
   END IF
   ! MDK, 18/10/26
   IF ( ANY(is_set(nsc_psi_turg_zero(:)) .AND.                                  &
@@ -1655,40 +1604,7 @@ IF ( l_triffid_nsc ) THEN
                  'nsc_flush_start_doy_io must be a day of the year (1-366) '// &
                  'and nsc_flush_days_io 1-366 days.')
   END IF
-  IF ( ANY(nsc_xylem_type(:) < 1) .OR. ANY(nsc_xylem_type(:) > 2) .OR.        &
-       ANY(nsc_xylem_rate_max(:) < 0.0) .OR. ANY(nsc_cmax(:) < 0.0) .OR.      &
-       ANY(nsc_xylem_type(:) == 2 .AND. nsc_xylem_rate_max(:) <= 0.0) .OR.    &
-       ANY(nsc_ring_mmdd(:) < 101) .OR. ANY(nsc_ring_mmdd(:) > 1231) ) THEN
-    errcode = 101
-    CALL ereport(RoutineName, errcode,                                         &
-                 'nsc_xylem_type_io must be 1 (diffuse-porous) or 2 '      // &
-                 '(ring-porous, needs nsc_xylem_rate_max_io > 0), '        // &
-                 'nsc_xylem_rate_max_io >= 0, nsc_ring_mmdd_io a mmdd, '   // &
-                 'nsc_cmax_io >= 0.')
-  END IF
-  ! Embolism replacement (1) and ring renewal (2): diffuse-porous only.
-  !
-  ! MDK, 26/10/26
-  IF ( ANY(nsc_xylem_replace(:) < 0) .OR. ANY(nsc_xylem_replace(:) > 2) .OR.  &
-       ANY(nsc_xylem_replace(:) > 0 .AND. nsc_xylem_type(:) /= 1) ) THEN
-    errcode = 101
-    CALL ereport(RoutineName, errcode,                                         &
-                 'nsc_xylem_replace_io must be 0, 1 or 2, and 1 or 2 only '// &
-                 'with nsc_xylem_type_io = 1.')
-  END IF
-  ! The two pools (rule 1) are kept only by the store's repair, and ring
-  ! renewal (rule 2) only by the rings: no other recovery (the annual
-  ! reset) may raise the stem cap.
-  !
-  ! MDK, 26/10/26
-  IF ( ANY(nsc_xylem_replace(:) > 0 .AND. ximpair_reset_mmdd(:) > 0) ) THEN
-    errcode = 101
-    CALL ereport(RoutineName, errcode,                                         &
-                 'nsc_xylem_replace_io > 0 needs ximpair_reset_mmdd_io off.')
-  END IF
-  ! Ring renewal (nsc_xylem_replace = 2): the new ring's conductance ratio
-  ! is >= 0. Ring-porous stems can not take rule 2 (above), so ring
-  ! renewal is diffuse-porous only.
+  ! Ring renewal: the new ring's conductance ratio is >= 0.
   !
   ! MDK, 26/10/26
   IF ( ANY(nsc_xylem_cond_ratio(:) < 0.0) ) THEN
@@ -1704,69 +1620,69 @@ IF ( l_triffid_nsc ) THEN
                  'nsc_flush_days_io must be a whole number of days.')
   END IF
 END IF
-! Ring renewal is TRIFFID wood growth, which only natural PFTs have: a
-! crop PFT (index > nnpft) with rule 2 would never recover, so the run
-! stops. (Crops already rule out TRIFFID, which rule 2 needs; this is
-! checked first so the message names the cause.)
+! Stem recovery (l_ximpair_rec_nsc) is ring renewal by TRIFFID wood
+! growth, which only natural PFTs have: a crop PFT (index > nnpft) with
+! the memory impairment model would never recover, so the run stops.
+! (TRIFFID runs only the natural PFTs, 1:nnpft, and leaves crop cover
+! to the crop model, so a crop PFT gets no ring renewal even with
+! l_triffid.)
 !
 ! MDK, 26/10/26
-IF ( npft > nnpft ) THEN
-  IF ( ANY(nsc_xylem_replace(nnpft+1:npft) == 2) ) THEN
+IF ( l_ximpair_rec_nsc .AND. npft > nnpft ) THEN
+  IF ( ANY(pft_xylem_impairment_model(nnpft+1:npft) ==                         &
+           xylem_impairment_memory) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
-                 'nsc_xylem_replace_io = 2 (ring renewal by TRIFFID wood ' // &
-                 'growth) is not allowed for crop PFTs (index > nnpft): '  // &
-                 'they have no TRIFFID wood growth, so the stem would '    // &
-                 'never recover.')
+                 'l_ximpair_rec_nsc (stem recovery by ring renewal, '      // &
+                 'TRIFFID wood growth) with the memory impairment model '  // &
+                 'on a crop PFT (index > nnpft): crops have no TRIFFID '   // &
+                 'wood growth, so the stem would never recover.')
   END IF
 END IF
-! Ring renewal (nsc_xylem_replace = 2) dilutes the memory model's stem
-! loss by TRIFFID's wood growth, queued through the TRIFFID store's stem
-! repair: without the store and its repair (l_triffid_nsc,
-! l_ximpair_rec_nsc) or without dynamic TRIFFID (l_triffid, not
-! l_trif_eq) it would do nothing, so the run stops. For a PFT without the
-! memory impairment model it does nothing (warning). Conversely,
-! nsc_xylem_cond_ratio_io acts only on rule-2 PFTs (warning).
+! Ring renewal dilutes the memory model's stem loss by TRIFFID's wood
+! growth: without the store (l_triffid_nsc) or without dynamic TRIFFID
+! (l_triffid, not l_trif_eq) it would do nothing, so the run stops. The
+! stem cap is renewed only by the rings: no other recovery (the annual
+! reset) may raise it. (It needs a memory-model PFT: checked below.)
+! nsc_xylem_cond_ratio_io acts only with stem recovery (warning).
 !
 ! MDK, 26/10/26
-IF ( ANY(nsc_xylem_replace(1:npft) == 2) .AND.                                 &
-     ( .NOT. l_triffid_nsc .OR. .NOT. l_ximpair_rec_nsc .OR.                   &
-       .NOT. l_triffid .OR. l_trif_eq ) ) THEN
+IF ( l_ximpair_rec_nsc .AND.                                                   &
+     ( .NOT. l_triffid_nsc .OR. .NOT. l_triffid .OR. l_trif_eq ) ) THEN
   errcode = 101
   CALL ereport(RoutineName, errcode,                                           &
-               'nsc_xylem_replace_io = 2 (ring renewal by TRIFFID wood '   //  &
-               'growth) needs l_triffid_nsc=T, l_ximpair_rec_nsc=T, '      //  &
-               'l_triffid=T and l_trif_eq=F; without them the stem '       //  &
-               'would never recover.')
+               'l_ximpair_rec_nsc (stem recovery by ring renewal, '        //  &
+               'TRIFFID wood growth) needs l_triffid_nsc=T, l_triffid=T '  //  &
+               'and l_trif_eq=F; without them the stem would never '       //  &
+               'recover.')
 END IF
-! Rule 2 has been ring renewal since the switch-free version (26/10/26);
-! before, it was the store-paid proportional repair. Say so once for
-! each PFT that uses it, so a run with an old namelist shows it.
+IF ( l_ximpair_rec_nsc .AND.                                                   &
+     ANY(pft_xylem_impairment_model(1:npft) == xylem_impairment_memory .AND.   &
+         ximpair_reset_mmdd(1:npft) > 0) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                           &
+               'l_ximpair_rec_nsc (ring renewal) needs '                   //  &
+               'ximpair_reset_mmdd_io off for memory-model PFTs.')
+END IF
+IF ( .NOT. l_ximpair_rec_nsc .AND.                                             &
+     ANY(ABS(nsc_xylem_cond_ratio_io(1:npft) - rmdi) > EPSILON(1.0)) ) THEN
+  errcode = -101
+  CALL ereport(RoutineName, errcode,                                           &
+               'nsc_xylem_cond_ratio_io is set without stem recovery '     //  &
+               '(l_ximpair_rec_nsc=F): it has no effect.')
+END IF
+! The W_max hold needs the new-damage memory of stem recovery, so without
+! l_ximpair_rec_nsc nsc_hold_plc does nothing (before 26/10/26 it then
+! held W_max on the absolute stem loss).
 !
 ! MDK, 26/10/26
-DO i = 1,npft
-  IF ( nsc_xylem_replace(i) == 2 ) THEN
-    WRITE(info_line, '(A,I0,A)') 'PFT ', i, ': nsc_xylem_replace = 2 is '   // &
-          'ring renewal (the stem loss is diluted by TRIFFID wood growth; '// &
-          'no store repair). Before 26/10/26 rule 2 was the store-paid '  // &
-          'proportional repair, now removed.'
-    CALL jules_print(RoutineName, info_line)
-  END IF
-END DO
-IF ( ANY(nsc_xylem_replace(1:npft) == 2 .AND.                                  &
-         pft_xylem_impairment_model(1:npft) /= xylem_impairment_memory) ) THEN
+IF ( l_triffid_nsc .AND. .NOT. l_ximpair_rec_nsc .AND.                         &
+     ANY(nsc_hold_plc(1:npft) < 1.0) ) THEN
   errcode = -101
   CALL ereport(RoutineName, errcode,                                           &
-               'nsc_xylem_replace_io = 2 has no effect for PFTs without '  //  &
-               'the memory impairment model (pft_xylem_impairment_model '  //  &
-               '= 3).')
-END IF
-IF ( ANY(ABS(nsc_xylem_cond_ratio_io(1:npft) - rmdi) > EPSILON(1.0) .AND.      &
-         nsc_xylem_replace(1:npft) /= 2) ) THEN
-  errcode = -101
-  CALL ereport(RoutineName, errcode,                                           &
-               'nsc_xylem_cond_ratio_io is set for a PFT without ring '    //  &
-               'renewal (nsc_xylem_replace_io /= 2): it has no effect.')
+               'nsc_hold_plc_io < 1 without stem recovery '                //  &
+               '(l_ximpair_rec_nsc=F): the W_max hold is off, it has no '  //  &
+               'effect.')
 END IF
 ! Hydraulic mortality (l_trif_hydmort): parameter ranges and the damage
 ! state it is driven by.
@@ -1797,12 +1713,6 @@ IF ( l_ximpair_rec_nsc ) THEN
                  'l_ximpair_rec_nsc needs pft_xylem_impairment_model = 3 ' // &
                  '(memory) for at least one PFT.')
   END IF
-  IF ( ANY(ximpair_reset_mmdd(:) > 0) ) THEN
-    errcode = -101
-    CALL ereport(RoutineName, errcode,                                         &
-                 'ximpair_reset_mmdd_io > 0 recovers conductance without ' // &
-                 'carbon, alongside the store repair (l_ximpair_rec_nsc).')
-  END IF
 END IF
 ! Equilibrium TRIFFID changes the cover without the dilution of the
 ! memory model's damage (ximpair_dilute_area runs after lotka, not
@@ -1816,7 +1726,8 @@ IF ( l_trif_eq .AND. l_veg_compete .AND.                                       &
 END IF
 ! The time-based recovery of the memory model (l_ximpair_rec_growth,
 ! ximpair_tau_stem_io, ximpair_rec_years_io, ximpair_tau_rec_io and their
-! helpers) was retired in favour of the store repair; namelists that still
+! helpers) was retired in favour of the store repair (itself removed
+! 26/10/26 for ring renewal); namelists that still
 ! set them stop with an unknown-variable error. It is in the git history.
 !
 ! MDK, 23/10/26

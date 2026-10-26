@@ -537,11 +537,8 @@ LOGICAL :: harvest_switch(land_pts,npft)
     ! Switch to activate type 2 harvest
 
 ! MDK, 17/10/26
-REAL(KIND=real_jlslsm) :: nsc_repair(land_pts,npft)
 REAL(KIND=real_jlslsm) :: nsc_lit(land_pts,npft)
     ! Store carbon of PFT area lost, to litter (kg C m-2 per 360 days).
-    ! Carbon released from the TRIFFID store that rebuilds xylem
-    ! (l_triffid_nsc, l_ximpair_rec_nsc; kg C/m2/360days).
 
 ! Dr Hook variables
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -699,15 +696,13 @@ END DO  !  PFTs
 
 !-----------------------------------------------------------------------------
 ! TRIFFID storage pool (l_triffid_nsc): NPP goes into the store and npp
-! becomes the carbon the store releases, which TRIFFID grows from (less the
-! part rebuilding xylem, nsc_repair, which goes to litter).
-! MDK, 17/10/26
+! becomes the carbon the store releases, which TRIFFID grows from.
+!
+! MDK, 26/10/26
 !-----------------------------------------------------------------------------
-nsc_repair(:,:) = 0.0
 IF ( l_triffid_nsc ) THEN
   CALL triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,             &
-                          woodc_pft, leafc_pft, rootc_pft, ht, lai_bal_pft,    &
-                          npp, nsc_repair )
+                          leafc_pft, rootc_pft, npp )
 END IF
 
 !-----------------------------------------------------------------------------
@@ -813,12 +808,8 @@ DO n = 1,npft
   END IF
 
   !---------------------------------------------------------------------------
-  ! Update vegetation carbon contents. With the store, the xylem repair is
-  ! not available for growth; it is added back after vegcarb so that it
-  ! goes to litter.
+  ! Update vegetation carbon contents.
   !---------------------------------------------------------------------------
-  ! MDK, 17/10/26
-  IF ( l_triffid_nsc ) npp(:,n) = npp(:,n) - nsc_repair(:,n)
   CALL vegcarb (land_pts, trif_pts, n, trif_index,                             &
                 forw, r_gamma, phen(:,n),                                      &
                 g_leaf(:,n), n_avail(:,n), npp(:,n), resp_w(:,n),              &
@@ -833,8 +824,6 @@ DO n = 1,npft
                 ! trif_vars_mod
                 root_litc_pft, leaf_litc_pft, wood_litc_pft,                   &
                 root_litn_pft, leaf_litn_pft, wood_litn_pft)
-  ! MDK, 17/10/26
-  IF ( l_triffid_nsc ) npp(:,n) = npp(:,n) + nsc_repair(:,n)
 
   !---------------------------------------------------------------------------
   ! Diagnose N demand and N uptake
@@ -850,9 +839,10 @@ DO n = 1,npft
 END DO  !  PFTs
 
 !-----------------------------------------------------------------------------
-! Ring renewal (nsc_xylem_replace = 2): the wood just grown is the new
-! xylem ring, which dilutes the stem damage of rule-2 PFTs. No carbon
-! moves (before the height update: the sapwood is the one the store saw).
+! Stem recovery by ring renewal (l_ximpair_rec_nsc): the wood just grown
+! is the new xylem ring, which dilutes the stem damage of the memory
+! impairment model. No carbon moves (before the height update: the
+! sapwood is the one the store saw).
 !
 ! MDK, 26/10/26
 !-----------------------------------------------------------------------------
