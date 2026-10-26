@@ -999,19 +999,12 @@ LOGICAL :: l_cap_store
                             ! (Was l_cut_ximpair.)
                             !
                             ! MDK, 23/10/26
-LOGICAL :: lit_cut(land_pts)
-                            ! Points where the leak may apply: lit points
-                            ! (those of the impairment update) with
-                            ! apar >= apar_cut_min.
+LOGICAL :: in_imp_cut(land_pts)
+                            ! Points already in the impairment update (the
+                            ! lit points), so the leak's other points are
+                            ! added once.
                             !
-                            ! MDK, 22/10/26
-REAL(KIND=real_jlslsm), PARAMETER :: apar_cut_min = 2.0
-                            ! Least absorbed PAR (W m-2) for the leak,
-                            ! about 5 W m-2 of shortwave: not apar > 0,
-                            ! as forcing noise at night (SW up to a few
-                            ! W m-2) would turn the leak on in the dark.
-                            !
-                            ! MDK, 22/10/26
+                            ! MDK, 26/10/26
 REAL(KIND=real_jlslsm), PARAMETER :: dq_ratio_cut_max = 3.0
                             ! Most the leak's conductance is scaled up by
                             ! the ratio of the leaf-to-air deficit to dqc,
@@ -4113,8 +4106,8 @@ END IF
 ! through gc. Its water comes from the capacitance store and the soil (the
 ! soil-supply cap applies: no water is taken that is not there). Unlike
 ! DESICA:
-! - only at lit points with apar >= apar_cut_min (about 5 W m-2 of
-!   shortwave), as no stomatal conductance is computed at night;
+! - day and night: at night and in dim light the closed canopy
+!   (gc = min_gl_pft) is raised to the leak as by day (MDK, 26/10/26);
 ! - the leak is not cut back when the plant nears kcrit, so in a drought
 !   it keeps drying the plant;
 ! - the leak drains the capacitance store at the stem node (the carry loop
@@ -4147,11 +4140,6 @@ IF ( l_cap_store ) THEN
     END DO
   END IF
   lk_cut(:)  = .FALSE.
-  lit_cut(:) = .FALSE.
-  DO m = 1,n_lit
-    l = open_land_index(m)
-    lit_cut(l) = apar(l) >= apar_cut_min
-  END DO
   ! The leak is driven by the leaf-to-air deficit (as gmin * VPD): with
   ! leaf temperatures (two-leaf), qs at the sunlit and shaded leaf
   ! temperatures weighted by leaf area, less q1; otherwise the air deficit,
@@ -4191,10 +4179,17 @@ IF ( l_cap_store ) THEN
                              share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
   END IF
   CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
+  ! The leak acts at every point, lit or not: at night and in dim light
+  ! the closed canopy (gc = min_gl_pft) is raised to the leak as by day. Its deficit is dq_cut above (the leaf
+  ! temperatures, or the air, at night), and its flux the tile's at tstar,
+  ! as sf_evap takes it, so where the surface has cooled below the air
+  ! (clear nights) the leak is smaller than gcuticular * LAI * VPD, and
+  ! nil with dew (qs(tstar) <= q1).
+  !
+  ! MDK, 26/10/26
   DO m = 1,veg_pts
     l = veg_index(m)
-    IF ( .NOT. lit_cut(l) .OR. gl_cut(l) <= 0.0 .OR.                           &
-         gc(l) >= gl_cut_eff(l) ) CYCLE
+    IF ( gl_cut(l) <= 0.0 .OR. gc(l) >= gl_cut_eff(l) ) CYCLE
     gc(l)     = gl_cut_eff(l)
     gc_som(l) = gc(l)
     ! Canopy transpiration (mol H2O m-2 s-1), as el elsewhere: the tile's
@@ -4303,6 +4298,21 @@ IF ( l_cap_store ) THEN
   ! potentials of the total (stomatal plus cuticular) flux.
   !
   ! MDK, 23/10/26
+  ! Also the unlit points where the leak acts, so the night leak's psi
+  ! drives the loss of conductance.
+  !
+  ! MDK, 26/10/26
+  in_imp_cut(:) = .FALSE.
+  DO m = 1,n_lit
+    in_imp_cut(open_land_index(m)) = .TRUE.
+  END DO
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( lk_cut(l) .AND. .NOT. in_imp_cut(l) ) THEN
+      n_lit = n_lit + 1
+      open_land_index(n_lit) = l
+    END IF
+  END DO
   CALL update_xylem_impairment(                                                &
           ! IN
             land_pts, n_lit, open_land_index, ft, psi_leaf, psi_src,           &

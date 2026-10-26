@@ -550,16 +550,16 @@ LOGICAL ::                                                                     &
       ! the canopy conductance is MAX(gs, gcuticular_io * LAI). The floor is
       ! an uncontrolled leak, so it is not part of the optimisation and adds
       ! no carbon. Under the stomatal optimisation (profit max, with the
-      ! capacitance store, which it turns on): lit points only, the full
+      ! capacitance store, which it turns on): day and night, the full
       ! leak, its transpiration the tile's flux at that conductance, paid
       ! by the store and the soil (the soil-supply cap applies) through the
       ! store's balance, and cut where the leaf would end below the psi of
       ! the critical loss of conductance (kcrit_fractional_loss); the xylem
-      ! impairment update is made after the leak, so it drives the loss of
-      ! conductance. DESICA: its own leak, at night too, cut to the largest
-      ! flux with k > kcrit.
+      ! impairment update is made after the leak, at the leak's points as
+      ! well as the lit ones, so it drives the loss of conductance. DESICA:
+      ! its own leak, at night too, cut to the largest flux with k > kcrit.
       !
-      ! MDK, 25/10/26
+      ! MDK, 26/10/26
 
 LOGICAL ::                                                                     &
   l_som_capacitance = .FALSE.
