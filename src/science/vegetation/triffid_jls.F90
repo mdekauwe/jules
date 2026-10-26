@@ -850,12 +850,11 @@ DO n = 1,npft
 END DO  !  PFTs
 
 !-----------------------------------------------------------------------------
-! Carbon-paid ring renewal (l_nsc_xylem_ring_renewal): the wood just grown
-! is the new xylem ring, which dilutes the stem damage of rule-2 PFTs. No
-! carbon moves (before the height update: the sapwood is that the store
-! saw).
+! Ring renewal (nsc_xylem_replace = 2): the wood just grown is the new
+! xylem ring, which dilutes the stem damage of rule-2 PFTs. No carbon
+! moves (before the height update: the sapwood is the one the store saw).
 !
-! MDK, 25/10/26
+! MDK, 26/10/26
 !-----------------------------------------------------------------------------
 IF ( l_triffid_nsc )                                                           &
   CALL triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index, r_gamma,      &

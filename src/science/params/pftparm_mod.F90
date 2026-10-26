@@ -467,19 +467,23 @@ nsc_ring_mmdd(:)                                                               &
                  !  replaces. 0 = one stem memory (the rebuilt xylem shares
                  !  the stem's worst loss). 1 = two pools, embolised xylem
                  !  first: the rebuilt xylem keeps its own memory, so later
-                 !  droughts damage it (it is built embolism free). 2 = two
-                 !  pools, proportional: the new xylem replaces the old
-                 !  pool at random, intact and embolised alike (dilution,
-                 !  the form of the leaf renewal; not the oldest xylem
-                 !  first), so a replaced share rho of the stem removes
-                 !  rho e_old / (1 - r_n) of the old pool's embolised share
-                 !  e_old (r_n the rebuilt share), for the store repair
-                 !  sized as for rule 1. With l_nsc_xylem_ring_renewal the
-                 !  stem is instead renewed by TRIFFID's wood growth, as
-                 !  one pool (random replacement of the whole stem), and
-                 !  the store pays no repair.
+                 !  droughts damage it (it is built embolism free). 2 = ring
+                 !  renewal: no store repair; the stem is renewed by the
+                 !  wood TRIFFID grows, its gross wood production G (wood
+                 !  increment plus the turnover replaced), which renews the
+                 !  share nsc_xylem_cond_ratio G dt / X of the stem's
+                 !  conductance (X the conducting sapwood, the pipe model
+                 !  with nsc_la_sa > 0) and dilutes the whole stem's loss
+                 !  by it (one pool; new xylem replaces old at random,
+                 !  intact and embolised alike, as leaf renewal does; not
+                 !  the oldest xylem first). No store carbon is used. The
+                 !  W_max hold then tests new drought damage only
+                 !  (nsc_hold_plc). Needs l_triffid_nsc, l_ximpair_rec_nsc
+                 !  and dynamic TRIFFID (the run stops otherwise). The
+                 !  store-paid proportional repair that rule 2 was before
+                 !  was removed.
                  !
-                 !  MDK, 25/10/26
+                 !  MDK, 26/10/26
 
 REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
  kmax_pft(:)                                                                   &
@@ -663,12 +667,16 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  (ximpair_lock) is above nsc_hold_plc, so the damaged
                  !  plant keeps the sink of the intact one (Trugman et al.
                  !  hold W_max, set by tree size, through recovery).
-                 !  1 = never held. With l_nsc_hold_drought, tested
-                 !  against the loss the recent water status imposes above
-                 !  the background, (1 - ximpair_fmin_acc) -
-                 !  nsc_plc_background, instead of ximpair_lock.
+                 !  1 = never held. Ring renewal (nsc_xylem_replace = 2):
+                 !  held only at store steps with new drought damage, when
+                 !  the worst loss the water status imposed, P = 1 -
+                 !  ximpair_fmin_acc, is at the locked loss (the embolism
+                 !  ratchet binding) and P > nsc_hold_plc; never in
+                 !  spin-up (triffid_nsc_mod header). nsc_hold_plc is an
+                 !  absolute stem loss for every rule (no background
+                 !  subtracted).
                  !
-                 !  MDK, 25/10/26
+                 !  MDK, 26/10/26
 ,nsc_g_starv(:)                                                               &
                  ! Carbon-starvation mortality (per 360 days, an area
                  !  disturbance added to g_area in lotka), at the full rate
@@ -710,14 +718,14 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  from the pipe model on the balanced leaf area, as in
                  !  FATES: X = LAI_bal / nsc_la_sa h nsc_wood_density cmass
                  !  (sapwood area x height, area-preserving branching, no
-                 !  taper). 0: X = nsc_sapwood_frac woodc. With
-                 !  l_nsc_xylem_ring_renewal X is the denominator of the
+                 !  taper). 0: X = nsc_sapwood_frac woodc. With ring renewal
+                 !  (nsc_xylem_replace = 2) X is the denominator of the
                  !  ring's share of the conductance (G dt / X), so it sets
                  !  the stem's recovery time directly: nsc_la_sa (and
                  !  nsc_wood_density) must then be measured values. X does
                  !  not set kmax.
                  !
-                 !  MDK, 25/10/26
+                 !  MDK, 26/10/26
 ,nsc_wood_density(:)                                                         &
                  ! Wood density (kg dry matter m-3) for the pipe-model xylem.
 ,nsc_psi_turg_full(:)                                                         &
@@ -798,26 +806,28 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  conducting xylem the cambium can build per year.
                  !  nsc_xylem_type 1: cap on the repair rate while growing
                  !  (times the growth factor of the turgor and cold limits,
-                 !  f_t; with l_nsc_xylem_rate_norm divided by its annual
-                 !  mean, so this is the fraction built per year; without
-                 !  it the annual cap is this times <f_t>); 0 = no cap.
-                 !  nsc_xylem_type 2: the earlywood ring as a fraction of
-                 !  the conducting xylem (> 0).
+                 !  f_t, and the cambium's window f_stem), so the annual
+                 !  cap is this times the mean of f_t f_stem over the year
+                 !  (<f_t> ~ 0.27 at FR-Pue; less once the cambium window
+                 !  is applied, which it is only when nsc_flush_start_doy
+                 !  is set); 0 = no cap. Not used by ring renewal
+                 !  (nsc_xylem_replace = 2). nsc_xylem_type 2: the
+                 !  earlywood ring as a fraction of the conducting xylem
+                 !  (> 0).
                  !
-                 !  MDK, 25/10/26
+                 !  MDK, 26/10/26
 ,nsc_xylem_cond_ratio(:)
-                 ! Carbon-paid ring renewal (l_nsc_xylem_ring_renewal,
-                 !  nsc_xylem_replace = 2): w_cond, the conductance per
-                 !  unit carbon of the new ring relative to the mean
-                 !  conducting sapwood (>= 0; default 1, all sapwood
-                 !  conducts alike). A measurable anatomical ratio: the
-                 !  radial profile of sap flux density (outer rings
+                 ! Ring renewal (nsc_xylem_replace = 2): w_cond, the
+                 !  conductance per unit carbon of the new ring relative
+                 !  to the mean conducting sapwood (>= 0; default 1, all
+                 !  sapwood conducts alike). A measurable anatomical ratio:
+                 !  the radial profile of sap flux density (outer rings
                  !  against the sapwood mean) or ring-by-ring specific
                  !  conductivity. The new ring (TRIFFID's gross wood
                  !  production G) renews w_cond G dt / X of the stem's
                  !  conductance. 0 makes the rings dilute nothing (a test).
                  !
-                 !  MDK, 25/10/26
+                 !  MDK, 26/10/26
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 

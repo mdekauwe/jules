@@ -1154,6 +1154,8 @@ USE c_irrigation_mod, ONLY: irrig_tile
 USE c_z0h_z0m,    ONLY: z0h_z0m,  z0h_z0m_classic
 
 USE jules_surface_types_mod, ONLY: npft
+USE jules_surface_types_mod, ONLY: nnpft   ! MDK, 26/10/26
+USE jules_print_mgr, ONLY: jules_print     ! MDK, 26/10/26
 
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 l_som_vcmax_psi, stomata_model, stomata_cmax,  &
@@ -1163,8 +1165,7 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 xylem_impairment_memory,                       &
                                 ximpair_driver_stem, l_triffid_nsc,            &
                                 l_ximpair_rec_nsc, l_veg_compete,              &
-                                l_ximpair_seg_memory,                          &
-                                l_nsc_xylem_ring_renewal,                      &
+                                l_ximpair_seg_memory, l_triffid,               &
                                 l_trif_hydmort, l_som_capacitance_on,          &
                                 leaf_flux_mod, leaf_flux_stom_opt, l_trif_eq
 USE jules_soil_mod, ONLY: l_bound_soil_wp
@@ -1176,6 +1177,10 @@ INTEGER :: errcode
 INTEGER :: iseg
 REAL(KIND=real_jlslsm) :: seg_frac(3), p50_seg(3), p88_seg(3)
 REAL(KIND=real_jlslsm) :: a_root   ! Christoffersen root curve shape (seg_root_vc_io = 1)
+CHARACTER(LEN=256) :: info_line
+                      ! One-off message for ring-renewal PFTs.
+                      !
+                      ! MDK, 26/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -1661,8 +1666,9 @@ IF ( l_triffid_nsc ) THEN
                  'nsc_xylem_rate_max_io >= 0, nsc_ring_mmdd_io a mmdd, '   // &
                  'nsc_cmax_io >= 0.')
   END IF
-  ! Two-pool stem memory: diffuse-porous store repair only.
-  ! MDK, 20/10/26
+  ! Embolism replacement (1) and ring renewal (2): diffuse-porous only.
+  !
+  ! MDK, 26/10/26
   IF ( ANY(nsc_xylem_replace(:) < 0) .OR. ANY(nsc_xylem_replace(:) > 2) .OR.  &
        ANY(nsc_xylem_replace(:) > 0 .AND. nsc_xylem_type(:) /= 1) ) THEN
     errcode = 101
@@ -1670,32 +1676,25 @@ IF ( l_triffid_nsc ) THEN
                  'nsc_xylem_replace_io must be 0, 1 or 2, and 1 or 2 only '// &
                  'with nsc_xylem_type_io = 1.')
   END IF
-  ! The two pools are kept only by the store's repair: no other recovery
-  ! (the annual reset) may raise the stem cap.
+  ! The two pools (rule 1) are kept only by the store's repair, and ring
+  ! renewal (rule 2) only by the rings: no other recovery (the annual
+  ! reset) may raise the stem cap.
+  !
+  ! MDK, 26/10/26
   IF ( ANY(nsc_xylem_replace(:) > 0 .AND. ximpair_reset_mmdd(:) > 0) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'nsc_xylem_replace_io > 0 needs ximpair_reset_mmdd_io off.')
   END IF
-  ! Carbon-paid ring renewal: the new ring's conductance ratio is >= 0.
-  ! Ring-porous stems can not take nsc_xylem_replace = 2 (above), so ring
+  ! Ring renewal (nsc_xylem_replace = 2): the new ring's conductance ratio
+  ! is >= 0. Ring-porous stems can not take rule 2 (above), so ring
   ! renewal is diffuse-porous only.
   !
-  ! MDK, 25/10/26
+  ! MDK, 26/10/26
   IF ( ANY(nsc_xylem_cond_ratio(:) < 0.0) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'nsc_xylem_cond_ratio_io must be >= 0.')
-  END IF
-  IF ( l_nsc_xylem_ring_renewal .AND.                                          &
-       .NOT. ANY(nsc_xylem_replace(:) == 2 .AND.                               &
-                 pft_xylem_impairment_model(:) == xylem_impairment_memory) )   &
-    THEN
-    errcode = -101
-    CALL ereport(RoutineName, errcode,                                         &
-                 'l_nsc_xylem_ring_renewal is on but no PFT has '          // &
-                 'nsc_xylem_replace_io = 2 with the memory impairment '    // &
-                 'model: it does nothing.')
   END IF
   ! Leaf flush: a whole number of days.
   IF ( ANY(is_set(nsc_flush_start_doy(:)) .AND.                                &
@@ -1704,6 +1703,70 @@ IF ( l_triffid_nsc ) THEN
     CALL ereport(RoutineName, errcode,                                         &
                  'nsc_flush_days_io must be a whole number of days.')
   END IF
+END IF
+! Ring renewal is TRIFFID wood growth, which only natural PFTs have: a
+! crop PFT (index > nnpft) with rule 2 would never recover, so the run
+! stops. (Crops already rule out TRIFFID, which rule 2 needs; this is
+! checked first so the message names the cause.)
+!
+! MDK, 26/10/26
+IF ( npft > nnpft ) THEN
+  IF ( ANY(nsc_xylem_replace(nnpft+1:npft) == 2) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_xylem_replace_io = 2 (ring renewal by TRIFFID wood ' // &
+                 'growth) is not allowed for crop PFTs (index > nnpft): '  // &
+                 'they have no TRIFFID wood growth, so the stem would '    // &
+                 'never recover.')
+  END IF
+END IF
+! Ring renewal (nsc_xylem_replace = 2) dilutes the memory model's stem
+! loss by TRIFFID's wood growth, queued through the TRIFFID store's stem
+! repair: without the store and its repair (l_triffid_nsc,
+! l_ximpair_rec_nsc) or without dynamic TRIFFID (l_triffid, not
+! l_trif_eq) it would do nothing, so the run stops. For a PFT without the
+! memory impairment model it does nothing (warning). Conversely,
+! nsc_xylem_cond_ratio_io acts only on rule-2 PFTs (warning).
+!
+! MDK, 26/10/26
+IF ( ANY(nsc_xylem_replace(1:npft) == 2) .AND.                                 &
+     ( .NOT. l_triffid_nsc .OR. .NOT. l_ximpair_rec_nsc .OR.                   &
+       .NOT. l_triffid .OR. l_trif_eq ) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                           &
+               'nsc_xylem_replace_io = 2 (ring renewal by TRIFFID wood '   //  &
+               'growth) needs l_triffid_nsc=T, l_ximpair_rec_nsc=T, '      //  &
+               'l_triffid=T and l_trif_eq=F; without them the stem '       //  &
+               'would never recover.')
+END IF
+! Rule 2 has been ring renewal since the switch-free version (26/10/26);
+! before, it was the store-paid proportional repair. Say so once for
+! each PFT that uses it, so a run with an old namelist shows it.
+!
+! MDK, 26/10/26
+DO i = 1,npft
+  IF ( nsc_xylem_replace(i) == 2 ) THEN
+    WRITE(info_line, '(A,I0,A)') 'PFT ', i, ': nsc_xylem_replace = 2 is '   // &
+          'ring renewal (the stem loss is diluted by TRIFFID wood growth; '// &
+          'no store repair). Before 26/10/26 rule 2 was the store-paid '  // &
+          'proportional repair, now removed.'
+    CALL jules_print(RoutineName, info_line)
+  END IF
+END DO
+IF ( ANY(nsc_xylem_replace(1:npft) == 2 .AND.                                  &
+         pft_xylem_impairment_model(1:npft) /= xylem_impairment_memory) ) THEN
+  errcode = -101
+  CALL ereport(RoutineName, errcode,                                           &
+               'nsc_xylem_replace_io = 2 has no effect for PFTs without '  //  &
+               'the memory impairment model (pft_xylem_impairment_model '  //  &
+               '= 3).')
+END IF
+IF ( ANY(ABS(nsc_xylem_cond_ratio_io(1:npft) - rmdi) > EPSILON(1.0) .AND.      &
+         nsc_xylem_replace(1:npft) /= 2) ) THEN
+  errcode = -101
+  CALL ereport(RoutineName, errcode,                                           &
+               'nsc_xylem_cond_ratio_io is set for a PFT without ring '    //  &
+               'renewal (nsc_xylem_replace_io /= 2): it has no effect.')
 END IF
 ! Hydraulic mortality (l_trif_hydmort): parameter ranges and the damage
 ! state it is driven by.

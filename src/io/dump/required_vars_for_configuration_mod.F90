@@ -51,7 +51,6 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
                                 l_triffid_nsc, l_ximpair_rec_leaf_turn,        &
                                 l_phen_psi, l_nsc_wmax_norm,                   &
-                                l_nsc_xylem_rate_norm,                         &
                                 l_som_vcmax_psi, l_som_coupled_e,              &
                                 l_som_capacitance_on   ! MDK, 24/10/26
 
@@ -373,9 +372,13 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
     CALL add_to_list( 'ximpair_repair_pend', nvars, identifiers )
     CALL add_to_list( 'ximpair_grow_acc', nvars, identifiers )
     CALL add_to_list( 'ximpair_fmin_acc', nvars, identifiers )
-    ! Two-pool stem memory.
-    ! MDK, 20/10/26
-    IF ( ANY(nsc_xylem_replace(:) > 0) ) THEN
+    ! Two-pool stem memory: embolism replacement (rule 1) only. Ring
+    ! renewal (rule 2) keeps the stem as one pool: it needs only
+    ! ximpair_repair_pend (the queued share), and ximpair_fmin_acc with
+    ! ximpair_lock for its W_max hold, all listed above.
+    !
+    ! MDK, 26/10/26
+    IF ( ANY(nsc_xylem_replace(:) == 1) ) THEN
       CALL add_to_list( 'ximpair_rebuilt', nvars, identifiers )
       CALL add_to_list( 'ximpair_lock_new', nvars, identifiers )
     END IF
@@ -409,12 +412,9 @@ IF ( l_triffid_nsc ) THEN
   ! MDK, 18/10/26
   IF ( ANY(is_set(nsc_t_grow_zero(:))) )                                       &
     CALL add_to_list( 'nsc_t_run', nvars, identifiers )
-  ! The annual mean growth factor of the leaf renewal, l_nsc_wmax_norm and
-  ! l_nsc_xylem_rate_norm.
-  !
-  ! MDK, 25/10/26
-  IF ( l_ximpair_rec_leaf_turn .OR. l_nsc_wmax_norm .OR.                       &
-       l_nsc_xylem_rate_norm )                                                 &
+  ! The annual mean growth factor of the leaf renewal.
+  ! MDK, 18/10/26
+  IF ( l_ximpair_rec_leaf_turn .OR. l_nsc_wmax_norm )                          &
     CALL add_to_list( 'nsc_ft_mean', nvars, identifiers )
 END IF
 ! Drought leaf shedding: daily water-status memory and the leaf factor.

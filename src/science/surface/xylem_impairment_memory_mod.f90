@@ -32,19 +32,20 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock(:,:)
 ! Stem conductance rebuilt by xylem regrown from the TRIFFID store
 ! (l_ximpair_rec_nsc), as a fraction of kmax, queued by triffid_nsc_store
 ! at the TRIFFID step and applied (then cleared) at the next update. With
-! ring renewal (l_nsc_xylem_ring_renewal, rule 2) it is instead the share
-! of the stem's conductance renewed by the wood TRIFFID grew, which dilutes
-! the stem's loss.
+! ring renewal (nsc_xylem_replace = 2) it is instead the share of the
+! stem's conductance renewed by the wood TRIFFID grew
+! (triffid_nsc_ring_renewal), which dilutes the stem's loss.
 !
-! MDK, 25/10/26
+! MDK, 26/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_repair_pend(:,:)
 
-! Two-pool stem memory (nsc_xylem_replace > 0): the share of the stem's
-! conducting xylem rebuilt from the store, and the worst loss of
-! conductance of that rebuilt pool since it was built. The old pool's
-! embolised share is the rest of the stem's loss.
+! Two-pool stem memory (embolism replacement, nsc_xylem_replace = 1): the
+! share of the stem's conducting xylem rebuilt from the store, and the
+! worst loss of conductance of that rebuilt pool since it was built. The
+! old pool's embolised share is the rest of the stem's loss. Kept at 0
+! under ring renewal (rule 2, one pool).
 !
-! MDK, 20/10/26
+! MDK, 26/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_rebuilt(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock_new(:,:)
 
@@ -112,6 +113,7 @@ SUBROUTINE ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac,   &
 USE jules_surface_types_mod, ONLY: npft, nnpft, ntype
 USE jules_vegetation_mod, ONLY: xylem_impairment_memory
 USE pftparm, ONLY: pft_xylem_impairment_model
+USE pftparm, ONLY: nsc_xylem_replace   ! MDK, 26/10/26
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
 
 USE parkind1, ONLY: jprb, jpim
@@ -160,7 +162,16 @@ IF ( ALLOCATED(ximpair_lock) ) THEN
       ximpair_area_w(l,n)      = ximpair_area_w(l,n) * w
       ximpair_lock(l,n)        = ximpair_lock(l,n) * w
       ximpair_rebuilt(l,n)     = ximpair_rebuilt(l,n) * w
-      ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n) * w
+      ! The queued store repair (rules 0 and 1) is an additive share of
+      ! the stem's conductance, so it is diluted with the loss. The
+      ! queued ring share (rule 2) is a multiplicative factor on the loss,
+      ! L -> L (1 - rho), the same for old and new cover, so it is not:
+      ! scaling it too would give L w (1 - rho w) instead of the
+      ! area-weighted L w (1 - rho).
+      !
+      ! MDK, 26/10/26
+      IF ( nsc_xylem_replace(n) /= 2 )                                         &
+        ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n) * w
       ximpair_fmin_acc(l,n)    = 1.0 - (1.0 - ximpair_fmin_acc(l,n)) * w
       IF ( ALLOCATED(ximpair_kcap_leaf) )                                      &
         ximpair_kcap_leaf(l,n) = 1.0 - (1.0 - ximpair_kcap_leaf(l,n)) * w
@@ -628,7 +639,6 @@ USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
                                 l_ximpair_rec_leaf_turn,                       &
                                 triffid_period, l_trif_hydmort
-USE jules_vegetation_mod, ONLY: l_nsc_xylem_ring_renewal   ! MDK, 25/10/26
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_psi_stem,                    &
                                           ximpair_seg_state_alloc
@@ -669,21 +679,21 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 ! Local variables
 INTEGER :: j, l, errcode
 REAL(KIND=real_jlslsm) :: rep_l, r_n, m_n, e_new, e_old, d_old, d_new
-                            ! Two-pool repair at one point: the repair
-                            ! queued (share of the stem), the rebuilt
-                            ! pool's share and its worst loss, the rebuilt
-                            ! and old pools' embolised shares of the stem,
-                            ! and the embolised xylem replaced in the old
-                            ! and rebuilt pools.
+                            ! Two-pool repair at one point (rule 1): the
+                            ! repair queued (share of the stem), the
+                            ! rebuilt pool's share and its worst loss, the
+                            ! rebuilt and old pools' embolised shares of
+                            ! the stem, and the embolised xylem replaced in
+                            ! the old and rebuilt pools. rep_l is also the
+                            ! queued ring share (rule 2).
                             !
-                            ! MDK, 24/10/26
+                            ! MDK, 26/10/26
 LOGICAL :: l_two, l_ring
-                            ! Two-pool stem memory (nsc_xylem_replace > 0);
-                            ! ring renewal of the stem
-                            ! (l_nsc_xylem_ring_renewal, rule 2: one
-                            ! pool).
+                            ! Two-pool stem memory (embolism replacement,
+                            ! nsc_xylem_replace = 1); ring renewal of the
+                            ! stem (nsc_xylem_replace = 2: one pool).
                             !
-                            ! MDK, 25/10/26
+                            ! MDK, 26/10/26
 
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_x(n_land_pts), k_x(n_land_pts), kmax_pts(n_land_pts),                    &
@@ -755,8 +765,11 @@ END IF
 !-----------------------------------------------------------------------------
 
 ! MDK, 17/10/26
-l_ring = l_ximpair_rec_nsc .AND. l_nsc_xylem_ring_renewal .AND.               &
-         nsc_xylem_replace(pft) == 2
+! Ring renewal (nsc_xylem_replace = 2): the queued share dilutes the
+! stem's loss as one pool.
+!
+! MDK, 26/10/26
+l_ring = l_ximpair_rec_nsc .AND. nsc_xylem_replace(pft) == 2
 IF (l_ximpair_rec_nsc) THEN
   ! Xylem rebuilt from the TRIFFID store since the last update.
   CALL ximpair_memory_alloc( n_land_pts )
@@ -778,12 +791,15 @@ IF (l_ximpair_rec_nsc) THEN
       kcap(l) = kmax_pts(l) * (1.0 - MAX(1.0 - kcap(l) / kmax_pts(l), 0.0)    &
                                      * (1.0 - MIN(rep_l, 1.0)))
     END DO
-  ELSE IF (nsc_xylem_replace(pft) > 0) THEN
-    ! Two pools: the stem's loss is the old pool's embolised share plus
-    ! the rebuilt pool's share times its own worst loss. The new xylem
-    ! (repair_pend, as a share of the stem) is built embolism free.
+  ELSE IF (nsc_xylem_replace(pft) == 1) THEN
+    ! Two pools (embolism replacement): the stem's loss is the old pool's
+    ! embolised share plus the rebuilt pool's share times its own worst
+    ! loss. The new xylem (repair_pend, as a share of the stem) is built
+    ! embolism free and replaces embolised xylem first: the old pool's,
+    ! then the rebuilt pool's. (The store-paid proportional rule 2 was
+    ! replaced by ring renewal, above.)
     !
-    ! MDK, 20/10/26
+    ! MDK, 26/10/26
     DO l = 1, n_land_pts
       rep_l = ximpair_repair_pend(l,pft)
       IF (rep_l <= 0.0) CYCLE
@@ -791,22 +807,11 @@ IF (l_ximpair_rec_nsc) THEN
       m_n   = ximpair_lock_new(l,pft)
       e_new = r_n * m_n
       e_old = MAX(1.0 - kcap(l) / kmax_pts(l) - e_new, 0.0)
-      IF (nsc_xylem_replace(pft) == 1) THEN
-        ! Embolised xylem first: the old pool's, then the rebuilt pool's.
-        d_old = MIN(rep_l, e_old)
-        d_new = MIN(rep_l - d_old, e_new)
-        e_old = e_old - d_old
-        e_new = e_new - d_new
-        r_n   = MIN(r_n + d_old, 1.0)
-      ELSE
-        ! Proportional: the old pool is replaced as it is, intact and
-        ! embolised alike.
-        d_old = 0.0
-        d_new = 0.0
-        IF (r_n < 1.0) d_old = MIN(rep_l, 1.0 - r_n) * e_old / (1.0 - r_n)
-        e_old = e_old - d_old
-        r_n   = MIN(r_n + rep_l, 1.0)
-      END IF
+      d_old = MIN(rep_l, e_old)
+      d_new = MIN(rep_l - d_old, e_new)
+      e_old = e_old - d_old
+      e_new = e_new - d_new
+      r_n   = MIN(r_n + d_old, 1.0)
       m_n = 0.0
       IF (r_n > 0.0) m_n = MIN(e_new / r_n, 1.0)
       ! Once the rebuilt xylem is the whole stem it becomes the old pool
@@ -871,10 +876,12 @@ END IF
 ! Damage: the cap can not exceed the intact conductance at the damage
 ! driver. Only points with open stomata (i.e. under tension) are damaged.
 !-----------------------------------------------------------------------------
-! With ring renewal the stem is one pool (plain ratchet).
+! Two pools for embolism replacement only; with ring renewal the stem is
+! one pool (plain ratchet), so ximpair_lock_new stays 0 in output and
+! dumps.
 !
-! MDK, 25/10/26
-l_two = l_ximpair_rec_nsc .AND. nsc_xylem_replace(pft) > 0 .AND. .NOT. l_ring
+! MDK, 26/10/26
+l_two = l_ximpair_rec_nsc .AND. nsc_xylem_replace(pft) == 1
 IF (l_ximpair_seg_memory) THEN
   ! Per segment: the stem by psi_stem on the stem curve, the leaf by
   ! psi_leaf on the leaf curve (the segments' intact Weibull curves).
