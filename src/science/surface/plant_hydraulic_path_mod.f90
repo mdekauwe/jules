@@ -10,7 +10,7 @@ MODULE plant_hydraulic_path_mod
 USE um_types, ONLY: real_jlslsm
 USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f, xylem_f_bc, incomplete_gamma
 USE supply_table_mod, ONLY: seg_lut_psi, build_supply_lut_seg, newton_psi_drop
-USE jules_vegetation_mod, ONLY: k_ground_ratio_max
+USE jules_vegetation_mod, ONLY: k_ground_ratio_max, l_som_seg_whole   ! MDK, 26/10/26
 
 IMPLICIT NONE
 
@@ -367,7 +367,10 @@ ELSE IF ( l_som_plant_segments ) THEN
   r = 0.0
   DO iseg = 1, 3
     k_el = kmax * seg_kmax_fac(pft,l,iseg) * seg_rel_k(pft, iseg, psi_root)
-    IF ( PRESENT(kcap_frac) .AND. iseg >= 2 )                                  &
+    ! The cap on the stem and leaf (and the root with l_som_seg_whole).
+    !
+    ! MDK, 26/10/26
+    IF ( PRESENT(kcap_frac) .AND. ( iseg >= 2 .OR. l_som_seg_whole ) )         &
       k_el = MIN(k_el, MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac),      &
                                0.0), 1.0) * kmax * seg_kmax_fac(pft,l,iseg))
     IF ( k_el <= TINY(1.0_real_jlslsm) ) RETURN
@@ -633,8 +636,11 @@ DO j = 1, open_pnts
     ! so above psi_cap (wetter) the cap binds and below it the intact curve
     ! does. a_cap is the intact supply integral at psi_cap, used to join the
     ! two parts of the capped integral (seg_a).
+    ! With l_som_seg_whole the root is capped too (whole-plant damage).
+    !
+    ! MDK, 26/10/26
     fr = 1.0
-    IF ( l_impair .AND. iseg >= 2 )                                            &
+    IF ( l_impair .AND. ( iseg >= 2 .OR. l_som_seg_whole ) )                   &
       fr = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor), 1.0)
     l_cap = fr < 1.0 - 1.0e-6
     IF ( l_cap ) THEN
@@ -959,13 +965,13 @@ DO j = 1, open_pnts
       kmx = kmax(l) * seg_kmax_fac(pft,l,iseg)   ! MDK, 21/10/26
       bs  = conductance_b_seg(pft,iseg)
       cs  = conductance_c_seg(pft,iseg)
-      ! Cap on the stem and leaf segments (not the root), as
-      ! psi_leaf_segments_jls.
+      ! Cap on the stem and leaf segments (not the root; all three with
+      ! l_som_seg_whole), as psi_leaf_segments_jls.
       !
-      ! MDK, 18/10/26
+      ! MDK, 26/10/26
       l_cap = .FALSE.
       fr = 1.0
-      IF ( l_impair .AND. iseg >= 2 ) THEN
+      IF ( l_impair .AND. ( iseg >= 2 .OR. l_som_seg_whole ) ) THEN
         fr = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor),   &
                  1.0)
         l_cap = fr < 1.0 - 1.0e-6

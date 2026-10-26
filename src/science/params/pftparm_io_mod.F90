@@ -1132,6 +1132,7 @@ USE jules_surface_types_mod, ONLY: npft
 USE jules_surface_types_mod, ONLY: nnpft   ! MDK, 26/10/26
 
 USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
+                                l_som_seg_whole,                               &
                                 l_som_vcmax_psi, stomata_model, stomata_cmax,  &
                                 stomata_cgain, stomata_supply_loss,            &
                                 stomata_profit_max,                            &
@@ -1969,6 +1970,21 @@ DO i = 1, npft
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'seg_frac_root_io/stem/leaf must all be > 0.')
+  END IF
+  ! Segments given for the plant capacitance with l_som_plant_segments off
+  ! (l_som_seg_whole): all three on the PFT curve, so the segment curves
+  ! may not be set.
+  !
+  ! MDK, 26/10/26
+  IF ( l_som_seg_whole .AND.                                                   &
+       ( ANY(ABS([ p50_root_io(i), p50_stem_io(i), p50_leaf_io(i),             &
+                   p88_root_io(i), p88_stem_io(i), p88_leaf_io(i) ]            &
+                 - rmdi) >= EPSILON(1.0)) .OR. seg_root_vc_io(i) /= 0 ) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'Plant capacitance with l_som_plant_segments=F puts the ' // &
+                 'segments on the PFT curve: p50/p88_root/stem/leaf_io '    // &
+                 'must be unset and seg_root_vc_io = 0.')
   END IF
   DO iseg = 1,3
     seg_kfac(i,iseg) = SUM(seg_frac(:)) / seg_frac(iseg)

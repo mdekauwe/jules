@@ -74,11 +74,15 @@ END SUBROUTINE ximpair_seg_state_alloc
 ! Cap fraction of segment iseg (1 root, 2 stem, 3 leaf) at land point l:
 ! the root is never capped; the stem takes kcap_frac (the impaired kmax
 ! state over the intact kmax); the leaf takes kcap_frac too, or its own
-! cap with l_ximpair_seg_memory.
+! cap with l_ximpair_seg_memory. With l_som_seg_whole (segments on the
+! PFT curve for the plant capacitance) the root takes kcap_frac as well:
+! the whole-plant damage on all three segments.
+!
+! MDK, 26/10/26
 ! ---------------------------------------------------------------------
 FUNCTION ximpair_seg_frac( pft, l, iseg, kcap_frac ) RESULT( fr )
 
-USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
+USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory, l_som_seg_whole
 
 INTEGER, INTENT(IN) :: pft, l, iseg
 REAL(KIND=real_jlslsm), INTENT(IN) :: kcap_frac
@@ -87,6 +91,7 @@ REAL(KIND=real_jlslsm) :: fr
 SELECT CASE (iseg)
 CASE (1)
   fr = 1.0
+  IF ( l_som_seg_whole ) fr = kcap_frac
 CASE (2)
   fr = kcap_frac
 CASE DEFAULT

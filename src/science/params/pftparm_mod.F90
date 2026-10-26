@@ -1697,6 +1697,7 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  l_scale_resp_pm, stomata_desica,              &
                                  som_psi_solver, psi_solver_lut,               &
                                  l_ximpair_seg_memory, l_som_plant_segments,   &
+                                 l_som_seg_whole,                              &
                                  xylem_impairment_memory,                      &
                                  xylem_impairment_none,                        &
                                  xylem_impairment_whole_trunk,                 &
@@ -2450,10 +2451,14 @@ END IF
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 IF ( l_som_plant_segments .AND. .NOT. l_ximpair_seg_memory .AND.               &
+     .NOT. l_som_seg_whole .AND.                                               &
      ANY( pft_xylem_impairment_model(1:npft) == xylem_impairment_memory ) )   &
      THEN
   ! The cap fraction comes from the PFT curve at the driver psi but is
-  ! applied to the stem and leaf segments, each on its own curve.
+  ! applied to the stem and leaf segments, each on its own curve. Not
+  ! with l_som_seg_whole, whose segments are all on the PFT curve.
+  !
+  ! MDK, 26/10/26
   ERROR = -1
   CALL ereport(routinename, ERROR,                                             &
   'the memory model with l_som_plant_segments but without '                 // &

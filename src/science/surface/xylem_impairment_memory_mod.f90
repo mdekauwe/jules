@@ -602,7 +602,8 @@ USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
 USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 ximpair_driver_root, ximpair_driver_stem,      &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
-                                l_ximpair_rec_leaf_turn, l_trif_hydmort
+                                l_ximpair_rec_leaf_turn, l_trif_hydmort,       &
+                                l_som_seg_whole
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_psi_stem,                    &
                                           ximpair_seg_state_alloc
@@ -737,6 +738,18 @@ END IF
 
 ! This timestep in years, for the leaf segment's recovery.
 dt_years = REAL(timestep_len) / sec_per_year
+
+! With the segments on the PFT curve (l_som_seg_whole) the stem psi is
+! kept for the psi_stem_pft output only (the leaf state is not used).
+!
+! MDK, 26/10/26
+IF (l_som_seg_whole) THEN
+  IF (.NOT. ALLOCATED(ximpair_psi_stem)) THEN
+    ALLOCATE(ximpair_psi_stem(n_land_pts, npft))
+    ximpair_psi_stem(:,:) = 0.0
+  END IF
+  ximpair_psi_stem(:,pft) = psi_stem(:)
+END IF
 
 IF (l_ximpair_seg_memory) THEN
   CALL ximpair_seg_state_alloc( n_land_pts )

@@ -667,6 +667,20 @@ INTEGER ::                                                                     &
       !   damage. kmax_pft keeps its meaning at LAI = LAI_ref.
       ! MDK, 21/10/26
 
+
+LOGICAL ::                                                                     &
+  l_som_seg_whole = .FALSE.
+      ! Derived (not in the namelist): .TRUE. when l_som_plant_segments is
+      ! .FALSE. but the plant capacitance is on (l_som_capacitance or
+      ! l_som_cuticular_loss, with the stomatal optimisation). The store
+      ! sits at the stem node, so check_jules_vegetation then turns
+      ! l_som_plant_segments on, with the root, stem and leaf segments all
+      ! on the PFT curve (p50_io, p88_io) and the usual resistance shares:
+      ! hydraulically the single-segment plant. The xylem damage is the
+      ! memory model's whole-plant loss, applied to all three segments
+      ! (root included), not per segment.
+      !
+      ! MDK, 26/10/26
 LOGICAL ::                                                                     &
   l_som_supply_limit = .FALSE.
       ! When .TRUE., the stomatal optimisation can only choose transpiration
@@ -1910,6 +1924,31 @@ IF ( fsmc_shape == 1 .AND. .NOT. l_use_pft_psi ) THEN
                'fsmc_shape=1 requires l_use_pft_psi=T ')
 END IF
 
+! Plant capacitance without the segments: the store sits at the stem node,
+! so the plant is given the three segments, all on the PFT curve, with the
+! whole-plant damage on all three (l_som_seg_whole; pftparm checks the
+! segment curves are not set). The checks below then apply as with
+! l_som_plant_segments.
+!
+! MDK, 26/10/26
+l_som_seg_whole = .NOT. l_som_plant_segments .AND.                             &
+                  ( l_som_capacitance .OR. l_som_cuticular_loss ) .AND.        &
+                  leaf_flux_mod == leaf_flux_stom_opt
+IF ( l_som_seg_whole ) THEN
+  l_som_plant_segments = .TRUE.
+  IF ( l_ximpair_seg_memory ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'l_ximpair_seg_memory needs l_som_plant_segments=T: with ' // &
+                 'the segments off the plant capacitance uses the '          // &
+                 'whole-plant damage')
+  END IF
+  errcode = -101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'Plant capacitance with l_som_plant_segments=F: root, stem ' // &
+               'and leaf segments on the PFT curve, whole-plant damage')
+END IF
+
 ! Segments with the multilayer canopy (can_rad_mod 5, 6): each leaf's
 ! parallel path is root, stem and leaf in series (MDK, 23/10/26).
 IF ( l_som_plant_segments .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.     &
@@ -1960,13 +1999,14 @@ IF ( l_som_capacitance_on .AND. can_rad_mod == 4 ) THEN
                'Plant capacitance (l_som_capacitance or ' //                   &
                'l_som_cuticular_loss) is not available with can_rad_mod = 4')
 END IF
-! The plant capacitance store sits at the stem node of the plant segments,
+! The plant capacitance store sits at the stem node of the plant segments
+! (given on the PFT curve when l_som_plant_segments is off, above),
 ! seen by the optimiser (its flow out held fixed in each pass of the
 ! search). It is coded for profit max with the root, stem and leaf segments
 ! and the Newton solver, the bounded Ci search and the big-leaf, multilayer
 ! and two-leaf canopies (with or without the cuticular loss).
 !
-! MDK, 25/10/26
+! MDK, 26/10/26
 IF ( l_som_capacitance_on ) THEN
   IF ( .NOT. l_som_plant_segments .OR.                                         &
        som_psi_solver /= psi_solver_newton ) THEN
@@ -2416,6 +2456,9 @@ END IF
 
 WRITE(lineBuffer,*) ' l_som_plant_segments = ', l_som_plant_segments
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_som_seg_whole = ', l_som_seg_whole
+CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 26/10/26
 
 WRITE(lineBuffer,*) ' kplant_model = ', kplant_model   ! MDK, 21/10/26
 CALL jules_print('jules_vegetation_mod',lineBuffer)
