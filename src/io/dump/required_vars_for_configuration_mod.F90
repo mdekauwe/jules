@@ -403,6 +403,12 @@ IF ( l_triffid_nsc ) THEN
   ! MDK, 18/10/26
   IF ( l_ximpair_rec_leaf_turn .OR. l_nsc_wmax_norm )                          &
     CALL add_to_list( 'nsc_ft_mean', nvars, identifiers )
+  ! The wood still owed to the regrowth before new rings count (net ring
+  ! count of the ring renewal).
+  !
+  ! MDK, 29/10/26
+  IF ( l_ximpair_rec_nsc )                                                     &
+    CALL add_to_list( 'nsc_ring_deficit', nvars, identifiers )
 END IF
 ! Drought leaf shedding: daily water-status memory and the leaf factor.
 ! MDK, 18/10/26

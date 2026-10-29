@@ -977,7 +977,8 @@ LOGICAL ::                                                                     &
       ! (pft_xylem_impairment_model = 3) with the TRIFFID storage pool
       ! (l_triffid_nsc) and dynamic TRIFFID (l_triffid, not l_trif_eq). At
       ! each TRIFFID step the wood TRIFFID grows from the store's release,
-      ! its gross wood production G, is the new xylem ring, which renews
+      ! its gross wood production G net of the wood it lost earlier in
+      ! the ring year (nsc_ring_deficit), is the new xylem ring, which renews
       ! the share rho = nsc_xylem_cond_ratio G dt / X of the stem's
       ! conductance (X the conducting sapwood) and dilutes the whole stem's
       ! loss, L -> L (1 - rho), as leaf renewal does the leaf's. No store

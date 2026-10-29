@@ -30,6 +30,7 @@ USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
+USE triffid_nsc_mod, ONLY: nsc_ring_deficit   ! MDK, 29/10/26
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
 USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft,  &
@@ -2203,6 +2204,16 @@ CASE ( 'nsc_ft_mean' )
     CALL cube_get_data(cube_land, nsc_ft_mean(:,:))
   ELSE
     nsc_ft_mean(:,:) = const_val
+  END IF
+
+! MDK, 29/10/26
+CASE ( 'nsc_ring_deficit' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_ring_deficit(:,:))
+  ELSE
+    nsc_ring_deficit(:,:) = const_val
   END IF
 
 CASE ( 'phen_psi_acc' )

@@ -220,6 +220,14 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
              "its 'not yet set' value (store filled at the first step).")
+        CASE ( 'nsc_ring_deficit' )
+          ! Net ring count: dumps written without it start with no wood
+          ! owed to the regrowth (restart not exact within a ring year).
+          !
+          ! MDK, 29/10/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts at 0 " //  &
+             "(restart not exact within a ring year).")
         CASE ( 'ximpair_psi_stem', 'ximpair_area_w' )
           ! Dumps written without them: the stem psi of the PLC output is
           ! unset until the first update, and the area dilution of the

@@ -10601,4 +10601,19 @@ DATA metadata(817) / var_metadata(                                             &
 ! Units
     "per 360days"                                                              &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_ring_deficit (the net ring count of ring renewal)
+!
+! MDK, 29/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(818) / var_metadata(                                             &
+! String identifier
+    'nsc_ring_deficit',                                                        &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ring renewal: wood lost this ring year, repaid before new rings count",   &
+! Units
+    "kg m-2"                                                                   &
+  ) /
 #endif

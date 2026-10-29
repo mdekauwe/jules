@@ -37,7 +37,8 @@ MODULE triffid_nsc_mod
 ! the leaf's does, by new tissue at the rate the plant pays for it, and
 ! nothing is drawn from the store for it. The new ring is the wood TRIFFID
 ! grows in the step from the store's release W (after the leaves and fine
-! roots), its gross wood production
+! roots), its gross wood production, net of the wood TRIFFID lost earlier
+! in the ring year (the net ring count, below)
 !   G = dC_W / dt + g_wood C_W     (vegcarb: the local wood increment plus
 !                                   the replacement of wood turnover; the
 !                                   carbon to spreading is not wood),
@@ -62,6 +63,22 @@ MODULE triffid_nsc_mod
 ! nsc_xylem_rate_max, nsc_plc_background, nsc_ring_mmdd and
 ! ximpair_psi_growth, was removed on 26/10/26; it is in the git history
 ! at 6133017.)
+!
+! Net ring count: while the release is shut (the season, cold and turgor
+! limits) W = 0 but TRIFFID still charges the turnover, so the plant
+! shrinks along its allometry, almost all of it in wood, and regrows when
+! the release opens again: G < 0 in the shut steps and G > 0 in the
+! regrowth. A deficit D (nsc_ring_deficit, in dumps) carries the
+! shortfall: a step with G < 0 adds -G dt to D and renews nothing; a step
+! with G > 0 repays D first, and only the rest is new ring. D is set to 0
+! at the step that holds nsc_grow_end_doy (the ring year ends with the
+! growing season), or, without a season end, fades with an e-folding time
+! of a year, so a lasting loss of wood does not hold back the rings of
+! later years. A ring year's new ring is then its net gross wood
+! production, or 0. (Until 29/10/26 each step's G was clipped at 0, so the
+! regrowth counted as new rings: at FR-Pue 209 against a net 142 g C m-2 a
+! year, and renewal even of a stem whose wood was shrinking under severe
+! drought. A build of 48fb366 reproduces it.)
 !
 ! (The W_max hold, which froze the running mean of NPP while the stem
 ! took new drought damage, with nsc_hold_plc, nsc_repair_window and the
@@ -181,6 +198,7 @@ IMPLICIT NONE
 PRIVATE
 
 PUBLIC :: nsc_xylem_prod_pft, nsc_xylem_renew_pft   ! MDK, 29/10/26
+PUBLIC :: nsc_ring_deficit   ! MDK, 29/10/26
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,                     &
           nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft,  &
           nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, phen_nhigh,         &
@@ -206,12 +224,18 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_dc_pft(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_resp_pft(:,:)
 ! Ring renewal (stem recovery), last TRIFFID step: the new ring, TRIFFID's
 ! gross wood production G (kg C m-2 of the PFT per 360 days; the wood
-! TRIFFID grows, not extra), and the share of the stem conductance it
-! renews, w_cond G / X (per 360 days). Diagnostics.
+! TRIFFID grows, not extra; net of nsc_ring_deficit), and the share of the
+! stem conductance it renews, w_cond G / X (per 360 days). Diagnostics.
 !
-! MDK, 26/10/26
+! MDK, 29/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_prod_pft(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_renew_pft(:,:)
+! Net ring count: the wood TRIFFID lost earlier in the ring year, which its
+! regrowth repays before new rings count (kg C m-2 of the PFT). In dumps
+! with ring renewal.
+!
+! MDK, 29/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_ring_deficit(:,:)
 ! Carbon-starvation mortality of the last TRIFFID step (per 360 days), used
 ! by lotka.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_starv_pft(:,:)
@@ -292,6 +316,10 @@ END IF
 IF (.NOT. ALLOCATED(nsc_xylem_renew_pft)) THEN   ! MDK, 25/10/26
   ALLOCATE(nsc_xylem_renew_pft(n_land_pts, npft))
   nsc_xylem_renew_pft(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(nsc_ring_deficit)) THEN   ! MDK, 29/10/26
+  ALLOCATE(nsc_ring_deficit(n_land_pts, npft))
+  nsc_ring_deficit(:,:) = 0.0
 END IF
 IF (.NOT. ALLOCATED(nsc_starv_pft)) THEN
   ALLOCATE(nsc_starv_pft(n_land_pts, npft))
@@ -952,9 +980,11 @@ END SUBROUTINE triffid_nsc_daily
 ! before the step's growth, as the store used), is queued in
 ! ximpair_repair_pend; the next impairment update dilutes the whole stem's
 ! loss by it. Not in spin-up (the impairment is frozen there). No carbon
-! moves here.
+! moves here. G is net of the deficit nsc_ring_deficit: wood TRIFFID lost
+! earlier in the ring year (G < 0 while the release was shut) is regrown
+! before any new ring counts (see the module header).
 !
-! MDK, 26/10/26
+! MDK, 29/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
                                      r_gamma, ht, lai_bal, woodc, dwood,       &
@@ -963,8 +993,12 @@ SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
 USE jules_surface_types_mod, ONLY: npft, nnpft
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory
 USE pftparm, ONLY: pft_xylem_impairment_model, nsc_xylem_cond_ratio
+USE pftparm, ONLY: is_set, nsc_grow_end_doy   ! MDK, 29/10/26
 USE calc_c_comps_triffid_mod, ONLY: sapwood_c
 USE model_time_mod, ONLY: is_spinup
+USE model_time_mod, ONLY: current_time   ! MDK, 29/10/26
+USE datetime_utils_mod, ONLY: day_of_year, days_in_year   ! MDK, 29/10/26
+USE time_info_mod, ONLY: l_360, l_leap   ! MDK, 29/10/26
 USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend,                    &
                                        ximpair_memory_alloc
 
@@ -999,11 +1033,31 @@ REAL(KIND=real_jlslsm) :: g_wood_prod, x_s
     ! (kg C m-2).
     !
     ! MDK, 25/10/26
+REAL(KIND=real_jlslsm) :: dt, g_step, f_decay
+    ! Net ring count: TRIFFID timestep (360-day years), gross wood
+    ! production of the step (kg C m-2, < 0 when wood is lost) and the
+    ! deficit's decay over the step without a season end.
+    !
+    ! MDK, 29/10/26
+INTEGER :: doy_now, n_days, nd, k, d, doy_end
+    ! Net ring count: day of year now, days in this year, days of this
+    ! step, day counter, a day of the step and the season's end day.
+    !
+    ! MDK, 29/10/26
+LOGICAL :: l_ring_end
+    ! Net ring count: this step holds the end of the growing season.
+    !
+    ! MDK, 29/10/26
 
 REAL(KIND=real_jlslsm), PARAMETER :: x_min = 1.0e-6
     ! Minimum conducting xylem (kg C m-2).
     !
     ! MDK, 25/10/26
+REAL(KIND=real_jlslsm), PARAMETER :: tau_deficit = 1.0
+    ! Net ring count without a season end: e-folding time of the deficit
+    ! (360-day years), one ring year.
+    !
+    ! MDK, 29/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -1015,15 +1069,57 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
   CALL triffid_nsc_alloc( land_pts )
   CALL ximpair_memory_alloc( land_pts )
+  ! Net ring count: the days of this step (the nd days up to today, as the
+  ! leaf flush in triffid_nsc_store counts them).
+  !
+  ! MDK, 29/10/26
+  dt      = 1.0 / r_gamma
+  n_days  = days_in_year(current_time%year, l_360, l_leap)
+  doy_now = day_of_year(current_time%year, current_time%month,                 &
+                        current_time%day, l_360, l_leap)
+  nd      = MAX(NINT(dt * 360.0), 1)
+  f_decay = EXP(-dt / tau_deficit)
   DO n = 1,nnpft
     IF (pft_xylem_impairment_model(n) /= xylem_impairment_memory) CYCLE
+    ! Net ring count: the ring year ends at the step that holds the end of
+    ! the growing season.
+    !
+    ! MDK, 29/10/26
+    l_ring_end = .FALSE.
+    IF (is_set(nsc_grow_end_doy(n))) THEN
+      doy_end = MIN(NINT(nsc_grow_end_doy(n)), n_days)
+      DO k = 0,nd-1
+        d = MODULO(doy_now - k - 1, n_days) + 1
+        IF (d == doy_end) l_ring_end = .TRUE.
+      END DO
+    END IF
     DO t = 1,trif_pts
       l = trif_index(t)
       nsc_xylem_prod_pft(l,n)  = 0.0
       nsc_xylem_renew_pft(l,n) = 0.0
       x_s = sapwood_c(n, ht(l,n), lai_bal(l,n), woodc(l,n) - dwood(l,n))
       IF (x_s <= x_min) CYCLE
-      g_wood_prod = MAX(dwood(l,n) * r_gamma + wood_litc(l,n), 0.0)
+      ! A new ring year starts with no deficit; without a season end the
+      ! deficit fades over a year.
+      !
+      ! MDK, 29/10/26
+      IF (is_set(nsc_grow_end_doy(n))) THEN
+        IF (l_ring_end) nsc_ring_deficit(l,n) = 0.0
+      ELSE
+        nsc_ring_deficit(l,n) = nsc_ring_deficit(l,n) * f_decay
+      END IF
+      ! Wood lost in the step is owed to the regrowth (no new ring); the
+      ! regrowth repays the deficit before the rest counts as new ring.
+      !
+      ! MDK, 29/10/26
+      g_step = dwood(l,n) + wood_litc(l,n) * dt
+      IF (g_step < 0.0) THEN
+        nsc_ring_deficit(l,n) = nsc_ring_deficit(l,n) - g_step
+        g_wood_prod = 0.0
+      ELSE
+        g_wood_prod = MAX(g_step - nsc_ring_deficit(l,n), 0.0) * r_gamma
+        nsc_ring_deficit(l,n) = MAX(nsc_ring_deficit(l,n) - g_step, 0.0)
+      END IF
       nsc_xylem_prod_pft(l,n)  = g_wood_prod
       nsc_xylem_renew_pft(l,n) = nsc_xylem_cond_ratio(n) * g_wood_prod / x_s
       ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                      &
