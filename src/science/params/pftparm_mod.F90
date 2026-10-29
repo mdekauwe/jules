@@ -633,20 +633,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  eta_sl h LAI_bal.
                  !
                  !  MDK, 26/10/26
-,nsc_hold_plc(:)                                                               &
-                 ! With stem recovery (l_ximpair_rec_nsc), the running mean
-                 !  of NPP that sets W_max is held (not updated) at store
-                 !  steps with new drought damage, so the damaged plant
-                 !  keeps the sink of the intact one (Trugman et al. hold
-                 !  W_max, set by tree size, through recovery): when the
-                 !  worst loss the water status imposed, P = 1 -
-                 !  ximpair_fmin_acc, is at the locked loss (the embolism
-                 !  ratchet binding) and P > nsc_hold_plc, an absolute stem
-                 !  loss of conductance. 1 = never held. Never held in
-                 !  spin-up or without stem recovery (triffid_nsc_mod
-                 !  header).
-                 !
-                 !  MDK, 26/10/26
 ,nsc_g_starv(:)                                                               &
                  ! Carbon-starvation mortality (per 360 days, an area
                  !  disturbance added to g_area in lotka), at the full rate
@@ -670,15 +656,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  normal year) that kills no tree (l_trif_hydmort): the
                  !  stand mortality curve starts from 0 there.
                  !  MDK, 21/10/26
-,nsc_repair_window(:)                                                         &
-                 ! E-folding time (days) of the memory of the worst stem
-                 !  conductance the water status imposed
-                 !  (ximpair_fmin_acc), decayed at each store step, for the
-                 !  W_max hold (nsc_hold_plc). 0 = reset at each store
-                 !  step. (nsc_plc_background, the loss the store repair
-                 !  did not pay for, was removed with it.)
-                 !
-                 !  MDK, 26/10/26
 ,nsc_la_sa(:)                                                                 &
                  ! Leaf area per sapwood area (m2 m-2; the inverse Huber
                  !  value). > 0: the conducting xylem the rings renew is
@@ -1182,12 +1159,10 @@ ALLOCATE( nsc_reserve_frac(npft))
 ALLOCATE( nsc_tau_load(npft))
 ALLOCATE( nsc_wmax_fac(npft))
 ALLOCATE( nsc_sapwood_frac(npft))
-ALLOCATE( nsc_hold_plc(npft))
 ALLOCATE( nsc_g_starv(npft))
 ALLOCATE( hydmort_mu(npft))
 ALLOCATE( hydmort_width(npft))
 ALLOCATE( hydmort_plc_bg(npft))
-ALLOCATE( nsc_repair_window(npft))
 ALLOCATE( nsc_la_sa(npft))
 ALLOCATE( nsc_wood_density(npft))
 ALLOCATE( nsc_psi_turg_full(npft))
@@ -1259,12 +1234,10 @@ nsc_reserve_frac(:) = 0.1
 nsc_tau_load(:) = 5.0
 nsc_wmax_fac(:) = 1.0
 nsc_sapwood_frac(:) = 0.6
-nsc_hold_plc(:) = 1.0
 nsc_g_starv(:) = 0.0
 hydmort_mu(:) = 0.88
 hydmort_width(:) = 0.08
 hydmort_plc_bg(:) = 0.1
-nsc_repair_window(:) = 60.0
 nsc_la_sa(:) = 0.0
 nsc_wood_density(:) = 600.0
 nsc_psi_turg_full(:) = -1.0e30
@@ -1616,8 +1589,6 @@ WRITE(lineBuffer,*)' nsc_wmax_fac = ',nsc_wmax_fac
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_sapwood_frac = ',nsc_sapwood_frac
 CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_hold_plc = ',nsc_hold_plc
-CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_g_starv = ',nsc_g_starv
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' hydmort_mu = ',hydmort_mu
@@ -1625,8 +1596,6 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' hydmort_width = ',hydmort_width
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' hydmort_plc_bg = ',hydmort_plc_bg
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_repair_window = ',nsc_repair_window
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_la_sa = ',nsc_la_sa
 CALL jules_print('pftparm',lineBuffer)

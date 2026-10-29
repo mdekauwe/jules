@@ -28,7 +28,7 @@ USE jules_fields_mod, ONLY: toppdm, soilecosse, trifctltype
 USE imgn_vars_mod, ONLY: imgn_vars
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
-    ximpair_repair_pend, ximpair_fmin_acc, ximpair_area_w
+    ximpair_repair_pend, ximpair_area_w
 USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
                              phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
@@ -408,12 +408,6 @@ DO i = 1,nvars
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(ximpair_repair_pend(:,n), global_data_2d(:,n))
-    END DO
-
-  CASE ( 'ximpair_fmin_acc' )
-    CALL ximpair_memory_alloc( land_pts )
-    DO n = 1,npft
-      CALL gather_land_field(ximpair_fmin_acc(:,n), global_data_2d(:,n))
     END DO
 
   CASE ( 'nsc_npp_day' )
@@ -1292,7 +1286,7 @@ DO i = 1,nvars
            'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt',   &
            'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc',           &
            'gpp_acc', 'hydmort_pref', 'hydmort_dead', 'hydmort_plc_peak',      &
-           'ximpair_fmin_acc', 'nsc_npp_day',                                  &
+           'nsc_npp_day',                                                      &
            'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',      &
            'cpl_gbw_shd', 'cpl_ra_ca',                                         &
            'nsc_turg_acc', 'nsc_t_run',                                        &

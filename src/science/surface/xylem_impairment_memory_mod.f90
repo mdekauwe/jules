@@ -37,23 +37,15 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock(:,:)
 ! MDK, 26/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_repair_pend(:,:)
 
-! Lowest intact stem conductance fraction the water status imposed
-! (l_ximpair_rec_nsc; 1 = none), a memory that decays back to intact at
-! each TRIFFID step with e-folding time nsc_repair_window. It drives the
-! W_max hold of the TRIFFID store: the hold is on only while the imposed
-! loss reaches the locked loss (new damage).
+! ximpair_lock, ximpair_repair_pend and ximpair_area_w (with
+! l_veg_compete) are written to and read from dumps (ximpair_memory_alloc
+! allocates them). ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean
+! and ximpair_renew_wt went with the time-based recovery; ximpair_rebuilt,
+! ximpair_lock_new (the two-pool memory) and ximpair_grow_acc (the growth
+! gate) with the store-paid repair; ximpair_fmin_acc (the lowest intact
+! stem fraction imposed) with the W_max hold of the TRIFFID store.
 !
-! MDK, 26/10/26
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_fmin_acc(:,:)
-! ximpair_lock, ximpair_repair_pend, ximpair_fmin_acc and ximpair_area_w
-! (with l_veg_compete) are written to and read from dumps
-! (ximpair_memory_alloc allocates them). ximpair_npp_prev,
-! ximpair_wood_prev, ximpair_renew_mean and ximpair_renew_wt went with the
-! time-based recovery; ximpair_rebuilt, ximpair_lock_new (the two-pool
-! memory) and ximpair_grow_acc (the growth gate) with the store-paid
-! repair.
-!
-! MDK, 26/10/26
+! MDK, 29/10/26
 
 ! Factor (0-1) by which TRIFFID's gain of PFT area has diluted the stem
 ! damage (ximpair_dilute_area) since the last update, applied to the
@@ -75,9 +67,7 @@ CONTAINS
 ! area that is left. Diluted:
 ! - the stem's locked loss (ximpair_lock; the impaired kmax at the next
 !   update, through ximpair_area_w);
-! - the leaf segment's loss (1 - ximpair_kcap_leaf);
-! - the lowest intact stem fraction's loss (1 - ximpair_fmin_acc), per
-!   unit of PFT area.
+! - the leaf segment's loss (1 - ximpair_kcap_leaf).
 ! The queued ring share (ximpair_repair_pend) is a multiplicative factor
 ! on the loss, L -> L (1 - rho), the same for old and new cover, so it is
 ! not diluted: scaling it too would give L w (1 - rho w) instead of the
@@ -146,7 +136,6 @@ IF ( ALLOCATED(ximpair_lock) ) THEN
       w = frac_surv / frac(l,n)
       ximpair_area_w(l,n)      = ximpair_area_w(l,n) * w
       ximpair_lock(l,n)        = ximpair_lock(l,n) * w
-      ximpair_fmin_acc(l,n)    = 1.0 - (1.0 - ximpair_fmin_acc(l,n)) * w
       IF ( ALLOCATED(ximpair_kcap_leaf) )                                      &
         ximpair_kcap_leaf(l,n) = 1.0 - (1.0 - ximpair_kcap_leaf(l,n)) * w
     END DO
@@ -185,10 +174,6 @@ END IF
 IF (.NOT. ALLOCATED(ximpair_repair_pend)) THEN
   ALLOCATE(ximpair_repair_pend(n_land_pts, npft))
   ximpair_repair_pend(:,:) = 0.0
-END IF
-IF (.NOT. ALLOCATED(ximpair_fmin_acc)) THEN
-  ALLOCATE(ximpair_fmin_acc(n_land_pts, npft))
-  ximpair_fmin_acc(:,:) = 1.0
 END IF
 ! MDK, 25/10/26
 IF (.NOT. ALLOCATED(ximpair_area_w)) THEN
@@ -782,10 +767,6 @@ IF (l_ximpair_seg_memory) THEN
   DO j = 1, n_open_pts
     l = open_index(j)
     kcap(l) = MIN(kcap(l), kmax_pts(l) * seg_rel_k(pft, 2, psi_stem(l)))
-    ! MDK, 17/10/26
-    IF (l_ximpair_rec_nsc)                                                     &
-      ximpair_fmin_acc(l,pft) = MIN(ximpair_fmin_acc(l,pft),                   &
-                                    seg_rel_k(pft, 2, psi_stem(l)))
     ximpair_kcap_leaf(l,pft) = MIN(ximpair_kcap_leaf(l,pft),                   &
                                    seg_rel_k(pft, 3, psi_leaf(l)))
   END DO
@@ -797,10 +778,6 @@ ELSE
   DO j = 1, n_open_pts
     l = open_index(j)
     kcap(l) = MIN(kcap(l), k_x(l))
-    ! MDK, 17/10/26
-    IF (l_ximpair_rec_nsc)                                                     &
-      ximpair_fmin_acc(l,pft) = MIN(ximpair_fmin_acc(l,pft),                   &
-                                    k_x(l) / kmax_pts(l))
   END DO
 END IF
 

@@ -209,7 +209,7 @@ IF ( is_master_task() ) THEN
              "'not yet set' (restart not exact).")
         CASE ( 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', 'nsc_npp_day',      &
                'nsc_turg_acc', 'nsc_t_run', 'nsc_ft_mean',                     &
-               'ximpair_repair_pend', 'ximpair_fmin_acc',                      &
+               'ximpair_repair_pend',                                          &
                'phen_psi_acc', 'phen_nlow', 'phen_nhigh', 'phen_fbleaf',       &
                'nsc_regrow_acc', 'hydmort_pref', 'hydmort_dead',               &
                'hydmort_plc_peak' )

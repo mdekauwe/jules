@@ -365,14 +365,11 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   IF ( l_veg_compete .AND.                                                     &
        ANY( pft_xylem_impairment_model(:) == xylem_impairment_memory ) )       &
     CALL add_to_list( 'ximpair_area_w', nvars, identifiers )
-  ! Stem recovery by ring renewal: the share queued for the next update,
-  ! and the memory of the worst imposed stem loss for the W_max hold.
+  ! Stem recovery by ring renewal: the share queued for the next update.
   !
-  ! MDK, 26/10/26
-  IF ( l_ximpair_rec_nsc ) THEN
+  ! MDK, 29/10/26
+  IF ( l_ximpair_rec_nsc )                                                     &
     CALL add_to_list( 'ximpair_repair_pend', nvars, identifiers )
-    CALL add_to_list( 'ximpair_fmin_acc', nvars, identifiers )
-  END IF
 END IF
 
 ! Hydraulic mortality: the damage the stand has withstood, the stand

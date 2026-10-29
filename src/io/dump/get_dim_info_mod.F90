@@ -165,7 +165,7 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
        'ximpair_repair_pend', 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt',       &
            'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc',           &
            'gpp_acc', 'hydmort_pref', 'hydmort_dead', 'hydmort_plc_peak',      &
-           'ximpair_fmin_acc', 'nsc_npp_day',                                  &
+           'nsc_npp_day',                                                      &
            'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',      &
            'cpl_gbw_shd', 'cpl_ra_ca',                                         &
            'nsc_turg_acc', 'nsc_t_run',                                        &

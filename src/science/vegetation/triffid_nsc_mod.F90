@@ -24,7 +24,8 @@ MODULE triffid_nsc_mod
 !   W_max = nsc_wmax_fac * <NPP>, the running mean of NPP (e-folding time
 !           nsc_tau_load years): the sink the plant is adapted to. Trugman
 !           et al. set W_max by tree size and hold it through recovery; the
-!           running mean is the JULES stand-in, as TRIFFID has no tree size.
+!           running mean is the JULES stand-in, as TRIFFID has no tree size,
+!           and it is not held.
 ! The store is held between the reserve and C_max: carbon above C_max goes to
 ! growth (overflow), so a well-supplied plant grows from its NPP as without
 ! the store. When the accessible store is used up the carbon deficit passes
@@ -62,32 +63,10 @@ MODULE triffid_nsc_mod
 ! ximpair_psi_growth, was removed on 26/10/26; it is in the git history
 ! at 6133017.)
 !
-! W_max hold (with stem recovery on): a stem renewed by its rings keeps a
-! legacy loss for decades, which would freeze W_max, so the running mean
-! of NPP is held only while the stem takes new drought damage, as
-! Trugman et al. hold it through recovery: at a store step where
-!   P >= L - 1e-6   and   P > nsc_hold_plc,
-! with L = ximpair_lock, the locked stem loss, and P = 1 -
-! ximpair_fmin_acc, the worst loss the water status imposed (a memory of
-! the worst intact stem fraction with e-folding nsc_repair_window, taken
-! before this step's decay). nsc_hold_plc is an absolute stem loss.
-! P reaches L only when the embolism ratchet is binding, i.e. the drought
-! is adding loss beyond what the stem already carries, in this store
-! step. Any binding ratchet counts, however small the new damage: at a
-! site with repeated, similar dry summers, a summer that comes within the
-! year's ring dilution of the legacy loss holds the mean too. Summer
-! losses below the legacy loss are not held. For a nsc_repair_window much
-! shorter than the ring renewal time (dt / rho, decades) the hold usually
-! ends at the first store step without new damage: the decayed memory
-! then falls below L (e.g. with a 60-day window and a 10-day TRIFFID
-! period, P drops 15 % a step). Two exceptions: past kcrit the stem cap
-! is floored at kcrit, so P exceeds L and the hold runs on for about
-! ln(P / L) nsc_repair_window / dt more steps while the memory decays;
-! and with a window longer than about dt / rho the memory decays more
-! slowly than the rings dilute L, so the hold need not end. Never held in
-! spin-up (the impairment is frozen there, so there is no new damage), nor
-! without stem recovery (l_ximpair_rec_nsc off: no new-damage memory).
-! nsc_wmax_hold_pft is 1 when the mean was held (diagnostic).
+! (The W_max hold, which froze the running mean of NPP while the stem
+! took new drought damage, with nsc_hold_plc, nsc_repair_window and the
+! memory ximpair_fmin_acc, was removed on 29/10/26: at FR-Pue it changed
+! GPP, growth and damage by < 0.3 %. It is in the git history at 891f580.)
 !
 ! Turgor-limited sink (nsc_psi_turg_zero set): growth needs turgor (Lockhart),
 ! so the release is limited by the plant's water status, not only by the
@@ -191,7 +170,7 @@ MODULE triffid_nsc_mod
 ! wood growth), and nsc_starv is a diagnostic only (the PFT fractions are
 ! fixed).
 !
-! MDK, 26/10/26
+! MDK, 29/10/26
 !
 !-----------------------------------------------------------------------------
 
@@ -201,7 +180,7 @@ IMPLICIT NONE
 
 PRIVATE
 
-PUBLIC :: nsc_wmax_hold_pft, nsc_xylem_prod_pft, nsc_xylem_renew_pft   ! MDK, 25/10/26
+PUBLIC :: nsc_xylem_prod_pft, nsc_xylem_renew_pft   ! MDK, 29/10/26
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,                     &
           nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft,  &
           nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, phen_nhigh,         &
@@ -225,11 +204,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_load_pft(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_dc_pft(:,:)
 ! Overflow respiration of the last store step (kg C m-2 per 360 days).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_resp_pft(:,:)
-! 1 if the running mean of NPP behind W_max was held at the last store
-! step, else 0 (diagnostic).
-!
-! MDK, 25/10/26
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_wmax_hold_pft(:,:)
 ! Ring renewal (stem recovery), last TRIFFID step: the new ring, TRIFFID's
 ! gross wood production G (kg C m-2 of the PFT per 360 days; the wood
 ! TRIFFID grows, not extra), and the share of the stem conductance it
@@ -311,10 +285,6 @@ IF (.NOT. ALLOCATED(nsc_resp_pft)) THEN
   ALLOCATE(nsc_resp_pft(n_land_pts, npft))
   nsc_resp_pft(:,:) = 0.0
 END IF
-IF (.NOT. ALLOCATED(nsc_wmax_hold_pft)) THEN   ! MDK, 25/10/26
-  ALLOCATE(nsc_wmax_hold_pft(n_land_pts, npft))
-  nsc_wmax_hold_pft(:,:) = 0.0
-END IF
 IF (.NOT. ALLOCATED(nsc_xylem_prod_pft)) THEN   ! MDK, 25/10/26
   ALLOCATE(nsc_xylem_prod_pft(n_land_pts, npft))
   nsc_xylem_prod_pft(:,:) = 0.0
@@ -360,31 +330,25 @@ END SUBROUTINE triffid_nsc_alloc
 
 ! ---------------------------------------------------------------------
 ! One TRIFFID step of the store. On return npp holds W, the carbon released
-! from the store (kg C m-2 per 360 days), which TRIFFID grows from. With
-! stem recovery (l_ximpair_rec_nsc) it also sets the W_max hold and decays
-! the memory of the worst imposed stem loss (ximpair_fmin_acc); the ring
-! renewal itself is triffid_nsc_ring_renewal, after vegcarb.
+! from the store (kg C m-2 per 360 days), which TRIFFID grows from. The
+! ring renewal (stem recovery) is triffid_nsc_ring_renewal, after vegcarb.
 !
-! MDK, 26/10/26
+! MDK, 29/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,         &
                               leafc, rootc, npp, pft_only )
 
 USE jules_surface_types_mod, ONLY: npft, nnpft
 USE pftparm, ONLY: is_set, nsc_in_flush_window, nsc_limits_on   ! MDK, 24/10/26
-USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory,    &
-                                l_nsc_wmax_norm
+USE jules_vegetation_mod, ONLY: l_nsc_wmax_norm
 USE datetime_utils_mod, ONLY: day_of_year, days_in_year
 USE time_info_mod, ONLY: l_360, l_leap
-USE pftparm, ONLY: g_leaf_0, pft_xylem_impairment_model,                       &
+USE pftparm, ONLY: g_leaf_0,                                                   &
                    nsc_flush, nsc_kc, nsc_reserve_frac, nsc_tau_load,          &
-                   nsc_wmax_fac, nsc_hold_plc,                                 &
-                   nsc_g_starv, nsc_repair_window,                             &
+                   nsc_wmax_fac, nsc_g_starv,                                  &
                    nsc_psi_turg_zero, nsc_t_grow_zero, nsc_overflow_resp,      &
                    nsc_cmax, nsc_flush_start_doy, nsc_flush_days
-USE model_time_mod, ONLY: current_time, is_spinup   ! is_spinup: MDK, 24/10/26
-USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_fmin_acc,         &
-                                       ximpair_memory_alloc
+USE model_time_mod, ONLY: current_time
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -426,8 +390,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
     ! Maximum and actual loading, net draw on the store (per 360 days).
   c_old,                                                                       &
     ! Store at the start of the step (kg C m-2).
-  plc,                                                                         &
-    ! Stem loss of conductance (0-1).
   f_turg,                                                                      &
     ! Turgor-limited sink: turgor factor (0-1).
   c_acc_max,                                                                   &
@@ -436,11 +398,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
     ! Phenology regrowth drawn from the store (per 360 days).
     !
     ! MDK, 26/10/26
-LOGICAL :: l_rep, l_mem, l_turg, l_flush
-    ! Stem recovery on (ring renewal and the W_max hold), memory
-    ! impairment model, growth limits on, leaf flush on.
+LOGICAL :: l_turg, l_flush
+    ! Growth limits on, leaf flush on.
     !
-    ! MDK, 26/10/26
+    ! MDK, 29/10/26
 INTEGER :: doy_now, k, d, nd
     ! Day of year now; day counter, day of year and number of days of
     ! this store step.
@@ -451,26 +412,10 @@ REAL(KIND=real_jlslsm) :: f_flush, w_flush
     ! 360 days).
     !
     ! MDK, 26/10/26
-REAL(KIND=real_jlslsm) :: plc_hold, plc_imp
-    ! W_max hold: the loss tested against nsc_hold_plc, and the worst loss
-    ! the water status imposed, 1 - ximpair_fmin_acc.
-    !
-    ! MDK, 26/10/26
-LOGICAL :: l_held
-    ! The running mean of NPP held at this point.
-    !
-    ! MDK, 26/10/26
 INTEGER :: n_days
     ! Days in this year.
     !
     ! MDK, 24/10/26
-
-REAL(KIND=real_jlslsm), PARAMETER :: tol_ratchet = 1.0e-6
-    ! W_max hold: the imposed loss counts as at the locked loss (the
-    ! embolism ratchet binding: new damage) within this (the ratchet sets
-    ! the two equal to rounding).
-    !
-    ! MDK, 26/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -490,14 +435,6 @@ IF (PRESENT(pft_only)) THEN
 END IF
 
 DO n = n1,n2
-
-  l_mem = pft_xylem_impairment_model(n) == xylem_impairment_memory
-  ! Not in spin-up: the impairment is frozen there (the update skips it),
-  ! so there is no new damage to hold W_max for.
-  !
-  ! MDK, 26/10/26
-  l_rep = l_ximpair_rec_nsc .AND. l_mem .AND. .NOT. is_spinup
-  IF (l_rep) CALL ximpair_memory_alloc( land_pts )
 
   a_mean = MIN(dt / MAX(nsc_tau_load(n), TINY(1.0_real_jlslsm)), 1.0)
   l_turg = nsc_limits_on(n)
@@ -529,34 +466,12 @@ DO n = n1,n2
     IF (nsc_pft(l,n) < 0.0) nsc_pft(l,n) = c_max
     c_old = nsc_pft(l,n)
 
-    ! Maximum loading from the running mean of NPP (bias-corrected). Not
-    ! held until the mean has formed (one e-folding of weight): a run
-    ! started without spin-up in a damaged season, or with the store
-    ! switched on from a damaged dump, otherwise had W_max = 0 for good.
-    ! With stem recovery, held only while the stem takes new drought
-    ! damage, i.e. the worst loss the water status imposed (P = 1 -
-    ! ximpair_fmin_acc, before its decay below) is at the locked loss L
-    ! (the embolism ratchet is binding) and above nsc_hold_plc, an
-    ! absolute stem loss. A legacy loss the rings only slowly dilute, and
-    ! summer losses below it, do not hold W_max. Never held in spin-up or
-    ! without stem recovery (l_rep false).
+    ! Maximum loading from the running mean of NPP (bias-corrected).
     !
-    ! MDK, 26/10/26
-    plc_hold = 0.0
-    IF (l_rep) THEN
-      plc = MIN(MAX(ximpair_lock(l,n), 0.0), 1.0)
-      plc_imp = 1.0 - MIN(MAX(ximpair_fmin_acc(l,n), 0.0), 1.0)
-      IF (plc_imp >= plc - tol_ratchet) plc_hold = plc_imp
-    END IF
-    l_held = .TRUE.
-    IF (plc_hold <= nsc_hold_plc(n) .OR.                                       &
-        nsc_npp_wt(l,n) < 1.0 - EXP(-1.0)) THEN
-      nsc_npp_mean(l,n) = nsc_npp_mean(l,n) + a_mean * (npp(l,n)               &
-                          - nsc_npp_mean(l,n))
-      nsc_npp_wt(l,n)   = nsc_npp_wt(l,n) + a_mean * (1.0 - nsc_npp_wt(l,n))
-      l_held = .FALSE.
-    END IF
-    nsc_wmax_hold_pft(l,n) = MERGE(1.0, 0.0, l_held)
+    ! MDK, 29/10/26
+    nsc_npp_mean(l,n) = nsc_npp_mean(l,n) + a_mean * (npp(l,n)                 &
+                        - nsc_npp_mean(l,n))
+    nsc_npp_wt(l,n)   = nsc_npp_wt(l,n) + a_mean * (1.0 - nsc_npp_wt(l,n))
     w_max = 0.0
     IF (nsc_npp_wt(l,n) > 0.0)                                                 &
       w_max = nsc_wmax_fac(n) * MAX(nsc_npp_mean(l,n) / nsc_npp_wt(l,n), 0.0)
@@ -631,20 +546,6 @@ DO n = n1,n2
       c_acc = MAX(nsc_pft(l,n) - c_res, 0.0)
       nsc_starv_pft(l,n) = nsc_g_starv(n)                                      &
                            * MAX(1.0 - c_acc / (nsc_kc(n) * c_max), 0.0)
-    END IF
-
-    ! The memory of the worst intact stem fraction decays back to intact
-    ! with e-folding time nsc_repair_window (days; 0 = reset), for the
-    ! W_max hold.
-    !
-    ! MDK, 26/10/26
-    IF (l_rep) THEN
-      IF (nsc_repair_window(n) > 0.0) THEN
-        ximpair_fmin_acc(l,n) = 1.0 - (1.0 - ximpair_fmin_acc(l,n))            &
-                                * EXP(-dt * 360.0 / nsc_repair_window(n))
-      ELSE
-        ximpair_fmin_acc(l,n) = 1.0
-      END IF
     END IF
 
     npp(l,n)            = w

@@ -289,12 +289,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_tau_load_io(npft_max) = rmdi,                                            &
   nsc_wmax_fac_io(npft_max) = rmdi,                                            &
   nsc_sapwood_frac_io(npft_max) = rmdi,                                        &
-  nsc_hold_plc_io(npft_max) = rmdi,                                            &
   nsc_g_starv_io(npft_max) = rmdi,                                             &
   hydmort_mu_io(npft_max) = rmdi,                                              &
   hydmort_width_io(npft_max) = rmdi,                                           &
   hydmort_plc_bg_io(npft_max) = rmdi,                                          &
-  nsc_repair_window_io(npft_max) = rmdi,                                       &
   nsc_la_sa_io(npft_max) = rmdi,                                               &
   nsc_wood_density_io(npft_max) = rmdi,                                        &
   nsc_psi_turg_full_io(npft_max) = rmdi,                                       &
@@ -387,7 +385,7 @@ NAMELIST  / jules_pftparm/                                                     &
   ximpair_tau_leaf_io,                                                         &
   nsc_flush_io,    nsc_kc_io,        nsc_reserve_frac_io,                      &
   nsc_tau_load_io, nsc_wmax_fac_io,  nsc_sapwood_frac_io,                      &
-  nsc_hold_plc_io, nsc_g_starv_io, nsc_repair_window_io,                       &
+  nsc_g_starv_io,                                                              &
   hydmort_mu_io, hydmort_width_io, hydmort_plc_bg_io,                          &
   nsc_la_sa_io, nsc_wood_density_io,                                           &
   nsc_psi_turg_full_io, nsc_psi_turg_zero_io, nsc_t_grow_zero_io,              &
@@ -610,12 +608,10 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_tau_load_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_wmax_fac_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_sapwood_frac_io(npft_max)
-  REAL(KIND=real_jlslsm) :: nsc_hold_plc_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_g_starv_io(npft_max)
   REAL(KIND=real_jlslsm) :: hydmort_mu_io(npft_max)
   REAL(KIND=real_jlslsm) :: hydmort_width_io(npft_max)
   REAL(KIND=real_jlslsm) :: hydmort_plc_bg_io(npft_max)
-  REAL(KIND=real_jlslsm) :: nsc_repair_window_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_la_sa_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_wood_density_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_psi_turg_full_io(npft_max)
@@ -813,12 +809,10 @@ IF (mype == 0) THEN
   my_nml % nsc_tau_load_io = nsc_tau_load_io
   my_nml % nsc_wmax_fac_io = nsc_wmax_fac_io
   my_nml % nsc_sapwood_frac_io = nsc_sapwood_frac_io
-  my_nml % nsc_hold_plc_io = nsc_hold_plc_io
   my_nml % nsc_g_starv_io = nsc_g_starv_io
   my_nml % hydmort_mu_io = hydmort_mu_io
   my_nml % hydmort_width_io = hydmort_width_io
   my_nml % hydmort_plc_bg_io = hydmort_plc_bg_io
-  my_nml % nsc_repair_window_io = nsc_repair_window_io
   my_nml % nsc_la_sa_io = nsc_la_sa_io
   my_nml % nsc_wood_density_io = nsc_wood_density_io
   my_nml % nsc_psi_turg_full_io = nsc_psi_turg_full_io
@@ -1004,12 +998,10 @@ IF (mype /= 0) THEN
   nsc_tau_load_io = my_nml % nsc_tau_load_io
   nsc_wmax_fac_io = my_nml % nsc_wmax_fac_io
   nsc_sapwood_frac_io = my_nml % nsc_sapwood_frac_io
-  nsc_hold_plc_io = my_nml % nsc_hold_plc_io
   nsc_g_starv_io = my_nml % nsc_g_starv_io
   hydmort_mu_io = my_nml % hydmort_mu_io
   hydmort_width_io = my_nml % hydmort_width_io
   hydmort_plc_bg_io = my_nml % hydmort_plc_bg_io
-  nsc_repair_window_io = my_nml % nsc_repair_window_io
   nsc_la_sa_io = my_nml % nsc_la_sa_io
   nsc_wood_density_io = my_nml % nsc_wood_density_io
   nsc_psi_turg_full_io = my_nml % nsc_psi_turg_full_io
@@ -1113,7 +1105,7 @@ USE pftparm, ONLY:                                                             &
   ximpair_leaf_sens,                 ximpair_tau_leaf,                         &
   nsc_flush,       nsc_kc,           nsc_reserve_frac,                         &
   nsc_tau_load,    nsc_wmax_fac,     nsc_sapwood_frac,                         &
-  nsc_hold_plc,    nsc_g_starv,      nsc_repair_window,                        &
+  nsc_g_starv,                                                                 &
   hydmort_mu,      hydmort_width,    hydmort_plc_bg,                         &
   nsc_la_sa,       nsc_wood_density,                                          &
   nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero, nsc_t_grow_full,      &
@@ -1467,8 +1459,6 @@ DO i = 1, npft
     nsc_wmax_fac(i) = nsc_wmax_fac_io(i)
   IF (ABS(nsc_sapwood_frac_io(i) - rmdi) > EPSILON(1.0))                       &
     nsc_sapwood_frac(i) = nsc_sapwood_frac_io(i)
-  IF (ABS(nsc_hold_plc_io(i) - rmdi) > EPSILON(1.0))                           &
-    nsc_hold_plc(i) = nsc_hold_plc_io(i)
   IF (ABS(nsc_g_starv_io(i) - rmdi) > EPSILON(1.0))                            &
     nsc_g_starv(i) = nsc_g_starv_io(i)
   IF (ABS(hydmort_mu_io(i) - rmdi) > EPSILON(1.0))                             &
@@ -1477,8 +1467,6 @@ DO i = 1, npft
     hydmort_width(i) = hydmort_width_io(i)
   IF (ABS(hydmort_plc_bg_io(i) - rmdi) > EPSILON(1.0))                         &
     hydmort_plc_bg(i) = hydmort_plc_bg_io(i)
-  IF (ABS(nsc_repair_window_io(i) - rmdi) > EPSILON(1.0))                      &
-    nsc_repair_window(i) = nsc_repair_window_io(i)
   IF (ABS(nsc_la_sa_io(i) - rmdi) > EPSILON(1.0))                              &
     nsc_la_sa(i) = nsc_la_sa_io(i)
   IF (ABS(nsc_wood_density_io(i) - rmdi) > EPSILON(1.0))                       &
@@ -1546,15 +1534,14 @@ IF ( l_triffid_nsc ) THEN
        ANY(nsc_reserve_frac(:) < 0.0) .OR. ANY(nsc_reserve_frac(:) >= 1.0) .OR. &
        ANY(nsc_tau_load(:) <= 0.0) .OR. ANY(nsc_wmax_fac(:) < 0.0) .OR.       &
        ANY(nsc_sapwood_frac(:) <= 0.0) .OR. ANY(nsc_sapwood_frac(:) > 1.0) .OR. &
-       ANY(nsc_hold_plc(:) < 0.0) .OR. ANY(nsc_g_starv(:) < 0.0) .OR.         &
-       ANY(nsc_repair_window(:) < 0.0) .OR. ANY(nsc_cmax(:) < 0.0) .OR.       &
+       ANY(nsc_g_starv(:) < 0.0) .OR. ANY(nsc_cmax(:) < 0.0) .OR.             &
        ANY(nsc_la_sa(:) < 0.0) .OR. ANY(nsc_wood_density(:) <= 0.0) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'l_triffid_nsc needs nsc_flush_io, nsc_kc_io, '            // &
                  'nsc_tau_load_io > 0, 0 <= nsc_reserve_frac_io < 1, '      // &
                  '0 < nsc_sapwood_frac_io <= 1 and nsc_wmax_fac_io, '       // &
-                 'nsc_hold_plc_io, nsc_g_starv_io, nsc_repair_window_io, ' // &
+                 'nsc_g_starv_io, '                                        // &
                  'nsc_cmax_io >= 0, '                                      // &
                  'nsc_la_sa_io >= 0 and nsc_wood_density_io > 0.')
   END IF
@@ -1671,19 +1658,6 @@ IF ( .NOT. l_ximpair_rec_nsc .AND.                                             &
   CALL ereport(RoutineName, errcode,                                           &
                'nsc_xylem_cond_ratio_io is set without stem recovery '     //  &
                '(l_ximpair_rec_nsc=F): it has no effect.')
-END IF
-! The W_max hold needs the new-damage memory of stem recovery, so without
-! l_ximpair_rec_nsc nsc_hold_plc does nothing (before 26/10/26 it then
-! held W_max on the absolute stem loss).
-!
-! MDK, 26/10/26
-IF ( l_triffid_nsc .AND. .NOT. l_ximpair_rec_nsc .AND.                         &
-     ANY(nsc_hold_plc(1:npft) < 1.0) ) THEN
-  errcode = -101
-  CALL ereport(RoutineName, errcode,                                           &
-               'nsc_hold_plc_io < 1 without stem recovery '                //  &
-               '(l_ximpair_rec_nsc=F): the W_max hold is off, it has no '  //  &
-               'effect.')
 END IF
 ! Hydraulic mortality (l_trif_hydmort): parameter ranges and the damage
 ! state it is driven by.

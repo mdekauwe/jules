@@ -970,16 +970,15 @@ LOGICAL ::                                                                     &
       ! the share rho = nsc_xylem_cond_ratio G dt / X of the stem's
       ! conductance (X the conducting sapwood) and dilutes the whole stem's
       ! loss, L -> L (1 - rho), as leaf renewal does the leaf's. No store
-      ! carbon is spent on it. The W_max hold (nsc_hold_plc) then holds
-      ! the store's sink only while the drought adds new damage. See
-      ! triffid_nsc_mod. The only recovery of the stem (the time-based
-      ! terms were retired 23/10/26, the store-paid repair of Trugman et
-      ! al. 2018 26/10/26); the leaf segment keeps ximpair_tau_leaf or
+      ! carbon is spent on it. See triffid_nsc_mod. The only recovery of
+      ! the stem (the time-based terms were retired 23/10/26, the
+      ! store-paid repair of Trugman et al. 2018 26/10/26, and with it the
+      ! W_max hold 29/10/26); the leaf segment keeps ximpair_tau_leaf or
       ! l_ximpair_rec_leaf_turn. Use with l_ximpair_leaf_loss
       ! (ximpair_leaf_sens = 1) for leaf area in proportion to the
       ! functional xylem.
       !
-      ! MDK, 26/10/26
+      ! MDK, 29/10/26
   l_ximpair_rec_leaf_turn = .FALSE.,                                           &
       ! Per-segment memory (l_ximpair_seg_memory) with the TRIFFID store
       ! (l_triffid_nsc): the leaf segment recovers by leaf renewal, not by
