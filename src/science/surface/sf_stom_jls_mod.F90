@@ -108,6 +108,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_gl_max, l_som_supply_limit,                                            &
     l_som_cuticular_loss, l_som_gravity, l_red, l_som_rhizo_series,            &
+    l_som_cuticular_day_only,                                                  &
     l_som_coupled_e, l_som_capacitance_on,                                     &
     l_som_vcmax_psi, kplant_model, kplant_model_ground,                        &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model,           &
@@ -1005,6 +1006,21 @@ LOGICAL :: in_imp_cut(land_pts)
                             ! added once.
                             !
                             ! MDK, 26/10/26
+LOGICAL :: lit_cut(land_pts)
+                            ! Points where the daytime-only leak may apply
+                            ! (l_som_cuticular_day_only): lit points (those
+                            ! of the impairment update) with apar >=
+                            ! apar_cut_min.
+                            !
+                            ! MDK, 29/10/26
+REAL(KIND=real_jlslsm), PARAMETER :: apar_cut_min = 2.0
+                            ! Least absorbed PAR (W m-2) for the
+                            ! daytime-only leak, about 5 W m-2 of
+                            ! shortwave: not apar > 0, as forcing noise at
+                            ! night (SW up to a few W m-2) would turn the
+                            ! leak on in the dark.
+                            !
+                            ! MDK, 29/10/26
 REAL(KIND=real_jlslsm), PARAMETER :: dq_ratio_cut_max = 3.0
                             ! Most the leak's conductance is scaled up by
                             ! the ratio of the leaf-to-air deficit to dqc,
@@ -4108,6 +4124,8 @@ END IF
 ! DESICA:
 ! - day and night: at night and in dim light the closed canopy
 !   (gc = min_gl_pft) is raised to the leak as by day (MDK, 26/10/26);
+!   with l_som_cuticular_day_only only at lit points with apar >=
+!   apar_cut_min (MDK, 29/10/26);
 ! - the leak is not cut back when the plant nears kcrit, so in a drought
 !   it keeps drying the plant;
 ! - the leak drains the capacitance store at the stem node (the carry loop
@@ -4140,6 +4158,11 @@ IF ( l_cap_store ) THEN
     END DO
   END IF
   lk_cut(:)  = .FALSE.
+  lit_cut(:) = .FALSE.
+  DO m = 1,n_lit
+    l = open_land_index(m)
+    lit_cut(l) = apar(l) >= apar_cut_min
+  END DO
   ! The leak is driven by the leaf-to-air deficit (as gmin * VPD): with
   ! leaf temperatures (two-leaf), qs at the sunlit and shaded leaf
   ! temperatures weighted by leaf area, less q1; otherwise the air deficit,
@@ -4184,12 +4207,14 @@ IF ( l_cap_store ) THEN
   ! temperatures, or the air, at night), and its flux the tile's at tstar,
   ! as sf_evap takes it, so where the surface has cooled below the air
   ! (clear nights) the leak is smaller than gcuticular * LAI * VPD, and
-  ! nil with dew (qs(tstar) <= q1).
+  ! nil with dew (qs(tstar) <= q1). With l_som_cuticular_day_only, only
+  ! the lit points with apar >= apar_cut_min.
   !
-  ! MDK, 26/10/26
+  ! MDK, 29/10/26
   DO m = 1,veg_pts
     l = veg_index(m)
-    IF ( gl_cut(l) <= 0.0 .OR. gc(l) >= gl_cut_eff(l) ) CYCLE
+    IF ( ( l_som_cuticular_day_only .AND. .NOT. lit_cut(l) ) .OR.             &
+         gl_cut(l) <= 0.0 .OR. gc(l) >= gl_cut_eff(l) ) CYCLE
     gc(l)     = gl_cut_eff(l)
     gc_som(l) = gc(l)
     ! Canopy transpiration (mol H2O m-2 s-1), as el elsewhere: the tile's

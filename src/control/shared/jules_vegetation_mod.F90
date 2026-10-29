@@ -550,7 +550,8 @@ LOGICAL ::                                                                     &
       ! the canopy conductance is MAX(gs, gcuticular_io * LAI). The floor is
       ! an uncontrolled leak, so it is not part of the optimisation and adds
       ! no carbon. Under the stomatal optimisation (profit max, with the
-      ! capacitance store, which it turns on): day and night, the full
+      ! capacitance store, which it turns on): day and night (lit points
+      ! only with l_som_cuticular_day_only), the full
       ! leak, its transpiration the tile's flux at that conductance, paid
       ! by the store and the soil (the soil-supply cap applies) through the
       ! store's balance, and cut where the leaf would end below the psi of
@@ -559,7 +560,17 @@ LOGICAL ::                                                                     &
       ! well as the lit ones, so it drives the loss of conductance. DESICA:
       ! its own leak, at night too, cut to the largest flux with k > kcrit.
       !
-      ! MDK, 26/10/26
+      ! MDK, 29/10/26
+
+LOGICAL ::                                                                     &
+  l_som_cuticular_day_only = .FALSE.
+      ! When .TRUE. (with l_som_cuticular_loss under the stomatal
+      ! optimisation), the leak acts only at lit points with absorbed PAR
+      ! of at least 2 W m-2 (about 5 W m-2 of shortwave), as before it was
+      ! extended to the night: at night and in dim light the closed canopy
+      ! keeps min_gl_pft. .FALSE.: the leak day and night.
+      !
+      ! MDK, 29/10/26
 
 LOGICAL ::                                                                     &
   l_som_capacitance = .FALSE.
@@ -1190,6 +1201,7 @@ NAMELIST  / jules_vegetation/                                                  &
     ml_leaf_temp_model, kplant_model,                                          &
     l_som_gain_gross,                                                          &
     l_som_cuticular_loss,                                                      &
+    l_som_cuticular_day_only,                                                  &
     l_som_capacitance,                                                         &
     l_som_gravity,                                                             &
     l_som_rhizo_mfp,                                                           &
@@ -2062,6 +2074,18 @@ IF ( l_som_cuticular_loss .AND.                                                &
                'and can_rad_mod=1, 5, 6 or 7 (1 for DESICA)')
 END IF
 
+! The daytime-only leak is that of the stomatal optimisation.
+!
+! MDK, 29/10/26
+IF ( l_som_cuticular_day_only .AND.                                            &
+     ( .NOT. l_som_cuticular_loss .OR. leaf_flux_mod /= leaf_flux_stom_opt ) ) &
+  THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_cuticular_day_only requires l_som_cuticular_loss ' //    &
+               'and the stomatal optimisation (not DESICA)')
+END IF
+
 IF ( l_som_gravity .AND. leaf_flux_mod /= leaf_flux_stom_opt ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2468,6 +2492,9 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_cuticular_loss = ', l_som_cuticular_loss
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
+WRITE(lineBuffer,*) ' l_som_cuticular_day_only = ', l_som_cuticular_day_only
+CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 29/10/26
+
 WRITE(lineBuffer,*) ' l_som_capacitance = ', l_som_capacitance   ! MDK, 23/10/26
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -2648,7 +2675,9 @@ INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 54 + npft_max
+INTEGER, PARAMETER :: n_log = 55 + npft_max
+                                  ! +1 l_som_cuticular_day_only (MDK,
+                                  ! 29/10/26)
                                   ! -1 l_som_coupled_e (MDK, 25/10/26)
                                   ! -3 l_som_plant_store,
                                   ! l_som_cuticular_floor and
@@ -2746,6 +2775,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_loss
+  LOGICAL :: l_som_cuticular_day_only   ! MDK, 29/10/26
   LOGICAL :: l_som_capacitance   ! MDK, 23/10/26
   LOGICAL :: l_ximpair_leaf_loss
   LOGICAL :: l_ximpair_seg_memory
@@ -2867,6 +2897,7 @@ IF (mype == 0) THEN
   my_nml % l_som_plant_segments = l_som_plant_segments
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_loss = l_som_cuticular_loss
+  my_nml % l_som_cuticular_day_only = l_som_cuticular_day_only
   my_nml % l_som_capacitance = l_som_capacitance
   my_nml % l_ximpair_leaf_loss = l_ximpair_leaf_loss
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
@@ -2977,6 +3008,7 @@ IF (mype /= 0) THEN
   l_som_plant_segments = my_nml % l_som_plant_segments
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_loss = my_nml % l_som_cuticular_loss
+  l_som_cuticular_day_only = my_nml % l_som_cuticular_day_only
   l_som_capacitance = my_nml % l_som_capacitance
   l_ximpair_leaf_loss = my_nml % l_ximpair_leaf_loss
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
