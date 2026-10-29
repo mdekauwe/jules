@@ -50,6 +50,7 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
                                 l_triffid_nsc, l_ximpair_rec_leaf_turn,        &
                                 l_phen_psi, l_nsc_wmax_norm,                   &
+                                l_nsc_sapwood_state,                           &
                                 l_som_vcmax_psi, l_som_coupled_e,              &
                                 l_som_capacitance_on   ! MDK, 24/10/26
 
@@ -409,6 +410,9 @@ IF ( l_triffid_nsc ) THEN
   ! MDK, 29/10/26
   IF ( l_ximpair_rec_nsc )                                                     &
     CALL add_to_list( 'nsc_ring_deficit', nvars, identifiers )
+  ! The conducting stem sapwood of the sapwood state. MDK, 29/10/26
+  IF ( l_nsc_sapwood_state )                                                   &
+    CALL add_to_list( 'nsc_sapwood', nvars, identifiers )
 END IF
 ! Drought leaf shedding: daily water-status memory and the leaf factor.
 ! MDK, 18/10/26

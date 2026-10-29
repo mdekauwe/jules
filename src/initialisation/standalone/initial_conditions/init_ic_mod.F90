@@ -1043,6 +1043,11 @@ DO i = 1, nvars_required
     !
     ! MDK, 29/10/26
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  CASE ( 'nsc_sapwood' )
+    ! Sapwood state: not yet set, so the pipe model at the first ring step.
+    !
+    ! MDK, 29/10/26
+    CALL dict_set(defaults_dict, identifiers(i), -1.0)
   ! TRIFFID's timer at the start of a run (as init_time) and empty sums.
   ! MDK, 22/10/26
   CASE ( 'trif_asteps', 'phen_asteps' )

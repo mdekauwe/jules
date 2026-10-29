@@ -170,7 +170,7 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
            'cpl_gbw_shd', 'cpl_ra_ca',                                         &
            'nsc_turg_acc', 'nsc_t_run',                                        &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
-           'nsc_ring_deficit',                                                 &
+           'nsc_ring_deficit', 'nsc_sapwood',                                  &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
            'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &

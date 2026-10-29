@@ -10616,4 +10616,19 @@ DATA metadata(818) / var_metadata(                                             &
 ! Units
     "kg m-2"                                                                   &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_sapwood (sapwood state, l_nsc_sapwood_state)
+!
+! MDK, 29/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(819) / var_metadata(                                             &
+! String identifier
+    'nsc_sapwood',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ring renewal: conducting stem sapwood (state), per m2 of the PFT",        &
+! Units
+    "kg m-2"                                                                   &
+  ) /
 #endif

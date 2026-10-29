@@ -228,6 +228,12 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts at 0 " //  &
              "(restart not exact within a ring year).")
+        CASE ( 'nsc_sapwood' )
+          ! Sapwood state: dumps written without it start from the pipe
+          ! model at the first ring step. MDK, 29/10/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
+             "the pipe model at the first ring step.")
         CASE ( 'ximpair_psi_stem', 'ximpair_area_w' )
           ! Dumps written without them: the stem psi of the PLC output is
           ! unset until the first update, and the area dilution of the

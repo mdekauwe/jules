@@ -1021,6 +1021,24 @@ LOGICAL ::                                                                     &
       ! is allowed (spring flush drawn from the store) while the annual
       ! release still matches NPP. .FALSE.: W_max = running mean NPP.
       ! MDK, 18/10/26
+  l_nsc_sapwood_state = .FALSE.,                                               &
+      ! Ring renewal (l_ximpair_rec_nsc): the
+      ! conducting stem sapwood the rings renew is a prognostic pool
+      ! (nsc_sapwood, in dumps) that gains the stem's share of the new wood
+      ! (nsc_stem_frac) and loses nsc_heartwood_rate of itself a year to
+      ! heartwood, as in MEDFATE, instead of the pipe model on the current
+      ! leaf area. In equilibrium the ring renews nsc_heartwood_rate of the
+      ! stem a year. See triffid_nsc_mod.
+      !
+      ! MDK, 29/10/26
+  l_nsc_ring_additive = .FALSE.,                                               &
+      ! Ring renewal (l_ximpair_rec_nsc) replaces damaged xylem first: the
+      ! stem's loss of conductance falls by the ring's share,
+      ! L -> MAX(L - rho, 0), as in MEDFATE, instead of being diluted,
+      ! L -> L (1 - rho) (.FALSE.: the sapwood retired to heartwood has the
+      ! mean loss).
+      !
+      ! MDK, 29/10/26
   l_som_fast = .FALSE.
       ! RETIRED input: .TRUE. stops the run; use som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table). Still read so namelists that
@@ -1192,6 +1210,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_ximpair_leaf_loss, l_ximpair_seg_memory,                                 &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
     l_nsc_wmax_norm, l_trif_hydmort,                                           &
+    l_nsc_sapwood_state, l_nsc_ring_additive,                                  &
     ximpair_stomatal_response,                                                 &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,    &
     sl_kfail_frac,                                                             &
@@ -2301,6 +2320,19 @@ IF ( l_nsc_wmax_norm .AND. .NOT. l_triffid_nsc ) THEN
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_nsc_wmax_norm needs the TRIFFID store (l_triffid_nsc=T)')
 END IF
+! The sapwood state and the additive recovery are forms of ring renewal.
+!
+! MDK, 29/10/26
+IF ( l_nsc_sapwood_state .AND. .NOT. l_ximpair_rec_nsc ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_sapwood_state needs ring renewal (l_ximpair_rec_nsc=T)')
+END IF
+IF ( l_nsc_ring_additive .AND. .NOT. l_ximpair_rec_nsc ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_ring_additive needs ring renewal (l_ximpair_rec_nsc=T)')
+END IF
 IF ( l_phen_psi .AND. .NOT. l_phenol ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2517,6 +2549,10 @@ WRITE(lineBuffer,*) ' l_phen_psi = ', l_phen_psi
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_wmax_norm = ', l_nsc_wmax_norm
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_sapwood_state = ', l_nsc_sapwood_state
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_ring_additive = ', l_nsc_ring_additive
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' ximpair_stomatal_response = ', ximpair_stomatal_response
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2676,7 +2712,9 @@ INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 55 + npft_max
+INTEGER, PARAMETER :: n_log = 57 + npft_max
+                                  ! +2 l_nsc_sapwood_state,
+                                  ! l_nsc_ring_additive (MDK, 29/10/26)
                                   ! +1 l_som_cuticular_day_only (MDK,
                                   ! 29/10/26)
                                   ! -1 l_som_coupled_e (MDK, 25/10/26)
@@ -2786,6 +2824,8 @@ TYPE :: my_namelist
   LOGICAL :: l_ximpair_rec_leaf_turn
   LOGICAL :: l_phen_psi
   LOGICAL :: l_nsc_wmax_norm
+  LOGICAL :: l_nsc_sapwood_state   ! MDK, 29/10/26
+  LOGICAL :: l_nsc_ring_additive   ! MDK, 29/10/26
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_rhizo_mfp
   LOGICAL :: l_nrun_mid_trif
@@ -2908,6 +2948,8 @@ IF (mype == 0) THEN
   my_nml % l_ximpair_rec_leaf_turn = l_ximpair_rec_leaf_turn
   my_nml % l_phen_psi = l_phen_psi
   my_nml % l_nsc_wmax_norm = l_nsc_wmax_norm
+  my_nml % l_nsc_sapwood_state = l_nsc_sapwood_state   ! MDK, 29/10/26
+  my_nml % l_nsc_ring_additive = l_nsc_ring_additive   ! MDK, 29/10/26
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
@@ -3019,6 +3061,8 @@ IF (mype /= 0) THEN
   l_ximpair_rec_leaf_turn = my_nml % l_ximpair_rec_leaf_turn
   l_phen_psi = my_nml % l_phen_psi
   l_nsc_wmax_norm = my_nml % l_nsc_wmax_norm
+  l_nsc_sapwood_state = my_nml % l_nsc_sapwood_state   ! MDK, 29/10/26
+  l_nsc_ring_additive = my_nml % l_nsc_ring_additive   ! MDK, 29/10/26
   l_som_gravity = my_nml % l_som_gravity
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif

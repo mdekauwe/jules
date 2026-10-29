@@ -80,6 +80,36 @@ MODULE triffid_nsc_mod
 ! year, and renewal even of a stem whose wood was shrinking under severe
 ! drought. A build of 48fb366 reproduces it.)
 !
+! Sapwood state (l_nsc_sapwood_state, with ring renewal): the
+! conducting stem sapwood X_s (nsc_sapwood, kg C m-2, in dumps) is a
+! prognostic pool instead of the pipe model on the current leaf area,
+!   dX_s/dt = G_s - k_h X_s,   G_s = nsc_stem_frac G,
+! with k_h = nsc_heartwood_rate the share of the sapwood that becomes
+! heartwood each year (about 1 / the number of rings in the sapwood) and
+! nsc_stem_frac the stem's share of TRIFFID's gross wood production (the
+! rest is branches and coarse roots). It starts from the pipe model at the
+! first step of the main run, the ring's share is rho = w_cond G_s dt / X_s
+! (X_s before the step), and in equilibrium rho = w_cond k_h: the
+! recovery rate is set by a measurable sapwood turnover, not by the
+! allometry, and the sapwood no longer follows the leaf area at once. As in
+! MEDFATE (De Caceres et al. 2023), the sapwood is a pool with growth and
+! heartwood turnover. No carbon moves: X_s is a share of TRIFFID's wood.
+!
+! Growth threshold (nsc_grow_thresh set): the release W for growth draws
+! only on the store above nsc_grow_thresh C_max (MEDFATE grows sapwood only
+! from starch above half its capacity), so after a deep drawdown the store
+! refills before growth, and so ring renewal, resumes. The reserve still
+! pays the carbon deficits and the leaf flush and regrowth still draw down
+! to it (leaves before wood). The normalised release keeps W = W_max for a
+! full store.
+!
+! Ring renewal replaces damaged xylem first (l_nsc_ring_additive): the
+! ring's share is taken off the loss, L -> MAX(L - rho, 0), as in MEDFATE,
+! instead of diluting it, L -> L (1 - rho). It assumes the sapwood retired
+! to heartwood is the embolised part (old inner rings, vessels sealed by
+! tyloses); the multiplicative default assumes it has the mean loss. The
+! update is in update_xylem_impairment_memory.
+!
 ! (The W_max hold, which froze the running mean of NPP while the stem
 ! took new drought damage, with nsc_hold_plc, nsc_repair_window and the
 ! memory ximpair_fmin_acc, was removed on 29/10/26: at FR-Pue it changed
@@ -199,6 +229,7 @@ PRIVATE
 
 PUBLIC :: nsc_xylem_prod_pft, nsc_xylem_renew_pft   ! MDK, 29/10/26
 PUBLIC :: nsc_ring_deficit   ! MDK, 29/10/26
+PUBLIC :: nsc_sapwood   ! MDK, 29/10/26
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,                     &
           nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft,  &
           nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, phen_nhigh,         &
@@ -236,6 +267,12 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_renew_pft(:,:)
 !
 ! MDK, 29/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_ring_deficit(:,:)
+! Sapwood state (l_nsc_sapwood_state): the conducting stem sapwood X_s (kg C
+! m-2 of the PFT; < 0 = not yet set: the pipe model at the first step). In
+! dumps.
+!
+! MDK, 29/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_sapwood(:,:)
 ! Carbon-starvation mortality of the last TRIFFID step (per 360 days), used
 ! by lotka.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_starv_pft(:,:)
@@ -321,6 +358,10 @@ IF (.NOT. ALLOCATED(nsc_ring_deficit)) THEN   ! MDK, 29/10/26
   ALLOCATE(nsc_ring_deficit(n_land_pts, npft))
   nsc_ring_deficit(:,:) = 0.0
 END IF
+IF (.NOT. ALLOCATED(nsc_sapwood)) THEN   ! MDK, 29/10/26
+  ALLOCATE(nsc_sapwood(n_land_pts, npft))
+  nsc_sapwood(:,:) = -1.0
+END IF
 IF (.NOT. ALLOCATED(nsc_starv_pft)) THEN
   ALLOCATE(nsc_starv_pft(n_land_pts, npft))
   nsc_starv_pft(:,:) = 0.0
@@ -376,6 +417,7 @@ USE pftparm, ONLY: g_leaf_0,                                                   &
                    nsc_wmax_fac, nsc_g_starv,                                  &
                    nsc_psi_turg_zero, nsc_t_grow_zero, nsc_overflow_resp,      &
                    nsc_cmax, nsc_flush_start_doy, nsc_flush_days
+USE pftparm, ONLY: nsc_grow_thresh   ! MDK, 29/10/26
 USE model_time_mod, ONLY: current_time
 
 USE parkind1, ONLY: jprb, jpim
@@ -420,8 +462,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
     ! Store at the start of the step (kg C m-2).
   f_turg,                                                                      &
     ! Turgor-limited sink: turgor factor (0-1).
-  c_acc_max,                                                                   &
-    ! Turgor-limited sink: accessible store when full (kg C m-2).
+  c_thr, c_grow, c_grow_max,                                                   &
+    ! The store the release for growth draws on: its floor (the reserve, or
+    ! the growth threshold nsc_grow_thresh), the store above it, and that
+    ! when full (kg C m-2).
+    !
+    ! MDK, 29/10/26
   w_regrow
     ! Phenology regrowth drawn from the store (per 360 days).
     !
@@ -535,6 +581,14 @@ DO n = n1,n2
 
     ! Michaelis-Menten loading on the accessible store.
     c_acc = MAX(nsc_pft(l,n) - c_res, 0.0)
+    ! The release for growth draws only on the store above the growth
+    ! threshold, if set (the reserve still pays the deficits below).
+    !
+    ! MDK, 29/10/26
+    c_thr = c_res
+    IF (is_set(nsc_grow_thresh(n)))                                            &
+      c_thr = MAX(c_res, nsc_grow_thresh(n) * c_max)
+    c_grow = MAX(nsc_pft(l,n) - c_thr, 0.0)
     w = 0.0
     f_turg = 1.0
     IF (l_turg) THEN
@@ -542,12 +596,12 @@ DO n = n1,n2
       IF (is_set(nsc_turg_acc(l,n)))                                           &
         f_turg = MIN(MAX(nsc_turg_acc(l,n), 0.0), 1.0)
       nsc_turg_acc(l,n) = 0.0
-      c_acc_max = c_max - c_res
-      IF (c_acc > 0.0 .AND. c_acc_max > 0.0)                                   &
-        w = w_max * f_turg * c_acc / (nsc_kc(n) * c_max + c_acc)               &
-            * (nsc_kc(n) * c_max + c_acc_max) / c_acc_max
+      c_grow_max = c_max - c_thr
+      IF (c_grow > 0.0 .AND. c_grow_max > 0.0)                                 &
+        w = w_max * f_turg * c_grow / (nsc_kc(n) * c_max + c_grow)             &
+            * (nsc_kc(n) * c_max + c_grow_max) / c_grow_max
     ELSE
-      IF (c_acc > 0.0) w = w_max * c_acc / (nsc_kc(n) * c_max + c_acc)
+      IF (c_grow > 0.0) w = w_max * c_grow / (nsc_kc(n) * c_max + c_grow)
     END IF
 
     ! The store can not be drawn below the reserve: a deficit beyond the
@@ -992,8 +1046,10 @@ SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
 
 USE jules_surface_types_mod, ONLY: npft, nnpft
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_state   ! MDK, 29/10/26
 USE pftparm, ONLY: pft_xylem_impairment_model, nsc_xylem_cond_ratio
-USE pftparm, ONLY: is_set, nsc_grow_end_doy   ! MDK, 29/10/26
+USE pftparm, ONLY: is_set, nsc_grow_end_doy, nsc_heartwood_rate,               &
+                   nsc_stem_frac   ! MDK, 29/10/26
 USE calc_c_comps_triffid_mod, ONLY: sapwood_c
 USE model_time_mod, ONLY: is_spinup
 USE model_time_mod, ONLY: current_time   ! MDK, 29/10/26
@@ -1037,6 +1093,11 @@ REAL(KIND=real_jlslsm) :: dt, g_step, f_decay
     ! Net ring count: TRIFFID timestep (360-day years), gross wood
     ! production of the step (kg C m-2, < 0 when wood is lost) and the
     ! deficit's decay over the step without a season end.
+    !
+    ! MDK, 29/10/26
+REAL(KIND=real_jlslsm) :: g_ring
+    ! The new conducting xylem of the step: G, or with the sapwood state
+    ! the stem's share of it, G_s (kg C m-2 per 360 days).
     !
     ! MDK, 29/10/26
 INTEGER :: doy_now, n_days, nd, k, d, doy_end
@@ -1098,6 +1159,15 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       nsc_xylem_prod_pft(l,n)  = 0.0
       nsc_xylem_renew_pft(l,n) = 0.0
       x_s = sapwood_c(n, ht(l,n), lai_bal(l,n), woodc(l,n) - dwood(l,n))
+      ! Sapwood state: the pipe model sets it at the first step of the
+      ! main run; then the state is the sapwood the ring renews. (It can
+      ! not fall to x_min: that would take centuries without growth.)
+      !
+      ! MDK, 29/10/26
+      IF (l_nsc_sapwood_state) THEN
+        IF (nsc_sapwood(l,n) < 0.0) nsc_sapwood(l,n) = x_s
+        x_s = nsc_sapwood(l,n)
+      END IF
       IF (x_s <= x_min) CYCLE
       ! A new ring year starts with no deficit; without a season end the
       ! deficit fades over a year.
@@ -1121,9 +1191,19 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
         nsc_ring_deficit(l,n) = MAX(nsc_ring_deficit(l,n) - g_step, 0.0)
       END IF
       nsc_xylem_prod_pft(l,n)  = g_wood_prod
-      nsc_xylem_renew_pft(l,n) = nsc_xylem_cond_ratio(n) * g_wood_prod / x_s
+      ! With the sapwood state the stem's share of the new wood renews the
+      ! stem sapwood, which loses its oldest part to heartwood.
+      !
+      ! MDK, 29/10/26
+      g_ring = g_wood_prod
+      IF (l_nsc_sapwood_state) g_ring = nsc_stem_frac(n) * g_wood_prod
+      nsc_xylem_renew_pft(l,n) = nsc_xylem_cond_ratio(n) * g_ring / x_s
       ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                      &
                                  + nsc_xylem_renew_pft(l,n) / r_gamma
+      IF (l_nsc_sapwood_state)                                                 &
+        nsc_sapwood(l,n) = nsc_sapwood(l,n)                                    &
+                           * EXP(-nsc_heartwood_rate(n) / r_gamma)             &
+                           + g_ring / r_gamma
     END DO
   END DO
 END IF

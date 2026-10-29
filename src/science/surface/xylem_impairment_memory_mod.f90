@@ -589,6 +589,7 @@ USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
                                 l_ximpair_rec_leaf_turn, l_trif_hydmort,       &
                                 l_som_seg_whole
+USE jules_vegetation_mod, ONLY: l_nsc_ring_additive   ! MDK, 29/10/26
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_psi_stem,                    &
                                           ximpair_seg_state_alloc
@@ -715,8 +716,15 @@ IF (l_ximpair_rec_nsc) THEN
   DO l = 1, n_land_pts
     rep_l = ximpair_repair_pend(l,pft)
     IF (rep_l <= 0.0) CYCLE
-    kcap(l) = kmax_pts(l) * (1.0 - MAX(1.0 - kcap(l) / kmax_pts(l), 0.0)      &
-                                   * (1.0 - MIN(rep_l, 1.0)))
+    IF (l_nsc_ring_additive) THEN
+      ! The new ring replaces damaged xylem first (MEDFATE): the loss falls
+      ! by the ring's share. MDK, 29/10/26
+      kcap(l) = kmax_pts(l) * (1.0 - MAX(1.0 - kcap(l) / kmax_pts(l)          &
+                                         - rep_l, 0.0))
+    ELSE
+      kcap(l) = kmax_pts(l) * (1.0 - MAX(1.0 - kcap(l) / kmax_pts(l), 0.0)    &
+                                     * (1.0 - MIN(rep_l, 1.0)))
+    END IF
   END DO
   ximpair_repair_pend(:,pft) = 0.0
 END IF

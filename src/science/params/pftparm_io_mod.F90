@@ -306,6 +306,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_overflow_resp_io(npft_max) = rmdi,                                       &
   nsc_cmax_io(npft_max) = rmdi,                                                &
   nsc_xylem_cond_ratio_io(npft_max) = rmdi,                                    &
+  nsc_heartwood_rate_io(npft_max) = rmdi,                                      &
+  nsc_stem_frac_io(npft_max) = rmdi,                                           &
+  nsc_grow_thresh_io(npft_max) = rmdi,                                         &
   phen_psi_tlp_io(npft_max) = rmdi,                                            &
   phen_dfbleaf_io(npft_max) = rmdi,                                            &
   phen_ndays_io(npft_max) = rmdi,                                              &
@@ -394,6 +397,7 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_flush_days_io,                                                          &
   nsc_cmax_io, phen_psi_tlp_io,                                                &
   nsc_xylem_cond_ratio_io,                                                     &
+  nsc_heartwood_rate_io, nsc_stem_frac_io, nsc_grow_thresh_io,                 &
   phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io,                         &
   phen_bb_doy_io, phen_bb_gdd_io, phen_bb_tbase_io, phen_bb_min_days_io
 
@@ -439,14 +443,17 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 177 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 180 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
                                              ! hydmort; count the REAL
-                                             ! declarations of the type)
+                                             ! declarations of the type;
+                                             ! +3 nsc_heartwood_rate,
+                                             ! nsc_stem_frac and
+                                             ! nsc_grow_thresh)
                                              !
-                                             ! MDK, 26/10/26
+                                             ! MDK, 29/10/26
 
 TYPE :: my_namelist
   SEQUENCE
@@ -625,6 +632,9 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_overflow_resp_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_cmax_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_xylem_cond_ratio_io(npft_max)
+  REAL(KIND=real_jlslsm) :: nsc_heartwood_rate_io(npft_max)   ! MDK, 29/10/26
+  REAL(KIND=real_jlslsm) :: nsc_stem_frac_io(npft_max)   ! MDK, 29/10/26
+  REAL(KIND=real_jlslsm) :: nsc_grow_thresh_io(npft_max)   ! MDK, 29/10/26
   REAL(KIND=real_jlslsm) :: phen_psi_tlp_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_dfbleaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_ndays_io(npft_max)
@@ -826,6 +836,9 @@ IF (mype == 0) THEN
   my_nml % nsc_overflow_resp_io = nsc_overflow_resp_io
   my_nml % nsc_cmax_io = nsc_cmax_io
   my_nml % nsc_xylem_cond_ratio_io = nsc_xylem_cond_ratio_io
+  my_nml % nsc_heartwood_rate_io = nsc_heartwood_rate_io   ! MDK, 29/10/26
+  my_nml % nsc_stem_frac_io = nsc_stem_frac_io   ! MDK, 29/10/26
+  my_nml % nsc_grow_thresh_io = nsc_grow_thresh_io   ! MDK, 29/10/26
   my_nml % phen_psi_tlp_io = phen_psi_tlp_io
   my_nml % phen_dfbleaf_io = phen_dfbleaf_io
   my_nml % phen_ndays_io = phen_ndays_io
@@ -1015,6 +1028,9 @@ IF (mype /= 0) THEN
   nsc_overflow_resp_io = my_nml % nsc_overflow_resp_io
   nsc_cmax_io = my_nml % nsc_cmax_io
   nsc_xylem_cond_ratio_io = my_nml % nsc_xylem_cond_ratio_io
+  nsc_heartwood_rate_io = my_nml % nsc_heartwood_rate_io   ! MDK, 29/10/26
+  nsc_stem_frac_io = my_nml % nsc_stem_frac_io   ! MDK, 29/10/26
+  nsc_grow_thresh_io = my_nml % nsc_grow_thresh_io   ! MDK, 29/10/26
   phen_psi_tlp_io = my_nml % phen_psi_tlp_io
   phen_dfbleaf_io = my_nml % phen_dfbleaf_io
   phen_ndays_io = my_nml % phen_ndays_io
@@ -1113,6 +1129,7 @@ USE pftparm, ONLY:                                                             &
   nsc_grow_start_doy, nsc_grow_end_doy, nsc_flush_start_doy, nsc_flush_days,  &
   nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min,          &
   nsc_xylem_cond_ratio,                                                       &
+  nsc_heartwood_rate, nsc_stem_frac, nsc_grow_thresh,                         &
   phen_bb_doy, phen_bb_gdd, phen_bb_tbase, phen_bb_min_days
 
 
@@ -1135,6 +1152,7 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 l_ximpair_seg_memory, l_triffid,               &
                                 l_trif_hydmort, l_som_capacitance_on,          &
                                 leaf_flux_mod, leaf_flux_stom_opt, l_trif_eq
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_state   ! MDK, 29/10/26
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1495,6 +1513,13 @@ DO i = 1, npft
   ! MDK, 25/10/26
   IF (ABS(nsc_xylem_cond_ratio_io(i) - rmdi) > EPSILON(1.0))                   &
     nsc_xylem_cond_ratio(i) = nsc_xylem_cond_ratio_io(i)
+  ! Sapwood state and the store's growth threshold. MDK, 29/10/26
+  IF (ABS(nsc_heartwood_rate_io(i) - rmdi) > EPSILON(1.0))                     &
+    nsc_heartwood_rate(i) = nsc_heartwood_rate_io(i)
+  IF (ABS(nsc_stem_frac_io(i) - rmdi) > EPSILON(1.0))                          &
+    nsc_stem_frac(i) = nsc_stem_frac_io(i)
+  IF (ABS(nsc_grow_thresh_io(i) - rmdi) > EPSILON(1.0))                        &
+    nsc_grow_thresh(i) = nsc_grow_thresh_io(i)
   IF (ABS(phen_psi_tlp_io(i) - rmdi) > EPSILON(1.0))                           &
     phen_psi_tlp(i) = phen_psi_tlp_io(i)
   IF (ABS(phen_dfbleaf_io(i) - rmdi) > EPSILON(1.0))                           &
@@ -1606,6 +1631,38 @@ IF ( l_triffid_nsc ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'nsc_flush_days_io must be a whole number of days.')
+  END IF
+  ! Growth threshold: a fraction of C_max, above the reserve to act.
+  !
+  ! MDK, 29/10/26
+  IF ( ANY(is_set(nsc_grow_thresh(:)) .AND.                                    &
+           (nsc_grow_thresh(:) < 0.0 .OR. nsc_grow_thresh(:) >= 1.0)) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_grow_thresh_io must be a fraction of C_max, 0-1.')
+  END IF
+  IF ( ANY(is_set(nsc_grow_thresh(:)) .AND.                                    &
+           nsc_grow_thresh(:) <= nsc_reserve_frac(:)) ) THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_grow_thresh_io is at or below nsc_reserve_frac_io: '  // &
+                 'it has no effect there.')
+  END IF
+END IF
+! Sapwood state: the heartwood rate set (> 0) and the stem's share 0-1 for
+! the PFTs with the memory model.
+!
+! MDK, 29/10/26
+IF ( l_nsc_sapwood_state ) THEN
+  IF ( ANY(pft_xylem_impairment_model(1:npft) == xylem_impairment_memory      &
+           .AND. (nsc_heartwood_rate(1:npft) <= 0.0                            &
+                  .OR. nsc_stem_frac(1:npft) <= 0.0                            &
+                  .OR. nsc_stem_frac(1:npft) > 1.0)) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'l_nsc_sapwood_state needs nsc_heartwood_rate_io > 0 '    //  &
+                 '(per year) and 0 < nsc_stem_frac_io <= 1 for the '       //  &
+                 'memory-model PFTs.')
   END IF
 END IF
 ! Stem recovery (l_ximpair_rec_nsc) is ring renewal by TRIFFID wood

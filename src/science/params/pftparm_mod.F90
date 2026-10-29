@@ -747,7 +747,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  repair, was removed with it.)
                  !
                  !  MDK, 26/10/26
-,nsc_xylem_cond_ratio(:)
+,nsc_xylem_cond_ratio(:)                                                       &
                  ! Ring renewal (stem recovery, l_ximpair_rec_nsc): w_cond, the
                  !  conductance per unit carbon of the new ring relative
                  !  to the mean conducting sapwood (>= 0; default 1, all
@@ -762,6 +762,33 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  ring-porous scheme).
                  !
                  !  MDK, 26/10/26
+,nsc_heartwood_rate(:)                                                         &
+                 ! Sapwood state (l_nsc_sapwood_state): the share of the
+                 !  conducting stem sapwood that becomes heartwood each year
+                 !  (per year, > 0), about 1 / the number of rings in the
+                 !  sapwood (Q. ilex at Puechabon: sapwood about 3 cm, rings
+                 !  0.4-1.1 mm, so 0.02-0.04). In equilibrium the ring renews
+                 !  this share of the stem a year.
+                 !
+                 !  MDK, 29/10/26
+,nsc_stem_frac(:)                                                              &
+                 ! Sapwood state: the stem's share of TRIFFID's gross wood
+                 !  production (0-1; the rest is branches and coarse roots),
+                 !  e.g. stem ANPP over total woody production (FR-Pue about
+                 !  0.5). With nsc_heartwood_rate it sets the equilibrium
+                 !  sapwood, nsc_stem_frac G / nsc_heartwood_rate.
+                 !
+                 !  MDK, 29/10/26
+,nsc_grow_thresh(:)
+                 ! Growth threshold of the TRIFFID store (fraction of C_max,
+                 !  0-1): the release for growth draws only on the store
+                 !  above nsc_grow_thresh C_max, so after a deep drawdown the
+                 !  store refills before growth resumes (MEDFATE: sapwood
+                 !  grows from starch above half its capacity). The reserve
+                 !  still pays the deficits and the leaf flush. Unset
+                 !  (< -1e29) = the reserve only (no threshold).
+                 !
+                 !  MDK, 29/10/26
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -1176,6 +1203,9 @@ ALLOCATE( nsc_flush_days(npft))
 ALLOCATE( nsc_overflow_resp(npft))
 ALLOCATE( nsc_cmax(npft))
 ALLOCATE( nsc_xylem_cond_ratio(npft))   ! MDK, 25/10/26
+ALLOCATE( nsc_heartwood_rate(npft))   ! MDK, 29/10/26
+ALLOCATE( nsc_stem_frac(npft))   ! MDK, 29/10/26
+ALLOCATE( nsc_grow_thresh(npft))   ! MDK, 29/10/26
 ALLOCATE( phen_psi_tlp(npft))
 ALLOCATE( phen_dfbleaf(npft))
 ALLOCATE( phen_ndays(npft))
@@ -1251,6 +1281,9 @@ nsc_flush_days(:) = 45.0
 nsc_overflow_resp(:) = 0.0
 nsc_cmax(:) = 0.0
 nsc_xylem_cond_ratio(:) = 1.0   ! MDK, 25/10/26
+nsc_heartwood_rate(:) = -1.0e30   ! MDK, 29/10/26
+nsc_stem_frac(:) = 1.0   ! MDK, 29/10/26
+nsc_grow_thresh(:) = -1.0e30   ! MDK, 29/10/26
 phen_psi_tlp(:) = -1.0e30
 phen_dfbleaf(:) = 0.05
 phen_ndays(:) = 10.0
@@ -1622,6 +1655,12 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_cmax = ',nsc_cmax
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_xylem_cond_ratio = ',nsc_xylem_cond_ratio
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_heartwood_rate = ',nsc_heartwood_rate
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_stem_frac = ',nsc_stem_frac
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_grow_thresh = ',nsc_grow_thresh
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_psi_tlp = ',phen_psi_tlp
 CALL jules_print('pftparm',lineBuffer)
