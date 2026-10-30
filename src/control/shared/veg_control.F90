@@ -294,7 +294,9 @@ IF (l_phenol) THEN
 #else
   ! asteps_phen, not a_step: it counts as the timestep number but comes
   ! back from the dump, so a restart keeps the phenology days of a
-  ! continuous run. MDK, 24/10/26
+  ! continuous run.
+  !
+  ! MDK, 24/10/26
   phenol_call = MOD (asteps_phen,                                              &
                           phenol_period * isec_per_day / timestep_len)
 #endif

@@ -19,7 +19,8 @@ MODULE sf_stom_state_mod
 !                   cpl_gbw_shd, cpl_ra_ca).
 ! Both are < 0 until first set ("not yet set"), which is also what a dump
 ! without them gives.
-! MDK, 22/10/26
+!
+! MDK, 30/10/26
 
 USE um_types, ONLY: real_jlslsm
 
@@ -29,29 +30,25 @@ PRIVATE
 PUBLIC :: f_vcmax_state, cpl_state, sf_stom_state_alloc, n_cpl_state,        &
           shared_e_shd_prev, shared_amax_shd_prev
 
+! gl_sun, gl_shd, gbw_sun, gbw_shd, ra_ca
 INTEGER, PARAMETER :: n_cpl_state = 5
-    ! gl_sun, gl_shd, gbw_sun, gbw_shd, ra_ca
 
+! (land_pts, npft)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: f_vcmax_state(:,:)
-    ! (land_pts, npft)
+! (land_pts, npft, n_cpl_state)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cpl_state(:,:,:)
-    ! (land_pts, npft, n_cpl_state)
 
+! (land_pts, npft) The shared root and stem (l_som_shared_stem),
+! two-leaf: the shaded leaves' transpiration of the last timestep
+! (mol H2O m-2 s-1), the flow the sunlit leaves' search puts on the
+! shared root and stem in a timestep's first pass. Allocated and set to
+! 0 by sf_stom. It is deliberately not in the dump, so it is 0 after a
+! restart, which changes nothing for a dump written at night (no
+! transpiration).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: shared_e_shd_prev(:,:)
-    ! (land_pts, npft) The shared root and stem (l_som_shared_stem),
-    ! two-leaf: the shaded leaves' transpiration of the last timestep
-    ! (mol H2O m-2 s-1), the flow the sunlit leaves' search puts on the
-    ! shared root and stem in a timestep's first pass. Allocated and set to
-    ! 0 by sf_stom. It is deliberately not in the dump, so it is 0 after a
-    ! restart, which changes nothing for a dump written at night (no
-    ! transpiration).
-    !
-    ! MDK, 30/10/26
+! (land_pts, npft) The same for the shaded leaves' A at their hydraulic
+! edge (mol CO2 m-2 s-1), for the whole-plant gain (l_som_shared_gain).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: shared_amax_shd_prev(:,:)
-    ! (land_pts, npft) The same for the shaded leaves' A at their hydraulic
-    ! edge (mol CO2 m-2 s-1), for the whole-plant gain (l_som_shared_gain).
-    !
-    ! MDK, 30/10/26
 
 CONTAINS
 
@@ -68,6 +65,7 @@ IF ( .NOT. ALLOCATED(f_vcmax_state) ) THEN
   ALLOCATE( f_vcmax_state(n_land_pts, npft) )
   f_vcmax_state(:,:) = -1.0
 END IF
+
 IF ( .NOT. ALLOCATED(cpl_state) ) THEN
   ALLOCATE( cpl_state(n_land_pts, npft, n_cpl_state) )
   cpl_state(:,:,:) = -1.0

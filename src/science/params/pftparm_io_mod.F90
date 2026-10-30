@@ -64,12 +64,18 @@ INTEGER ::                                                                     &
       !      (2016, Geosci. Model Dev. 9: 4227-4255; TFS v.1-Hydro), who use
       !      the inverse polynomial of Manzoni et al. (2013a) for the
       !      fraction of maximum xylem conductivity (their Eqn 4),
+      !
       !        FMC_x(psi_x) = ( 1 + (psi_x / P50_x)^a_x )^-1,
+      !
       !      with the slope of the PLC curve at P50 from their tropical
       !      synthesis (Table 1),
+      !
       !        S = 54.4 (-P50 [MPa])^-1.17   (% MPa-1).
+      !
       !      For this FMC the PLC slope at P50 is 100 a / (4 |P50|), so
+      !
       !        a = 4 |P50| S / 100 = 2.176 |P50|^-0.17,
+      !
       !      and FMC = 0.12 at P88 = P50 (1/0.12 - 1)^(1/a). The segment's
       !      cumulative Weibull then passes through this P50 and P88 (exact
       !      there, approximate in the tails). p88_root_io must be unset.
@@ -80,7 +86,9 @@ INTEGER ::                                                                     &
       !      vulnerability curves in the Xylem Functional Traits database
       !      (Choat et al. 2012 and updates; download 2026-09-28; root
       !      organ, air-injection methods excluded, n = 93):
+      !
       !        |P88| = 2.61 |P50|^0.70   (MPa),
+      !
       !      e.g. P50 -3 -> P88 -5.6, P50 -5 -> -8.1, P50 -8.5 -> -11.7 MPa
       !      (cf. the one Q. ilex root curve, Madrid, P50 -4.98 / P88 -9.61).
       !      The segment's cumulative Weibull passes through this P50/P88.
@@ -163,8 +171,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   kext_io(npft_max) = rmdi,                                                    &
   kmax_pft_io(npft_max) = rmdi,                                                & ! JBaguley
       ! Whole-plant hydraulic conductance per unit leaf area, in
-      ! mmol m-2 s-1 MPa-1 (e.g. ~0.9 at FR-Pue from E / (LAI * (psi_pd -
-      ! psi_md))). Converted to kmax_pft (mol m-2 s-1 Pa-1) below.
+      ! mmol m-2 s-1 MPa-1 (e.g. from E / (LAI * (psi_pd - psi_md))).
+      ! Converted to kmax_pft (mol m-2 s-1 Pa-1) below.
   kn_io(npft_max) = rmdi,                                                      &
   knl_io(npft_max) = rmdi,                                                     &
   kpar_io(npft_max) = rmdi,                                                    &
@@ -201,6 +209,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! Reference LAI for kplant_model = 1 (root and stem segment
   ! conductances per unit ground area at this LAI; <= 0: the TRIFFID
   ! balanced LAI from canopy height).
+  !
   ! MDK, 21/10/26
   lai_ref_k_io(npft_max) = 0.0,                                                &
   ! Cuticular leaf conductance (mmol H2O m-2 leaf s-1), the floor used when
@@ -238,26 +247,34 @@ REAL(KIND=real_jlslsm) ::                                                      &
   soil_litter_depth_io(npft_max) = rmdi,                                       &
   or_z0soil_fac_io(npft_max) = rmdi,                                           &
   ! DESICA (stomata_model = 8). Tuzet et al. (2003) closure
-  ! fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf))), with
-  ! gs = g1 fw An / ca; defaults are the CABLE-DESICA evergreen broadleaf
-  ! values (De Kauwe et al. 2020). Capacitances per unit leaf area (mmol H2O
-  ! m-2 leaf MPa-1); leaf default from Xu et al. (2016) Table S3
-  ! (1.5e-3 kg m-2 MPa-1), stem default ~Q. ilex (SurEau, Ruffault 2022).
-  ! psi_f_tuzet_io in MPa (MDK, 25/10/26).
+  !
+  !   fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf))),
+  !
+  ! with gs = g1 fw An / ca; defaults are the CABLE-DESICA evergreen
+  ! broadleaf values (De Kauwe et al. 2020). Capacitances per unit leaf
+  ! area (mmol H2O m-2 leaf MPa-1); leaf default from Xu et al. (2016)
+  ! Table S3 (1.5e-3 kg m-2 MPa-1), stem default ~Q. ilex (SurEau,
+  ! Ruffault 2022). psi_f_tuzet_io in MPa.
+  !
+  ! MDK, 25/10/26
   g1_tuzet_io(npft_max) = 4.19,                                                &
   sf_tuzet_io(npft_max) = 2.0,                                                 &
   psi_f_tuzet_io(npft_max) = -2.05,                                            &
   cap_leaf_io(npft_max) = 83.3,                                                &
   ! cap_stem is also the size of the stomatal optimisation's plant
   ! capacitance (l_som_capacitance): C = cap_stem x L_ref, mmol H2O m-2
-  ! leaf MPa-1 (3000 = 0.11 mm per MPa at LAI 2.1). For Q. ilex at
-  ! Puechabon it lies in 2100-4400, from the whole-tree stem capacitance
-  ! of Salomon et al. (2017, Plant Cell Environ. 40: 1379-1391,
-  ! doi:10.1111/pce.12928, Fig. 6: refilling after the first autumn rains,
-  ! CS = 15.05 exp(0.31 DBH) g MPa-1 per tree) divided by the site leaf
-  ! area, LA = 0.091 DBH^1.875 m2 (Rambal et al. 2004, via Limousin et al.
-  ! 2009), over DBH 4-13 cm (our conversion), and from the site sap-flow
-  ! lag (about 2700 for a store at the stem node).
+  ! leaf MPa-1 (3000 = 0.11 mm per MPa at LAI 2.1). For Q. ilex it lies
+  ! in 2100-4400 over DBH 4-13 cm: the whole-tree stem capacitance of
+  ! Salomon et al. (2017, Plant Cell Environ. 40: 1379-1391,
+  ! doi:10.1111/pce.12928, Fig. 6: refilling after the first autumn
+  ! rains),
+  !
+  !   CS = 15.05 exp(0.31 DBH)   (g MPa-1 per tree),
+  !
+  ! divided by the leaf area (Rambal et al. 2004, via Limousin et al.
+  ! 2009),
+  !
+  !   LA = 0.091 DBH^1.875   (m2).
   !
   ! MDK, 23/10/26
   cap_stem_io(npft_max) = 3000.0,                                              &
@@ -1247,8 +1264,8 @@ tleaf_of(:)     = tleaf_of_io(1:npft)
 ! Hydrological, thermal and other "physical" characteristics.
 #if !defined(UM_JULES)
 ! Water potentials are read in MPa, as kmax_pft_io is per MPa, and held in
-! Pa in the model (mpa_to_pa). A value of 1000 or more in size is still in
-! Pa (an old namelist; utils/upgrade_nml_gce.py converts them).
+! Pa in the model (mpa_to_pa). A value of 1000 or more in size is in Pa
+! and stops the run (check_mpa).
 !
 ! MDK, 25/10/26
 CALL check_mpa('psi_close_io',       psi_close_io(1:npft))
@@ -1267,7 +1284,7 @@ CALL check_mpa('psi_nsl_onset_io',   psi_nsl_onset_io(1:npft))
 CALL check_mpa('psi_nsl0_io',        psi_nsl0_io(1:npft))
 CALL check_mpa('psi_vcmax_f_io',     psi_vcmax_f_io(1:npft))
 CALL check_mpa('psi_f_tuzet_io',     psi_f_tuzet_io(1:npft))
-! Already read in MPa; checked as the others. MDK, 25/10/26
+! Already read in MPa; checked as the others.
 CALL check_mpa('nsc_psi_turg_full_io', nsc_psi_turg_full_io(1:npft))
 CALL check_mpa('nsc_psi_turg_zero_io', nsc_psi_turg_zero_io(1:npft))
 CALL check_mpa('phen_psi_tlp_io',    phen_psi_tlp_io(1:npft))
@@ -1538,6 +1555,7 @@ DO i = 1, npft
 END DO
 
 ! Budburst for deciduous phenology: one of a fixed day or degree-days.
+!
 ! MDK, 20/10/26
 IF ( ANY(is_set(phen_bb_doy(:)) .AND. is_set(phen_bb_gdd(:))) .OR.             &
      ANY(is_set(phen_bb_doy(:)) .AND.                                          &
@@ -1552,6 +1570,7 @@ IF ( ANY(is_set(phen_bb_doy(:)) .AND. is_set(phen_bb_gdd(:))) .OR.             &
 END IF
 
 ! TRIFFID store (l_triffid_nsc): parameter ranges and switch consistency.
+!
 ! MDK, 17/10/26
 IF ( l_triffid_nsc ) THEN
   IF ( ANY(nsc_flush(:) <= 0.0) .OR. ANY(nsc_kc(:) <= 0.0) .OR.               &
@@ -1593,6 +1612,7 @@ IF ( l_triffid_nsc ) THEN
                  'nsc_t_grow_zero_io, and 0 <= nsc_overflow_resp_io <= 1.')
   END IF
   ! Growing season: days of the year, the end after the start.
+  !
   ! MDK, 20/10/26
   IF ( ANY(is_set(nsc_grow_start_doy(:)) .AND.                                 &
            (nsc_grow_start_doy(:) < 1.0 .OR. nsc_grow_start_doy(:) > 366.0))  &
@@ -1607,6 +1627,7 @@ IF ( l_triffid_nsc ) THEN
                  'days of the year (1-366), with the end after the start.')
   END IF
   ! Leaf flush: a day of the year and a positive duration.
+  !
   ! MDK, 20/10/26
   IF ( ANY(is_set(nsc_flush_start_doy(:)) .AND.                                &
            (nsc_flush_start_doy(:) < 1.0 .OR. nsc_flush_start_doy(:) > 366.0  &
@@ -1717,6 +1738,7 @@ IF ( .NOT. l_ximpair_rec_nsc .AND.                                             &
 END IF
 ! Hydraulic mortality (l_trif_hydmort): parameter ranges and the damage
 ! state it is driven by.
+!
 ! MDK, 21/10/26
 IF ( l_trif_hydmort ) THEN
   IF ( ANY(hydmort_mu(:) <= 0.0) .OR. ANY(hydmort_width(:) <= 0.0) .OR.     &
@@ -1747,7 +1769,9 @@ IF ( l_ximpair_rec_nsc ) THEN
 END IF
 ! Equilibrium TRIFFID changes the cover without the dilution of the
 ! memory model's damage (ximpair_dilute_area runs after lotka, not
-! lotka_eq), so cover gained keeps the old damage. MDK, 25/10/26
+! lotka_eq), so cover gained keeps the old damage.
+!
+! MDK, 25/10/26
 IF ( l_trif_eq .AND. l_veg_compete .AND.                                       &
      ANY(pft_xylem_impairment_model(:) == xylem_impairment_memory) ) THEN
   errcode = -101
@@ -1755,13 +1779,6 @@ IF ( l_trif_eq .AND. l_veg_compete .AND.                                       &
                'l_trif_eq: xylem damage is not diluted when the ' //           &
                'equilibrium solve gains PFT cover.')
 END IF
-! The time-based recovery of the memory model (l_ximpair_rec_growth,
-! ximpair_tau_stem_io, ximpair_rec_years_io, ximpair_tau_rec_io and their
-! helpers) was retired in favour of the store repair (itself removed
-! 26/10/26 for ring renewal); namelists that still
-! set them stop with an unknown-variable error. It is in the git history.
-!
-! MDK, 23/10/26
 
 ! ---------------------------------------------------------------------
 ! The conductance model parameters and critical conductance while not
@@ -1772,7 +1789,9 @@ DO i = 1, npft
 
   ! kcrit_fractional_loss = 1 gives kcrit = 0: the curve fit below takes
   ! LOG(0), and the memory impairment divides by kcrit once the cap reaches
-  ! it. MDK, 22/10/26
+  ! it.
+  !
+  ! MDK, 22/10/26
   IF ( kcrit_fractional_loss(i) >= 1.0 ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
@@ -1780,10 +1799,10 @@ DO i = 1, npft
   END IF
 
   ! The stomatal optimisation runs the plant hydraulics for every PFT, so
-  ! each needs a conductance model and a critical loss: unset, they were
-  ! copied as imdi and rmdi (psi_crit then NaN) and the run went on. And
-  ! it takes the root-zone psi and the soil-to-root link from
-  ! fsmc_mod = 2; with 0 or 1 it ran without them after a warning.
+  ! each needs a conductance model and a critical loss: unset, they would
+  ! be copied as imdi and rmdi (psi_crit then NaN) and the run would go
+  ! on. It also takes the root-zone psi and the soil-to-root link from
+  ! fsmc_mod = 2, so 0 or 1 stops the run.
   !
   ! MDK, 25/10/26
   IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
@@ -1820,15 +1839,16 @@ DO i = 1, npft
   SELECT CASE (pft_conductance_model(i))
   CASE (1,2)
     ! kmax_pft_io is in mmol m-2 s-1 MPa-1 (plant values ~0.1-10). A value
-    ! below 1e-4 is almost certainly still in the old mol m-2 s-1 Pa-1
-    ! units (e.g. 0.4e-9), which would silently mean ~no conductance.
+    ! below 1e-4 is almost certainly in mol m-2 s-1 Pa-1 (e.g. 0.4e-9),
+    ! which would silently mean ~no conductance.
     IF (kmax_pft_io(i) <= 0.0 .OR. kmax_pft_io(i) < 1.0e-4) THEN
       errcode = 101  !  a hard error
       CALL ereport(RoutineName, errcode,                                       &
                'kmax_pft_io must be > 1e-4, in mmol m-2 s-1 MPa-1 (e.g. ' //   &
                '0.9), not mol m-2 s-1 Pa-1 (e.g. 0.9e-9).')
     END IF
-    ! P50 and P88 must be set (unset, rmdi passed the tests below).
+    ! P50 and P88 must be set (unset, rmdi would pass the tests below).
+    !
     ! MDK, 25/10/26
     IF ( ABS(P50(i) - rmdi) < EPSILON(1.0) .OR.                                &
          ABS(P88(i) - rmdi) < EPSILON(1.0) ) THEN
@@ -1861,14 +1881,8 @@ DO i = 1, npft
     !      ln(ln(1-0.5)/ln(1-0.88))
     ! c = --------------------------
     !          (ln(P50/P88))
-    ! NOTE: this used to be hardcoded as the literal -0.78135, which does not
-    ! equal ln(ln(1-0.5)/ln(1-0.88)) (that evaluates to -1.11805): the
-    ! literal was actually ln(ln(1-0.5)/ln(1-0.78)), i.e. it located the
-    ! P88 parameter at 78% loss of conductivity (22% conductance remaining)
-    ! rather than the intended 88% loss (12% remaining). This flattened the
-    ! vulnerability curve, most severely beyond P88 (e.g. ~23x too much
-    ! conductance retained at 9 MPa below P50 for a P50/P88 spacing of
-    ! ~1 MPa), understating hydraulic cost/risk under severe water stress.
+    ! The numerator is -1.11805: P88 at 88% loss of conductivity (12%
+    ! conductance remaining).
     conductance_c_pft(i) = LOG( LOG(1.0 - 0.5)/LOG(1.0 - 0.88) )/LOG( P50(i)/P88(i) )
 
     ! Equation for the sensitivity parameter b:
@@ -1895,10 +1909,7 @@ DO i = 1, npft
     !      ln(1/0.12 - 1)
     ! c = ----------------
     !       ln(P88/P50)
-    ! NOTE: this used to be hardcoded as the literal 1.2657 = ln(1/0.22 - 1),
-    ! i.e. it located P88 at 78% loss of conductivity (22% remaining) rather
-    ! than the intended 88% loss (12% remaining) - see the matching note in
-    ! the CW branch above, which has the same error.
+    ! with P88 at 88% loss of conductivity (12% remaining).
     conductance_c_pft(i) = LOG( 1.0/0.12 - 1.0 )/LOG( P88(i)/P50(i) )
 
     ! Equation for the critical water potential, where k/kmax has fallen
@@ -1906,8 +1917,6 @@ DO i = 1, npft
     !                            1
     ! psi_crit = P50 * ( ------------------------ - 1)^(1/c)
     !                     1 - kcrit_fractional_loss
-    ! NOTE: this previously had kmax_pft in the numerator, which is not
-    ! dimensionless.
     psi_crit(i) = P50(i)                                                      &
                   * ( (1.0/(1 - kcrit_fractional_loss(i))) - 1 )              &
                      **(1/conductance_c_pft(i))
@@ -1957,9 +1966,10 @@ DO i = 1, npft
   ! future carbon, so with the stored damage and repair cost of the
   ! impairment model the cost is counted twice; a uniform loss of kmax
   ! cancels in K/K_max, so the damage cannot change regulation; and with
-  ! impairment the code switched to the intact k at psi_leaf over kmax_ref,
-  ! so even zero damage changed the answer. Use the profit max (4) or CMax
-  ! (6) with impairment.
+  ! impairment the code would use the intact k at psi_leaf over kmax_ref,
+  ! so even zero damage would change the answer. Use the profit max (4) or
+  ! CMax (6) with impairment.
+  !
   ! MDK, 22/10/26
   IF ( ( pft_xylem_impairment_model(i) /= 0 .OR. l_ximpair_seg_memory ) .AND.  &
        stomata_model == stomata_sox_opt ) THEN
@@ -1973,6 +1983,7 @@ DO i = 1, npft
   ! A list of the models it works with, not of those it doesn't: Jacobs,
   ! Medlyn, SOX-analytical and DESICA never see the impaired curve, so
   ! impairment would silently do nothing with them.
+  !
   ! MDK, 22/10/26
   IF ( pft_xylem_impairment_model(i) /= 0 .AND.                                &
        stomata_model /= stomata_profit_max .AND.                               &
@@ -1980,17 +1991,14 @@ DO i = 1, npft
        stomata_model /= stomata_cmax .AND.                                     &
        stomata_model /= stomata_pm2 ) THEN
     ! Xylem impairment is coded and tested for the profit max (4) and CMax
-    ! (6) only (SOX_opt is rejected above): CGain, supply-loss and CAP
-    ! (from global_change_ecology) do not see the impaired curve
-    ! consistently (e.g. CGain's k_max uses the impaired kmax). CMax takes
-    ! its supply from the impaired curve and its cost per unit of intact
-    ! leaf area (kmax_ref), on the bounded search as the profit max.
-    ! ProfitMax2 (11) takes E_crit from the path the search runs on, so
-    ! damage shrinks E_crit with ximpair_hold_gs (Wang et al. 2020: drought
-    ! history reduces E_crit); with ximpair_hold_psi the search is on the
-    ! intact path, as the profit max.
-    !
-    ! MDK, 22/10/26
+    ! (6) only (SOX_opt is rejected above): CGain, supply-loss and CAP do
+    ! not see the impaired curve consistently (e.g. CGain's k_max uses the
+    ! impaired kmax). CMax takes its supply from the impaired curve and its
+    ! cost per unit of intact leaf area (kmax_ref), on the bounded search
+    ! as the profit max. ProfitMax2 (11) takes E_crit from the path the
+    ! search runs on, so damage shrinks E_crit with ximpair_hold_gs (Wang
+    ! et al. 2020: drought history reduces E_crit); with ximpair_hold_psi
+    ! the search is on the intact path, as the profit max.
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'pft_xylem_impairment_model /= 0 needs stomata_model = 4 ' // &

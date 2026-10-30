@@ -61,6 +61,7 @@ IF (.NOT. ALLOCATED(ximpair_kcap_leaf)) THEN
   ALLOCATE(ximpair_kcap_leaf(n_land_pts, npft))
   ximpair_kcap_leaf(:,:) = 1.0
 END IF
+
 IF (.NOT. ALLOCATED(ximpair_psi_stem)) THEN
   ALLOCATE(ximpair_psi_stem(n_land_pts, npft))
   ximpair_psi_stem(:,:) = 0.0

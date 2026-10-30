@@ -321,60 +321,60 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) ::                                                         &
+  ! Total number of land points.
   land_pts,                                                                    &
-    ! Total number of land points.
+  ! Number of points on which TRIFFID may operate.
   trif_pts,                                                                    &
-    ! Number of points on which TRIFFID may operate.
+  ! Indices of land points on which TRIFFID may operate.
   trif_index(land_pts)
-    ! Indices of land points on which TRIFFID may operate.
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Inverse TRIFFID timestep (/360 days).
   r_gamma,                                                                     &
-    ! Inverse TRIFFID timestep (/360 days).
+  ! Leaf carbon at the balanced LAI (kg C m-2).
   leafc(land_pts,npft),                                                        &
-    ! Leaf carbon at the balanced LAI (kg C m-2).
+  ! Root carbon (kg C m-2).
   rootc(land_pts,npft)
-    ! Root carbon (kg C m-2).
 
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+  ! IN NPP, OUT the carbon released from the store, W
+  ! (kg C m-2 per 360 days).
   npp(land_pts,npft)
-    ! IN NPP, OUT the carbon released from the store, W
-    ! (kg C m-2 per 360 days).
 
+! Only this PFT (the daily step without TRIFFID); all PFTs if absent.
 INTEGER, INTENT(IN), OPTIONAL :: pft_only
-    ! Only this PFT (the daily step without TRIFFID); all PFTs if absent.
 
 ! Local variables
 INTEGER :: n, t, l, n1, n2
 REAL(KIND=real_jlslsm) ::                                                      &
+  ! TRIFFID timestep (360-day years).
   dt,                                                                          &
-    ! TRIFFID timestep (360-day years).
+  ! Weight of this step in the running mean of NPP.
   a_mean,                                                                      &
-    ! Weight of this step in the running mean of NPP.
+  ! Store capacity, reserve and accessible store (kg C m-2).
   c_max, c_res, c_acc,                                                         &
-    ! Store capacity, reserve and accessible store (kg C m-2).
+  ! Maximum and actual loading, net draw on the store (per 360 days).
   w_max, w, draw,                                                              &
-    ! Maximum and actual loading, net draw on the store (per 360 days).
+  ! Store at the start of the step (kg C m-2).
   c_old,                                                                       &
-    ! Store at the start of the step (kg C m-2).
+  ! Turgor-limited sink: turgor factor (0-1).
   f_turg,                                                                      &
-    ! Turgor-limited sink: turgor factor (0-1).
+  ! The store the release for growth draws on: its floor (the reserve, or
+  ! the growth threshold nsc_grow_thresh), the store above it, and that
+  ! when full (kg C m-2).
   c_thr, c_grow, c_grow_max,                                                   &
-    ! The store the release for growth draws on: its floor (the reserve, or
-    ! the growth threshold nsc_grow_thresh), the store above it, and that
-    ! when full (kg C m-2).
+  ! Phenology regrowth drawn from the store (per 360 days).
   w_regrow
-    ! Phenology regrowth drawn from the store (per 360 days).
+! Growth limits on, leaf flush on.
 LOGICAL :: l_turg, l_flush
-    ! Growth limits on, leaf flush on.
+! Day of year now; day counter, day of year and number of days of
+! this store step.
 INTEGER :: doy_now, k, d, nd
-    ! Day of year now; day counter, day of year and number of days of
-    ! this store step.
+! Leaf flush: share of the year's flush in this step, flush draw (per
+! 360 days).
 REAL(KIND=real_jlslsm) :: f_flush, w_flush
-    ! Leaf flush: share of the year's flush in this step, flush draw (per
-    ! 360 days).
+! Days in this year.
 INTEGER :: n_days
-    ! Days in this year.
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -560,29 +560,29 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) ::                                                         &
+  ! Total number of land points.
   land_pts,                                                                    &
-    ! Total number of land points.
+  ! Number of points on which TRIFFID may operate.
   trif_pts,                                                                    &
-    ! Number of points on which TRIFFID may operate.
+  ! Indices of land points on which TRIFFID may operate.
   trif_index(land_pts)
-    ! Indices of land points on which TRIFFID may operate.
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Inverse TRIFFID timestep (/360 days).
   r_gamma,                                                                     &
-    ! Inverse TRIFFID timestep (/360 days).
+  ! Areal fractions after the TRIFFID step.
   frac(land_pts,ntype),                                                        &
-    ! Areal fractions after the TRIFFID step.
+  ! Change in the areal fractions over the step.
   dfrac(land_pts,npft)
-    ! Change in the areal fractions over the step.
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  ! Store carbon of the area lost, to litter (kg C m-2 of land per 360
+  ! days).
   lit_store(land_pts,npft)
-    ! Store carbon of the area lost, to litter (kg C m-2 of land per 360
-    ! days).
 
 INTEGER :: n, t, l
+! Areal fraction before the TRIFFID step.
 REAL(KIND=real_jlslsm) :: frac_old
-    ! Areal fraction before the TRIFFID step.
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -672,22 +672,22 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) ::                                                         &
+  ! Total number of land points.
   land_pts,                                                                    &
-    ! Total number of land points.
+  ! Number of points of this PFT.
   veg_pts,                                                                     &
-    ! Number of points of this PFT.
+  ! Land points of this PFT.
   veg_index(land_pts),                                                         &
-    ! Land points of this PFT.
+  ! Plant functional type.
   ft
-    ! Plant functional type.
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Model time step (s).
   timestep,                                                                    &
-    ! Model time step (s).
+  ! Root-zone water potential (Pa).
   psi_rz(land_pts),                                                            &
-    ! Root-zone water potential (Pa).
+  ! Air temperature (K).
   tair(land_pts)
-    ! Air temperature (K).
 
 INTEGER :: j, l
 REAL(KIND=real_jlslsm) :: period, f, a_t, a_yr, d_renew, f_season, doy,        &
@@ -696,8 +696,8 @@ REAL(KIND=real_jlslsm) :: period, f, a_t, a_yr, d_renew, f_season, doy,        &
     ! the daily and annual running means; leaf renewal this time step;
     ! growing-season factor (0 or 1); day of year now and of the start of
     ! the release.
+! Growth limits on; growing season set.
 LOGICAL :: l_lim, l_season
-    ! Growth limits on; growing season set.
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -803,24 +803,24 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) ::                                                         &
+  ! Total number of land points.
   land_pts,                                                                    &
-    ! Total number of land points.
+  ! Number of points of this PFT.
   veg_pts,                                                                     &
-    ! Number of points of this PFT.
+  ! Land points of this PFT.
   veg_index(land_pts),                                                         &
-    ! Land points of this PFT.
+  ! Plant functional type.
   ft
-    ! Plant functional type.
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Model time step (s).
   timestep,                                                                    &
-    ! Model time step (s).
+  ! Root-zone water potential (Pa).
   psi_rz(land_pts)
-    ! Root-zone water potential (Pa).
 
 INTEGER :: j, l
+! Daily mean root-zone water potential (MPa).
 REAL(KIND=real_jlslsm) :: psi_d
-    ! Daily mean root-zone water potential (MPa).
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -896,29 +896,29 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) ::                                                         &
+  ! Total number of land points.
   land_pts,                                                                    &
-    ! Total number of land points.
+  ! Number of points of this PFT.
   veg_pts,                                                                     &
-    ! Number of points of this PFT.
+  ! Land points of this PFT.
   veg_index(land_pts),                                                         &
-    ! Land points of this PFT.
+  ! Plant functional type.
   ft
-    ! Plant functional type.
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Model time step (s).
   timestep,                                                                    &
-    ! Model time step (s).
+  ! Canopy height (m).
   ht(land_pts),                                                                &
-    ! Canopy height (m).
+  ! NPP of this time step (kg C m-2 s-1).
   npp(land_pts)
-    ! NPP of this time step (kg C m-2 s-1).
 
 INTEGER :: j, l
+! Vegetation carbon (kg C m-2), balanced LAI and wood carbon (kg C m-2)
+! from the allometry.
 REAL(KIND=real_jlslsm) :: c_veg, lai_b, woodc
-    ! Vegetation carbon (kg C m-2), balanced LAI and wood carbon (kg C m-2)
-    ! from the allometry.
+! Inputs and outputs of triffid_nsc_store for this PFT (see there).
 REAL(KIND=real_jlslsm), ALLOCATABLE :: leafc(:,:), rootc(:,:), npp_d(:,:)
-    ! Inputs and outputs of triffid_nsc_store for this PFT (see there).
 
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_day = 86400.0
 REAL(KIND=real_jlslsm), PARAMETER :: days_per_trif_year = 360.0
@@ -1007,47 +1007,47 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) ::                                                         &
+  ! Total number of land points.
   land_pts,                                                                    &
-    ! Total number of land points.
+  ! Number of points on which TRIFFID may operate.
   trif_pts,                                                                    &
-    ! Number of points on which TRIFFID may operate.
+  ! Indices of land points on which TRIFFID may operate.
   trif_index(land_pts)
-    ! Indices of land points on which TRIFFID may operate.
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Inverse TRIFFID timestep (/360 days).
   r_gamma,                                                                     &
-    ! Inverse TRIFFID timestep (/360 days).
+  ! Canopy height before the step's growth (m).
   ht(land_pts,npft),                                                           &
-    ! Canopy height before the step's growth (m).
+  ! Balanced LAI before the step's growth.
   lai_bal(land_pts,npft),                                                      &
-    ! Balanced LAI before the step's growth.
+  ! Wood carbon after the step's growth (kg C m-2).
   woodc(land_pts,npft),                                                        &
-    ! Wood carbon after the step's growth (kg C m-2).
+  ! Wood increment of the step (kg C m-2).
   dwood(land_pts,npft),                                                        &
-    ! Wood increment of the step (kg C m-2).
+  ! Wood turnover of the step, g_wood C_W (kg C m-2 per 360 days).
   wood_litc(land_pts,npft)
-    ! Wood turnover of the step, g_wood C_W (kg C m-2 per 360 days).
 
 INTEGER :: n, t, l
+! Gross wood production (kg C m-2 per 360 days); conducting sapwood
+! (kg C m-2).
 REAL(KIND=real_jlslsm) :: g_wood_prod, x_s
-    ! Gross wood production (kg C m-2 per 360 days); conducting sapwood
-    ! (kg C m-2).
+! TRIFFID timestep (360-day years) and the step's gross wood
+! production (kg C m-2, < 0 when wood is lost).
 REAL(KIND=real_jlslsm) :: dt, g_step
-    ! TRIFFID timestep (360-day years) and the step's gross wood
-    ! production (kg C m-2, < 0 when wood is lost).
+! The new conducting xylem of the step: G, or with the sapwood pool
+! the stem's share of it (kg C m-2 per 360 days).
 REAL(KIND=real_jlslsm) :: g_ring
-    ! The new conducting xylem of the step: G, or with the sapwood pool
-    ! the stem's share of it (kg C m-2 per 360 days).
+! Day of year now, days in this year, days of this step, day counter,
+! a day of the step and the ring year's end day.
 INTEGER :: doy_now, n_days, nd, k, d, doy_end
-    ! Day of year now, days in this year, days of this step, day counter,
-    ! a day of the step and the ring year's end day.
+! This step ends the ring year (it holds the end of the growing season
+! or, without one, the last day of the year).
 LOGICAL :: l_ring_end
-    ! This step ends the ring year (it holds the end of the growing season
-    ! or, without one, the last day of the year).
 
+! Minimum conducting xylem (kg C m-2): a smaller sapwood renews
+! nothing.
 REAL(KIND=real_jlslsm), PARAMETER :: x_min = 1.0e-6
-    ! Minimum conducting xylem (kg C m-2): a smaller sapwood renews
-    ! nothing.
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1

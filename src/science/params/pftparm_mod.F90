@@ -453,10 +453,6 @@ ximpair_reset_mmdd(:)
                  !  which the memory impairment model's embolism is reset
                  !  (e.g. new earlywood in ring-porous species). 0 disables.
                  !  Not with stem recovery (l_ximpair_rec_nsc).
-                 ! (nsc_xylem_type, nsc_ring_mmdd and nsc_xylem_replace, the
-                 !  wood anatomy and replacement rules of the store-paid
-                 !  stem repair, were removed with it: ring renewal is the
-                 !  only stem recovery.)
                  !
                  !  MDK, 26/10/26
 
@@ -494,6 +490,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! stem segment conductances (per unit ground area) are
                  ! kmax_pft * seg_kfac * LAI. <= 0: the TRIFFID balanced LAI
                  ! from canopy height.
+                 !
                  ! MDK, 21/10/26
 ,gcuticular(:)                                                                 &
                  ! Cuticular (minimum) leaf conductance to water vapour, per
@@ -533,9 +530,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! ci = sl_cica_well_watered ca (Medlyn with D fixed at
                  ! 1 kPa: ci/ca = g1/(g1 + 1)). In (0, 1); default 0.8.
 ,psi_vcmax_f(:)                                                                &
-                 ! Root-zone water potential (Pa) at which photosynthetic
-                 ! capacity is about halved (l_som_vcmax_psi; psi_f of Zhou
-                 ! et al. 2013).
+                 ! Root-zone water potential (Pa) at which the factor of
+                 ! Zhou et al. (2013), f_Zhou, is about a half
+                 ! (l_som_vcmax_psi; their psi_f). Capacity there is
+                 ! fmin + (1 - fmin) f_Zhou (psi_vcmax_fmin), so it is about
+                 ! halved only without a floor.
 ,sf_vcmax(:)                                                                   &
                  ! Steepness of that down-regulation (MPa-1).
 ,or_z0soil_fac(:)                                                              &
@@ -583,12 +582,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  (l_ximpair_leaf_loss): the phenological state is capped
                  !  at 1 - ximpair_leaf_sens * (1 - k_cap/kmax). 1 keeps leaf
                  !  area in proportion to the conducting capacity, 0 disables.
-                 ! (ximpair_tau_rec, ximpair_psi_refill, ximpair_wood_alloc,
-                 !  ximpair_growth_basis, ximpair_rec_years and
-                 !  ximpair_tau_stem, the time-based recovery of the memory
-                 !  model, were retired; see l_ximpair_rec_nsc. So was
-                 !  ximpair_psi_growth, the growth gate of the store-paid
-                 !  repair.)
                  !
                  ! MDK, 26/10/26
 ,ximpair_tau_leaf(:)                                                          &
@@ -600,6 +593,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! MDK, 23/10/26
 ! TRIFFID storage pool (l_triffid_nsc; Trugman et al. 2018, Ecol. Lett. 21:
 ! 1552, Table S2). See triffid_nsc_mod.
+!
 ! MDK, 17/10/26
 ,nsc_flush(:)                                                                 &
                  ! Store capacity C_max in flushes of leaf and fine root,
@@ -646,15 +640,18 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  the stand are dead. The stand's lethal thresholds are
                  !  spread logistically about it. ~0.88 (P88) for
                  !  angiosperms, ~0.5-0.6 (P50) for conifers.
+                 !
                  !  MDK, 21/10/26
 ,hydmort_width(:)                                                             &
                  ! Width (in loss of conductance) of the logistic spread of
                  !  lethal thresholds within the stand (l_trif_hydmort).
+                 !
                  !  MDK, 21/10/26
 ,hydmort_plc_bg(:)                                                            &
                  ! Background loss of conductance (native embolism of a
                  !  normal year) that kills no tree (l_trif_hydmort): the
                  !  stand mortality curve starts from 0 there.
+                 !
                  !  MDK, 21/10/26
 ,nsc_la_sa(:)                                                                 &
                  ! Leaf area per sapwood area (m2 m-2; the inverse Huber
@@ -695,6 +692,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  from nsc_grow_end_doy to the year end, e.g. winter
                  !  dormancy in a mild climate where the cold limit rarely
                  !  binds. Unset (< -1e29) = no limit on that side.
+                 !
                  !  MDK, 20/10/26
 ,nsc_flush_start_doy(:)                                                        &
 ,nsc_flush_days(:)                                                             &
@@ -738,13 +736,12 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  after budburst (0 = from budburst), so cold nights do
                  !  not interrupt the flush or drop a summer canopy. Unset
                  !  (< -1e29) = no budburst gate (standard TRIFFID).
+                 !
                  !  MDK, 20/10/26
 ,nsc_cmax(:)                                                                  &
                  ! Store capacity C_max (kg C m-2 of the PFT); > 0 sets it
                  !  directly (e.g. from measured NSC concentrations times
                  !  biomass), 0 = nsc_flush x (leaf + root carbon).
-                 ! (nsc_xylem_rate_max, the cambial cap of the store-paid
-                 !  repair, was removed with it.)
                  !
                  !  MDK, 26/10/26
 ,nsc_xylem_cond_ratio(:)                                                       &
@@ -1059,8 +1056,8 @@ calc_rz_psi(:)       = .FALSE. ! JBaguley
 min_gl_pft(:)        = 1.0e-9 ! numerical floor, see above
 min_rootc_pft(:)     = 1.0 ! JBaguley M.Williams etal 2001
 root_psi_crit(:)     =-0.1e6 ! JBaguley
-root_radi_pft(:)     = 0.29e-3 ! Bonan et al. 2014 (was 0.0005, Williams 2001)
-rootc_density_pft(:) = 0.31e3  ! Bonan et al. 2014 (was 0.5e3, Williams 2001)
+root_radi_pft(:)     = 0.29e-3 ! Bonan et al. 2014 (Williams 2001: 0.0005)
+rootc_density_pft(:) = 0.31e3  ! Bonan et al. 2014 (Williams 2001: 0.5e3)
 pft_big_leaf_corection_nitrogen_reduction_factor(:) = 1.0
 
 ! Ozone damage parameters

@@ -219,7 +219,7 @@ END SUBROUTINE xylem_conductance_jls
 !       It returns an output array that only contains values for points
 !       with open stomata.
 !
-! MDK, 24/10/26
+! MDK, 25/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_jls( pft,                                                  &
                          n_e_leaf,                                             &
@@ -342,11 +342,10 @@ ELSE
   !
   !   1 / (1 / k(psi_src) + 1 / K_s)
   !
-  ! MDK, 23/10/26
   !---------------------------------------------------------------------------
   ! (psi_in is set at the open points only: the solvers read no others, and
-  ! setting the whole grid for every sample made a one-sample call cost
-  ! O(land_pts). MDK, 24/10/26)
+  ! setting the whole grid for every sample would make a one-sample call
+  ! cost O(land_pts).)
   DO i = 1, n_e_leaf
     DO j = 1, open_pnts
       l = veg_index(open_index(j))
@@ -365,13 +364,12 @@ ELSE
     DO j = 1, open_pnts
       l = veg_index(open_index(j))
       k_s  = ksr_path(l)
+
       ! The plant conductance at the root on this point's curve: the
       ! impaired one (conductance_b/c) under xylem impairment, else the PFT
-      ! curve. (This used to take supply_lut_f when b and c equalled the
-      ! PFT's, which gives the same value for psi <= 0 but built the supply
-      ! table even with the Newton solver.)
-      !
-      ! MDK, 21/10/26
+      ! curve. (Not supply_lut_f on the PFT's curve, which gives the same
+      ! value for psi <= 0 but builds the supply table even with the Newton
+      ! solver.)
       k_in = kmax(l) * xylem_f_bc(pft, psi_in(l), conductance_b(l),            &
                                   conductance_c(l))
       leaf_psi(i,j) = psi1(1,j)
@@ -404,11 +402,9 @@ SELECT CASE ( pft_conductance_model(pft) )
 CASE ( CW_conductance )
   ! Root, stem and leaf segments in series (l_som_plant_segments) with the
   ! Newton or table solver: leaf psi from solving the segments downstream,
-  ! and the whole-plant conductance -dE/dpsi_leaf in k_out. (This choice
-  ! was made inside psi_leaf_CW_jls; it is here so that the Weibull module
-  ! does not depend on the segment module.)
-  !
-  ! MDK, 25/10/26
+  ! and the whole-plant conductance -dE/dpsi_leaf in k_out. (The choice is
+  ! made here, not in psi_leaf_CW_jls, so that the Weibull module does not
+  ! depend on the segment module.)
   IF ( l_som_plant_segments .AND. som_psi_solver == psi_solver_newton ) THEN
     CALL psi_leaf_segments_jls( pft, n_e, land_pts, open_pnts, veg_index,      &
                                 open_index, e_in, psi_root, kmax, kcrit,       &
@@ -419,7 +415,7 @@ CASE ( CW_conductance )
                                     psi_out, k_out )
 
   ! (Only on the PFT's curve: the table cannot follow a point's own b and
-  ! c, which psi_leaf_CW_jls then solves by Newton. MDK, 21/10/26)
+  ! c, which psi_leaf_CW_jls then solves by Newton.)
   ELSE IF ( som_psi_solver == psi_solver_lut .AND.                             &
        lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,         &
                       conductance_b, conductance_c ) ) THEN
@@ -438,7 +434,7 @@ CASE ( CW_conductance )
 CASE ( SOX_conductance )
   IF ( som_psi_solver == psi_solver_lut .AND.                                  &
        lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,         &
-                      conductance_b, conductance_c ) ) THEN   ! MDK, 21/10/26
+                      conductance_b, conductance_c ) ) THEN
     CALL psi_leaf_lut_jls( pft, n_e, land_pts, open_pnts, veg_index,           &
                            open_index, e_in, psi_root, kmax,                   &
                            psi_out, k_out )

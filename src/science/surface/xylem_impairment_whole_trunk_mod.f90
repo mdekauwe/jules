@@ -187,8 +187,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! To calculate the leaf (root) conductance this
                             ! value is the historic minimum leaf (root) water
                             ! potential.
-                            !
-                            ! MDK, 24/10/26
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   xylem_conductance(n_water_potentials, open_pnts)
@@ -203,7 +201,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! Per-point curve parameters gathered onto the
                             ! open-point index.
 INTEGER :: i, l
-
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1

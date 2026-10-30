@@ -10579,7 +10579,8 @@ DATA metadata(812) / var_metadata(                                             &
     "Pa"                                                                       &
   ) /
 !-----------------------------------------------------------------------------
-! Metadata for nsc_xylem_prod and nsc_xylem_renew (MDK, 25/10/26)
+! Metadata for nsc_xylem_prod and nsc_xylem_renew
+! MDK, 25/10/26
 !-----------------------------------------------------------------------------
 DATA metadata(816) / var_metadata(                                             &
 ! String identifier
@@ -10705,6 +10706,7 @@ DATA metadata(825) / var_metadata(                                             &
   ) /
 !-----------------------------------------------------------------------------
 ! Metadata for psi_leaf_sun_pft and psi_leaf_shd_pft (two-leaf canopy)
+!
 ! MDK, 30/10/26
 !-----------------------------------------------------------------------------
 DATA metadata(826) / var_metadata(                                             &

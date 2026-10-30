@@ -14,11 +14,11 @@ CONTAINS
 
 SUBROUTINE write_dump()
 
-USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
-USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
-USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
+USE trifctl, ONLY: asteps_since_triffid   ! MDK, 24/10/26
+USE trifctl, ONLY: asteps_phen
+USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
 USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
-                                    cut_psi_stem, cut_c_store   ! MDK, 22/10/26
+                                    cut_psi_stem, cut_c_store
 USE jules_fields_mod, ONLY: crop_vars, psparms, ainfo, trif_vars, progs,       &
                             fluxes, lake_vars, rivers, water_resources
 
@@ -26,6 +26,7 @@ USE jules_fields_mod, ONLY: crop_vars, psparms, ainfo, trif_vars, progs,       &
 ! TYPE Definitions
 USE jules_fields_mod, ONLY: toppdm, soilecosse, trifctltype
 USE imgn_vars_mod, ONLY: imgn_vars
+! MDK, 30/10/26
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
     ximpair_repair_pend, ximpair_area_w
@@ -34,12 +35,12 @@ USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
-USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood   ! MDK, 29/10/26
-USE triffid_nsc_mod, ONLY: nsc_net_wood_growth   ! MDK, 30/10/26
+USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
+USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
 USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft,  &
-    hydmort_plc_peak   ! MDK, 21/10/26
+    hydmort_plc_peak
 
 USE model_grid_mod, ONLY:                                                      &
   global_land_pts, grid_area_ij, latitude, longitude, l_coord_latlon,          &
@@ -448,7 +449,9 @@ DO i = 1,nvars
     DO n = 1,npft
       CALL gather_land_field(cut_c_store(:,n), global_data_2d(:,n))
     END DO
-  ! Leaf temperatures of the last timestep (l_leaf_temp). MDK, 24/10/26
+  ! Leaf temperatures of the last timestep (l_leaf_temp).
+  !
+  ! MDK, 24/10/26
   CASE ( 't_leaf_sun_pft' )
     DO n = 1,npft
       CALL gather_land_field(psparms%t_leaf_sun_pft(:,n), global_data_2d(:,n))
@@ -458,7 +461,9 @@ DO i = 1,nvars
       CALL gather_land_field(psparms%t_leaf_shd_pft(:,n), global_data_2d(:,n))
     END DO
 
-  ! sf_stom state (sf_stom_state_mod; -1 = not yet set). MDK, 22/10/26
+  ! sf_stom state (sf_stom_state_mod; -1 = not yet set).
+  !
+  ! MDK, 22/10/26
   CASE ( 'fvcmax_psi_state' )
     CALL sf_stom_state_alloc( land_pts )
     DO n = 1,npft
@@ -496,14 +501,13 @@ DO i = 1,nvars
       CALL gather_land_field(nsc_ft_mean(:,n), global_data_2d(:,n))
     END DO
 
-  ! MDK, 29/10/26
+  ! MDK, 30/10/26
   CASE ( 'nsc_wood_lost' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(nsc_wood_lost(:,n), global_data_2d(:,n))
     END DO
 
-  ! MDK, 30/10/26
   CASE ( 'nsc_net_wood_growth' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
@@ -584,14 +588,12 @@ DO i = 1,nvars
       CALL gather_land_field(hydmort_pref(:,n), global_data_2d(:,n))
     END DO
 
-  ! MDK, 21/10/26
   CASE ( 'hydmort_dead' )
     CALL hydmort_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(hydmort_dead_pft(:,n), global_data_2d(:,n))
     END DO
 
-  ! MDK, 21/10/26
   CASE ( 'hydmort_plc_peak' )
     CALL hydmort_alloc( land_pts )
     DO n = 1,npft
@@ -1215,9 +1217,12 @@ DO i = 1,nvars
   CASE ( 'sfc_water_frac' )
     CALL gather_land_field(water_resources%sfc_water_frac, global_data_1d)
 
-    ! TRIFFID's period timer (written directly) and accumulators. MDK, 22/10/26
+    ! TRIFFID's period timer and the phenology step count (written
+    ! directly), and TRIFFID's accumulators.
+    !
+    ! MDK, 24/10/26
   CASE ( 'trif_asteps', 'phen_asteps' )
-    ! Nothing to do (phen_asteps: MDK, 24/10/26)
+    ! Nothing to do
 
   CASE ( 'npp_acc' )
     DO n = 1,npft
@@ -1484,11 +1489,15 @@ DO i = 1,nvars
     CASE ( 'sfc_water_frac' )
       CALL file_write_var(FILE, var_ids(i), global_data_1d)
 
-      ! TRIFFID's period timer. MDK, 22/10/26
+      ! TRIFFID's period timer.
+      !
+      ! MDK, 22/10/26
     CASE ( 'trif_asteps' )
       CALL file_write_var(FILE, var_ids(i), REAL(asteps_since_triffid))
 
-      ! The phenology step count. MDK, 24/10/26
+      ! The phenology step count.
+      !
+      ! MDK, 24/10/26
     CASE ( 'phen_asteps' )
       CALL file_write_var(FILE, var_ids(i), REAL(asteps_phen))
 

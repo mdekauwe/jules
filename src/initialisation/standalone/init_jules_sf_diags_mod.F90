@@ -707,8 +707,9 @@ END IF
 ! et_stom_surft is also used with et_stom_ij.
 ! The stomatal optimisation (canopy_impaired_psi_jls, from et_stom_surft),
 ! DESICA and the Or soil-evaporation cap (sf_evap, from resfs_stom) need
-! them whether or not they are output; without this they were (1,1) and
-! indexed by point and tile (bounds error at -O0, garbage at -O3).
+! them whether or not they are output; without this they would be (1,1)
+! but indexed by point and tile (bounds error at -O0, garbage at -O3).
+!
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
 IF ( leaf_flux_mod == leaf_flux_stom_opt .OR.                                 &

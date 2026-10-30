@@ -15,8 +15,10 @@ MODULE triffid_hydmort_mod
 ! can survive, and these lethal thresholds are spread logistically about
 ! hydmort_mu with width hydmort_width, so the fraction of the stand that has
 ! passed its own threshold at damage p is
+!
 !   S(p) = [s((p - mu)/w) - s((b - mu)/w)] / [1 - s((b - mu)/w)],  p > b,
 !   S(p) = 0,  p <= b,          s(z) = 1/(1+e^-z),
+!
 ! with b = hydmort_plc_bg the background loss of a normal year (native
 ! embolism), which kills no tree: without it the logistic tail of a wide
 ! spread kills a little every year. This is an expected value; there are no
@@ -26,9 +28,13 @@ MODULE triffid_hydmort_mod
 ! Each tree dies once, so mortality is a ratchet. At each TRIFFID step,
 ! with p_peak the worst damage of the period and p_ref the damage the
 ! surviving stand has already withstood,
+!
 !   m = max(0, S(p_peak) - S(p_ref)) / (1 - S(p_ref))
+!
 ! is the fraction of the surviving cover that dies in the step, and
+!
 !   g = r_gamma m   (per 360 days)
+!
 ! is the matching area disturbance. p_ref is the worst damage the stand has
 ! been through, a running maximum: each tree has a fixed threshold, so the
 ! trees whose thresholds lie below p_ref are already dead, and a later
@@ -45,7 +51,6 @@ MODULE triffid_hydmort_mod
 ! - with fixed fractions (l_veg_compete = F, e.g. monoculture runs), the
 !   killed fraction is moved to bare soil here, and is not refilled.
 !
-! The design notes are local, not in the repository.
 ! p_ref, the stand killed so far and the period's peak damage are in dumps.
 ! A dump written without them starts p_ref at the current damage (the stand
 ! is taken to have withstood it).
@@ -106,18 +111,22 @@ IF (.NOT. ALLOCATED(hydmort_plc_peak)) THEN
   ALLOCATE(hydmort_plc_peak(n_land_pts, npft))
   hydmort_plc_peak(:,:) = -1.0
 END IF
+
 IF (.NOT. ALLOCATED(hydmort_pref)) THEN
   ALLOCATE(hydmort_pref(n_land_pts, npft))
   hydmort_pref(:,:) = -1.0
 END IF
+
 IF (.NOT. ALLOCATED(hydmort_g_pft)) THEN
   ALLOCATE(hydmort_g_pft(n_land_pts, npft))
   hydmort_g_pft(:,:) = 0.0
 END IF
+
 IF (.NOT. ALLOCATED(hydmort_m_pft)) THEN
   ALLOCATE(hydmort_m_pft(n_land_pts, npft))
   hydmort_m_pft(:,:) = 0.0
 END IF
+
 IF (.NOT. ALLOCATED(hydmort_dead_pft)) THEN
   ALLOCATE(hydmort_dead_pft(n_land_pts, npft))
   hydmort_dead_pft(:,:) = 0.0
@@ -146,20 +155,18 @@ END FUNCTION hydmort_s
 ! ---------------------------------------------------------------------
 ! Keep the worst damage of the TRIFFID period (called from the memory
 ! impairment update, every timestep, after ximpair_lock is set).
+!
+! MDK, 24/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE hydmort_accumulate( n_land_pts, pft, lock )
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
+! Number of land points; plant functional type.
 INTEGER, INTENT(IN) :: n_land_pts, pft
-                          ! Number of land points; plant functional type.
-                          !
-                          ! MDK, 24/10/26
+! Lasting loss of conductance (ximpair_lock).
 REAL(KIND=real_jlslsm), INTENT(IN) :: lock(n_land_pts)
-                          ! Lasting loss of conductance (ximpair_lock).
-                          !
-                          ! MDK, 24/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -169,6 +176,7 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='HYDMORT_ACCUMULATE'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL hydmort_alloc( n_land_pts )
+
 hydmort_plc_peak(:,pft) = MAX(hydmort_plc_peak(:,pft), lock(:))
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -178,6 +186,8 @@ END SUBROUTINE hydmort_accumulate
 ! ---------------------------------------------------------------------
 ! At a TRIFFID step: the fraction of each PFT's cover killed (m) and the
 ! matching disturbance (g = r_gamma m), from the period's peak damage.
+!
+! MDK, 25/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_hydmort( land_pts, trif_pts, trif_index, r_gamma, lock )
 
@@ -187,29 +197,19 @@ USE pftparm, ONLY: hydmort_mu, hydmort_width, hydmort_plc_bg
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
+! Number of land points, and of points on which TRIFFID may operate.
 INTEGER, INTENT(IN) :: land_pts, trif_pts
-                          ! Number of land points, and of points on which
-                          ! TRIFFID may operate.
-                          !
-                          ! MDK, 24/10/26
+! Land points on which TRIFFID may operate.
 INTEGER, INTENT(IN) :: trif_index(land_pts)
-                          ! Land points on which TRIFFID may operate.
-                          !
-                          ! MDK, 24/10/26
+! Inverse TRIFFID timestep (/360 days).
 REAL(KIND=real_jlslsm), INTENT(IN) :: r_gamma
-                          ! Inverse TRIFFID timestep (/360 days).
-                          !
-                          ! MDK, 24/10/26
+! Lasting loss of conductance (ximpair_lock).
 REAL(KIND=real_jlslsm), INTENT(IN) :: lock(land_pts,npft)
-                          ! Lasting loss of conductance (ximpair_lock).
 
 INTEGER :: l, n, t
+! Peak damage of the period, the fractions of the stand dead at it and at p_ref,
+! and the fraction of the surviving cover killed in this step.
 REAL(KIND=real_jlslsm) :: p_peak, s_peak, s_ref, m
-                          ! Peak damage of the period, the fractions of the
-                          ! stand dead at it and at p_ref, and the fraction
-                          ! of the surviving cover killed in this step.
-                          !
-                          ! MDK, 24/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -221,7 +221,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 CALL hydmort_alloc( land_pts )
 
 ! Natural PFTs only (lotka): crop PFTs (n > nnpft) take no hydraulic
-! mortality. MDK, 25/10/26
+! mortality.
 DO n = 1, nnpft
   DO t = 1, trif_pts
     l = trif_index(t)
@@ -237,6 +237,7 @@ DO n = 1, nnpft
     hydmort_m_pft(l,n)    = m
     hydmort_g_pft(l,n)    = r_gamma * m
     hydmort_dead_pft(l,n) = 1.0 - (1.0 - hydmort_dead_pft(l,n)) * (1.0 - m)
+
     ! The survivors have withstood the worst damage so far.
     hydmort_pref(l,n)     = MAX(hydmort_pref(l,n), p_peak)
     hydmort_plc_peak(l,n) = lock(l,n)
@@ -251,6 +252,8 @@ END SUBROUTINE triffid_hydmort
 ! Fixed fractions (l_veg_compete = F): the killed cover becomes bare soil.
 ! dfrac (< 0) carries the loss, so TRIFFID's mass-balance litter sends the
 ! killed area's vegetation carbon and N to the soil.
+!
+! MDK, 25/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_hydmort_cover( land_pts, trif_pts, trif_index, frac,        &
                                   frac_na, frac_nofire, dfrac, dfrac_na,       &
@@ -261,33 +264,22 @@ USE jules_surface_types_mod, ONLY: npft, nnpft, ntype, soil
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
+! Number of land points, and of points on which TRIFFID may operate.
 INTEGER, INTENT(IN) :: land_pts, trif_pts
-                          ! Number of land points, and of points on which
-                          ! TRIFFID may operate.
-                          !
-                          ! MDK, 24/10/26
+! Land points on which TRIFFID may operate.
 INTEGER, INTENT(IN) :: trif_index(land_pts)
-                          ! Land points on which TRIFFID may operate.
-                          !
-                          ! MDK, 24/10/26
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: frac(land_pts,ntype)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: frac_na(land_pts,ntype)
+! Areal fractions, as in triffid.
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: frac_nofire(land_pts,ntype)
-                          ! Areal fractions, as in triffid.
-                          !
-                          ! MDK, 24/10/26
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: dfrac(land_pts,npft)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: dfrac_na(land_pts,npft)
+! Their changes over the TRIFFID step.
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: dfrac_nofire(land_pts,npft)
-                          ! Their changes over the TRIFFID step.
-                          !
-                          ! MDK, 24/10/26
 
 INTEGER :: l, n, t
+! Fraction of the grid box killed in this step.
 REAL(KIND=real_jlslsm) :: dlost
-                          ! Fraction of the grid box killed in this step.
-                          !
-                          ! MDK, 24/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -296,7 +288,7 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='TRIFFID_HYDMORT_COVER'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-DO n = 1, nnpft   ! natural PFTs only (MDK, 25/10/26)
+DO n = 1, nnpft   ! natural PFTs only
   DO t = 1, trif_pts
     l = trif_index(t)
     dlost = hydmort_m_pft(l,n) * frac(l,n)

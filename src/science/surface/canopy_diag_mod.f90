@@ -22,8 +22,7 @@ MODULE canopy_diag_mod
 ! - gs_sun_pft, gs_shd_pft: the stomatal conductance the optimiser chose for
 !   the sunlit and the shaded leaves, per unit leaf area of each class (m
 !   s-1), and lai_sun_pft, the sunlit leaf area (m2 m-2); two-leaf canopy
-!   (can_rad_mod = 7) only. Comparable with leaf gas exchange. (MDK,
-!   25/10/26)
+!   (can_rad_mod = 7) only. Comparable with leaf gas exchange.
 ! - vcmax_pft, jmax_pft: Vcmax and Jmax of a leaf at the top of the canopy
 !   at the canopy temperature tstar (mol m-2 s-1, leaf), with any thermal
 !   acclimation and the soil-water factor (l_som_vcmax_psi); with
@@ -39,12 +38,10 @@ MODULE canopy_diag_mod
 !   (Pa), before any cuticular leak or store balance; two-leaf canopy
 !   (can_rad_mod = 7) only.
 !
-! MDK, 30/10/26
-!
 ! Allocated on first use; 0 where not set. Written by sf_stom (and physiol
 ! for gsoil_pft), read by extract_var.
 !
-! MDK, 24/10/26
+! MDK, 30/10/26
 !-----------------------------------------------------------------------------
 
 USE um_types, ONLY: real_jlslsm
@@ -59,15 +56,15 @@ PUBLIC :: gc_stomatal_pft, gsoil_pft, t_can_air_pft, q_can_air_pft,           &
           psi_leaf_shd_pft
 
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE ::                                   &
+  ! (land_pts, npft): see the header.
   gc_stomatal_pft(:,:), gsoil_pft(:,:), t_can_air_pft(:,:),                   &
   q_can_air_pft(:,:), h_leaf_pft(:,:), le_leaf_pft(:,:),                     &
   gs_sun_pft(:,:), gs_shd_pft(:,:), lai_sun_pft(:,:), vcmax_pft(:,:),       &
   jmax_pft(:,:), anetc_pft(:,:), anetl_top_pft(:,:), anetl_bot_pft(:,:),     &
   psi_leaf_sun_pft(:,:), psi_leaf_shd_pft(:,:)
-    ! (land_pts, npft): see the header.
+! (land_pts): the leaf balance's H and LE of the current PFT, passed
+! from leaf_temp_update_n to the caller (W m-2, ground).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: h_leaf_pts(:), le_leaf_pts(:)
-    ! (land_pts): the leaf balance's H and LE of the current PFT, passed
-    ! from leaf_temp_update_n to the caller (W m-2, ground).
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='CANOPY_DIAG_MOD'
 

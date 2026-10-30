@@ -919,6 +919,7 @@ DO n = 1,nnpft
     resp_p_actual_pft(l,n)   = (gpp_pft_acc(l,n) * r_gamma) - npp(l,n)
     ! With the store npp is the carbon released from it; the plant
     ! respiration is GPP less the NPP that went into the store.
+    !
     ! MDK, 17/10/26
     IF ( l_triffid_nsc ) resp_p_actual_pft(l,n) = resp_p_actual_pft(l,n)     &
                                                   - nsc_dc_pft(l,n)
@@ -938,6 +939,7 @@ END DO  !  PFTs
 ! Hydraulic mortality (l_trif_hydmort): the fraction of each PFT's cover
 ! killed in this step, from the period's peak xylem damage; used by lotka
 ! (g) or, with fixed fractions, moved to bare soil below.
+!
 ! MDK, 21/10/26
 IF ( l_trif_hydmort )                                                          &
   CALL triffid_hydmort( land_pts, trif_pts, trif_index, r_gamma, ximpair_lock )
@@ -1042,6 +1044,7 @@ ELSE
   dfrac_na(:,:)     = 0.0
   dfrac_nofire(:,:) = 0.0
   ! Fixed fractions: the cover killed by drought becomes bare soil.
+  !
   ! MDK, 21/10/26
   IF ( l_trif_hydmort )                                                        &
     CALL triffid_hydmort_cover( land_pts, trif_pts, trif_index, frac,          &
@@ -1065,6 +1068,7 @@ DO t = 1,trif_pts
 END DO
 
 ! TRIFFID store: area lost takes its store to litter; area gained shares it.
+!
 ! MDK, 17/10/26
 nsc_lit(:,:) = 0.0
 IF ( l_triffid_nsc )                                                           &
@@ -1072,9 +1076,10 @@ IF ( l_triffid_nsc )                                                           &
                          dfrac, nsc_lit )
 
 ! Xylem damage (memory model): area gained is new, intact xylem, so the
-! damage is spread over the new area, as the store is. MDK, 25/10/26
-! With hydraulic mortality the area killed and regrown in the step is
-! intact as well. MDK, 25/10/26
+! damage is spread over the new area, as the store is. With hydraulic
+! mortality the area killed and regrown in the step is intact as well.
+!
+! MDK, 25/10/26
 IF ( l_veg_compete ) THEN
   IF ( l_trif_hydmort ) THEN
     CALL ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac,     &
@@ -1542,6 +1547,7 @@ DO t = 1,trif_pts
   DO n = 1,nnpft
     ! No cover at the start of the step: leave the (zero) fluxes per m2 of
     ! land rather than divide by 0.
+    !
     ! MDK, 21/10/26
     IF (frac_flux(l,n) <= 0.0 .OR. frac_flux_nat(l,n) <= 0.0) CYCLE
     IF (frac(l,n) < frac_na(l,n)) THEN

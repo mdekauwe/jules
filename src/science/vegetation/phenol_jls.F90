@@ -156,7 +156,9 @@ END DO
 !-----------------------------------------------------------------------------
 ! Lasting xylem damage (memory impairment models, l_ximpair_leaf_loss): the
 ! canopy cannot be fuller than the damaged xylem can supply,
+!
 !   phen <= 1 - ximpair_leaf_sens * (1 - k_cap/kmax),
+!
 ! so it sheds leaves (at the rate of phenological leaf drop) when the
 ! locked-in loss rises and regrows as the xylem recovers. This is a cap on
 ! the canopy rather than an extra turnover rate: leaf drop below is a

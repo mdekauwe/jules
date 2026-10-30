@@ -524,9 +524,9 @@ END SUBROUTINE soil_hyd_step
 ! and steep (e.g. van Genuchten with small n) hydraulic curves, that
 ! linearisation can be badly wrong near saturation: the solve empties a
 ! layer in one step, and the dry-beside-saturated state that follows then
-! produces NaNs (seen at FR-Pue as the whole soil column going to zero).
+! produces NaNs (the whole soil column goes to zero).
 !
-! Each point is first stepped over the full timestep as before. Only the
+! Each point is first stepped over the full timestep. Only the
 ! points soil_hyd_step flags (see there) are repeated from their initial
 ! state with the timestep split into 2, 4, 8, ... up to max_substep
 ! sub-steps, until no sub-step is flagged (or max_substep is reached, when

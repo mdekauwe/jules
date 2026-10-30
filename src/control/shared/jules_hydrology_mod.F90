@@ -58,8 +58,8 @@ LOGICAL ::                                                                     &
   l_or_fsoil = .FALSE.,                                                        &
       ! With l_soil_evap_or: multiply the Or conductance beneath a canopy by
       ! exp(-0.5 LAI) (trunk JULES's fsoil), for the energy that reaches the
-      ! soil under the canopy, which the Or resistance does not represent
-      ! (or_z0soil_fac had been absorbing it at FR-Pue). Off by default.
+      ! soil under the canopy, which the Or resistance does not represent.
+      ! Off by default.
       !
       ! MDK, 24/10/26
   l_inland = .FALSE.
@@ -102,12 +102,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
   or_k_min = 1.0e-12
       ! Floor on the liquid-phase hydraulic conductivity in the Or
       ! resistance (m/s), only to avoid dividing by zero: Decker et al.
-      ! (2017) have no floor (r_sv ~ 1/K over orders of magnitude). With
-      ! the former default 1e-8 (CABLE GM2) the liquid-supply term levelled
-      ! off at ~430 s/m, so drying the top layer below theta ~0.17 no
-      ! longer reduced evaporation at FR-Pue; with 1e-12 the conductance
-      ! falls ~7x between theta1 0.18 and 0.14 (a stage-2 decline), and
-      ! annual soil evaporation drops 10-20 % (FR-Pue 2003, 2006).
+      ! (2017) have no floor (r_sv ~ 1/K over orders of magnitude). A floor
+      ! of 1e-8 (CABLE GM2) levels the liquid-supply term off, so drying
+      ! the top layer stops reducing evaporation; with 1e-12 the
+      ! conductance keeps falling as the top layer dries (a stage-2
+      ! decline).
       !
       ! MDK, 24/10/26
 
@@ -235,7 +234,9 @@ IF ( l_soil_evap_or .AND. or_k_min <= 0.0 ) THEN
 END IF
 
 ! The Or soil conductance replaces the trunk one, so l_limit_gsoil (and the
-! PFT gsoil_f) have no effect with it. MDK, 24/10/26
+! PFT gsoil_f) have no effect with it.
+!
+! MDK, 24/10/26
 IF ( l_soil_evap_or .AND. l_limit_gsoil ) THEN
   errorstatus = -101
   CALL ereport(RoutineName, errorstatus,                                       &
@@ -243,6 +244,7 @@ IF ( l_soil_evap_or .AND. l_limit_gsoil ) THEN
 END IF
 
 ! l_or_fsoil scales the Or conductance, so it does nothing without it.
+!
 ! MDK, 25/10/26
 IF ( l_or_fsoil .AND. .NOT. l_soil_evap_or ) THEN
   errorstatus = -101
@@ -364,7 +366,9 @@ INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 1
 INTEGER, PARAMETER :: n_real = 8 ! upstream 7 + or_k_min
 INTEGER, PARAMETER :: n_log = 11 ! upstream 9 (+l_inland) + l_soil_evap_or,
-                                 ! l_or_fsoil (MDK, 24/10/26)
+                                 ! l_or_fsoil
+                                 !
+                                 ! MDK, 24/10/26
 
 TYPE :: my_namelist
   SEQUENCE

@@ -384,6 +384,7 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 ,t_leaf_clamp_pft(land_pts,npft)
                             ! l_leaf_temp: fraction of the leaf classes held
                             ! at the dt_leaf limit this timestep.
+                            !
                             ! MDK, 18/10/26
 
 !crop_vars_mod (IN)
@@ -690,14 +691,13 @@ REAL(KIND=real_jlslsm), PARAMETER :: vonk_or = 0.4
 ! Soil supply limit on transpiration (l_som_supply_limit)
 INTEGER ::                                                                     &
   k_sup, kl_sup
+      ! Loop indices.
 
 ! The PFT's vulnerability curve on land points, for sf_stom (b in Pa).
-! Every impairment model uses it unchanged; the per-point copies
-! (conductance_b/c_impaired_pft) were for the retired refitted model 4.
+! Every impairment model uses it unchanged.
 !
 ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) :: cond_b_pts(land_pts), cond_c_pts(land_pts)
-      ! Loop indices.
 
 REAL(KIND=real_jlslsm) ::                                                      &
   e_supply(land_pts),                                                          &
@@ -1309,7 +1309,9 @@ DO n = 1,npft
   ! Tile-based irrigated surface types do not extract water so routine is not called
   ! JBaguley added soil_wp_soilt, sathh_soilt, soil_k_soilt, soil_root_k_soilt
   ! psi_root_zone_pft. The root mass follows the vegetation (root_mass)
-  ! unless l_root_mass_fixed. MDK, 24/10/26
+  ! unless l_root_mass_fixed.
+  !
+  ! MDK, 24/10/26
   IF ( irrig_tile(n) /= 1 ) THEN
     CALL smc_ext (land_pts,sm_levels,surft_pts(n),surft_index(:,n), n, f_root, &
                   satcon_soilt(:,m,:),                                         &
@@ -1357,7 +1359,7 @@ DO n = 1,npft
         ksr(:) = 0.0
         DO j = 1,surft_pts(n)
           l = surft_index(j,n)
-          ! No leaves, no leaf path: no soil link either (as before).
+          ! No leaves, no leaf path: no soil link either.
           IF ( kmax_pft(n) * lai_pft(l,n) > 0.0 ) THEN
             ksr(l) = SUM(soil_root_k_soilt(l,m,:))                             &
                      / (rho_water * g * m_h2o_rs)
@@ -1537,7 +1539,9 @@ DO n = 1,npft
                    smvcst_soilt(l,m,1), soil_litter_depth(n),                  &
                    or_z0soil_fac(n))
         ! l_or_fsoil: the energy reaching the soil under the canopy, as
-        ! trunk JULES's fsoil. MDK, 24/10/26
+        ! trunk JULES's fsoil.
+        !
+        ! MDK, 24/10/26
         IF ( l_or_fsoil ) gsoil_under_canopy(l) = gsoil_under_canopy(l)       &
                           * EXP(-0.5 * lai_pft_soil_evap(l,n))
       ELSE
@@ -1560,7 +1564,9 @@ DO n = 1,npft
                          * EXP(-0.5 * lai_pft_soil_evap(l,n))
     END IF
   END DO
-  ! Output gsoil_pft (canopy_diag_mod). MDK, 24/10/26
+  ! Output gsoil_pft (canopy_diag_mod).
+  !
+  ! MDK, 24/10/26
   CALL canopy_diag_alloc( land_pts )
   gsoil_pft(:,n) = gsoil_can_air(:)
 
@@ -1665,9 +1671,12 @@ DO n = 1,npft
       psi_root_rs = psi_root_zone_pft(l,n)                                     &
                     - e_root_rs * m_h2o_rs * rho_water * g / ksum_rs
 
-      ! Uptake from each layer, q_i = k_i (psi_i - psi_root), in kg m-3 s-1
-      ! x Pa. Only the relative sizes matter, so the units cancel in the
-      ! weights. Layers drier than the root are set to zero.
+      ! Uptake from each layer,
+      !
+      !   q_i = k_i (psi_i - psi_root),
+      !
+      ! in kg m-3 s-1 x Pa. Only the relative sizes matter, so the units
+      ! cancel in the weights. Layers drier than the root are set to zero.
       q_rs(:) = MAX(soil_root_k_soilt(l,m,:)                                   &
                     * (soil_wp_soilt(l,m,:) - psi_root_rs), 0.0)
 
@@ -1756,6 +1765,7 @@ DO n = 1,npft
 
   ! Budburst for deciduous phenology: degree-days on the air temperature
   ! (returns at once unless phen_bb_doy or phen_bb_gdd is set).
+  !
   ! MDK, 20/10/26
   CALL phen_bb_update(land_pts, surft_pts(n), surft_index(:,n), n, timestep,   &
                       tair_land)

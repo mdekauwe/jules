@@ -468,14 +468,16 @@ CASE ( 'conv_loss_frac', 'sfc_water_frac' )
     l_read_from_dump = .FALSE.
   END IF
 
-  ! CO2 ancil namelist
-  ! TRIFFID's period timer: a scalar. MDK, 22/10/26
+  ! TRIFFID's period timer (trif_asteps) and the phenology step count
+  ! (phen_asteps): scalars.
+  !
+  ! MDK, 24/10/26
 CASE ( 'trif_asteps', 'phen_asteps' )
-  ! (phen_asteps, the phenology step count: MDK, 24/10/26)
   ndims = 1
   dim_names(1) = scalar_dim_name
   dim_sizes(1) = 1
 
+  ! CO2 ancil namelist
 CASE ( 'co2_mmr' )
   IF ( need_dims( l_reading, ancil_dump_read%co2 ) ) THEN
     ! Scalar variables are represented by an array of dimension 1.

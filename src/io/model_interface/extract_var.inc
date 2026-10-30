@@ -21,36 +21,36 @@ USE gridbox_mean_mod, ONLY:                                                    &
   surftiles_to_gbm, soiltiles_to_gbm
 
 USE timestep_mod, ONLY: timestep
-USE xylem_impairment_memory_mod, ONLY: ximpair_lock
+USE xylem_impairment_memory_mod, ONLY: ximpair_lock   ! MDK, 30/10/26
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf, ximpair_psi_stem
 USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_area_w
-USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
-USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
-USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state   ! MDK, 22/10/26
+USE trifctl, ONLY: asteps_since_triffid
+USE trifctl, ONLY: asteps_phen
+USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state
 USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_w_store,                  &
                                     cut_psi_stem, cut_m_h2o,                   &
                                     cut_psi_unset, cut_c_store,                &
-                                    cut_w_shed, cut_e_leak   ! MDK, 25/10/26
+                                    cut_w_shed, cut_e_leak
 USE phen_budburst_mod, ONLY: phen_gdd, phen_bb_day, phen_dormant
 USE triffid_hydmort_mod, ONLY: hydmort_g_pft, hydmort_m_pft,                   &
                                hydmort_dead_pft, hydmort_plc_peak,             &
-                               hydmort_pref   ! MDK, 21/10/26
+                               hydmort_pref
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,    &
                            nsc_starv_pft, nsc_turg_acc,                        &
                            nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day,  &
                            phen_fbleaf, phen_nlow, phen_nhigh, nsc_regrow_acc, &
                            phen_psi_acc
-USE triffid_nsc_mod, ONLY: nsc_xylem_prod_pft, nsc_xylem_renew_pft   ! MDK, 29/10/26
-USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood   ! MDK, 29/10/26
-USE triffid_nsc_mod, ONLY: nsc_net_wood_growth   ! MDK, 30/10/26
+USE triffid_nsc_mod, ONLY: nsc_xylem_prod_pft, nsc_xylem_renew_pft
+USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
+USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
 USE canopy_diag_mod, ONLY: gc_stomatal_pft, gsoil_pft, t_can_air_pft,          &
-                           q_can_air_pft, h_leaf_pft, le_leaf_pft   ! MDK, 24/10/26
-USE canopy_diag_mod, ONLY: gs_sun_pft, gs_shd_pft, lai_sun_pft   ! MDK, 25/10/26
+                           q_can_air_pft, h_leaf_pft, le_leaf_pft
+USE canopy_diag_mod, ONLY: gs_sun_pft, gs_shd_pft, lai_sun_pft
 USE canopy_diag_mod, ONLY: vcmax_pft, jmax_pft, anetc_pft, anetl_top_pft,      &
-                           anetl_bot_pft   ! MDK, 30/10/26
-USE canopy_diag_mod, ONLY: psi_leaf_sun_pft, psi_leaf_shd_pft   ! MDK, 30/10/26
-USE stom_opt_jls_mod, ONLY: som_lambda_eff_pft   ! MDK, 22/10/26
+                           anetl_bot_pft
+USE canopy_diag_mod, ONLY: psi_leaf_sun_pft, psi_leaf_shd_pft
+USE stom_opt_jls_mod, ONLY: som_lambda_eff_pft
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
 USE pftparm, ONLY: seg_kfac, seg_rel_k
 USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
@@ -59,7 +59,7 @@ USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
 USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 USE jules_vegetation_mod, ONLY: xylem_impairment_none
-USE pftparm, ONLY: conductance_b_pft, conductance_c_pft   ! MDK, 24/10/26
+USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
 USE pftparm, ONLY: kmax_pft, kcrit, pft_xylem_impairment_model
 
 !Use variables
@@ -178,9 +178,9 @@ TYPE(data_cube) :: lw_up_cube, lw_down_cube
                               ! Required to avoid memory leaks
 
 REAL :: workspace_land(land_pts)  ! Used as a space for calculations
+                                  ! before creating a cube
 REAL, PARAMETER :: sec_nsc_yr = 360.0 * 86400.0
                                   ! Seconds in the store's 360-day year
-                                  ! before creating a cube
 
 REAL :: workspace_surft(land_pts, nsurft)
                                 ! Used in calculation of tile variables
@@ -193,11 +193,12 @@ REAL :: workspace_pft(land_pts, npft)
                                 ! Used in calculation of PFT variables
 REAL :: kmax_ref_plc(land_pts), kcrit_plc(land_pts), kx_plc(land_pts)
 REAL :: b_plc(land_pts), c_plc(land_pts)
-                                ! The PFT's curve (MDK, 24/10/26)
 REAL :: g_stem, g_leaf, psi_s
                                 ! PLC_pft with xylem impairment: unimpaired
-                                ! kmax_pft and kcrit, and the impaired xylem
-                                ! conductance at psi_leaf.
+                                ! kmax_pft and kcrit, the PFT's curve, and
+                                ! the impaired xylem conductance at psi_leaf.
+                                !
+                                ! MDK, 24/10/26
 
 REAL :: workspace_cpft(land_pts, ncpft)
                                 ! Used in calculation of crop tile variables
@@ -842,6 +843,7 @@ CASE ( 'lw_up' )
 CASE ( 'npp_gb' )
   workspace_land(:) = trifctltype%npp_gb(:)
   ! Less the store's overflow respiration (see resp_p_gb).
+  !
   ! MDK, 18/10/26
   IF ( ALLOCATED(nsc_resp_pft) ) workspace_land(:) = workspace_land(:)         &
     - SUM(nsc_resp_pft(:,1:npft) * ainfo%frac_surft(:,1:npft), 2) / sec_nsc_yr
@@ -885,6 +887,7 @@ CASE ( 'resp_p_gb' )
   ! TRIFFID store overflow respiration (nsc_overflow_resp), from the last
   ! store step, spread evenly over the next (kg C m-2 s-1): plant
   ! respiration in the outputs only (the store already took it from NPP).
+  !
   ! MDK, 18/10/26
   IF ( ALLOCATED(nsc_resp_pft) ) workspace_land(:) = workspace_land(:)         &
     + SUM(nsc_resp_pft(:,1:npft) * ainfo%frac_surft(:,1:npft), 2) / sec_nsc_yr
@@ -1496,6 +1499,7 @@ CASE ( 'npp_dr_out' )
 CASE ( 'npp' )
   workspace_pft(:,:) = trifctltype%npp_pft(:,:)
   ! Less the store's overflow respiration (see resp_p_gb).
+  !
   ! MDK, 18/10/26
   IF ( ALLOCATED(nsc_resp_pft) ) workspace_pft(:,:) = workspace_pft(:,:)       &
                                                   - nsc_resp_pft / sec_nsc_yr
@@ -1506,13 +1510,17 @@ CASE ( 'o3_exp_fac' )
   cube_land = cube_from_array(chemvars%fo3_pft)
   cube = map_from_land(cube_land)
 
-! TRIFFID's period timer and accumulators. MDK, 22/10/26
+! TRIFFID's period timer and accumulators.
+!
+! MDK, 22/10/26
 CASE ( 'trif_asteps' )
   onedvar_tmp(:) = REAL(asteps_since_triffid)
   cube_land = cube_from_array(onedvar_tmp)
   cube = map_from_land(cube_land)
 
-! The phenology step count. MDK, 24/10/26
+! The phenology step count.
+!
+! MDK, 24/10/26
 CASE ( 'phen_asteps' )
   onedvar_tmp(:) = REAL(asteps_phen)
   cube_land = cube_from_array(onedvar_tmp)
@@ -1578,6 +1586,7 @@ CASE ( 'lai_bal' )
 CASE ( 'resp_p' )
   workspace_pft(:,:) = trifctltype%resp_p_pft(:,:)
   ! Plus the store's overflow respiration (see resp_p_gb).
+  !
   ! MDK, 18/10/26
   IF ( ALLOCATED(nsc_resp_pft) ) workspace_pft(:,:) = workspace_pft(:,:)       &
                                                   + nsc_resp_pft / sec_nsc_yr
@@ -2034,7 +2043,9 @@ CASE ( 'ei_gb' )
   cube = cube_from_array(fluxes%ei_ij)
 
 ! Soil surface evaporation only: esoil_gb (all the water leaving the soil
-! store) less the stomatal transpiration. MDK, 24/10/26
+! store) less the stomatal transpiration.
+!
+! MDK, 24/10/26
 CASE ( 'esoil_surf_gb' )
   IF (nsoilt == 1) THEN
     cube = cube_from_array(fluxes%esoil_ij_soilt(:,:,1) - sf_diag%et_stom_ij)
@@ -3713,10 +3724,11 @@ CASE ( 'psi_root_zone_pft' )
   ! Leaf water potential for each plant functional type JBaguley
   ! The 1.0e-6 is to convert from Pa to MPa
 CASE ( 'psi_leaf_pft', 'psi_canopy_pft' )
-  ! psi_canopy_pft is the same as psi_leaf_pft (it was a separate
-  ! single-curve solve, removed). MDK, 24/10/26
+  ! psi_canopy_pft is the same as psi_leaf_pft.
   ! DESICA: the state advanced with the actual transpiration (sf_evap),
   ! not sf_stom's projection.
+  !
+  ! MDK, 24/10/26
   IF ( stomata_model == stomata_desica .AND. ALLOCATED(psi_leaf_desica) ) THEN
     cube_land = cube_from_array(psi_leaf_desica(:,:)*1.0e-6)
   ELSE
@@ -3730,6 +3742,7 @@ CASE ( 'som_transpiration_pft' )
   cube = map_from_land(cube_land)
 
   ! Canopy stomatal conductance for water, without the soil (m s-1).
+  !
   ! MDK, 24/10/26
 CASE ( 'gc_stom_pft' )
   cube_land = cube_from_array(psparms%gc_stom_pft)
@@ -3737,6 +3750,7 @@ CASE ( 'gc_stom_pft' )
 
 ! The leaf temperatures (and t_leaf_clamp_pft) are only set where the PFT
 ! has a tile fraction: missing data (mdi) elsewhere.
+!
 ! MDK, 18/10/26
 CASE ( 't_leaf_sun_pft' )
   cube_land = cube_from_array(pft_present_or_mdi(psparms%t_leaf_sun_pft))
@@ -3760,7 +3774,9 @@ CASE ('cica_ratio_pft')
   cube = map_from_land(cube_land)
 
 ! Canopy diagnostics (canopy_diag_mod; zero where not set; t and q missing
-! where the PFT has no tile fraction). MDK, 24/10/26
+! where the PFT has no tile fraction).
+!
+! MDK, 30/10/26
 CASE ( 'gc_stomatal_pft', 'gsoil_pft', 'h_leaf_pft', 'le_leaf_pft',          &
        'gs_sun_pft', 'gs_shd_pft', 'lai_sun_pft',                             &
        'vcmax', 'jmax', 'anetc', 'anetl_top', 'anetl_bot',                    &
@@ -3770,8 +3786,6 @@ CASE ( 'gc_stomatal_pft', 'gsoil_pft', 'h_leaf_pft', 'le_leaf_pft',          &
     SELECT CASE ( get_string_identifier(var_id) )
     ! Top-leaf Vcmax and Jmax, canopy and layer net photosynthesis
     ! (l_photo_diag).
-    !
-    ! MDK, 30/10/26
     CASE ( 'vcmax' )
       workspace_pft(:,:) = vcmax_pft
     CASE ( 'jmax' )
@@ -3783,7 +3797,6 @@ CASE ( 'gc_stomatal_pft', 'gsoil_pft', 'h_leaf_pft', 'le_leaf_pft',          &
     CASE ( 'anetl_bot' )
       workspace_pft(:,:) = anetl_bot_pft
     ! Two-leaf sunlit and shaded leaf conductance and sunlit leaf area.
-    ! MDK, 25/10/26
     CASE ( 'gs_sun_pft' )
       workspace_pft(:,:) = gs_sun_pft
     CASE ( 'gs_shd_pft' )
@@ -3791,7 +3804,6 @@ CASE ( 'gc_stomatal_pft', 'gsoil_pft', 'h_leaf_pft', 'le_leaf_pft',          &
     CASE ( 'lai_sun_pft' )
       workspace_pft(:,:) = lai_sun_pft
     ! Two-leaf sunlit and shaded leaf water potential (Pa -> MPa).
-    ! MDK, 30/10/26
     CASE ( 'psi_leaf_sun_pft' )
       workspace_pft(:,:) = psi_leaf_sun_pft * 1.0e-6
     CASE ( 'psi_leaf_shd_pft' )
@@ -3839,6 +3851,7 @@ CASE ('hydraulic_cost_pft')
   cube = map_from_land(cube_land)
 
 ! Marginal water price at the stomatal optimum (mol/mol -> umol/mmol).
+!
 ! MDK, 22/10/26
 CASE ('lambda_eff_pft')
   IF ( ALLOCATED(som_lambda_eff_pft) ) THEN
@@ -4002,6 +4015,7 @@ CASE ( 'nsc_ft_mean' )
   cube = map_from_land(cube_land)
 
 ! sf_stom state: -1 (not yet set) before the first sf_stom call.
+!
 ! MDK, 22/10/26
 CASE ( 'fvcmax_psi_state' )
   workspace_pft(:,:) = -1.0
@@ -4053,8 +4067,6 @@ CASE ( 'cut_q_store_pft' )
 
 ! The store's state as dumped: water (mol m-2) and stem psi (Pa); > 0 not
 ! yet set.
-!
-! MDK, 22/10/26
 CASE ( 'cut_w_store' )
   workspace_pft(:,:) = cut_psi_unset
   IF ( ALLOCATED(cut_w_store) ) workspace_pft(:,:) = cut_w_store(:,:)
@@ -4073,10 +4085,6 @@ CASE ( 'cut_c_store' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-! Deficit carried away by shed tissue this timestep (kg m-2), for the
-! water budget.
-!
-! MDK, 22/10/26
 ! Transpiration through the leak (kg m-2 s-1; part of TVeg): the PFT
 ! tile's final transpiration (et_stom_surft, after sf_evap's soil-supply and
 ! coupling corrections) where the leak set the conductance this step
@@ -4095,6 +4103,8 @@ CASE ( 'cut_e_leak_pft' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
+! Deficit carried away by shed tissue this timestep (kg m-2), for the
+! water budget.
 CASE ( 'cut_w_shed_pft' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(cut_w_shed) ) workspace_pft(:,:) = cut_w_shed(:,:)
@@ -4122,7 +4132,7 @@ CASE ( 'nsc_resp' )
 
 ! Ring renewal diagnostics.
 !
-! MDK, 29/10/26
+! MDK, 30/10/26
 CASE ( 'nsc_xylem_prod' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(nsc_xylem_prod_pft) ) workspace_pft(:,:) = nsc_xylem_prod_pft
@@ -4136,14 +4146,12 @@ CASE ( 'nsc_xylem_renew' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-! MDK, 29/10/26
 CASE ( 'nsc_wood_lost' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(nsc_wood_lost) ) workspace_pft(:,:) = nsc_wood_lost
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-! MDK, 30/10/26
 CASE ( 'nsc_net_wood_growth' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(nsc_net_wood_growth) ) workspace_pft(:,:) = nsc_net_wood_growth
@@ -4182,28 +4190,24 @@ CASE ( 'hydmort_g' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-! MDK, 21/10/26
 CASE ( 'hydmort_m' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(hydmort_m_pft) ) workspace_pft(:,:) = hydmort_m_pft
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-! MDK, 21/10/26
 CASE ( 'hydmort_dead' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(hydmort_dead_pft) ) workspace_pft(:,:) = hydmort_dead_pft
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-! MDK, 21/10/26
 CASE ( 'hydmort_pref' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(hydmort_pref) ) workspace_pft(:,:) = hydmort_pref
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-! MDK, 21/10/26
 CASE ( 'hydmort_plc_peak' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(hydmort_plc_peak) ) workspace_pft(:,:) = hydmort_plc_peak
@@ -4237,14 +4241,15 @@ CASE ( 'kplant_pft' )
   cube = map_from_land(cube_land)
 
 CASE ('PLC_pft', 'PLC_canopy_pft')
-  ! PLC_canopy_pft is the same as PLC_pft (it was a separate single-curve
-  ! solve, removed). MDK, 24/10/26
+  ! PLC_canopy_pft is the same as PLC_pft.
   ! Xylem only: the loss of xylem conductance at psi_leaf relative to the
   ! unimpaired kmax_pft. Not from leaf_k_pft (kplant_pft), which includes
   ! the soil-to-root conductance, so would count soil drying as embolism.
   ! No impairment model: the PFT vulnerability curve. With one: the point's
   ! impaired curve (leaf_conductance_impaired_jls, as the damage update).
   ! DESICA: the state psi_leaf, as psi_leaf_pft.
+  !
+  ! MDK, 24/10/26
   DO i = 1, npft
     IF ( stomata_model == stomata_desica .AND.                                 &
          ALLOCATED(psi_leaf_desica) ) THEN
@@ -4307,9 +4312,10 @@ CASE ('impaired_kmax_pft')
   ! Hydraulic conductance b parameter for each plant functional type following
   ! hydraulic impairment JBaguley
 CASE ('conductance_b_impaired_pft')
-  ! Pa in the model; written in MPa. No impairment model changes the curve
-  ! (that was the retired model 4), so this is the PFT's b, kept as an
-  ! output for existing output lists. MDK, 24/10/26
+  ! Pa in the model; written in MPa. No impairment model changes the curve,
+  ! so this is the PFT's b, kept as an output for existing output lists.
+  !
+  ! MDK, 24/10/26
   DO i = 1, npft
     workspace_pft(:,i) = conductance_b_pft(i) * 1.0e-6
   END DO
@@ -4319,7 +4325,9 @@ CASE ('conductance_b_impaired_pft')
   ! Hydraulic conductance c parameter for each plant functional type following
   ! hydraulic impairment JBaguley
 CASE ('conductance_c_impaired_pft')
-  ! The PFT's c (see conductance_b_impaired_pft). MDK, 24/10/26
+  ! The PFT's c (see conductance_b_impaired_pft).
+  !
+  ! MDK, 24/10/26
   DO i = 1, npft
     workspace_pft(:,i) = conductance_c_pft(i)
   END DO
@@ -4353,6 +4361,7 @@ CONTAINS
 !-----------------------------------------------------------------------------
 ! A land_pts x npft field with missing data (mdi) where the PFT has no tile
 ! fraction (the field is not set there). Unchanged with aggregated tiles.
+!
 ! MDK, 18/10/26
 !-----------------------------------------------------------------------------
 FUNCTION pft_present_or_mdi(field) RESULT(masked)

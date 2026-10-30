@@ -32,13 +32,13 @@ MODULE cuticular_leak_state_mod
 !                        the deficit (cut_w_shed), so shedding does not dry
 !                        the plant.
 !
-! (The module and dump names keep "cut", from the cuticular loss, for
-! which the store was first written.)
+! (The "cut" in the module and dump names is from the cuticular loss,
+! l_som_cuticular_loss.)
 !
-! MDK, 23/10/26
+! MDK, 25/10/26
 
 USE um_types, ONLY: real_jlslsm
-USE water_constants_mod, ONLY: Water_kg_per_mol   ! MDK, 24/10/26
+USE water_constants_mod, ONLY: Water_kg_per_mol
 
 IMPLICIT NONE
 
@@ -47,13 +47,11 @@ PUBLIC :: cut_w_store, cut_psi_stem, cut_q_store, cut_c_store, cut_w_shed,     &
           cut_e_leak, cut_state_alloc, cut_psi_unset, cut_m_h2o,               &
           cut_store_return
 
+! Value of a state not yet set (psi and the store's water are <= 0)
+! (Pa, or mol m-2).
 REAL(KIND=real_jlslsm), PARAMETER :: cut_psi_unset = 1.0
-      ! Value of a state not yet set (psi and the store's water are <= 0)
-      ! (Pa, or mol m-2).
+! Molar mass of water (kg mol-1), JULES's value.
 REAL(KIND=real_jlslsm), PARAMETER :: cut_m_h2o = Water_kg_per_mol
-      ! Molar mass of water (kg mol-1), JULES's value.
-      !
-      ! MDK, 24/10/26
 
 CHARACTER(LEN=*), PARAMETER :: ModuleName='CUTICULAR_LEAK_STATE_MOD'
 
@@ -63,13 +61,10 @@ CHARACTER(LEN=*), PARAMETER :: ModuleName='CUTICULAR_LEAK_STATE_MOD'
 !
 !   W = C psi_x.
 !
-! MDK, 22/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_w_store(:,:)
 
 ! Stem water potential of each PFT at each land point at the end of the
 ! last timestep, with plant segments (Pa; > 0: not yet set).
-!
-! MDK, 23/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_psi_stem(:,:)
 
 ! Flow out of the store of each PFT this timestep (kg H2O m-2 ground s-1):
@@ -78,8 +73,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_psi_stem(:,:)
 !   < 0  it refills from the soil.
 !
 ! The soil gives the transpiration less this.
-!
-! MDK, 22/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_q_store(:,:)
 
 ! Capacitance of the store of each PFT (mol H2O m-2 ground Pa-1; 0: not yet
@@ -88,15 +81,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_q_store(:,:)
 !   C = cap_stem L_ref,
 !
 ! carried between timesteps (dumped) to apply the rule for a change of C.
-!
-! MDK, 22/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_c_store(:,:)
 
 ! Water deficit carried away by shed tissue this timestep (kg H2O m-2
 ! ground, >= 0): the store's water rises by this with no flow, as C falls
 ! at fixed psi. A diagnostic for the water budget.
-!
-! MDK, 22/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_w_shed(:,:)
 
 ! Transpiration through the leak this timestep, as sf_stom estimates it
@@ -105,8 +94,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_w_shed(:,:)
 ! keeps the leaf above the critical-loss psi; 0 elsewhere. The output
 ! cut_e_leak_pft is the tile's final transpiration at these points (sf_evap
 ! corrects the flux for the soil supply and the canopy coupling).
-!
-! MDK, 25/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_e_leak(:,:)
 
 CONTAINS
@@ -123,10 +110,8 @@ USE jules_surface_types_mod, ONLY: npft
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
+! Number of land points.
 INTEGER, INTENT(IN) :: n_land_pts
-      ! Number of land points.
-      !
-      ! MDK, 23/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -169,26 +154,26 @@ END SUBROUTINE cut_state_alloc
 ! ---------------------------------------------------------------------
 SUBROUTINE cut_store_return( l, ft, timestep, dq )
 
+! Land point.
 INTEGER, INTENT(IN) :: l
-      ! Land point.
+! Plant functional type.
 INTEGER, INTENT(IN) :: ft
-      ! Plant functional type.
+! Timestep (s).
 REAL(KIND=real_jlslsm), INTENT(IN) :: timestep
-      ! Timestep (s).
+! Flow out that could not be applied (kg H2O m-2 s-1).
 REAL(KIND=real_jlslsm), INTENT(IN) :: dq
-      ! Flow out that could not be applied (kg H2O m-2 s-1).
 
+! Water the store keeps (mol H2O m-2).
 REAL(KIND=real_jlslsm) :: dw
-      ! Water the store keeps (mol H2O m-2).
+! The change of psi that gives (Pa).
 REAL(KIND=real_jlslsm) :: dpsi
-      ! The change of psi that gives (Pa).
-      !
-      ! MDK, 23/10/26
 
 ! Nothing to do where the store is not set.
 IF ( cut_c_store(l,ft) <= 0.0 .OR. cut_w_store(l,ft) > 0.0 ) RETURN
+
 dw   = dq / cut_m_h2o * timestep
 dpsi = dw / cut_c_store(l,ft)
+
 ! The store's water and stem psi, no wetter than full (psi = 0).
 cut_w_store(l,ft) = MIN(cut_w_store(l,ft) + dw, 0.0)
 IF ( cut_psi_stem(l,ft) <= 0.0 )                                               &

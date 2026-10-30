@@ -468,6 +468,7 @@ IF ( ( l_triffid .AND. asteps_since_triffid == nstep_trif ) .AND.              &
       trif_vars%cnsrv_carbon_veg2_gb(l) = trif_vars%cnsrv_carbon_veg2_gb(l)    &
                                 + frac(l,n) * c_veg(l,n)
       ! The TRIFFID store (l_triffid_nsc) is part of the vegetation carbon.
+      !
       ! MDK, 17/10/26
       IF ( l_triffid_nsc .AND. ALLOCATED(nsc_pft) )                            &
         trif_vars%cnsrv_carbon_veg2_gb(l) = trif_vars%cnsrv_carbon_veg2_gb(l)  &
@@ -869,8 +870,13 @@ IF (l_triffid .AND.                                                            &
           npp_ac(l,n)    = ratio * (npp_dr(l,n) - npp_dr_out(l,n) +            &
                                   trif_vars%exudates_pft(l,n)) / gam_trif
           ! With the TRIFFID store npp_dr came back as the carbon released
-          ! from it, W = NPP - dC - overflow respiration: add those back so
-          ! the store's net flux is not carried into the next period's NPP.
+          ! from it,
+          !
+          !   W = NPP - dC - overflow respiration:
+          !
+          ! add those back so the store's net flux is not carried into the
+          ! next period's NPP.
+          !
           ! MDK, 18/10/26
           IF ( l_triffid_nsc .AND. ALLOCATED(nsc_dc_pft) )                     &
             npp_ac(l,n) = npp_ac(l,n) + ratio * (nsc_dc_pft(l,n)               &
@@ -961,6 +967,7 @@ IF ( ( l_triffid .AND. asteps_since_triffid == 0 ) .AND.                       &
                               - SUM(resp_s_acc(l,:,1:4))
   END DO
   ! The store's overflow respiration leaves the vegetation.
+  !
   ! MDK, 18/10/26
   IF ( l_triffid_nsc .AND. ALLOCATED(nsc_resp_pft) ) THEN
     DO t = 1,trif_pts

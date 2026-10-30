@@ -164,6 +164,7 @@ IF ( is_master_task() ) THEN
       !-----------------------------------------------------------------------
       ! Retrieve information about the variable from the file
       ! (missing_ok: the variables that may be missing are handled below.)
+      !
       ! MDK, 18/10/26
       CALL file_inquire_var(                                                   &
         FILE, identifiers(i), var_ids(i), ndims_file, dim_ids_file,            &
@@ -178,21 +179,24 @@ IF ( is_master_task() ) THEN
              "rivers_outflow_rp is not in the dump so will be initialised " // &
              "to zero.")
         CASE ( 'smcl' )
-          ! Older dumps: smcl is then rebuilt from sthuf as before.
+          ! Dumps written without smcl: smcl is rebuilt from sthuf.
+          !
           ! MDK, 17/10/26
           CALL log_warn("read_dump_shared",                                    &
              "smcl is not in the dump so will be calculated from sthuf " //    &
              "(restart exact only to rounding).")
         CASE ( 'phen_asteps' )
-          ! Dumps written without it: phenology counts from the restart,
-          ! as before. MDK, 24/10/26
+          ! Dumps written without it: phenology counts from the restart.
+          !
+          ! MDK, 24/10/26
           CALL log_warn("read_dump_shared",                                    &
              "phen_asteps is not in the dump: phenology steps count " //       &
              "from the restart (restart not exact).")
         CASE ( 'trif_asteps', 'npp_acc', 'resp_w_acc', 'g_leaf_acc',         &
                'g_leaf_phen_acc', 'gpp_acc', 'resp_s_acc' )
           ! TRIFFID's timer and accumulators: dumps written without them. The
-          ! TRIFFID steps then count from the restart, as before.
+          ! TRIFFID steps then count from the restart.
+          !
           ! MDK, 22/10/26
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump: TRIFFID steps " //  &
@@ -200,10 +204,12 @@ IF ( is_master_task() ) THEN
         CASE ( 'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd',                &
                'cpl_gbw_sun', 'cpl_gbw_shd', 'cpl_ra_ca',                     &
                't_leaf_sun_pft', 't_leaf_shd_pft' )
-          ! (t_leaf_*: the leaf temperatures' first guess, l_leaf_temp; 0 =
-          ! not yet set, so the first step starts from tstar. MDK, 24/10/26)
           ! sf_stom state: dumps written without it start from 'not yet set'
-          ! (the restart is then not exact). MDK, 22/10/26
+          ! (the restart is then not exact). t_leaf_*: the leaf temperatures'
+          ! first guess, l_leaf_temp; 0 = not yet set, so the first step
+          ! starts from tstar.
+          !
+          ! MDK, 24/10/26
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts " //       &
              "'not yet set' (restart not exact).")
@@ -215,8 +221,9 @@ IF ( is_master_task() ) THEN
                'hydmort_plc_peak' )
           ! TRIFFID store state: dumps written without the store.
           ! Hydraulic mortality state: dumps written without it (the stand
-          ! is taken to have withstood its current damage). MDK, 21/10/26
-          ! MDK, 18/10/26
+          ! is taken to have withstood its current damage).
+          !
+          ! MDK, 21/10/26
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
              "its 'not yet set' value (store filled at the first step).")
@@ -241,7 +248,9 @@ IF ( is_master_task() ) THEN
           ! Dumps written without them: the stem psi of the PLC output is
           ! unset until the first update, and the area dilution of the
           ! impaired kmax since the last update is lost (restart not exact
-          ! with l_veg_compete). MDK, 25/10/26
+          ! with l_veg_compete).
+          !
+          ! MDK, 25/10/26
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts " //       &
              "'not yet set' (restart not exact).")
@@ -255,6 +264,7 @@ IF ( is_master_task() ) THEN
              "starts full (restart not exact).")
         CASE ( 'phen_gdd', 'phen_bb_day', 'phen_dormant' )
           ! Budburst state: dumps written without the budburst gate.
+          !
           ! MDK, 20/10/26
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts from " //  &

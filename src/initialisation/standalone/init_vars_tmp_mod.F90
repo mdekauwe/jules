@@ -122,9 +122,10 @@ TYPE(trifctl_type), INTENT(IN OUT)  :: trifctltype
 
 !-----------------------------------------------------------------------
 ! Initialise accumulated fluxes for TRIFFID and phenology.
-! With TRIFFID on they are now read from the dump (or set to 0 by the
-! initial-condition defaults), so they are not reset here; resetting them
-! made a restart that is not on a TRIFFID step inexact.
+! With TRIFFID on they are read from the dump (or set to 0 by the
+! initial-condition defaults), so they are not reset here: resetting them
+! would make a restart that is not on a TRIFFID step inexact.
+!
 ! MDK, 22/10/26
 !-----------------------------------------------------------------------
 IF ( .NOT. l_triffid ) THEN
@@ -342,9 +343,9 @@ END IF
 !------------------------------------------------------------------
 ! Initialise the impaired kmax to the intact one, except where a damaged
 ! value was read from the initial conditions or a dump (impairment on); 0
-! there means intact. (The impaired curve's b and c, which only the retired
-! refitted model 4 changed, are gone: every model uses the PFT's curve.
-! MDK, 24/10/26)
+! there means intact.
+!
+! MDK, 24/10/26
 !------------------------------------------------------------------
 DO i = 1, npft
   WHERE ( psparms%kmax_impaired_pft(:,i) <= 0.0 )
@@ -357,12 +358,13 @@ DO i = 1, npft
   ! dump implies differs from kmax_pft (so a consistent restart is
   ! unchanged).
   !
-  ! MDK, 24/10/26
   ! A dump written after TRIFFID gained area holds the diluted lock but the
   ! impaired kmax before dilution, with the dilution pending in
   ! ximpair_area_w (applied at the first update). The kmax is tested and
   ! rebuilt from the undiluted loss, lock / area_w, so that update dilutes
-  ! it once. MDK, 25/10/26
+  ! it once.
+  !
+  ! MDK, 25/10/26
   IF ( pft_xylem_impairment_model(i) == xylem_impairment_memory .AND.          &
        ALLOCATED(ximpair_lock) ) THEN
     lock_u(:) = ximpair_lock(:,i)

@@ -704,6 +704,7 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 ,t_leaf_clamp_pft(land_pts,npft)
                             ! l_leaf_temp: fraction of the leaf classes held
                             ! at the dt_leaf limit this timestep.
+                            !
                             ! MDK, 18/10/26
 
 !p_s_parms (IN OUT) JBaguley

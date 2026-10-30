@@ -115,26 +115,32 @@ INTEGER, PARAMETER ::                                                          &
   stomata_sox_opt = 5,                                                         &
     ! SOX_opt: the SOX optimisation of Eller et al. (2018) solved as Sabot
     ! et al. (2022) do (their SOXopt), maximising
-    !   A_n (k(psi_bar) - kcrit)/(k_ref - kcrit),
+    !
+    !   A_n (k(psi_bar) - kcrit) / (k_ref - kcrit),
+    !
     ! k of the whole path at psi_bar, the mean of the root zone and leaf
     ! water potentials; see stom_opt_jls_mod. The halfway point is Eller et
     ! al.'s (2018, Eqs 2.7-2.8: f(psi_c,mid), psi_c,mid = (psi_c,pd +
     ! psi_c)/2, their approximation of the path-averaged conductance of
     ! Sperry et al.); Sabot et al. (2022, Eq. 16) write k at psi_leaf
-    ! instead, which we do not follow. From Sabot et al. we take the kcrit
-    ! subtraction (Eller: f/k_max); Eller's cost is also xylem-only, with
+    ! instead, which is not followed here. The kcrit subtraction is Sabot
+    ! et al.'s (Eller: f/k_max); Eller's cost is also xylem-only, with
     ! the soil acting through the root psi, whereas k here includes the
     ! soil-to-root link. Not the semi-analytical SOX of Eller et al. (2020)
     ! (stomata_sox_analytical = 3).
   stomata_cmax = 6,                                                            &
     ! Carbon maximisation (CMax) of Wolf et al. (2016, PNAS 113: E7222) in
     ! the form of Anderegg et al. (2018): maximise net carbon gain
-    !   A_n - Theta(psi_leaf),  Theta = a/2 psi_leaf^2 + b |psi_leaf|,
+    !
+    !   A_n - Theta(psi_leaf),   Theta = a/2 psi_leaf^2 + b |psi_leaf|,
+    !
     ! a carbon cost of low leaf water potential in absolute units (no
     ! normalisation), on the profit-max hydraulics; see stom_opt_jls_mod.
   stomata_cgain = 7,                                                           &
     ! CGain of Lu et al. (2020) (Sabot et al. 2022, Eq. 15): maximise
+    !
     !   A_n - varpi (k_max - k(psi_leaf)) / k_max,
+    !
     ! the profit max's hydraulic cost in absolute carbon units (varpi,
     ! cgain_varpi_io) instead of the gain normalised by the instantaneous
     ! A_max; see stom_opt_jls_mod.
@@ -152,7 +158,9 @@ INTEGER, PARAMETER ::                                                          &
     ! CAP of Dewar et al. (2018, New Phytol 217: 571; Sabot et al. 2022,
     ! Eqs 19-21): no stomatal cost; photosynthesis is limited
     ! nonstomatally by the leaf water potential, gross A x
+    !
     !   f = 1 - psi_leaf / psi_nsl0   (psi_nsl_onset = 0; clipped to [0, 1])
+    !
     ! (Dewar et al. scale Vcmax and J, i.e. gross A), and the stomata
     ! maximise this A_n on the profit-max hydraulics (k > kcrit still
     ! bounds it). Uses the l_som_nsl machinery, which it switches on;
@@ -161,7 +169,9 @@ INTEGER, PARAMETER ::                                                          &
   stomata_pm2 = 11
     ! ProfitMax2, the "new model" of Wang et al. (2020, New Phytol 227:
     ! 311, Eqn 11): maximise
-    !   A_n (1 - E / E_crit),  i.e. Theta = A_n E / E_crit,
+    !
+    !   A_n (1 - E / E_crit),   i.e. Theta = A_n E / E_crit,
+    !
     ! with E_crit the transpiration at which the soil-to-leaf conductance
     ! falls to kcrit (the edge of the supply function), on the same path
     ! and basis as the profit max. No cost parameter: the marginal water
@@ -172,18 +182,11 @@ INTEGER, PARAMETER ::                                                          &
     !
     ! MDK, 22/10/26
 !
-! Renumbered 7 Oct 2026 (branch cmax): SOX_opt 6 -> 5, DESICA 5 -> 8, CMax 6,
-! CGain 7, supply-loss 9. Namelists from before that use 5 for DESICA or 6
-! for SOX_opt must be changed.
-! CAP (10) added 8 Oct 2026 (branch stomata_fixes).
-! ProfitMax2 (11) added 22 Oct 2026 (branch pm_water_cost). MDK, 22/10/26
-!
 ! stomata_model is the one switch for the stomatal scheme. leaf_flux_mod
 ! (fsmc leaf path or stomatal optimisation) and som_profit_model (which
 ! profit) are derived from it in check_jules_vegetation. Setting
-! leaf_flux_mod = 2 in the namelist (the old way to select the
-! optimisation) still works, with a warning: stomata_model is then set
-! from som_profit_model.
+! leaf_flux_mod = 2 in the namelist stops the run unless stomata_model
+! selects the optimisation.
 
 ! Parameters identifying alternate models for determaning the net carbon
 ! uptake and stomatal conductance within plants.
@@ -221,8 +224,8 @@ INTEGER, PARAMETER ::                                                          &
   xylem_impairment_none = 0,                                                   &
     ! No xylem imparement model is used.
   xylem_impairment_kmax = 1,                                                   &
-    ! RETIRED (2026-10-10): reduced kmax with refitted b, c (on/off at
-    ! UK-Ham). Number kept; the code is on xylem_impairment at 130a575.
+    ! RETIRED: reduced kmax with refitted b, c. The number is kept; setting
+    ! it stops the run.
   xylem_impairment_whole_trunk = 2,                                            &
     ! Conductance along the xylem limited by the historic minimum water
     ! potential profile.
@@ -232,10 +235,9 @@ INTEGER, PARAMETER ::                                                          &
     ! most negative damage-driving water potential experienced, relaxing
     ! back when the plant rehydrates.
   xylem_impairment_kmax_refit = 4
-    ! RETIRED (2026-10-10): a Weibull refitted to the memory model's capped
-    ! curve (Mackay et al. 2015 / TREES), an approximation of model 3, which
-    ! uses the capped curve exactly. Number kept; the code is on
-    ! xylem_impairment at 130a575.
+    ! RETIRED: a Weibull refitted to the memory model's capped curve (Mackay
+    ! et al. 2015 / TREES), an approximation of model 3, which uses the
+    ! capped curve exactly. The number is kept; setting it stops the run.
 
 ! Water potential driving embolism in the memory impairment model
 ! (ximpair_psi_driver).
@@ -253,8 +255,10 @@ INTEGER, PARAMETER ::                                                          &
 
 ! Solvers for the leaf water potential given the transpiration rate
 ! (som_psi_solver). These should have unique values. JBaguley
-! (1, a zeroth-order Taylor expansion of the conductance about the mid-path
-! psi, was retired: it overstated k near E_crit. MDK, 25/10/26)
+! 1, a zeroth-order Taylor expansion of the conductance about the mid-path
+! psi, stops the run: it overstates k near E_crit.
+!
+! MDK, 25/10/26
 INTEGER, PARAMETER ::                                                          &
   psi_solver_newton = 2,                                                       &
     ! Use the Newton-Raphson method to approximate leaf water potential
@@ -289,7 +293,9 @@ INTEGER, PARAMETER ::                                                          &
     ! See stom_opt_bounded_search. Fastest with som_psi_solver = 3, which
     ! gives the edge directly. sox_opt_profit_model uses it too (A_n (k - kcrit)
     ! is unimodal in Ci); SOX_opt has no xylem impairment (rejected at
-    ! start-up). MDK, 24/10/26
+    ! start-up).
+    !
+    ! MDK, 24/10/26
 
 ! Parameters identifying different profit models for determaning the optimal
 ! stomatal conductance.
@@ -310,6 +316,7 @@ INTEGER, PARAMETER ::                                                          &
   supply_loss_model = 3,                                                       &
     ! Not a profit: the supply-loss regulation of Sperry et al. (2016) (set
     ! from stomata_model = 9, see stomata_supply_loss).
+    !
     !      Profit(psi) = CarbonGain(psi) * (1 - HydraulicCost(psi))
     !
     !      CarbonGain(psi) = Anet(psi)
@@ -318,21 +325,26 @@ INTEGER, PARAMETER ::                                                          &
   cmax_profit_model = 4,                                                       &
     ! CMax (Wolf et al. 2016; set from stomata_model = 6), in absolute
     ! carbon units (mol CO2 m-2 s-1):
+    !
     !      Profit(psi) = Anet(psi) - Theta(psi_leaf)
     !      Theta(psi)  = cmax_a/2 psi^2 + cmax_b |psi|   (psi in MPa)
   cgain_profit_model = 5,                                                      &
     ! CGain (Lu et al. 2020; set from stomata_model = 7), mol CO2 m-2 s-1:
+    !
     !      Profit(psi) = Anet(psi) - varpi (k_max - k(psi_leaf)) / k_max
+    !
     ! with k the whole-path conductance -dE/dpsi_leaf (soil link included)
     ! and k_max the plant's unstressed conductance (psi = 0, without the
     ! soil link, so that drying soil adds to the cost rather than shrinking
     ! the reference; Lu et al. 2020: the plant's k_max).
   cap_profit_model = 6,                                                        &
     ! CAP (Dewar et al. 2018; set from stomata_model = 10):
+    !
     !      Profit(psi) = Anet(psi) with gross A x f(psi_leaf)
   pm2_profit_model = 7
     ! ProfitMax2 (Wang et al. 2020, Eqn 11; set from stomata_model = 11),
     ! mol CO2 m-2 s-1:
+    !
     !      Profit(E) = Anet(E) (1 - E / E_crit)
     !
     ! MDK, 22/10/26
@@ -415,13 +427,15 @@ LOGICAL ::                                                                     &
    l_triffid_nsc = .FALSE.,                                                    &
        ! TRIFFID storage pool (Trugman et al. 2018, Ecol. Lett. 21: 1552):
        ! NPP enters a non-structural carbon store and TRIFFID grows from the
-       ! carbon the store releases, W = W_max C_a / (k_c C_max + C_a)
-       ! (Michaelis-Menten loading), not from the NPP of the step. The
-       ! store buffers carbon deficits (it pays for negative NPP) and paces
-       ! the stem's ring renewal (l_ximpair_rec_nsc) through the growth it
-       ! releases. Not with l_sugar or l_trif_eq. Without l_triffid it
-       ! runs daily with the prescribed LAI and height (store only). See
-       ! triffid_nsc_mod and NOTES_nsc_storage.md.
+       ! carbon the store releases (Michaelis-Menten loading),
+       !
+       !   W = W_max C_a / (k_c C_max + C_a),
+       !
+       ! not from the NPP of the step. The store buffers carbon deficits (it
+       ! pays for negative NPP) and paces the stem's ring renewal
+       ! (l_ximpair_rec_nsc) through the growth it releases. Not with l_sugar
+       ! or l_trif_eq. Without l_triffid it runs daily with the prescribed
+       ! LAI and height (store only). See triffid_nsc_mod.
        !
        ! MDK, 26/10/26
    l_trif_hydmort = .FALSE.,                                                   &
@@ -433,6 +447,7 @@ LOGICAL ::                                                                     &
        ! S the stand has not already lost, at the period's peak damage. The
        ! killed area goes to litter (lotka with l_veg_compete; otherwise it
        ! becomes bare soil). See triffid_hydmort_mod.
+       !
        ! MDK, 21/10/26
 
 ! Switches for bug fixes.
@@ -503,20 +518,17 @@ INTEGER ::                                                                     &
       ! top of the initial two-point bracket setup.
   som_psi_solver = psi_solver_newton,                                          &
       ! Leaf water potential from transpiration rate: 2 Newton-Raphson,
-      ! 3 lookup table of the supply function. (1, the Taylor series, was
-      ! the default before 24/10/26 and is retired: it held k at the
-      ! mid-path psi, so near failure it overstated k several-fold and could
-      ! diverge. 1 stops the run.)
+      ! 3 lookup table of the supply function. 1 (the Taylor series) stops
+      ! the run: it holds k at the mid-path psi, so near failure it
+      ! overstates k several-fold and can diverge.
       !
       ! MDK, 25/10/26
   som_ci_search = som_ci_bounded,                                              &
       ! Ci search of the stomatal optimisation: 1 flat grid, 2 bounded.
-      ! Default 2 (it was 1 before 25/10/26): the bounded search is faster,
-      ! not limited to the grid, and the only one coded for hold_psi,
-      ! the plant capacitance store, l_leaf_temp_ci, l_som_nsl and models 6, 7,
-      ! 10 and 11. The flat grid is kept as a check where the profit may
-      ! not have a single peak; utils/upgrade_nml_gce.py sets 1 in old
-      ! namelists that relied on the default.
+      ! Default 2: the bounded search is faster, not limited to the grid,
+      ! and the only one coded for hold_psi, the plant capacitance store,
+      ! l_leaf_temp_ci, l_som_nsl and models 6, 7, 10 and 11. The flat grid
+      ! is kept as a check where the profit may not have a single peak.
       !
       ! MDK, 25/10/26
   discrimination_model = discrimination_off,                                   &
@@ -525,13 +537,13 @@ INTEGER ::                                                                     &
   som_psi_aprox_method = imdi,                                                 &
       ! RETIRED input: setting it stops the run; use som_psi_solver (same
       ! values). Still read so namelists that leave it unset run.
+      !
       ! MDK, 24/10/26
   som_profit_model = imdi
       ! Profit used by the stomatal optimisation (1: profit max, 2: SOX).
       ! Derived from stomata_model; a namelist value is ignored, with a
-      ! warning (it was read with the retired leaf_flux_mod = 2). Unset
-      ! (imdi) in the namelist, and 1 for models without the optimisation,
-      ! as before.
+      ! warning. Unset (imdi) in the namelist, and 1 for models without the
+      ! optimisation.
       !
       ! JBaguley; MDK, 25/10/26
 
@@ -566,9 +578,9 @@ LOGICAL ::                                                                     &
   l_som_cuticular_day_only = .FALSE.
       ! When .TRUE. (with l_som_cuticular_loss under the stomatal
       ! optimisation), the leak acts only at lit points with absorbed PAR
-      ! of at least 2 W m-2 (about 5 W m-2 of shortwave), as before it was
-      ! extended to the night: at night and in dim light the closed canopy
-      ! keeps min_gl_pft. .FALSE.: the leak day and night.
+      ! of at least 2 W m-2 (about 5 W m-2 of shortwave): at night and in
+      ! dim light the closed canopy keeps min_gl_pft. .FALSE.: the leak day
+      ! and night.
       !
       ! MDK, 29/10/26
 
@@ -640,18 +652,15 @@ LOGICAL ::                                                                     &
 
 LOGICAL ::                                                                     &
   l_som_coupled_e = .TRUE.
-      ! Not a namelist input since 25 Oct 2026: always on where it is
-      ! supported, and check_jules_vegetation turns it off elsewhere (see
-      ! the restrictions below). (On by default since 9 Oct 2026: a
-      ! recalibration with it on (FR-Pue, profit max) gave the same
-      ! parameters and fit as with it off; NOTE_coupled_e_handoff_2026-10-08.)
-      ! It also carries the CO2 path through the leaf boundary layer.
+      ! Not a namelist input: always on where it is supported, and
+      ! check_jules_vegetation turns it off elsewhere (see the restrictions
+      ! below). When .TRUE., the stomatal optimisation (stomata_model = 4 to
+      ! 7, 10, 11; can_rad_mod = 1 or 7) evaluates the transpiration of
+      ! each trial stomatal conductance g with the resistances it passes
+      ! through,
       !
-      ! MDK, 25/10/26
-      ! When .TRUE., the stomatal optimisation (stomata_model = 4 to 7, 10, 11;
-      ! can_rad_mod = 1 or 7) evaluates the transpiration of each trial
-      ! stomatal conductance g with the resistances it passes through,
       !   E = D g' / (1 + r_ca (g' + g'_other)),   g' = g / (1 + g r_bl),
+      !
       ! instead of E = g D_c at a humidity deficit D_c held fixed from the
       ! last pass. D is from the leaf (two-leaf with l_leaf_temp: each
       ! class's leaf temperature; otherwise tstar) to the level-1 air q1;
@@ -665,7 +674,10 @@ LOGICAL ::                                                                     &
       ! form makes E rise linearly with g, which overstates the marginal
       ! water cost of opening by about (1 + r g) (cf. Sabot et al. 2022,
       ! Eqs 1 and 10; Wolf et al. 2016, Eq. 6). With xylem impairment the
-      ! hydraulics of each trial E are those of the impaired curve.
+      ! hydraulics of each trial E are those of the impaired curve. It also
+      ! carries the CO2 path through the leaf boundary layer.
+      !
+      ! MDK, 25/10/26
 
 LOGICAL ::                                                                     &
   l_som_plant_segments = .FALSE.
@@ -676,16 +688,16 @@ LOGICAL ::                                                                     &
       ! default the PFT's p50_io/p88_io). Leaf psi comes from solving the
       ! segments downstream, and the hydraulic cost uses the whole-plant
       ! conductance k = -dE/dpsi_leaf (Sperry et al. 2017). With .FALSE.
-      ! (default) the hydraulics are the single segment as before.
+      ! (default) the hydraulics are a single segment.
 
 INTEGER, PARAMETER ::                                                          &
   kplant_model_param  = 0,                                                     &
   kplant_model_ground = 1
       ! Values of kplant_model.
+      !
       ! MDK, 21/10/26
 REAL(KIND=real_jlslsm), PARAMETER :: k_ground_ratio_max = 10.0
       ! Cap on LAI_ref / LAI (kplant_model = 1), also used as LAI -> 0.
-      ! (Was in xylem_hydraulics_CW_jls_mod.)
       !
       ! MDK, 23/10/26
 INTEGER ::                                                                     &
@@ -704,6 +716,7 @@ INTEGER ::                                                                     &
       !   length). Xylem impairment stays a fraction of each segment's
       !   intact conductance, so a change in LAI neither repairs nor adds
       !   damage. kmax_pft keeps its meaning at LAI = LAI_ref.
+      !
       ! MDK, 21/10/26
 
 
@@ -730,17 +743,9 @@ LOGICAL ::                                                                     &
       ! consistent with the water actually used; other steps are unchanged.
 LOGICAL ::                                                                     &
   l_som_root_supply = .FALSE.
-      ! RETIRED (2026-10-05): the soil-to-root resistance is now always in
-      ! series in the profit-max path (l_som_rhizo_series). Still read so
-      ! old namelists run; .TRUE. gives a warning and is ignored. Was:
-      ! When .TRUE., the stomatal optimisation can only choose transpiration
-      ! the roots can take up with the root held at root_psi_crit:
-      !   E <= sum_layers soil_to_root_k * MAX(psi_soil - root_psi_crit, 0)
-      !        / (rho_water g),
-      ! so uptake falls as the soil (and rhizosphere conductance) dries and
-      ! stops at root_psi_crit, which bounds the soil water potential the
-      ! plant can produce. Uses the same cap on gl as l_som_supply_limit
-      ! (with which it combines, taking the smaller supply).
+      ! RETIRED: the soil-to-root resistance is always in series in the
+      ! profit-max path (l_som_rhizo_series). Still read so old namelists
+      ! run; .TRUE. gives a warning and is ignored.
 LOGICAL ::                                                                     &
   l_som_rhizo_series = .FALSE.
       ! Not a namelist switch: set .TRUE. in check_jules_vegetation for the
@@ -760,30 +765,24 @@ LOGICAL ::                                                                     &
       ! nothing is counted twice. psi_root_zone is the conductance-weighted soil
       ! psi (smc_ext), and the layer extraction weights are k_i (psi_i -
       ! psi_root) at the actual root potential (physiol). Applied for PFTs with
-      ! fsmc_mod = 2 only (smc_ext computes soil_to_root_k only there). It
-      ! replaces l_som_root_supply.
+      ! fsmc_mod = 2 only (smc_ext computes soil_to_root_k only there).
 LOGICAL ::                                                                     &
   l_som_rhizo_mfp = .FALSE.
-      ! RETIRED: the nonlinear (matric flux potential) soil-to-root link made
-      ! no measurable difference at FR-Pue (recalibration 10 Oct 2026; drought
-      ! tests 22 Oct 2026) and was removed. The code is kept on branch
-      ! rhizo_mfp. Still read so old namelists run; .TRUE. gives a warning
-      ! and is ignored, and the linear link psi_root = psi_src - E / ksr is
-      ! used.
+      ! RETIRED: the nonlinear (matric flux potential) soil-to-root link.
+      ! Still read so old namelists run; .TRUE. gives a warning and is
+      ! ignored, and the linear link psi_root = psi_src - E / ksr is used.
       !
       ! MDK, 23/10/26
-! (l_som_rhizo_hr, hydraulic redistribution in the l_som_rhizo_mfp root
-! balance, was removed: no namelist set it. MDK, 24/10/26)
 LOGICAL ::                                                                     &
   l_root_mass_fixed = .FALSE.
       ! Root mass in the soil-to-root conductance (soil_to_root_k, Bonan et
-      ! al. 2014 eq. A23; used by the l_som_root_supply cap and the root
+      ! al. 2014 eq. A23; used by the soil-to-root link ksr and the root
       ! zone psi weights). .FALSE. (default): the vegetation's own root
       ! carbon, the one root respiration uses in sf_stom - lma*lai_bal with
       ! l_trait_phys, else sigl*lai_bal/rmass, rootc_cpft/rmass for crops -
       ! with lai_bal from the canopy height (so dynamic with TRIFFID, fixed
       ! with prescribed height) or from RED, floored at root_mass_min.
-      ! .TRUE.: the fixed min_rootc_pft (kg m-2), the earlier behaviour.
+      ! .TRUE.: the fixed min_rootc_pft (kg m-2).
 
 REAL(KIND=real_jlslsm) ::                                                      &
   root_mass_min = 0.05
@@ -803,11 +802,13 @@ LOGICAL ::                                                                     &
       ! The multilayer canopy (can_rad_mod = 5, 6) solves the same leaf
       ! energy balance as set by ml_leaf_temp_model; its passes are
       ! leaf_temp_iter, as two-leaf.
+      !
       ! MDK, 19/10/26
 INTEGER, PARAMETER ::                                                          &
   ml_leaf_temp_aggregate = 1,                                                  &
   ml_leaf_temp_layers    = 2
       ! Values of ml_leaf_temp_model.
+      !
       ! MDK, 19/10/26
 INTEGER ::                                                                     &
   ml_leaf_temp_model = ml_leaf_temp_layers
@@ -824,6 +825,7 @@ INTEGER ::                                                                     &
       !   falling with depth, see leaf_wind_ext), all exchanging with one
       !   canopy air.
       ! Not used otherwise.
+      !
       ! MDK, 19/10/26
 REAL(KIND=real_jlslsm) ::                                                      &
   leaf_width = 0.05
@@ -833,10 +835,9 @@ INTEGER, PARAMETER ::                                                          &
   leaf_temp_iter = 3
       ! Number of passes of the two-leaf stomatal optimisation with
       ! l_leaf_temp (each pass is one stom_opt_mod call per leaf, then a
-      ! leaf temperature update). iter (3) without l_leaf_temp. No longer
-      ! in the namelist: with 1 pass the leaf temperature was never updated
-      ! and stayed at the first step's value for the whole run, and every
-      ! run used 3.
+      ! leaf temperature update). iter (3) without l_leaf_temp. Not in the
+      ! namelist: with 1 pass the leaf temperature is never updated and
+      ! stays at the first step's value for the whole run.
       !
       ! MDK, 25/10/26
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -851,22 +852,18 @@ INTEGER ::                                                                     &
       !    level-1 air (t_c = tair, q_c = q1), at the level-1 wind speed.
       ! 1: CABLE's canopy aerodynamics (Raupach, 1994; Raupach et al., 1997,
       !    CSIRO SCAM): the canopy air coupled to level 1 by rt1 from the
-      !    roughness-sublayer theory (6-9 s m-1 at FR-Pue for 2-3 m s-1 at
-      !    12 m, neutral), with the wind at the canopy top, u* / (u*/u_h),
-      !    declining as exp(-coexp L/2) into the canopy. u* and rt1 follow
-      !    CABLE's Monin-Obukhov stability, iterated (4 times, as CABLE's
-      !    niter) on the leaves' sensible and latent heat (the soil's are
-      !    not known in the leaf solve). The top-leaf boundary-layer
-      !    conductance is CABLE's gbvtop (Pohlhausen 0.7, viscosity of air;
-      !    floor 0.05 mol m-2 s-1) and u* uses CABLE's 1 m s-1 minimum wind.
-      !    Use with leaf_shelter = 2 for CABLE's shelrb; see also
-      !    l_leaf_coexp_lai.
+      !    roughness-sublayer theory, with the wind at the canopy top,
+      !    u* / (u*/u_h), declining as exp(-coexp L/2) into the canopy. u*
+      !    and rt1 follow CABLE's Monin-Obukhov stability, iterated (4
+      !    times, as CABLE's niter) on the leaves' sensible and latent heat
+      !    (the soil's are not known in the leaf solve). The top-leaf
+      !    boundary-layer conductance is CABLE's gbvtop (Pohlhausen 0.7,
+      !    viscosity of air; floor 0.05 mol m-2 s-1) and u* uses CABLE's
+      !    1 m s-1 minimum wind. Use with leaf_shelter = 2 for CABLE's
+      !    shelrb; see also l_leaf_coexp_lai.
       ! 2: through a canopy air space coupled to level 1 by JULES's ra
       !    (neutral: physiol sets rib = 0), at the level-1 wind speed; for
-      !    comparison. At FR-Pue (forcing at 12 m over a 5.5 m canopy) ra is
-      !    30-45 s m-1 and the canopy air ~8 K warmer than the air at
-      !    midday in summer, against an observed radiometric surface
-      !    temperature 2-3 K above the air.
+      !    comparison.
 REAL(KIND=real_jlslsm) ::                                                      &
   leaf_wind_ext = 0.0
       ! With l_leaf_temp and leaf_aero_model = 0 or 2, the extinction
@@ -879,6 +876,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! two-leaf (can_rad_mod 7, through the wind-weighted class leaf area)
       ! and the multilayer (5, 6, layer by layer) leaf energy balance.
       ! leaf_aero_model = 1 uses CABLE's own coexp instead.
+      !
       ! MDK, 19/10/26
 LOGICAL ::                                                                     &
   l_leaf_coexp_lai = .FALSE.
@@ -903,7 +901,9 @@ LOGICAL ::                                                                     &
       ! Ci search: the optimiser sees each candidate's own leaf temperature.
       ! For each Ci the leaf temperature comes from the leaf energy balance
       ! linearised in transpiration about the last pass,
+      !
       !   T_leaf = t_c + (Rn - lambda E) / (cp gh),
+      !
       ! (the balance of leaf_temp_update_n at the canopy air of the last
       ! pass), and the photosynthesis parameters and the leaf-to-air
       ! humidity deficit follow T_leaf (log-linear and linear in T about
@@ -927,32 +927,40 @@ LOGICAL ::                                                                     &
       ! When .TRUE., a water-potential driven nonstomatal limitation (NSL)
       ! of photosynthesis in the profit-max optimisation (stomata_model = 4,
       ! som_ci_search = 2): gross photosynthesis is scaled by
+      !
       !   f = 1 - (psi_leaf - psi_nsl_onset) / (psi_nsl0 - psi_nsl_onset),
       !   clipped to [0, 1]
+      !
       ! (pft_params psi_nsl_onset_io, psi_nsl0_io). With psi_nsl_onset = 0
       ! (default) this is Dewar et al. (2022, New Phytol 233: 639) Eqn 3(b),
-      ! A = (1 - psi_leaf / psi_0) A0, which acts at every psi_leaf; an onset
-      ! at the turgor loss point is an optional variant (no limitation, and
-      ! so no marginal cost, above it). f and psi_leaf are solved together
-      ! for each Ci, and the limitation reduces both the optimiser's gain and the actual
+      !
+      !   A = (1 - psi_leaf / psi_0) A0,
+      !
+      ! which acts at every psi_leaf; an onset at the turgor loss point is
+      ! an optional variant (no limitation, and so no marginal cost, above
+      ! it). f and psi_leaf are solved together for each Ci, and the
+      ! limitation reduces both the optimiser's gain and the actual
       ! photosynthesis.
 LOGICAL ::                                                                     &
   l_som_vcmax_psi = .FALSE.
       ! When .TRUE., photosynthetic capacity (Vcmax and Jmax) is down-
       ! regulated as the soil dries, by the root-zone water potential (the
       ! predawn proxy), with the Zhou et al. (2013, Agric. For. Meteorol.
-      ! 182-183: 204) form f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f -
-      ! psi_rz))) (pft_params psi_vcmax_f_io, sf_vcmax_io; psi in MPa), as
-      ! applied in a land surface model by De Kauwe et al. (2015,
-      ! Biogeosciences 12: 7503-7518, Eq. 4). Two adjustments to that
-      ! formulation here: an optional floor (psi_vcmax_fmin_io) and a fixed
-      ! 5-day recovery after rewetting (see vcmax_psi_factor in sf_stom).
-      ! Unlike l_som_nsl it does not act in wet soil and does not depend on
-      ! the midday leaf psi. Stomatal optimisation models 4-7 and 9-11 with
-      ! photo_model = 2; C4 PFTs (Collatz) get no down-regulation, as it is
-      ! applied in the Farquhar branch only. Dark respiration is not scaled
-      ! (it is set from Vcmax before the factor), so neither is the stem and
-      ! root maintenance respiration scaled from it.
+      ! 182-183: 204) form
+      !
+      !   f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_rz)))
+      !
+      ! (pft_params psi_vcmax_f_io, sf_vcmax_io; psi in MPa), as applied in
+      ! a land surface model by De Kauwe et al. (2015, Biogeosciences 12:
+      ! 7503-7518, Eq. 4). Two adjustments to that formulation here: an
+      ! optional floor (psi_vcmax_fmin_io) and a fixed 5-day recovery after
+      ! rewetting (see vcmax_psi_factor in sf_stom). Unlike l_som_nsl it
+      ! does not act in wet soil and does not depend on the midday leaf psi.
+      ! Stomatal optimisation models 4-7 and 9-11 with photo_model = 2 or 4;
+      ! C4 PFTs (Collatz) get no down-regulation, as it is applied in the
+      ! Farquhar branch only. Dark respiration is not scaled (it is set from
+      ! Vcmax before the factor), so neither is the stem and root
+      ! maintenance respiration scaled from it.
       !
       ! MDK, 25/10/26
 ! How the stomata respond to xylem impairment (ximpair_stomatal_response).
@@ -970,9 +978,8 @@ INTEGER, PARAMETER ::                                                          &
     ! the target psi_leaf; E is what the impaired path supplies at that
     ! psi_leaf, and gs and A follow. The damage lowers E, gs and A at the
     ! same psi_leaf. The target does not change with past damage.
-    ! (A third option, stomata optimising on the impaired path, opened the
-    ! stomata after damage and was removed; see the xylem_impairment branch
-    ! at 5536eb8.)
+    ! (Stomata optimising on the impaired path open after damage, so that
+    ! is not an option.)
 INTEGER ::                                                                     &
   ximpair_stomatal_response = ximpair_hold_gs
       ! See ximpair_hold_*. ximpair_hold_psi needs som_ci_search = 2.
@@ -1034,6 +1041,7 @@ LOGICAL ::                                                                     &
       ! phen_ndays days, and is held otherwise; the canopy is capped at
       ! f_bleaf (phen_max), shed leaves go to litter, and regrowth stops
       ! while the TRIFFID store is empty.
+      !
       ! MDK, 18/10/26
   l_nsc_wmax_norm = .FALSE.,                                                   &
       ! TRIFFID store with the turgor / cold limits: W_max (the running mean
@@ -1041,6 +1049,7 @@ LOGICAL ::                                                                     &
       ! (nsc_ft_mean), so release is concentrated in the periods when growth
       ! is allowed (spring flush drawn from the store) while the annual
       ! release still matches NPP. .FALSE.: W_max = running mean NPP.
+      !
       ! MDK, 18/10/26
   l_nsc_sapwood_pool = .TRUE.,                                                 &
       ! Ring renewal (l_ximpair_rec_nsc): the conducting stem sapwood the
@@ -1068,7 +1077,9 @@ LOGICAL ::                                                                     &
   l_som_fast = .FALSE.
       ! RETIRED input: .TRUE. stops the run; use som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table). Still read so namelists that
-      ! set it .FALSE. run. MDK, 24/10/26
+      ! set it .FALSE. run.
+      !
+      ! MDK, 24/10/26
 LOGICAL ::                                                                     &
   l_som_skip_search_wellwatered = .FALSE.
       ! When .TRUE., skip the full Ci search in
@@ -1094,8 +1105,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! segments are in series, so each gets conductance kmax/frac and
       ! kmax/(1-frac) respectively, keeping the total root-to-leaf
       ! resistance equal to 1/kmax. Must be strictly between 0 and 1.
-      ! (The multilayer stomatal optimisation used it for a shared canopy
-      ! node until each layer was given its own full parallel path.)
 
 REAL(KIND=real_jlslsm) ::                                                      &
   som_gl_max = 0.02
@@ -1104,13 +1113,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! are treated as infeasible, like those failing the hydraulic tests.
       ! When transpiration is (nearly) free - VPD ~ 0 - profit(ci) keeps
       ! rising towards ci = ca, where gl = An/(ca - ci) diverges, so without
-      ! a cap gl was set only by where the Ci search happened to stop
-      ! (som_n_sample, the golden bracket, the 1e-2 Pa floor): canopy gc of
-      ! 0.1-1.5 m/s at FR-Pue in low-VPD daylight. 0.02 m/s is ~0.8
-      ! mol m-2 s-1, generous for most C3 leaves, so it only binds in that
-      ! degenerate regime. Set <= 0 to disable. Every canopy scheme applies
-      ! it per unit leaf area, so the canopy cap is som_gl_max * LAI (big
-      ! leaf; two-leaf per class leaf area; multilayer per leaf).
+      ! a cap gl is set only by where the Ci search happens to stop
+      ! (som_n_sample, the golden bracket, the 1e-2 Pa floor). 0.02 m/s is
+      ! ~0.8 mol m-2 s-1, generous for most C3 leaves, so it only binds in
+      ! that degenerate regime. Set <= 0 to disable. Every canopy scheme
+      ! applies it per unit leaf area, so the canopy cap is som_gl_max * LAI
+      ! (big leaf; two-leaf per class leaf area; multilayer per leaf).
 
 REAL(KIND=real_jlslsm) ::                                                      &
   light_curvature_fvcb = 0.90
@@ -1331,8 +1339,8 @@ IMPLICIT NONE
 
 !-----------------------------------------------------------------------------
 ! The stomatal scheme: stomata_model is the switch; derive the internal
-! leaf_flux_mod and som_profit_model from it. The old namelist form
-! (leaf_flux_mod = 2 with som_profit_model) stops (retired 24/10/26).
+! leaf_flux_mod and som_profit_model from it. The namelist form
+! leaf_flux_mod = 2 with som_profit_model stops the run.
 !-----------------------------------------------------------------------------
 IF ( som_profit_model /= imdi ) THEN
   ! MDK, 25/10/26
@@ -1367,7 +1375,8 @@ CASE ( stomata_profit_max, stomata_sox_opt, stomata_cmax, stomata_cgain,       &
 CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical,                 &
        stomata_desica )
   IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
-    ! The old form (leaf_flux_mod = 2 with som_profit_model) is retired.
+    ! The form leaf_flux_mod = 2 with som_profit_model is retired.
+    !
     ! MDK, 24/10/26
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
@@ -1384,6 +1393,7 @@ END SELECT
 
 ! som_gl_max is in m/s (0.02 m/s is about 0.8 mol m-2 s-1). A value above
 ! 0.1 m/s is most likely in mol m-2 s-1, which in m/s turns the cap off.
+!
 ! MDK, 25/10/26
 IF ( leaf_flux_mod == leaf_flux_stom_opt .AND. som_gl_max > 0.1 ) THEN
   errcode = -101 ! warning
@@ -1455,6 +1465,7 @@ CASE ( 4 )
   ! can_rad_mod = 4 only has the fsmc leaf path (sf_stom calls leaf() for
   ! every layer): with a stomatal optimisation model it would silently run
   ! fsmc instead.
+  !
   ! MDK, 18/10/26
   IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
     errcode = 101
@@ -1489,6 +1500,7 @@ END SELECT
 ! Check that the som_base_parm is suitable. JBaguley
 ! Only 1 (Ci) is implemented: 2 (psi) only prints a message in stom_opt_mod
 ! and leaves every point closed.
+!
 ! MDK, 22/10/26
 SELECT CASE( som_base_parm)
 CASE ( som_base_parm_ci )
@@ -1529,7 +1541,8 @@ IF (som_leaf_resist_frac <= 0.0 .OR. som_leaf_resist_frac >= 1.0) THEN
                'som_leaf_resist_frac should be strictly between 0 and 1')
 END IF
 
-! Retired inputs: l_som_fast and som_psi_aprox_method (no longer aliases).
+! Retired inputs: setting l_som_fast or som_psi_aprox_method stops the run.
+!
 ! MDK, 24/10/26
 IF ( som_psi_aprox_method /= imdi ) THEN
   errcode = 101
@@ -1549,7 +1562,9 @@ SELECT CASE( som_psi_solver )
 CASE ( psi_solver_newton, psi_solver_lut )
   ! Valid values
 CASE ( 1 )
-  ! RETIRED: the Taylor series solver. MDK, 25/10/26
+  ! RETIRED: the Taylor series solver.
+  !
+  ! MDK, 25/10/26
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
      'som_psi_solver = 1 (Taylor) is retired: use 2 (Newton) or 3 ' //         &
@@ -2014,7 +2029,9 @@ IF ( l_som_seg_whole ) THEN
 END IF
 
 ! Segments with the multilayer canopy (can_rad_mod 5, 6): each leaf's
-! parallel path is root, stem and leaf in series (MDK, 23/10/26).
+! parallel path is root, stem and leaf in series.
+!
+! MDK, 23/10/26
 IF ( l_som_plant_segments .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.     &
                                   ( som_psi_solver /= psi_solver_newton .AND.  &
                                     som_psi_solver /= psi_solver_lut ) .OR.    &
@@ -2037,6 +2054,7 @@ END IF
 
 ! kplant_model 1 needs the segments (which imply the profit-max path and
 ! not can_rad_mod 4, checked above; DESICA has no segments).
+!
 ! MDK, 21/10/26
 IF ( ( kplant_model /= kplant_model_param .AND.                                &
        kplant_model /= kplant_model_ground ) .OR.                              &
@@ -2191,6 +2209,7 @@ END IF
 l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt .OR.                &
                        stomata_model == stomata_desica )
 ! l_som_rhizo_mfp is retired (see its declaration).
+!
 ! MDK, 23/10/26
 IF ( l_som_rhizo_mfp ) THEN
   errcode = -101
@@ -2206,8 +2225,9 @@ IF ( .NOT. l_root_mass_fixed .AND. root_mass_min <= 0.0 ) THEN
                'root_mass_min must be > 0 (or set l_root_mass_fixed)')
 END IF
 
-! (can_rad_mod 5 and 6: the multilayer canopy, see ml_leaf_temp_model.
-! MDK, 19/10/26)
+! can_rad_mod 5 and 6: the multilayer canopy, see ml_leaf_temp_model.
+!
+! MDK, 19/10/26
 IF ( l_leaf_temp .AND. ( can_rad_mod < 5 .OR. can_rad_mod > 7 .OR.             &
                          leaf_flux_mod /= leaf_flux_stom_opt ) ) THEN
   errcode = 101
@@ -2308,9 +2328,14 @@ IF ( l_som_nsl .AND. ( ( stomata_model /= stomata_profit_max .AND.             &
                'som_ci_search=2')
 END IF
 
-! Both water limits on photosynthesis: A = f_vc(psi_soil) f_nsl(psi_leaf)
-! A0. Each is fitted on its own to the same kind of data, so together they
-! count the drought limit about twice. MDK, 25/10/26
+! Both water limits on photosynthesis,
+!
+!   A = f_vc(psi_soil) f_nsl(psi_leaf) A0.
+!
+! Each is fitted on its own to the same kind of data, so together they
+! count the drought limit about twice.
+!
+! MDK, 25/10/26
 IF ( l_som_nsl .AND. l_som_vcmax_psi ) THEN
   errcode = -101 ! warning
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2595,8 +2620,6 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 30/10/26
 WRITE(lineBuffer,*) ' l_som_capacitance = ', l_som_capacitance   ! MDK, 23/10/26
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-
-
 WRITE(lineBuffer,*) ' l_ximpair_leaf_loss = ', l_ximpair_leaf_loss
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_seg_memory = ', l_ximpair_seg_memory
@@ -2629,7 +2652,6 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_rhizo_mfp = ', l_som_rhizo_mfp
 CALL jules_print('jules_vegetation_mod',lineBuffer)
-
 
 WRITE(lineBuffer,*) ' som_hc_negligible_tol = ', som_hc_negligible_tol
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2761,59 +2783,15 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 24
-                                  ! -1 leaf_temp_iter (MDK, 25/10/26),
-                                  ! -1 som_store_coupling removed (MDK, 25/10/26),
-                                  ! +1 discrimination_model (MDK, 22/10/26), +1
-                                  ! kplant_model (MDK, 21/10/26), +1
-                                  ! ml_leaf_temp_model (MDK, 19/10/26), +1
-                                  ! ximpair_stomatal_response, +2
-                                  ! leaf_temp_iter/leaf_aero_model, was 16, +1
-                                  ! for som_n_ci_golden_iter,
-                                 ! +2 for som_psi_solver/som_ci_search
+                                  ! The INTEGER items of my_namelist.
 INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
-                                  ! +1 leaf_wind_ext (MDK, 19/10/26), +1
-                                  ! sl_kfail_frac, +1 root_mass_min, +2
-                                  ! leaf_width/shelter, +4 for
-                                  ! som_hc_negligible_tol/som_leaf_resist_frac/
-                                  ! som_gl_max/light_curvature_fvcb
+                                  ! The REAL items: 20 scalars and the five
+                                  ! coefficient arrays (n_photo_coef each).
 INTEGER, PARAMETER :: n_log = 59 + npft_max
-                                  ! +2 l_som_shared_stem, l_som_shared_gain
-                                  ! (MDK, 30/10/26)
-                                  ! +2 l_nsc_sapwood_pool,
-                                  ! l_nsc_ring_additive (MDK, 29/10/26)
-                                  ! +1 l_som_cuticular_day_only (MDK,
-                                  ! 29/10/26)
-                                  ! -1 l_som_coupled_e (MDK, 25/10/26)
-                                  ! -3 l_som_plant_store,
-                                  ! l_som_cuticular_floor and
-                                  ! l_som_leak_capacitance_only removed (MDK,
-                                  ! 25/10/26),
-                                  ! -1 l_som_rhizo_hr removed (MDK,
-                                  ! 24/10/26),
-                                  ! -1 l_ximpair_rec_growth retired (MDK,
-                                  ! 23/10/26),
-                                  ! +3 l_som_capacitance/plant_store
-                                  ! (deprecated)/leak_capacitance_only (MDK
-                                  ! 23/10/26), +1 l_trif_hydmort, +1
-                                  ! l_som_cuticular_floor (deprecated name, MDK
-                                  ! 21/10/26), +1 l_nsc_wmax_norm, +1
-                                  ! l_phen_psi, +1 l_ximpair_rec_leaf_turn, +2
-                                  ! l_ximpair_rec_nsc/l_triffid_nsc, +1
-                                  ! l_ximpair_seg_memory, +2 l_som_rhizo_mfp/hr,
-                                  ! +1 l_som_coupled_e, +1 l_root_mass_fixed, +1
-                                  ! l_som_vcmax_psi, +1 l_leaf_coexp_lai,
-                                  ! +2 l_leaf_temp(_gc_eq), +1 for l_som_fast,
-                                  ! +1 for
-                                  ! l_som_gain_gross, +1 for
-                                  ! l_som_cuticular_loss, +1 for
-                                  ! l_som_gravity, +1 for
-                                  ! l_som_skip_search_wellwatered, +1 for
-                                  ! l_som_supply_limit, +1 for
-                                  ! l_som_root_supply, +1 for l_som_nsl,
-                                  ! +1 for
-                                  ! l_som_plant_segments, +2 for
-                                  ! l_ximpair_rec_growth/
-                                  ! l_ximpair_leaf_loss (trunk vn7.9: 29)
+                                  ! The LOGICAL items: 59 scalars and
+                                  ! l_vegdrag_pft (npft_max).
+                                  !
+                                  ! MDK, 30/10/26
 
 TYPE :: my_namelist
   SEQUENCE

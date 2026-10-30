@@ -190,8 +190,9 @@ LOGICAL :: reset_done  ! Indicates if a reset of frac to frac_min was
                        ! performed
 
 LOGICAL :: firstcall = .TRUE.
-! MDK, 17/10/26
 LOGICAL :: l_smcl_from_dump  ! smcl is read from the dump (exact restart)
+                             !
+                             ! MDK, 17/10/26
 
 REAL(KIND=real_jlslsm) :: urban_fraction
                         ! Used in partitioning of urban fraction into
@@ -247,6 +248,7 @@ default_values = get_default_ic_values(total_snow)
 
 ! smcl is required only when reading a dump; it is then filled from the dump
 ! (or -1, rebuilt from sthuf below).
+!
 ! MDK, 17/10/26
 l_smcl_from_dump = ANY( required_vars(1:nvars_required) == 'smcl' )
 IF ( l_smcl_from_dump ) progs%smcl_soilt(:,:,:) = -1.0
@@ -380,6 +382,7 @@ END DO
 
 ! Calculate soil moisture content from wetness, unless it was read exactly
 ! from a dump (smcl >= 0; -1 = not in the dump).
+!
 ! MDK, 17/10/26
 IF ( l_smcl_from_dump ) THEN
   DO i = 1,sm_levels
@@ -932,9 +935,10 @@ DO i = 1, nvars_required
     !      CASE ( 'snow_tile' )
     !      CASE ( 'sthuf' )
     !      CASE ( 't_soil' )
-    ! MDK, 17/10/26
   CASE ( 'smcl' )
     ! Not in the dump: rebuilt from sthuf (init_ic).
+    !
+    ! MDK, 17/10/26
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
     !      CASE ( 'tstar_tile' )
     !      CASE ( 'lai' )
@@ -1031,8 +1035,10 @@ DO i = 1, nvars_required
          'ximpair_lock' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'ximpair_kcap_leaf', 'ximpair_area_w' )
-    ! Leaf-segment cap fraction: 1 = intact. (ximpair_area_w: 1 = no
-    ! dilution pending; MDK, 25/10/26)
+    ! Leaf-segment cap fraction: 1 = intact. ximpair_area_w: 1 = no
+    ! dilution pending.
+    !
+    ! MDK, 25/10/26
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   ! MDK, 17/10/26
   CASE ( 'ximpair_psi_stem', 'ximpair_repair_pend', 'nsc_npp_mean',            &
@@ -1050,14 +1056,16 @@ DO i = 1, nvars_required
     ! MDK, 30/10/26
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
   ! TRIFFID's timer at the start of a run (as init_time) and empty sums.
-  ! MDK, 22/10/26
+  !
+  ! MDK, 24/10/26
   CASE ( 'trif_asteps', 'phen_asteps' )
-    ! (phen_asteps: as timestep_number at the start. MDK, 24/10/26)
+    ! phen_asteps: as timestep_number at the start.
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   CASE ( 'npp_acc', 'resp_w_acc', 'g_leaf_acc', 'g_leaf_phen_acc', 'gpp_acc', 'resp_s_acc' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   ! Hydraulic mortality: -1 = not set (the damage at the first TRIFFID
   ! step); nothing killed yet.
+  !
   ! MDK, 21/10/26
   CASE ( 'hydmort_pref', 'hydmort_plc_peak' )
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
@@ -1065,6 +1073,7 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 't_leaf_sun_pft', 't_leaf_shd_pft' )
     ! Leaf temperatures' first guess: not yet set (< 150 K), so tstar.
+    !
     ! MDK, 24/10/26
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'nsc_store' )
@@ -1078,7 +1087,9 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
   CASE ( 'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',        &
          'cpl_gbw_shd', 'cpl_ra_ca' )
-    ! sf_stom state: not yet set. MDK, 22/10/26
+    ! sf_stom state: not yet set.
+    !
+    ! MDK, 22/10/26
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
   CASE ( 'cut_w_store', 'cut_psi_stem' )
     ! Plant store: not yet set (> 0), so it starts at the first step's psi
@@ -1088,8 +1099,6 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   CASE ( 'cut_c_store' )
     ! Cuticular-loss store: C not yet set.
-    !
-    ! MDK, 22/10/26
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'nsc_ft_mean' )
     ! Not yet set: 1 at the first step.
@@ -1100,6 +1109,7 @@ DO i = 1, nvars_required
     ! Full canopy.
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   ! Budburst: no degree-days, no budburst yet this year, not dormant.
+  !
   ! MDK, 20/10/26
   CASE ( 'phen_gdd', 'phen_dormant' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)

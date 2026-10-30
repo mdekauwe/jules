@@ -55,11 +55,13 @@ CONTAINS
 
 !-----------------------------------------------------------------------------
 ! Is the budburst gate on for PFT n?
+!
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 LOGICAL FUNCTION phen_bb_on( n )
 
 USE pftparm, ONLY: phen_bb_doy, phen_bb_gdd
-USE pftparm, ONLY: is_set   ! MDK, 24/10/26
+USE pftparm, ONLY: is_set
 
 IMPLICIT NONE
 
@@ -94,10 +96,12 @@ IF (.NOT. ALLOCATED(phen_gdd)) THEN
   ALLOCATE(phen_gdd(land_pts, npft))
   phen_gdd(:,:) = 0.0
 END IF
+
 IF (.NOT. ALLOCATED(phen_bb_day)) THEN
   ALLOCATE(phen_bb_day(land_pts, npft))
   phen_bb_day(:,:) = -1.0
 END IF
+
 IF (.NOT. ALLOCATED(phen_dormant)) THEN
   ALLOCATE(phen_dormant(land_pts, npft))
   phen_dormant(:,:) = 0.0
@@ -109,11 +113,13 @@ END SUBROUTINE phen_bb_alloc
 
 !-----------------------------------------------------------------------------
 ! Every time step: degree-days and budburst of PFT ft.
+!
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE phen_bb_update( land_pts, veg_pts, veg_index, ft, timestep, tair )
 
 USE pftparm, ONLY: phen_bb_doy, phen_bb_gdd, phen_bb_tbase
-USE pftparm, ONLY: is_set   ! MDK, 24/10/26
+USE pftparm, ONLY: is_set
 USE model_time_mod, ONLY: current_time
 USE datetime_utils_mod, ONLY: day_of_year
 USE time_info_mod, ONLY: l_360, l_leap
@@ -125,30 +131,26 @@ USE yomhook, ONLY: lhook, dr_hook
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) ::                                                         &
+  ! Number of land points.
   land_pts,                                                                    &
-    ! Number of land points.
+  ! Number of points with this PFT.
   veg_pts,                                                                     &
-    ! Number of points with this PFT.
+  ! Index of those points on the land grid.
   veg_index(land_pts),                                                         &
-    ! Index of those points on the land grid.
+  ! Plant functional type.
   ft
-    ! Plant functional type.
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Model time step (s).
   timestep,                                                                    &
-    ! Model time step (s).
+  ! Air temperature (K).
   tair(land_pts)
-    ! Air temperature (K).
 
 INTEGER :: j, l
+! Day of the year.
 REAL(KIND=real_jlslsm) :: doy
-    ! Day of the year.
-    !
-    ! MDK, 24/10/26
+! First time step of the year.
 LOGICAL :: l_new_year
-    ! First time step of the year.
-    !
-    ! MDK, 24/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -163,6 +165,7 @@ CALL phen_bb_alloc( land_pts )
 
 doy = REAL(day_of_year(current_time%year, current_time%month,                  &
                        current_time%day, l_360, l_leap))
+
 ! First time step of the year: restart the degree-days and budburst.
 l_new_year = current_time%month == 1 .AND. current_time%day == 1 .AND.         &
              REAL(current_time%time) < timestep
@@ -173,10 +176,12 @@ DO j = 1,veg_pts
     phen_gdd(l,ft)    = 0.0
     phen_bb_day(l,ft) = -1.0
   END IF
+
   IF (is_set(phen_bb_gdd(ft)))                                                 &
     phen_gdd(l,ft) = phen_gdd(l,ft)                                            &
                      + MAX(tair(l) - tm - phen_bb_tbase(ft), 0.0)              &
                        * timestep / 86400.0
+
   IF (phen_bb_day(l,ft) < 0.0) THEN
     IF ((is_set(phen_bb_doy(ft)) .AND. doy >= phen_bb_doy(ft)) .OR.            &
         (is_set(phen_bb_gdd(ft)) .AND. phen_gdd(l,ft) >= phen_bb_gdd(ft)))     &

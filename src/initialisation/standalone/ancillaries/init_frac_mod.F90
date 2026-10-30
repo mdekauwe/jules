@@ -80,7 +80,9 @@ IF ( .NOT. ancil_dump_read%frac) THEN !we read from the ancil file
   !-------------------------------------------------------------------------
   ! Frac is prognostic if competing veg is on, so must be read as an initial
   ! condition
-  ! Hydraulic mortality also makes frac prognostic. MDK, 21/10/26
+  ! Hydraulic mortality also makes frac prognostic.
+  !
+  ! MDK, 21/10/26
   IF ( l_veg_compete .OR. l_trif_hydmort ) THEN
     CALL log_info("init_frac",                                                 &
                   "Competing vegetation or hydraulic mortality is "  //        &

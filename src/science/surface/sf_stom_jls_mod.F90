@@ -10,12 +10,20 @@ MODULE sf_stom_mod
 
 USE um_types, ONLY: real_jlslsm
 USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state, sf_stom_state_alloc
-USE sf_stom_state_mod, ONLY: shared_e_shd_prev, shared_amax_shd_prev
-                                       ! MDK, 30/10/26
+                            ! f_vcmax_state (l_som_vcmax_psi) and cpl_state
+                            ! (l_som_coupled_e, two-leaf) are in
+                            ! sf_stom_state_mod, so they go in the dump.
+                            !
                             ! MDK, 22/10/26
+USE sf_stom_state_mod, ONLY: shared_e_shd_prev, shared_amax_shd_prev
+                            ! The shared root and stem (l_som_shared_stem): the
+                            ! shaded leaves' values from the last timestep (see
+                            ! sf_stom_state_mod).
+                            !
+                            ! MDK, 30/10/26
 USE leaf_energy_balance_mod, ONLY: leaf_aero_geom, leaf_temp_setup,          &
                                    leaf_temp_update, leaf_temp_update_n
-                            ! Leaf energy balance, moved out of this module.
+                            ! Leaf energy balance.
                             !
                             ! MDK, 24/10/26
 
@@ -23,14 +31,11 @@ IMPLICIT NONE
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='SF_STOM_MOD'
 
-! f_vcmax_state (l_som_vcmax_psi) and cpl_state (l_som_coupled_e, two-leaf)
-! are in sf_stom_state_mod, so they go in the dump.
-! MDK, 22/10/26
-
 INTEGER, SAVE, PRIVATE :: n_lt_clamp_warn = 0
 INTEGER, PARAMETER, PRIVATE :: max_lt_clamp_warn = 20
     ! l_leaf_temp: warnings issued so far, and the most issued, for leaf
     ! temperatures held at the dt_leaf limit (see t_leaf_clamp).
+    !
     ! MDK, 18/10/26
 
 PRIVATE
@@ -159,7 +164,7 @@ USE sugar_mod, ONLY: sugar
 
 USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_eff_pft,                  &
                             e_of_g, set_leaf_temp_ci, clear_leaf_temp_ci
-                            ! MDK, 23/10/26 (leaf_temp_ci: MDK, 24/10/26)
+                            ! MDK, 24/10/26
 USE cuticular_leak_state_mod, ONLY: cut_w_store, cut_psi_stem,                 &
                                     cut_q_store, cut_c_store, cut_m_h2o,       &
                                     cut_state_alloc, cut_psi_unset,            &
@@ -362,6 +367,7 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
                             ! classes (with leaf area) whose temperature was
                             ! held at the dt_leaf limit from the canopy air
                             ! this timestep (0 without l_leaf_temp).
+                            !
                             ! MDK, 18/10/26
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
@@ -859,17 +865,16 @@ REAL(KIND=real_jlslsm) :: vcmax_sun_ml(land_pts), vcmax_shd_ml(land_pts),      &
                             ! leaves at their temperatures; the canopy
                             ! stomatal conductance of each class (m s-1,
                             ! ground), for the leaf energy balance; 1.
-                            ! MDK, 18/10/26
 INTEGER :: n_pass_ml
                             ! Number of passes of the multilayer
                             ! optimisation: iter, or leaf_temp_iter with
                             ! l_leaf_temp.
-                            ! MDK, 18/10/26
 REAL(KIND=real_jlslsm) :: n_clamp_lt(land_pts)
                             ! l_leaf_temp: number of leaf classes whose
                             ! temperature was held at dt_leaf from the
                             ! canopy air in the last leaf temperature
                             ! update of the timestep.
+                            !
                             ! MDK, 18/10/26
 REAL(KIND=real_jlslsm) :: b_pft_pts(land_pts), c_pft_pts(land_pts)
                             ! conductance_b_pft(ft)/conductance_c_pft(ft)
@@ -917,30 +922,29 @@ REAL(KIND=real_jlslsm) :: lai_ref_kg(land_pts)
                             ! kplant_model = 1: reference LAI of the root
                             ! and stem conductances (lai_ref_k, or the
                             ! balanced LAI from canopy height).
+                            !
                             ! MDK, 21/10/26
 INTEGER, PARAMETER :: n_cut = 20
                             ! Floor fluxes tried, E_floor * i / n_cut, to
                             ! find the largest one the xylem can carry
                             ! (DESICA).
 LOGICAL :: l_store_cpl
-                            ! the capacitance store (with l_cap_store): the
+                            ! The capacitance store (with l_cap_store): the
                             ! optimiser sees the store, through its flow out
                             ! q_f held fixed in each pass (store_cpl_q).
 REAL(KIND=real_jlslsm) :: q_f(land_pts)
-                            ! the capacitance store: the store's flow out
+                            ! The capacitance store: the store's flow out
                             ! at the stem node the optimiser sees (mol H2O
                             ! m-2 ground s-1; > 0: it gives, < 0: it refills).
 REAL(KIND=real_jlslsm) :: kref_cpl(land_pts), kmx_cpl(land_pts),              &
                           kcr_cpl(land_pts)
-                            ! the capacitance store: the canopy's plant path
+                            ! The capacitance store: the canopy's plant path
                             ! for the store's balance (store_cpl_q): intact
                             ! kmax, kmax (impaired) and kcrit of the whole
                             ! canopy (mol m-2 ground s-1 Pa-1), set by each
                             ! canopy scheme before its first store solve.
-                            !
-                            ! MDK, 25/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE :: el_sun_lyr(:,:), el_shd_lyr(:,:)
-                            ! the capacitance store, multilayer: each
+                            ! The capacitance store, multilayer: each
                             ! layer's sunlit and shaded E of the last pass
                             ! (mol H2O m-2 leaf s-1; land_pts, ilayers).
 REAL(KIND=real_jlslsm) :: e_ml_prev(land_pts), q_sun_ml(land_pts),            &
@@ -954,11 +958,9 @@ REAL(KIND=real_jlslsm) :: e_ml_prev(land_pts), q_sun_ml(land_pts),            &
                             ! from the last pass (by the layer's kmax share,
                             ! share_sup, in the first pass or where E = 0),
                             ! so the parts over the canopy add up to q_f.
-                            !
-                            ! MDK, 25/10/26
 REAL(KIND=real_jlslsm) :: q_f_sun(land_pts), q_f_shd(land_pts),                &
                           share_one(land_pts)
-                            ! the capacitance store: the sunlit and shaded
+                            ! The capacitance store: the sunlit and shaded
                             ! classes' parts of q_f (mol H2O m-2 ground s-1),
                             ! and a share of 1 for set_store_q_path. Each
                             ! class's part is in proportion to its flow,
@@ -998,11 +1000,11 @@ REAL(KIND=real_jlslsm) :: e_sup_use(land_pts)
                             ! or with the capacitance store e_supply + q_f,
                             ! as the soil supplies only E - q_f.
 REAL(KIND=real_jlslsm) :: e_be(land_pts)
-                            ! the capacitance store: the canopy E the
+                            ! The capacitance store: the canopy E the
                             ! store's balance is taken at (mol H2O m-2 s-1).
 REAL(KIND=real_jlslsm) :: q_be(land_pts), psi_st_be(land_pts),                 &
                           psi_l_be(land_pts)
-                            ! the capacitance store: the store's balance
+                            ! The capacitance store: the store's balance
                             ! over the step at the canopy's E (store_cpl_q):
                             ! its flow out (mol H2O m-2 s-1), the stem node
                             ! psi at the end of the step and the leaf psi
@@ -1010,13 +1012,11 @@ REAL(KIND=real_jlslsm) :: q_be(land_pts), psi_st_be(land_pts),                 &
                             !
                             ! MDK, 24/10/26
 LOGICAL :: l_fl_hit(land_pts)
-                            ! the capacitance store with the leak: the
+                            ! The capacitance store with the leak: the
                             ! committed leaf psi was below psi_fl_leaf before
                             ! its floor (store_cpl_q).
-                            !
-                            ! MDK, 25/10/26
 REAL(KIND=real_jlslsm) :: k_be(land_pts)
-                            ! the capacitance store: the canopy's plant
+                            ! The capacitance store: the canopy's plant
                             ! conductance at the committed E on the path
                             ! without the store's shift (the output
                             ! kplant), mol m-2 s-1 Pa-1, as kmax_sun_2l +
@@ -1030,7 +1030,6 @@ LOGICAL :: l_cap_store
                             ! transpiration, the leak (if on) drains it, and
                             ! the xylem impairment update is made after the
                             ! leak block, with the store's water potentials.
-                            ! (Was l_cut_ximpair.)
                             !
                             ! MDK, 23/10/26
 LOGICAL :: in_imp_cut(land_pts)
@@ -1044,8 +1043,6 @@ LOGICAL :: lit_cut(land_pts)
                             ! (l_som_cuticular_day_only): lit points (those
                             ! of the impairment update) with apar >=
                             ! apar_cut_min.
-                            !
-                            ! MDK, 29/10/26
 REAL(KIND=real_jlslsm), PARAMETER :: apar_cut_min = 2.0
                             ! Least absorbed PAR (W m-2) for the
                             ! daytime-only leak, about 5 W m-2 of
@@ -1147,9 +1144,12 @@ INTEGER :: i_cut
                             ! MDK, 24/10/26
 
 ! l_leaf_temp_ci (two-leaf): each class's leaf temperature as a linear
-! function of its transpiration from the last pass's balance, T = ltc_a -
-! ltc_b E (ltc_b = 0 before the first balance of the step), and the
-! deficit and photosynthesis parameters' temperature slopes about it.
+! function of its transpiration from the last pass's balance,
+!
+!   T = ltc_a - ltc_b E
+!
+! (ltc_b = 0 before the first balance of the step), and the deficit and
+! photosynthesis parameters' temperature slopes about it.
 !
 ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -1181,7 +1181,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! Internal CO2 of each leaf class (Pa).
   f_sun_2l, n_cls_lt,                                                          &
       ! Sunlit fraction of LAI; with ml_leaf_temp_model = 2 the number of
-      ! leaf classes with leaf area (MDK, 19/10/26).
+      ! leaf classes with leaf area.
+      !
+      ! MDK, 19/10/26
   dnw_2l,                                                                      &
       ! Layer integral of exp(-kn_2l*L) over dlai.
   kn_2l
@@ -1235,10 +1237,9 @@ INTEGER :: n_pass_2l
 LOGICAL :: l_lt_lyr
       ! l_leaf_temp in the multilayer canopy with ml_leaf_temp_model = 2:
       ! a leaf energy balance for the sunlit and shaded leaf of every layer.
-      ! MDK, 19/10/26
 INTEGER :: nc_lt
       ! With l_lt_lyr, the number of leaf classes, 2 x ilayers (class 2n-1
-      ! the sunlit and 2n the shaded leaf of layer n). MDK, 19/10/26
+      ! the sunlit and 2n the shaded leaf of layer n).
 REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
   lai_lt_c(:,:), sw_lt_c(:,:), wlw_lt_c(:,:), wlws_lt_c(:,:), frad_lt_c(:,:),  &
   ff_lt_c(:,:), gl_lt_c(:,:), t_lt_c(:,:), gbw_lt_c(:,:)
@@ -1246,6 +1247,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
       ! terms of the leaf energy balance fixed over the passes (see
       ! leaf_temp_setup), the stomatal conductance (m s-1, ground), the leaf
       ! temperature (K) and the boundary-layer conductance for water.
+      !
       ! MDK, 19/10/26
 LOGICAL :: l_multilayer
                             ! .TRUE. for the multilayer canopy's calls to
@@ -1308,13 +1310,11 @@ psi_src(:) = psi_root_zone(:)
 psi_stem(:) = psi_root_zone(:)
 ! Plant capacitance (the plant water store) of the stomatal optimisation
 ! (l_som_capacitance_on: l_som_capacitance or the cuticular loss) moves the
-! xylem impairment update
-! after it (see below).
+! xylem impairment update after it (see below).
 !
-! MDK, 23/10/26
+! MDK, 25/10/26
 l_cap_store = l_som_capacitance_on
-! The store is coupled to the optimiser whenever it is on (mode 0, the
-! store setting E after the optimiser, was removed). MDK, 25/10/26
+! The store is coupled to the optimiser whenever it is on.
 l_store_cpl = l_cap_store
 psi_stem_sun(:) = psi_root_zone(:)
 psi_stem_shd(:) = psi_root_zone(:)
@@ -1409,14 +1409,16 @@ leaf_k(:)         = 0.0
 carbon_gain(:)    = 0.0
 hydraulic_cost(:) = 0.0
 gc_som(:)         = 0.0
-! Canopy diagnostics of this PFT (canopy_diag_mod). MDK, 24/10/26
+! Canopy diagnostics of this PFT (canopy_diag_mod).
+!
+! MDK, 30/10/26
 CALL canopy_diag_alloc( land_pts )
 gc_stomatal_pft(:,ft) = 0.0
 n_lit = 0   ! MDK, 25/10/26
-gs_sun_pft(:,ft)      = 0.0   ! MDK, 25/10/26
+gs_sun_pft(:,ft)      = 0.0
 gs_shd_pft(:,ft)      = 0.0
 lai_sun_pft(:,ft)     = 0.0
-vcmax_pft(:,ft)       = 0.0   ! MDK, 30/10/26
+vcmax_pft(:,ft)       = 0.0
 jmax_pft(:,ft)        = 0.0
 anetc_pft(:,ft)       = 0.0
 anetl_top_pft(:,ft)   = 0.0
@@ -1440,7 +1442,9 @@ CASE ( 4,5,6 )
     rdc(l)    = 0.0
     rdmean(l) = 0.0
 
-    ! gs_opt multi-layer. MDK, 09/06/26
+    ! gs_opt multi-layer.
+    !
+    ! MDK, 09/06/26
     psi_leaf(l)  = 0.0
     el(l) = 0.0
     leaf_k(l) = 0.0
@@ -1517,8 +1521,6 @@ CALL qsat(qs,tstar,pstar,land_pts)
 g_soil_c(:) = MAX(gsoil_can(:), 0.0)
 
 ! Set the minimum-allowed humidity deficit.
-! (The stomatal optimisation keeps the dq_min it had when selected with
-! leaf_flux_mod = 2 and stomata_model = 2.)
 IF ( ( stomata_model == stomata_medlyn )                                       &
      .OR. ( stomata_model == stomata_sox_analytical )                          &
      .OR. ( stomata_model == stomata_profit_max )                              &
@@ -1802,11 +1804,11 @@ END IF
 !-----------------------------------------------------------------------------
 ! Leaf temperatures output: tstar unless l_leaf_temp (set in can_rad_mod 5,
 ! 6 and 7).
-! MDK, 18/10/26
+!
+! MDK, 19/10/26
 !-----------------------------------------------------------------------------
 n_clamp_lt(:) = 0.0
 ones_c(:)     = 1.0
-! MDK, 19/10/26
 l_lt_lyr = l_leaf_temp .AND. ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) .AND.  &
            ml_leaf_temp_model == ml_leaf_temp_layers .AND.                     &
            leaf_flux_mod == leaf_flux_stom_opt
@@ -1832,6 +1834,7 @@ END IF
 ! its intact reference and kcrit (applied to the paths below) and the
 ! segment shares used by the segment solvers. With kplant_model = 0 it
 ! sets 1.
+!
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
 IF ( kplant_model == kplant_model_ground ) THEN
@@ -2030,14 +2033,13 @@ CASE ( 5, 6 )
   ! Each sunlit and shaded leaf in each layer draws from psi_src on its own
   ! parallel soil-to-leaf path, as in the big-leaf and two-leaf schemes, so
   ! every leaf is charged the hydraulic cost of the whole path. There is no
-  ! shared canopy node: an earlier version solved the leaves from a shared
-  ! node psi (outer bracketed iteration on the summed transpiration) and
-  ! charged each leaf only its own leaf segment, som_leaf_resist_frac of the
-  ! path resistance. That left the root-to-canopy drop uncharged, so each
-  ! leaf saw about half the marginal hydraulic cost in moist soil, and E and
-  ! gs came out high relative to big-leaf and two-leaf (see
-  ! runs/roses/RED/notes/multilayer_profit_max_design.md).
+  ! shared canopy node: leaves solved from a shared node psi would each be
+  ! charged only their own leaf segment, leaving the root-to-canopy drop
+  ! uncharged, so each leaf would see about half the marginal hydraulic cost
+  ! in moist soil, and E and gs would be high relative to big-leaf and
+  ! two-leaf.
   !
+  ! MDK, 30/10/26
   ! ---------------------
   IF (leaf_flux_mod == leaf_flux_stom_opt) THEN
 
@@ -2049,8 +2051,6 @@ CASE ( 5, 6 )
     ! two-leaf classes. With plant segments each leaf's parallel path is
     ! the root, stem and leaf segments in series (stom_opt_mod), with the
     ! segment memory under impairment model 3, as big-leaf and two-leaf.
-    !
-    ! MDK, 23/10/26
     l_ml_ximp = .NOT. is_spinup .AND.                                          &
                 pft_xylem_impairment_model(ft) /= xylem_impairment_none
     ml_kfrac(:) = 1.0
@@ -2071,12 +2071,15 @@ CASE ( 5, 6 )
 
         ! The humidity-deficit iteration (DO k = 1,iter) runs over the whole
         ! canopy, as in the big-leaf and two-leaf schemes: the deficit at the
-        ! leaves is dq / (1 + ra * gc) with gc the canopy conductance (per m2
-        ! ground) from the previous pass, the conductance the surface energy
-        ! balance (sf_evap) sees. It used to iterate within each layer on that
-        ! layer's per-leaf-area gl, so ra * gl ~ 0 and every leaf saw nearly
-        ! the full above-canopy deficit. Same number of stom_opt_mod calls;
-        ! only the last pass is kept.
+        ! leaves is
+        !
+        !   dq / (1 + ra gc),
+        !
+        ! with gc the canopy conductance (per m2 ground) from the previous
+        ! pass, the conductance the surface energy balance (sf_evap) sees.
+        ! Iterating within each layer on that layer's per-leaf-area gl would
+        ! give ra gl ~ 0, so every leaf would see nearly the full
+        ! above-canopy deficit. Only the last pass is kept.
         gc_ml_prev(:) = 0.0
 
         ! l_leaf_temp, ml_leaf_temp_model = 1: a sunlit and a shaded leaf
@@ -2097,8 +2100,6 @@ CASE ( 5, 6 )
         ! Either way the temperatures are updated after each pass but the
         ! last (leaf_temp_iter passes), so there are no more stom_opt_mod
         ! calls than without l_leaf_temp for leaf_temp_iter = iter.
-        !
-        ! MDK, 19/10/26
         n_pass_ml = iter
         IF ( l_leaf_temp ) THEN
           CALL sun_shade_totals( land_pts, veg_pts, veg_index, ilayers, dlai,  &
@@ -2107,7 +2108,6 @@ CASE ( 5, 6 )
                                  apar_shd_2l )
           IF ( l_lt_lyr ) THEN
             ! ml_leaf_temp_model = 2: the classes of every layer.
-            ! MDK, 19/10/26
             ALLOCATE( lai_lt_c(land_pts,nc_lt), sw_lt_c(land_pts,nc_lt),       &
                       wlw_lt_c(land_pts,nc_lt), wlws_lt_c(land_pts,nc_lt),     &
                       frad_lt_c(land_pts,nc_lt), ff_lt_c(land_pts,nc_lt),      &
@@ -2121,7 +2121,6 @@ CASE ( 5, 6 )
           IF ( l_lt_lyr ) THEN
             ! First guess of every layer: last timestep's sunlit / shaded
             ! canopy temperature (or tstar), as lt_init set.
-            ! MDK, 19/10/26
             DO n = 1,ilayers
               t_lt_c(:,2*n-1) = t_sun_lt(:)
               t_lt_c(:,2*n)   = t_shd_lt(:)
@@ -2133,12 +2132,10 @@ CASE ( 5, 6 )
         ! first pass sees (last step's), the soil supply cap with it, and
         ! the canopy's path for its balance (as the big leaf; no
         ! kplant_model = 1 here).
-        !
-        ! MDK, 25/10/26
         e_sup_use(:) = e_supply(:)
         IF ( l_store_cpl ) THEN
           ! (It needs at least 2 passes: iter and leaf_temp_iter are both
-          ! fixed at 3. MDK, 25/10/26)
+          ! fixed at 3.)
           share_one(:) = 1.0
           q_f(:)       = 0.0
           e_ml_prev(:) = 0.0
@@ -2171,7 +2168,7 @@ CASE ( 5, 6 )
         rdc(:) = 0.0
         psi_leaf(:) = 0.0
         ! With plant segments, the leaf-area-weighted stem psi of the
-        ! leaves' paths (MDK, 23/10/26).
+        ! leaves' paths.
         IF ( l_som_plant_segments ) psi_stem(:) = 0.0
         leaf_k(:) = 0.0
         carbon_gain(:) = 0.0
@@ -2207,9 +2204,8 @@ CASE ( 5, 6 )
                                     REAL(ilayers) * (-kn(ft)))
             END IF
 
-            ! Kmax is NOT scaled with leaf nitrogen (it used to follow the
-            ! nleaf_layer decay profile): kmax_pft is the leaf-area-basis
-            ! whole-plant conductance, the same in every layer.
+            ! Kmax is NOT scaled with leaf nitrogen: kmax_pft is the
+            ! leaf-area-basis whole-plant conductance, the same in every layer.
             !
             ! Note: Kmax is intentionally NOT split by sunlit/shaded fractions
             ! (fsun), as this represents radiative partitioning rather than
@@ -2217,10 +2213,7 @@ CASE ( 5, 6 )
             !
             ! kmax_per_lyr is per unit leaf area, as vcmax and nleaf_layer
             ! are, so the canopy total (sum of kmax_per_lyr * dlai) is
-            ! kmax_pft * LAI. (It was once divided by ilayers and decayed
-            ! with leaf N; both removed.)
-            !
-            ! MDK, 23/10/26
+            ! kmax_pft * LAI.
             kmax_per_lyr(l) = kmax_pft(ft)
 
             ! Scale kcrit by the same fraction of whole-plant kmax that this
@@ -2269,7 +2262,7 @@ CASE ( 5, 6 )
             END DO
         !$OMP END PARALLEL DO
 
-            ! This layer's impaired path (MDK, 23/10/26).
+            ! This layer's impaired path.
             DO m = 1,veg_pts
               l = veg_index(m)
               kmax_imp_lyr(l) = kmax_leaf_lyr(l) * ml_kfrac(l)
@@ -2364,14 +2357,11 @@ CASE ( 5, 6 )
             ! optimisation handles water stress itself through psi_root_zone
             ! and the hydraulic cost, and must not also have JULES' fsmc
             ! switch shut it off - otherwise every layer is forced closed
-            ! whenever fsmc hits 0, regardless of what the hydraulics say
-            ! (this is what collapsed multilayer GPP to ~0 through the
-            ! FR-Pue summer 2003 drought while big-leaf, which classifies
-            ! open/closed on apar alone - see the leaf_flux_stom_opt branch
-            ! of the big-leaf path - kept photosynthesising). With fsmc_unity
-            ! the Medlyn closure test reduces to apar == 0, the same as
-            ! big-leaf. (The Jacobs model's dq >= dqcrit closure still
-            ! applies here.)
+            ! whenever fsmc hits 0, regardless of what the hydraulics say.
+            ! With fsmc_unity the Medlyn closure test reduces to apar == 0,
+            ! the same as big-leaf (which classifies open/closed on apar
+            ! alone; see the leaf_flux_stom_opt branch of the big-leaf path).
+            ! (The Jacobs model's dq >= dqcrit closure still applies here.)
             CALL leaf_limits (ft, land_pts, pft_photo_model, veg_pts           &
         ,                     veg_index, acr, apar, ca, ccp, dqc, fsmc_unity   &
         ,                     je, kc                                           &
@@ -2434,8 +2424,7 @@ CASE ( 5, 6 )
 
             ! Multilayer stomatal optimisation (this branch only runs with
             ! leaf_flux_mod = leaf_flux_stom_opt; the fsmc case is handled
-            ! below). (Was a SELECT CASE on leaf_flux_mod whose fsmc and default
-            ! branches could not be reached; MDK, 23/10/26.)
+            ! below).
 
                 l_multilayer = .TRUE.
                 IF ( l_leaf_temp ) THEN
@@ -2446,7 +2435,6 @@ CASE ( 5, 6 )
                   ! The electron flux is the class's own, so je_ratio = 1.
                   ! Stem and root respiration stay with Rd at tstar (as
                   ! two-leaf): sum the layer's tstar Rd here.
-                  ! MDK, 18/10/26
                   DO m = 1,veg_pts
                     l = veg_index(m)
                     rdc_tstar(l) = rdc_tstar(l)                                &
@@ -2456,7 +2444,6 @@ CASE ( 5, 6 )
                   END DO
                   ! ml_leaf_temp_model = 2: this layer's own sunlit and
                   ! shaded leaf temperatures.
-                  ! MDK, 19/10/26
                   IF ( l_lt_lyr ) THEN
                     t_sun_lt(:) = t_lt_c(:,2*n-1)
                     t_shd_lt(:) = t_lt_c(:,2*n)
@@ -2490,7 +2477,7 @@ CASE ( 5, 6 )
 
                   IF ( l_store_cpl ) CALL store_cpl_ml_q( n, k )
                   ! Sunlit, then shaded leaf of the layer, each at its own
-                  ! leaf temperature (MDK, 21/10/26).
+                  ! leaf temperature.
                   CALL ml_class( vcmax_sun_ml, kc_sun_lt, ko_sun_lt,           &
                                  ccp_sun_lt, km_sun_lt, dq_sun_lt,             &
                                  je_sun_ml, t_sun_lt, ones_c, fapar_sun(:,n),  &
@@ -2511,7 +2498,6 @@ CASE ( 5, 6 )
                   END IF
                 ELSE
                 ! share_sup: this layer's kmax share, set with kmax_leaf_lyr.
-                ! Added gs opt calls for sunlit and shaded. MDK, 29/04/26
                 IF ( l_store_cpl ) CALL store_cpl_ml_q( n, k )
                 CALL ml_class( vcmax, kc, ko, ccp, km, dqc, je, tstar,         &
                                je_sun_ratio, fapar_sun(:,n),                   &
@@ -2533,8 +2519,7 @@ CASE ( 5, 6 )
 
                 ! Closed leaves get min_gl_pft from stom_opt_mod, a canopy
                 ! value: divide by LAI so the canopy total (sum of gl * dlai
-                ! over the layers) is min_gl_pft, as in big leaf and two-leaf
-                ! (review #11).
+                ! over the layers) is min_gl_pft, as in big leaf and two-leaf.
                 DO i = 1,clos_pts
                     l = veg_index(clos_index(i))
                     IF ( lai(l) > EPSILON(0.0) ) THEN
@@ -2544,8 +2529,6 @@ CASE ( 5, 6 )
                 END DO
                 ! The same for open leaves the optimiser closed (no flux,
                 ! gl = min_gl_pft from stom_opt_mod).
-                !
-                ! MDK, 21/10/26
                 DO i = 1,open_pts
                     l = veg_index(open_index(i))
                     IF ( lai(l) > EPSILON(0.0) ) THEN
@@ -2604,7 +2587,7 @@ CASE ( 5, 6 )
 
             rdmean(l)    = rdmean(l) + rd(l) / REAL(ilayers)
 
-            ! These are ground-area integrated fluxes. MDK, 09/06/26
+            ! These are ground-area integrated fluxes.
             el(l) = el(l) +                                                    &
                         (fsun(l,n) * el_sun(l) +                               &
                         (1.0 - fsun(l,n)) * el_shd(l)) *                       &
@@ -2633,7 +2616,6 @@ CASE ( 5, 6 )
                                     (1.0 - fsun(l,n)) * leaf_k_shd(l)) *       &
                                     dlai(l)
 
-            ! MDK, 23/10/26
             IF ( l_som_plant_segments )                                        &
               psi_stem(l) = psi_stem(l) +                                      &
                             (fsun(l,n) * psi_stem_sun(l) +                     &
@@ -2664,8 +2646,6 @@ CASE ( 5, 6 )
         !$OMP END PARALLEL DO
             ! Net leaf photosynthesis of the top and the bottom layer
             ! (l_photo_diag, canopy_diag_mod).
-            !
-            ! MDK, 30/10/26
             IF ( l_photo_diag ) THEN
               DO m = 1,veg_pts
                 l = veg_index(m)
@@ -2676,7 +2656,6 @@ CASE ( 5, 6 )
 
             ! l_leaf_temp: the class conductances (m s-1, ground) for the
             ! leaf energy balance.
-            ! MDK, 18/10/26
             IF ( l_leaf_temp ) THEN
               DO m = 1,veg_pts
                 l = veg_index(m)
@@ -2684,7 +2663,7 @@ CASE ( 5, 6 )
                 gl_shd_cls(l) = gl_shd_cls(l)                                  &
                                 + (1.0 - fsun(l,n)) * gl_shd(l) * dlai(l)
               END DO
-              ! (and of each layer's classes; MDK, 19/10/26)
+              ! (and of each layer's classes)
               IF ( l_lt_lyr ) THEN
                 DO m = 1,veg_pts
                   l = veg_index(m)
@@ -2697,16 +2676,12 @@ CASE ( 5, 6 )
         END DO                   ! N LAYERS
 
         ! Canopy conductance of this pass, for the next pass's deficit.
-        !
-        ! MDK, 25/10/26
         gc_ml_prev(:) = gc(:)
 
         ! The store coupled to the optimiser: its flow out for the next
         ! pass, from its balance at this pass's canopy E, where some point
         ! transpires (the last pass's balance is committed after the leak
         ! block), and this pass's E for the layers' parts of q_f.
-        !
-        ! MDK, 25/10/26
         IF ( l_store_cpl .AND. k < n_pass_ml ) THEN
           DO m = 1,veg_pts
             l = veg_index(m)
@@ -2720,7 +2695,6 @@ CASE ( 5, 6 )
               ! A point still closed keeps last step's q_f, often a night refill
               ! (< 0): floored at 0, so if it opens in the next pass it is
               ! not searched with its root flow raised by the refill.
-              ! MDK, 25/10/26
               IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min ) THEN
                 IF ( e_be(l) > 0.0 ) THEN
                   q_f(l) = q_be(l)
@@ -2735,10 +2709,8 @@ CASE ( 5, 6 )
 
         ! New leaf and canopy air temperatures for the next pass (none after
         ! the last pass, so the temperatures output are those used), as
-        ! two-leaf.
-        ! MDK, 18/10/26
-        ! ml_leaf_temp_model = 2: the balance of every layer's sunlit and
-        ! shaded leaf (MDK, 19/10/26).
+        ! two-leaf. ml_leaf_temp_model = 2: the balance of every layer's
+        ! sunlit and shaded leaf.
         IF ( l_lt_lyr .AND. k < n_pass_ml ) THEN
           CALL leaf_temp_update_n( land_pts, veg_pts, veg_index, nc_lt, tair,  &
                                    q1, pstar, ra_lt, lw_down, u_wind,          &
@@ -2768,16 +2740,16 @@ CASE ( 5, 6 )
 
             ! LAI-weighted canopy means. Carbon gain and hydraulic cost are
             ! per-leaf 0-1 quantities, as in the big-leaf and two-leaf
-            ! schemes; their dlai-weighted sums ranged 0..LAI.
+            ! schemes; their dlai-weighted sums range 0..LAI.
             IF (lai(l) > 0.0) THEN
                 psi_leaf(l)       = psi_leaf(l)       / lai(l)
                 leaf_k(l)         = leaf_k(l)         / lai(l)
                 carbon_gain(l)    = carbon_gain(l)    / lai(l)
                 hydraulic_cost(l) = hydraulic_cost(l) / lai(l)
                 IF ( l_som_plant_segments )                                    &
-                  psi_stem(l) = psi_stem(l) / lai(l)   ! MDK, 23/10/26
+                  psi_stem(l) = psi_stem(l) / lai(l)
             ELSE IF ( l_som_plant_segments ) THEN
-                psi_stem(l) = psi_src(l)               ! MDK, 23/10/26
+                psi_stem(l) = psi_src(l)
             END IF
 
             ! gl-weighted canopy ci (as two-leaf); the LAI mean when no
@@ -2792,7 +2764,6 @@ CASE ( 5, 6 )
 
             ! l_leaf_temp: leaf temperatures used and the transpiration-
             ! equivalent gc (as two-leaf), capped at som_gl_max x LAI.
-            ! MDK, 18/10/26
             IF ( l_leaf_temp ) THEN
               IF ( lai(l) > EPSILON(0.0) ) THEN
                 f_sun_2l = lai_sun_2l(l) / lai(l)
@@ -2807,7 +2778,6 @@ CASE ( 5, 6 )
                 ! a class without leaf area takes the canopy air's (and
                 ! lt_finish then the other class's). The clamp fraction is
                 ! over all the classes with leaf area.
-                ! MDK, 19/10/26
                 t_sun_lt(l) = 0.0
                 t_shd_lt(l) = 0.0
                 n_cls_lt    = 0.0
@@ -2838,7 +2808,6 @@ CASE ( 5, 6 )
             END IF
 
         END DO
-        ! MDK, 19/10/26
         IF ( l_lt_lyr ) THEN
           DEALLOCATE( lai_lt_c, sw_lt_c, wlw_lt_c, wlws_lt_c, frad_lt_c,       &
                       ff_lt_c, gl_lt_c, t_lt_c, gbw_lt_c )
@@ -2849,8 +2818,6 @@ CASE ( 5, 6 )
         ! psi_leaf and, with segments, psi_stem drive one damage state per
         ! point, at the lit points. With the plant capacitance the update
         ! is made after the store, below.
-        !
-        ! MDK, 23/10/26
         IF ( l_ml_ximp .AND. .NOT. l_cap_store ) THEN
           n_lit = 0
           DO m = 1,veg_pts
@@ -3038,7 +3005,10 @@ ELSE
   !$OMP END DO
   !$OMP END PARALLEL
 
-      ! Added CASE block to do gs_opt on multi-layer canopy. MDK, 29/04/26
+      ! Leaf fluxes by leaf_flux_mod: leaf_flux_fsmc here (the stomatal
+      ! optimisation is the branch above); any other value stops the run.
+      !
+      ! MDK, 29/04/26
       SELECT CASE ( leaf_flux_mod)
           CASE (leaf_flux_fsmc)
           !---------------------------------------------------------------------
@@ -3177,7 +3147,7 @@ CASE ( 1 )
   ! MDK, 25/10/26
   e_sup_use(:) = e_supply(:)
   IF ( l_store_cpl ) THEN
-    ! (It needs iter >= 2: iter is fixed at 3. MDK, 25/10/26)
+    ! (It needs iter >= 2: iter is fixed at 3.)
     q_f(:) = 0.0
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -3305,27 +3275,33 @@ CASE ( 1 )
         END IF
 
        ! Big leaf: not the multilayer canopy (stom_opt_mod uses je_dummy and
-       ! fapar_dummy only for that). MDK, 29/04/26
+       ! fapar_dummy only for that).
+       !
+       ! MDK, 29/04/26
        l_multilayer = .FALSE.
 
        ! stom_opt_mod's kmax/kcrit dummy arguments are land_pts-sized;
        ! broadcast the whole-plant scalars onto land_pts arrays here rather
-       ! than passing the bare scalars kmax_pft(ft)/kcrit(ft) directly (the
-       ! latter previously relied on undefined Fortran sequence association
-       ! between a scalar actual argument and an array dummy argument, and
-       ! could read out of bounds of the kmax_pft/kcrit arrays).
+       ! than passing the bare scalars kmax_pft(ft)/kcrit(ft) directly, which
+       ! would rely on undefined Fortran sequence association between a
+       ! scalar actual argument and an array dummy argument, and could read
+       ! out of bounds of the kmax_pft/kcrit arrays.
        !
        ! kmax_pft/kcrit are the whole-plant hydraulic conductance per unit
        ! leaf area (mol m-2 s-1 Pa-1), as estimated from site data
        ! (E / (LAI * (psi_predawn - psi_midday)) on well-watered days) and
        ! as used by CABLE. e_leaf passed into stom_opt_mod is canopy scale
        ! (per m2 ground), so the conductance must be too, or psi_leaf_jls
-       ! solves psi_leaf = psi_root - e_leaf/k against too small a k. All
-       ! leaves draw on the plant's conductance in parallel, so the canopy
-       ! value is kmax_pft * LAI. This used to be kmax_pft * fpar, the
-       ! leaf-N (vcmax-like) scaling, which made kmax_pft a top-of-canopy
-       ! value and understated canopy conductance by LAI / fpar (1.3-1.7
-       ! for LAI 1.5-2.3, kpar 0.5) for a data-derived kmax_pft.
+       ! solves
+       !
+       !   psi_leaf = psi_root - e_leaf / k
+       !
+       ! against too small a k. All leaves draw on the plant's conductance in
+       ! parallel, so the canopy value is kmax_pft * LAI, not kmax_pft * fpar,
+       ! the leaf-N (vcmax-like) scaling, which would make kmax_pft a
+       ! top-of-canopy value and understate the canopy conductance by
+       ! LAI / fpar (1.3-1.7 for LAI 1.5-2.3, kpar 0.5) for a data-derived
+       ! kmax_pft.
        kmax_bigleaf(:) = kmax_pft(ft) * lai(:)
        kcrit_bigleaf(:) = kcrit_of_path(ft, kmax_bigleaf(:))
        ! som_gl_max is per unit leaf area, so the canopy cap is x LAI, as
@@ -3355,7 +3331,9 @@ CASE ( 1 )
        kmax_bigleaf(:) = k_max(:) * lai(:)
        ! In spin-up, or without an impairment model, the intact kmax: the
        ! impairment is off there (stom_opt_mod), so a damaged k_max from a
-       ! dump must not act as if it were intact. MDK, 24/10/26
+       ! dump must not act as if it were intact.
+       !
+       ! MDK, 24/10/26
        IF ( is_spinup .OR. pft_xylem_impairment_model(ft) ==                   &
                            xylem_impairment_none )                             &
          kmax_bigleaf(:) = kmax_ref_bigleaf(:)
@@ -3363,6 +3341,7 @@ CASE ( 1 )
        ! plant in series. The same factor on the impaired and intact plant
        ! and kcrit, so the damage fraction (k_max / kmax_pft) is unchanged;
        ! the impairment update below uses the unscaled leaf-basis values.
+       !
        ! MDK, 21/10/26
        IF ( kplant_model == kplant_model_ground ) THEN
          kmax_bigleaf(:)     = kmax_bigleaf(:)     * kplant_scale(:)
@@ -3418,7 +3397,6 @@ CASE ( 1 )
               ! A point still closed keeps last step's q_f, often a night refill
               ! (< 0): floored at 0, so if it opens in the next pass it is
               ! not searched with its root flow raised by the refill.
-              ! MDK, 25/10/26
               IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min ) THEN
                 IF ( e_be(l) > 0.0 ) THEN
                   q_f(l) = q_be(l)
@@ -3433,8 +3411,7 @@ CASE ( 1 )
 
         ! el stays in mol H2O m-2 s-1 (ground), as in every path: physiol uses
         ! it for the layer uptake at the actual root potential
-        ! (l_som_rhizo_series). (It used to be converted to kg here, a
-        ! leftover with no other consumer.)
+        ! (l_som_rhizo_series).
 
         ! leaf_k from stom_opt_mod is canopy scale (see kmax_bigleaf). Return
         ! it per unit leaf area, as the multilayer path does (kplant_pft).
@@ -3445,11 +3422,6 @@ CASE ( 1 )
         ! passes use an unconverged dqc, and the kmax model's weighted update
         ! would otherwise be applied iter times per timestep. JBaguley
         IF (k == iter) THEN
-
-          ! The leaf and root-zone conductances once computed here for the
-          ! update were never used by it, so they are no longer computed.
-          !
-          ! MDK, 22/10/26
 
           ! Apply xylem imapairment to the vulnerability curve.
           ! NOTE: open_index indexes veg_index, while update_xylem_impairment
@@ -3592,6 +3564,8 @@ CASE ( 7 )
   ! optimisation of each leaf at its own temperature, then updates the leaf
   ! temperatures: leaf_temp_iter passes, so no more stom_opt_mod calls than
   ! without l_leaf_temp (for leaf_temp_iter = iter).
+  !
+  ! MDK, 30/10/26
   !---------------------------------------------------------------------------
   IF ( leaf_flux_mod /= leaf_flux_stom_opt ) THEN
     errcode = 101  !  a hard error
@@ -3656,7 +3630,7 @@ CASE ( 7 )
     kmax_shd_2l(l) = k_max(l) * lai(l) * nw_shd_2l(l)                          &
                      / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
     ! In spin-up, or without an impairment model, the intact kmax (as big
-    ! leaf). MDK, 24/10/26
+    ! leaf).
     IF ( is_spinup .OR. pft_xylem_impairment_model(ft) ==                     &
                         xylem_impairment_none ) THEN
       kmax_sun_2l(l) = kmax_ref_sun_2l(l)
@@ -3669,7 +3643,6 @@ CASE ( 7 )
     ! unchanged) and for the impaired, intact and critical conductances
     ! (so the damage fraction is unchanged); the impairment update divides
     ! it back out.
-    ! MDK, 21/10/26
     IF ( kplant_model == kplant_model_ground ) THEN
       kmax_sun_2l(l)     = kmax_sun_2l(l)     * kplant_scale(l)
       kmax_shd_2l(l)     = kmax_shd_2l(l)     * kplant_scale(l)
@@ -3707,7 +3680,6 @@ CASE ( 7 )
   IF ( l_leaf_temp ) THEN
     ! First guesses and fixed terms of the leaf energy balance (lt_init,
     ! shared with the multilayer scheme).
-    ! MDK, 18/10/26
     CALL lt_init()
     n_pass_2l = leaf_temp_iter
     ! Store the tstar-based canopy respiration for the stem and root
@@ -3721,8 +3693,6 @@ CASE ( 7 )
     ! Without leaf temperatures both classes are at tstar, with the tile's
     ! photosynthesis terms, so the class routines take the class arrays
     ! either way (and the 13C discrimination reads set values).
-    !
-    ! MDK, 24/10/26
     t_sun_lt(:)   = tstar(:)
     t_shd_lt(:)   = tstar(:)
     ccp_sun_lt(:) = ccp(:)
@@ -3736,7 +3706,6 @@ CASE ( 7 )
   END IF
   ! The store coupled to the optimiser updates q_f between passes, so it
   ! needs at least two: iter and leaf_temp_iter are both fixed at 3.
-  ! MDK, 25/10/26
 
   !---------------------------------------------------------------------------
   ! Coupled transpiration: first guesses of the class conductances and leaf
@@ -3771,11 +3740,8 @@ CASE ( 7 )
   ! cut_q_store is deliberately not in the dump, so it is 0 after a restart.
   ! That changes nothing for a dump written at midnight: q_f is used only at
   ! lit points, and the night steps set cut_q_store before the first of
-  ! them (FR-Pue 2022: a restart with and without it in the dump gave
-  ! identical output). Only a dump written in daylight would differ, in its
-  ! first step's first pass.
-  !
-  ! MDK, 24/10/26
+  ! them. Only a dump written in daylight would differ, in its first step's
+  ! first pass.
   !---------------------------------------------------------------------------
   e_sup_use(:) = e_supply(:)
   IF ( l_store_cpl ) THEN
@@ -3792,7 +3758,6 @@ CASE ( 7 )
   q_f_shd(:)   = 0.0
   IF ( l_store_cpl ) THEN
     ! The canopy's path for the store's balance: the two classes together.
-    ! (MDK, 25/10/26)
     DO m = 1,veg_pts
       l = veg_index(m)
       kref_cpl(l) = kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l)
@@ -3809,8 +3774,9 @@ CASE ( 7 )
   !---------------------------------------------------------------------------
   ltc_a_2l(:,:) = 0.0
   ltc_b_2l(:,:) = 0.0
+
   ! The shared root and stem: the last timestep's shaded flow (0 before the
-  ! first). MDK, 30/10/26
+  ! first).
   e_oth_2l(:) = 0.0
   a_oth_2l(:) = 0.0
   amax_sun_2l(:) = 0.0
@@ -3860,17 +3826,15 @@ CASE ( 7 )
     !-------------------------------------------------------------------------
     ! Sunlit, then shaded leaf (the shaded leaf sees this pass's sunlit gl
     ! through coupled_inputs).
-    !
-    ! MDK, 21/10/26
     !-------------------------------------------------------------------------
     ! l_leaf_temp_ci: from the second pass, each candidate Ci of the
-    ! search at its own leaf temperature (ltc_set). MDK, 24/10/26
+    ! search at its own leaf temperature (ltc_set).
     IF ( l_leaf_temp_ci .AND. k > 1 )                                          &
       CALL ltc_set( 1, t_sun_lt, nw_sun_2l, i2_sun, ccp_sun_lt, kc_sun_lt,     &
                     ko_sun_lt, km_sun_lt, vcmax_sun_2l, je_sun, rd_sun,        &
                     qs_sun_lt )
     ! The shared root and stem: the shaded leaves' flow on it, of the last
-    ! pass, or in the first pass of the last timestep. (MDK, 30/10/26)
+    ! pass, or in the first pass of the last timestep.
     IF ( l_som_shared_stem ) THEN
       DO m = 1,veg_pts
         l = veg_index(m)
@@ -3899,7 +3863,6 @@ CASE ( 7 )
                     qs_shd_lt )
     END IF
     ! The shared root and stem: the sunlit leaves' flow of this pass.
-    ! (MDK, 30/10/26)
     IF ( l_som_shared_stem ) THEN
       DO m = 1,veg_pts
         l = veg_index(m)
@@ -3926,15 +3889,11 @@ CASE ( 7 )
     ! The store coupled to the optimiser (the capacitance store): the
     ! store's flow out for the next pass, from its balance over the step at
     ! this pass's canopy E (a fixed-point iteration on q_f; the last pass's
-    ! balance is committed after the leak block).
-    !
-    ! MDK, 24/10/26
-    ! (Only where some point transpires: q_f is used only by the next pass's
-    ! open points, so with E = 0 everywhere, e.g. at night, the solve is
-    ! skipped and q_f keeps its value. The IFs are nested: Fortran need not
-    ! short-circuit .AND., and e_be is set only with the store coupled.)
-    !
-    ! MDK, 25/10/26
+    ! balance is committed after the leak block). Only where some point
+    ! transpires: q_f is used only by the next pass's open points, so with
+    ! E = 0 everywhere, e.g. at night, the solve is skipped and q_f keeps its
+    ! value. The IFs are nested: Fortran need not short-circuit .AND., and
+    ! e_be is set only with the store coupled.
     IF ( l_store_cpl .AND. k < n_pass_2l ) THEN
       DO m = 1,veg_pts
         l = veg_index(m)
@@ -3947,7 +3906,6 @@ CASE ( 7 )
           ! A point still closed keeps last step's q_f, often a night refill
           ! (< 0): floored at 0, so if it opens in the next pass it is
           ! not searched with its root flow raised by the refill.
-          ! MDK, 25/10/26
           IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min ) THEN
             IF ( e_be(l) > 0.0 ) THEN
               q_f(l) = q_be(l)
@@ -3983,13 +3941,11 @@ CASE ( 7 )
 
   ! The shared root and stem (l_som_shared_stem): the shaded leaves' flow
   ! (and A at their edge) for the next timestep's first pass, and one stem
-  ! water potential for
-  ! both classes. The shaded leaves' search, the last, put this pass's flow
-  ! of both classes on the stem, so its stem psi is the shared stem's;
-  ! where the shaded leaves do not transpire, the sunlit leaves' (whose
-  ! search had the shaded leaves' flow of the last pass on it).
-  !
-  ! MDK, 30/10/26
+  ! water potential for both classes. The shaded leaves' search, the last,
+  ! put this pass's flow of both classes on the stem, so its stem psi is the
+  ! shared stem's; where the shaded leaves do not transpire, the sunlit
+  ! leaves' (whose search had the shaded leaves' flow of the last pass on
+  ! it).
   IF ( l_som_shared_stem ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -4005,8 +3961,6 @@ CASE ( 7 )
 
   ! Diagnostic marginal water price of the canopy (som_lambda_eff_pft):
   ! the sunlit and shaded leaves' dA/dE weighted by their transpiration.
-  !
-  ! MDK, 22/10/26
 !$OMP CRITICAL (som_lambda_alloc)
   IF ( .NOT. ALLOCATED(som_lambda_eff_pft) ) THEN
     ALLOCATE( som_lambda_eff_pft(land_pts, npft) )
@@ -4085,20 +4039,19 @@ CASE ( 7 )
 
     ! The sunlit and shaded leaves' stomatal conductance per unit leaf
     ! area of each class, as the optimiser chose it (gl_sun and gl_shd are
-    ! class totals per unit ground). MDK, 25/10/26
+    ! class totals per unit ground).
     lai_sun_pft(l,ft) = lai_sun_2l(l)
     IF ( lai_sun_2l(l) > EPSILON(0.0) )                                        &
       gs_sun_pft(l,ft) = gl_sun(l) / lai_sun_2l(l)
     IF ( lai_shd_2l(l) > EPSILON(0.0) )                                        &
       gs_shd_pft(l,ft) = gl_shd(l) / lai_shd_2l(l)
-    ! and their leaf water potentials. MDK, 30/10/26
+    ! and their leaf water potentials.
     psi_leaf_sun_pft(l,ft) = psi_leaf_sun(l)
     psi_leaf_shd_pft(l,ft) = psi_leaf_shd(l)
 
     IF ( l_leaf_temp ) THEN
       ! Leaf temperatures used and the transpiration-equivalent gc
       ! (lt_finish, shared with the multilayer scheme).
-      ! MDK, 18/10/26
       gc_cap = gl_max_sun_2l(l) + gl_max_shd_2l(l)
       CALL lt_finish( l, f_sun_2l )
     END IF
@@ -4106,18 +4059,12 @@ CASE ( 7 )
 
   ! As the big-leaf path: el in mol H2O m-2 s-1 and leaf_k per unit leaf
   ! area. (gc_som is set after the canopy switch.)
-  !
-  ! MDK, 24/10/26
   leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
 
   ! Xylem impairment state update, once per timestep (after the humidity
   ! iteration, cf. k == iter in the big-leaf path), driven by the canopy
   ! (leaf-area-weighted) psi_leaf: both classes share the one plant, so
   ! there is a single damage state per point, as for the big leaf.
-  ! The class and root-zone conductances once computed here for the update
-  ! were never used by it, so they are no longer computed.
-  !
-  ! MDK, 22/10/26
   n_lit = 0
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -4128,8 +4075,6 @@ CASE ( 7 )
   END DO
   ! With the plant store or the cuticular loss (l_cap_store), the update
   ! is made after it, below.
-  !
-  ! MDK, 24/10/26
   IF ( .NOT. l_cap_store ) THEN
     CALL update_xylem_impairment(                                              &
           ! IN
@@ -4154,7 +4099,7 @@ END SELECT  ! can_rad_mod
 ! MDK, 24/10/26
 IF ( leaf_flux_mod == leaf_flux_stom_opt ) gc_som(:) = gc(:)
 ! The stomatal conductance itself: gc here, unless the leaf energy balance
-! replaced it by gc_eq (then lt_finish kept it). MDK, 24/10/26
+! replaced it by gc_eq (then lt_finish kept it).
 IF ( .NOT. l_leaf_temp ) gc_stomatal_pft(:,ft) = gc(:)
 
 !-----------------------------------------------------------------------------
@@ -4181,8 +4126,7 @@ END IF
 ! canopy conductance is not allowed below gcuticular * LAI. This is applied
 ! after the optimisation, so it is not traded against carbon (A is
 ! unchanged), but it is charged to the plant water: the soil-supply cap
-! still bounds it and
-! psi_leaf / leaf_k are re-solved for the total flux.
+! still bounds it and psi_leaf / leaf_k are re-solved for the total flux.
 !
 ! DESICA (here): applies at night too (closed points), and the flux is cut
 ! to the largest the xylem can carry with k > kcrit.
@@ -4210,7 +4154,7 @@ IF ( l_som_cuticular_loss .AND. stomata_model == stomata_desica ) THEN
     l = veg_index(m)
     kmax_cut(l)  = MAX(k_max(l) * lai(l), TINY(1.0_real_jlslsm))
     kcrit_cut(l) = kcrit_of_path(ft, kmax_pft(ft) * lai(l))
-    IF ( kplant_model == kplant_model_ground ) THEN   ! MDK, 21/10/26
+    IF ( kplant_model == kplant_model_ground ) THEN
       kmax_cut(l)  = kmax_cut(l)  * kplant_scale(l)
       kcrit_cut(l) = kcrit_cut(l) * kplant_scale(l)
     END IF
@@ -4277,11 +4221,12 @@ END IF
 ! soil-supply cap applies: no water is taken that is not there). Unlike
 ! DESICA:
 ! - day and night: at night and in dim light the closed canopy
-!   (gc = min_gl_pft) is raised to the leak as by day (MDK, 26/10/26);
-!   with l_som_cuticular_day_only only at lit points with apar >=
-!   apar_cut_min (MDK, 29/10/26);
-! - the leak is not cut back when the plant nears kcrit, so in a drought
-!   it keeps drying the plant;
+!   (gc = min_gl_pft) is raised to the leak as by day; with
+!   l_som_cuticular_day_only only at lit points with apar >= apar_cut_min;
+! - the leak is cut back only where it would take the leaf below the psi
+!   of the critical loss of conductance on the leaf (or PFT) curve,
+!   psi_fl_leaf (kcrit_fractional_loss, e.g. 0.95; store_cpl_leak_cut),
+!   so in a drought it keeps drying the plant down to that psi;
 ! - the leak drains the capacitance store at the stem node (the carry loop
 !   below), psi_leaf follows it, and the impairment update is made after
 !   this block, so the leak drives the loss of conductance.
@@ -4293,14 +4238,15 @@ END IF
 ! tstar (dqc), as the canopy flux in sf_evap; for a conductance this small
 ! the canopy air resistance makes ~1 % difference.
 !
-! MDK, 23/10/26
+! MDK, 29/10/26
 !-----------------------------------------------------------------------------
 IF ( l_cap_store ) THEN
   CALL cut_state_alloc( land_pts )
   cut_q_store(:,ft) = 0.0
-  cut_e_leak(:,ft)  = 0.0   ! MDK, 25/10/26
+  cut_e_leak(:,ft)  = 0.0
+
   ! The multilayer canopy has no lit set from its own path: the points
-  ! with absorbed PAR. MDK, 23/10/26
+  ! with absorbed PAR.
   IF ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) THEN
     n_lit = 0
     DO m = 1,veg_pts
@@ -4317,14 +4263,13 @@ IF ( l_cap_store ) THEN
     l = open_land_index(m)
     lit_cut(l) = apar(l) >= apar_cut_min
   END DO
+
   ! The leak is driven by the leaf-to-air deficit (as gmin * VPD): with
   ! leaf temperatures (two-leaf), qs at the sunlit and shaded leaf
   ! temperatures weighted by leaf area, less q1; otherwise the air deficit,
   ! qs(tair) - q1. Not dqc, at tstar, which in a drought is the hot tile
   ! skin, up to 10 K above the leaves (leak ~2x too large). sf_evap takes
   ! the flux at tstar, so gc is scaled by dq_cut / dqc to give it.
-  !
-  ! MDK, 22/10/26
   CALL qsat(qs_air_cut, tair, pstar, land_pts)
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -4340,14 +4285,15 @@ IF ( l_cap_store ) THEN
     l = veg_index(m)
     ! mmol m-2 leaf s-1 -> m s-1, times LAI for the canopy.
     gl_cut(l) = gcuticular(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
-    ! No leak with capacitance alone (l_som_capacitance). MDK, 23/10/26
+    ! No leak with capacitance alone (l_som_capacitance).
     IF ( .NOT. l_som_cuticular_loss ) gl_cut(l) = 0.0
     IF ( dqc(l) > 0.0 ) gl_cut(l) = gl_cut(l)                                  &
                                     * MIN(dq_cut(l) / dqc(l), dq_ratio_cut_max)
     share_sup(l) = 1.0
   END DO
+
   ! (Coupled to the optimiser the soil supplies only E - q_f: the cap is
-  ! e_sup_use. MDK, 25/10/26)
+  ! e_sup_use.)
   IF ( l_store_cpl ) THEN
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use,          &
                              share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
@@ -4356,15 +4302,15 @@ IF ( l_cap_store ) THEN
                              share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
   END IF
   CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-  ! The leak acts at every point, lit or not: at night and in dim light
-  ! the closed canopy (gc = min_gl_pft) is raised to the leak as by day. Its deficit is dq_cut above (the leaf
-  ! temperatures, or the air, at night), and its flux the tile's at tstar,
-  ! as sf_evap takes it, so where the surface has cooled below the air
-  ! (clear nights) the leak is smaller than gcuticular * LAI * VPD, and
-  ! nil with dew (qs(tstar) <= q1). With l_som_cuticular_day_only, only
-  ! the lit points with apar >= apar_cut_min.
-  !
-  ! MDK, 29/10/26
+
+  ! The leak acts at every point, lit or not, or with
+  ! l_som_cuticular_day_only only at the lit points with apar >=
+  ! apar_cut_min. Without it, at night and in dim light the closed canopy
+  ! (gc = min_gl_pft) is raised to the leak as by day. Its deficit is
+  ! dq_cut above (the leaf temperatures, or the air, at night), and its
+  ! flux the tile's at tstar, as sf_evap takes it, so where the surface
+  ! has cooled below the air (clear nights) the leak is smaller than
+  ! gcuticular * LAI * VPD, and nil with dew (qs(tstar) <= q1).
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( ( l_som_cuticular_day_only .AND. .NOT. lit_cut(l) ) .OR.             &
@@ -4379,13 +4325,12 @@ IF ( l_cap_store ) THEN
     !   E = rho (qs(tstar) - q1) gc / (1 + ra (gc + g_s)) / M_w,
     !
     ! not gc dqc, which leaves out the soil's share of ra (~15-20 % high).
-    !
-    ! MDK, 25/10/26
     el(l)     = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)         &
                 * gc(l) / ( 1.0 + ra(l) * ( gc(l) + g_soil_c(l) ) )            &
                 / m_h2o_lt
     lk_cut(l) = .TRUE.
   END DO
+
   ! Floors on psi: the psi of the critical loss of conductance
   ! (kcrit_fractional_loss), where the memory stops, on the curve of the
   ! leaf and stem segments, or the PFT curve without segments.
@@ -4394,7 +4339,7 @@ IF ( l_cap_store ) THEN
               pft_xylem_impairment_model(ft) /= xylem_impairment_none
   ! (With the store coupled to the optimiser, always the segment curves:
   ! its balance and the optimiser use the segments in spin-up and without
-  ! an impairment model too. MDK, 25/10/26)
+  ! an impairment model too.)
   IF ( l_seg_cut .OR. l_store_cpl ) THEN
     psi_fl_leaf = -ABS(conductance_b_seg(ft,3))                                &
                   * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,3))
@@ -4409,6 +4354,7 @@ IF ( l_cap_store ) THEN
                   * (-LOG(r_crit))**(1.0 / conductance_c_pft(ft))
     psi_fl_stem = psi_fl_leaf
   END IF
+
   ! Advance the capacitance store over the step. Its state is its water,
   !
   !   W = C psi_x      (mol H2O m-2 ground, <= 0; psi_x its psi, Pa),
@@ -4427,8 +4373,6 @@ IF ( l_cap_store ) THEN
   ! no leaves (LAI < lai_cut_min) the store is dropped (unset); a store not
   ! yet set (first step, or a dump without it) starts at the step's stem
   ! psi.
-  !
-  ! MDK, 25/10/26
   DO m = 1,veg_pts
     l = veg_index(m)
     e_be(l) = MAX(el(l), 0.0)
@@ -4463,10 +4407,9 @@ IF ( l_cap_store ) THEN
     ! The store not yet set: it starts at the step's stem psi.
     cut_w_store(l,ft) = c_cut * MIN(psi_stem(l), 0.0)
   END DO
+
   ! The leak's transpiration (cut_e_leak, kg m-2 s-1): the final canopy flux
   ! where the leak sets the conductance, after its cut.
-  !
-  ! MDK, 25/10/26
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( lk_cut(l) ) cut_e_leak(l,ft) = MAX(el(l), 0.0) * cut_m_h2o
@@ -4474,13 +4417,9 @@ IF ( l_cap_store ) THEN
 
   ! Xylem impairment update, once per timestep, in place of those in the
   ! big-leaf and two-leaf paths: the same lit points, with the water
-  ! potentials of the total (stomatal plus cuticular) flux.
-  !
-  ! MDK, 23/10/26
-  ! Also the unlit points where the leak acts, so the night leak's psi
-  ! drives the loss of conductance.
-  !
-  ! MDK, 26/10/26
+  ! potentials of the total (stomatal plus cuticular) flux. Also the unlit
+  ! points where the leak acts, so the night leak's psi drives the loss of
+  ! conductance.
   in_imp_cut(:) = .FALSE.
   DO m = 1,n_lit
     in_imp_cut(open_land_index(m)) = .TRUE.
@@ -4678,8 +4617,8 @@ DO m = 1,veg_pts
   ! into anetc. leaf() (leaf_flux_fsmc) computes al = (wl - rd) * fsmc, so
   ! rd * fsmc is added back; stom_opt_mod (leaf_flux_stom_opt) computes
   ! al = wl - rd with no fsmc (water stress acts through the hydraulics
-  ! instead), so rd must be added back unscaled. Using fsmc for both left
-  ! stom_opt's GPP short by rdc * (1 - fsmc) - and negative at night,
+  ! instead), so rd must be added back unscaled. Using fsmc for both would
+  ! leave stom_opt's GPP short by rdc * (1 - fsmc) - and negative at night,
   ! where closed-stomata anetc = -rdc.
   IF (leaf_flux_mod == leaf_flux_stom_opt) THEN
     fsmc_leaf_resp(l) = 1.0
@@ -4778,18 +4717,21 @@ END IF
 ! Turgor-limited sink of the TRIFFID store: water status (and the cold
 ! limit on the daily mean air temperature) over the store period (returns at
 ! once when neither is set).
+!
 ! MDK, 18/10/26
 IF (l_triffid_nsc)                                                             &
   CALL triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,         &
                            psi_root_zone, tair )
 
 ! Drought leaf shedding (l_phen_psi): daily water status of the PFT.
+!
 ! MDK, 18/10/26
 IF (l_phen_psi)                                                                &
   CALL phen_psi_update( land_pts, veg_pts, veg_index, ft, timestep,            &
                         psi_root_zone )
 
 ! TRIFFID store without TRIFFID (prescribed LAI): daily store step.
+!
 ! MDK, 17/10/26
 IF (l_triffid_nsc .AND. .NOT. l_triffid)                                       &
   CALL triffid_nsc_daily( land_pts, veg_pts, veg_index, ft, timestep, ht,      &
@@ -4889,8 +4831,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: psi_x0
                             ! The store's psi at the start of the step (Pa).
 REAL(KIND=real_jlslsm), INTENT(IN) :: psi_x1
                             ! The store's psi at the end of the step (Pa).
-                            !
-                            ! MDK, 23/10/26
 
 cut_q_store(l_c,ft) = c_s * (psi_x0 - psi_x1) / timestep * cut_m_h2o
 cut_w_store(l_c,ft) = c_s * psi_x1
@@ -4898,7 +4838,7 @@ cut_w_store(l_c,ft) = c_s * psi_x1
 END SUBROUTINE store_commit
 
 !-----------------------------------------------------------------------------
-! the capacitance store: the soil supply cap of the two-leaf optimiser.
+! The capacitance store: the soil supply cap of the two-leaf optimiser.
 ! The soil supplies E - q_f, so the cap on E is
 !
 !   e_supply + q_f      (kg m-2 s-1, no less than 0),
@@ -4923,7 +4863,7 @@ END DO
 END SUBROUTINE store_cpl_supply
 
 !-----------------------------------------------------------------------------
-! the capacitance store: the classes' parts of q_f (see q_f_sun). With
+! The capacitance store: the classes' parts of q_f (see q_f_sun). With
 ! l_pass, in proportion to the last pass's class E (el_sun, el_shd);
 ! otherwise (first pass), or where E = 0, by the kmax_ref shares.
 !
@@ -4951,7 +4891,7 @@ END DO
 END SUBROUTINE store_cpl_split
 
 !-----------------------------------------------------------------------------
-! the capacitance store, multilayer: layer n's sunlit and shaded parts of
+! The capacitance store, multilayer: layer n's sunlit and shaded parts of
 ! q_f per unit leaf area (q_sun_ml, q_shd_ml; see e_ml_prev) for pass k:
 ! in proportion to the last pass's E of that leaf (el_sun_lyr, el_shd_lyr)
 ! over the canopy E (e_ml_prev), or in the first pass, or where E = 0, by
@@ -4982,15 +4922,14 @@ END DO
 END SUBROUTINE store_cpl_ml_q
 
 !-----------------------------------------------------------------------------
-! the capacitance store with the leak (l_som_cuticular_loss): at leak points
+! The capacitance store with the leak (l_som_cuticular_loss): at leak points
 ! (lk_cut) where the committed leaf psi fell below psi_fl_leaf, the psi of
 ! the critical loss of conductance, the leak is cut to the E that leaves the
-! leaf there at the end of the step, as in the store's other mode: E is
-! found by bisection on [0, el] around the store's balance (store_cpl_q,
-! Newton segments), gc and el are scaled to it, and the balance is then
-! committed exactly. Only the cut points are solved (l_sel); the others
-! keep the balance already committed. 20 bisection steps leave E within
-! 1e-6 of el.
+! leaf there at the end of the step: E is found by bisection on [0, el]
+! around the store's balance (store_cpl_q, Newton segments), gc and el are
+! scaled to it, and the balance is then committed exactly. Only the cut
+! points are solved (l_sel); the others keep the balance already committed.
+! 20 bisection steps leave E within 1e-6 of el.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -5005,8 +4944,6 @@ REAL(KIND=real_jlslsm) :: e_lo(land_pts), e_hi(land_pts)
 REAL(KIND=real_jlslsm) :: a_cut, em_cut
                             ! rho (qs(tstar) - q1) (kg m-3) and the cut E
                             ! (kg m-2 s-1), for the exact gc.
-                            !
-                            ! MDK, 25/10/26
 
 l_cut(:) = .FALSE.
 DO m = 1,veg_pts
@@ -5037,9 +4974,14 @@ END DO
 
 ! The gc that gives the cut E through the tile flux (the leak's E above,
 ! not linear in gc),
-!   E M = A gc / (1 + ra (gc + g_s)),  A = rho (qs(tstar) - q1),
-! so gc = E M (1 + ra g_s) / (A - ra E M); A > ra E M, as E is below the
-! leak's E at the same A. MDK, 25/10/26
+!
+!   E M = A gc / (1 + ra (gc + g_s)),   A = rho (qs(tstar) - q1),
+!
+! so
+!
+!   gc = E M (1 + ra g_s) / (A - ra E M);
+!
+! A > ra E M, as E is below the leak's E at the same A.
 DO m = 1,veg_pts
   l = veg_index(m)
   IF ( .NOT. l_cut(l) ) CYCLE
@@ -5051,9 +4993,9 @@ DO m = 1,veg_pts
   ELSE
     gc(l) = gc(l) * e_lo(l) / el(l)
   END IF
+
   ! No lower than the closed canopy's conductance, min_gl_pft (a canopy
   ! value), when even the source psi is below the floor (e_lo = 0).
-  ! MDK, 25/10/26
   gc(l) = MAX(gc(l), min_gl_pft(ft))
   gc_som(l)  = gc(l)
   el(l)      = e_lo(l)
@@ -5063,7 +5005,7 @@ CALL store_cpl_q( .TRUE., e_be, l_sel = l_cut )
 END SUBROUTINE store_cpl_leak_cut
 
 !-----------------------------------------------------------------------------
-! the capacitance store: the store's balance over the step at the canopy
+! The capacitance store: the store's balance over the step at the canopy
 ! transpiration e_c, at the points where the store is set. Backward Euler
 ! at the stem node:
 !
@@ -5116,8 +5058,6 @@ LOGICAL, INTENT(IN), OPTIONAL :: l_sel(land_pts)
                             ! Only these points are solved; the outputs at
                             ! the others are left as they were (the leak
                             ! cut).
-                            !
-                            ! MDK, 25/10/26
 
 INTEGER, PARAMETER :: n_it_be = 40
                             ! Most regula falsi steps.
@@ -5147,13 +5087,9 @@ REAL(KIND=real_jlslsm) :: psi1(1,land_pts), st1(1,land_pts), k1(1,land_pts)
                             ! One sample per point: the leaf and stem psi of
                             ! the chain, and its conductance (k1, with
                             ! l_ex).
-                            !
-                            ! MDK, 25/10/26
 REAL(KIND=real_jlslsm) :: psi_from(land_pts)
                             ! Where the chain starts (Pa): psi_src, or the
                             ! store's psi where it pays all of E.
-                            !
-                            ! MDK, 25/10/26
 
 IF ( PRESENT(l_sel) ) THEN
   WHERE ( l_sel(:) )
@@ -5170,8 +5106,9 @@ ELSE
   k_be(:)      = 0.0
   l_fl_hit(:)  = .FALSE.
 END IF
+
 ! (q_try is passed whole to set_store_q_path, so the points not solved
-! hold 0, not junk. MDK, 24/10/26)
+! hold 0, not junk.)
 q_try(:)     = 0.0
 
 ! The canopy's path (kref_cpl, kmx_cpl, kcr_cpl, set by the canopy scheme)
@@ -5195,13 +5132,11 @@ DO m = 1,veg_pts
   l = veg_index(m)
   l_only(l) = .FALSE.
   ! (No capacity, as from a dump without cut_c_store: the store's psi
-  ! W / C is undefined, so it is taken as not set. MDK, 25/10/26)
+  ! W / C is undefined, so it is taken as not set.)
   IF ( cut_w_store(l,ft) > 0.0 .OR. cut_c_store(l,ft) <= 0.0 .OR.              &
        lai(l) < lai_cut_min ) CYCLE
   ! Between passes (not l_ex) only where the point transpires: q_f is used
   ! only by the next pass's open points.
-  !
-  ! MDK, 25/10/26
   IF ( .NOT. l_ex .AND. e_c(l) <= 0.0 ) CYCLE
   IF ( PRESENT(l_sel) ) THEN
     IF ( .NOT. l_sel(l) ) CYCLE
@@ -5301,13 +5236,12 @@ DO j = 1,n_be
     q_be(l)      = c_p(l) * (psi_x0(l) - psi_st_be(l))
   END IF
 END DO
+
 ! Where the store pays all of E (l_only) the stem node is the store's,
 ! psi_x0 - E / C', and the leaf is solved from it: the chain started at the
 ! stem node with no flow in the root and stem (q = E), so the leaf segment
 ! carries E from the store's psi, at its own conductance there (not from
 ! psi_src, which in a drought gives a far wetter, more conductive leaf).
-!
-! MDK, 25/10/26
 IF ( ANY(l_only(veg_index(idx_be(1:n_be)))) ) THEN
   psi_from(:) = psi_src(:)
   DO j = 1,n_be
@@ -5322,12 +5256,11 @@ IF ( ANY(l_only(veg_index(idx_be(1:n_be)))) ) THEN
     IF ( l_only(l) ) psi_l_be(l) = psi1(1,j)
   END DO
 END IF
+
 ! The commit: no psi below the critical-loss psi of the stem and leaf
 ! (where E cannot be carried the chain returns its floor), and the store's
 ! flow no more than E (its state then the store-pays-all one), so the store
 ! never gives more than the transpiration and its water balances.
-!
-! MDK, 25/10/26
 IF ( l_ex ) THEN
   DO j = 1,n_be
     l = veg_index(idx_be(j))
@@ -5338,16 +5271,17 @@ IF ( l_ex ) THEN
       psi_st_be(l) = psi_x0(l) - e_c(l) / c_p(l)
       q_be(l)      = e_c(l)
     END IF
+
     ! The leaf floor, but never wetter than the stem it draws from (with
     ! a leaf segment more vulnerable than the stem, psi_fl_leaf can lie
-    ! above the floored stem). MDK, 25/10/26
+    ! above the floored stem).
     psi_l_be(l) = MAX(psi_l_be(l), MIN(psi_fl_leaf, psi_st_be(l)))
   END DO
 END IF
 
 ! The commit (l_ex): the plant conductance for the output kplant, on the
 ! path without the store's shift (q = 0), as with capacitance off, at the
-! committed E. MDK, 25/10/26
+! committed E.
 IF ( l_ex ) THEN
   q_try(:) = 0.0
   CALL store_cpl_eval( n_be, idx_be, l_imp_be, .FALSE., e_c, q_try, c_p,       &
@@ -5361,11 +5295,14 @@ END IF
 END SUBROUTINE store_cpl_q
 
 !-----------------------------------------------------------------------------
-! the capacitance store, store_cpl_q: R(q) = q - C' (psi_x0 - psi_st) at
-! the n_be points solved, with the store's flow held at q_try on the
-! canopy's path (psi1, st1: the chain's leaf and stem psi, Pa).
+! The capacitance store, store_cpl_q: R at the n_be points solved,
 !
-! MDK, 24/10/26
+!   R(q) = q - C' (psi_x0 - psi_st),
+!
+! with the store's flow held at q_try on the canopy's path (psi1, st1: the
+! chain's leaf and stem psi, Pa).
+!
+! MDK, 25/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_eval( n_be, idx_be, l_imp_be, l_ex, e_c, q_try, c_p,      &
                            psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1,    &
@@ -5396,8 +5333,6 @@ REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: k1_out(1,land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: psi_from(land_pts)
                             ! Where the chain starts (Pa; psi_src if
                             ! absent).
-                            !
-                            ! MDK, 25/10/26
 
 INTEGER :: j, l
 REAL(KIND=real_jlslsm) :: e1(1,land_pts), k1(1,land_pts), psi_in(land_pts)
@@ -5435,11 +5370,10 @@ END SUBROUTINE store_cpl_eval
 ! the supply cap and soil-to-root share for the class's deficit dq_x and
 ! temperature t_x, then the optimisation with the class's photosynthesis
 ! inputs (_x: at the leaf temperature with l_leaf_temp, else the canopy
-! values at tstar). This was four copies of the same call. (Without
-! l_leaf_temp both classes see dqc and tstar, so the cap is the same for
-! both, as when it was set once for the pair.)
+! values at tstar). (Without l_leaf_temp both classes see dqc and tstar, so
+! the cap is the same for both.)
 !
-! MDK, 21/10/26
+! MDK, 25/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE ml_class( vcmax_x, kc_x, ko_x, ccp_x, km_x, dq_x, je_x,             &
                      t_x, je_ratio_x, fapar_x, rd_c, ci_c, anetl_c, el_c,      &
@@ -5461,25 +5395,19 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: psi_stem_c(land_pts)
                             ! The stem psi of this leaf's path (Pa; with
                             ! plant segments).
-                            !
-                            ! MDK, 23/10/26
 REAL(KIND=real_jlslsm), INTENT(IN) :: q_c(land_pts)
-                            ! the capacitance store: this leaf's part of the
+                            ! The capacitance store: this leaf's part of the
                             ! store's flow out (mol H2O m-2 leaf s-1).
-                            !
-                            ! MDK, 25/10/26
 
 INTEGER :: i, l
 REAL(KIND=real_jlslsm) :: e_sup_cls(land_pts)
                             ! With the store: this leaf's supply, its kmax
                             ! share of the soil supply plus its own part of
                             ! the store's flow (kg m-2 s-1).
-                            !
-                            ! MDK, 25/10/26
 
 IF ( l_store_cpl ) THEN
-  ! The cap was share_sup (e_s + q_f), not the store flow this leaf is
-  ! given (q_c). MDK, 25/10/26
+  ! This leaf's kmax share of the soil supply plus its own part of the
+  ! store's flow (q_c), not share_sup (e_s + q_f).
   e_sup_cls(:) = e_supply(:)
   WHERE ( e_supply(:) >= 0.0 )                                                 &
     e_sup_cls(:) = MAX(share_sup(:) * e_supply(:) + q_c(:) * cut_m_h2o, 0.0)
@@ -5490,7 +5418,8 @@ ELSE
                            share_sup, dq_x, t_x, pstar, gl_max_lf, gl_max_eff )
 END IF
 CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-! The store's flow out held fixed for this leaf's search. MDK, 25/10/26
+
+! The store's flow out held fixed for this leaf's search.
 IF ( l_store_cpl ) CALL set_store_q_path( land_pts, veg_pts, veg_index,        &
                                           share_one, q_c )
 CALL stom_opt_mod (                                                            &
@@ -5510,7 +5439,7 @@ CALL stom_opt_mod (                                                            &
     gl_c, psi_leaf_c, cg_c, hc_c, leaf_k_c,                                    &
     psi_stem = psi_stem_c                                                      &
 )
-IF ( l_store_cpl ) CALL clear_store_q_path()   ! MDK, 25/10/26
+IF ( l_store_cpl ) CALL clear_store_q_path()
 
 END SUBROUTINE ml_class
 
@@ -5521,7 +5450,7 @@ END SUBROUTINE ml_class
 ! class's gl, gl_o), the optimisation (at the class's leaf temperature with
 ! l_leaf_temp, else at tstar), and min_gl_pft shared by leaf area at the
 ! points that end up closed. The arguments are the class's arrays (_o: the
-! other class's). This was two copies of the same code, one per class.
+! other class's).
 !
 ! With the shared root and stem (l_som_shared_stem) the class's root and
 ! stem are the whole plant's and carry the other class's flow e_o_c as
@@ -5555,36 +5484,25 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
   fo3_c(land_pts), gl_c(land_pts), psi_leaf_c(land_pts), cg_c(land_pts),       &
   hc_c(land_pts), leaf_k_c(land_pts), psi_stem_c(land_pts)
                             ! OUT from stom_opt_mod; IN OUT here so that
-                            ! points it does not set keep their values, as
-                            ! with the arrays passed directly before.
+                            ! points it does not set keep their values.
 REAL(KIND=real_jlslsm), INTENT(OUT) :: lam_c(land_pts)
-REAL(KIND=real_jlslsm), INTENT(IN) :: q_f_c(land_pts)
-                            ! the capacitance store: this class's part of
-                            ! the store's flow out (q_f_sun or q_f_shd).
-                            !
-                            ! MDK, 25/10/26
                             ! dA/dE at the optimum (lambda_eff of
                             ! stom_opt_mod; 0 where not set).
-                            !
-                            ! MDK, 23/10/26
+REAL(KIND=real_jlslsm), INTENT(IN) :: q_f_c(land_pts)
+                            ! The capacitance store: this class's part of
+                            ! the store's flow out (q_f_sun or q_f_shd).
 REAL(KIND=real_jlslsm), INTENT(IN) :: e_o_c(land_pts)
                             ! The shared root and stem: the other class's
                             ! transpiration (mol H2O m-2 ground s-1, >= 0),
                             ! held fixed. Not used otherwise.
-                            !
-                            ! MDK, 30/10/26
 REAL(KIND=real_jlslsm), INTENT(IN) :: a_o_c(land_pts)
                             ! The shared root and stem: the other class's A
                             ! at its hydraulic edge (mol CO2 m-2 ground s-1),
                             ! for the whole-plant gain (l_som_shared_gain).
-                            !
-                            ! MDK, 30/10/26
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: amax_c(land_pts)
                             ! The shared root and stem: this class's A at its
                             ! hydraulic edge from this search (0 where it was
                             ! not searched); unchanged otherwise.
-                            !
-                            ! MDK, 30/10/26
 
 INTEGER :: i, l, m
 REAL(KIND=real_jlslsm) :: kcrit_use(land_pts), k_own(land_pts),               &
@@ -5593,14 +5511,10 @@ REAL(KIND=real_jlslsm) :: kcrit_use(land_pts), k_own(land_pts),               &
                             ! the path with the whole root and stem, and the
                             ! intact conductance of the class's own path
                             ! (relative to its kmax) it is scaled from.
-                            !
-                            ! MDK, 30/10/26
 REAL(KIND=real_jlslsm) :: e_sup_cls(land_pts)
                             ! With the store: the class's supply, its kmax
                             ! share of the soil supply plus its own part of
                             ! the store's flow (kg m-2 s-1).
-                            !
-                            ! MDK, 25/10/26
 
 clos_pts = 0
 open_pts = 0
@@ -5634,8 +5548,6 @@ CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,        &
 ! part of the store's flow out (store_cpl_split), held fixed for its search
 ! (cleared after). With the shared root and stem the whole store's flow,
 ! which leaves at the shared stem node.
-!
-! MDK, 30/10/26
 IF ( l_store_cpl .AND. l_som_shared_stem ) THEN
   CALL set_store_q_path( land_pts, veg_pts, veg_index, share_one, q_f )
 ELSE IF ( l_store_cpl ) THEN
@@ -5654,8 +5566,6 @@ END IF
 ! other class's flow (cleared after the search). The cost is the whole
 ! plant's (stom_opt_mod), with the whole plant's kcrit, kcrit_of_path of
 ! its intact conductance: kcrit_c / share_sup in the class's units.
-!
-! MDK, 30/10/26
 kcrit_use(:) = kcrit_c(:)
 IF ( l_som_shared_stem ) THEN
   DO m = 1,veg_pts
@@ -5678,13 +5588,13 @@ END IF
 
 ! At the class's leaf temperature (l_leaf_temp), else tstar: the class
 ! arrays hold the tile's values then (see the two-leaf set-up).
-!
-! MDK, 24/10/26
 IF ( l_som_shared_stem ) THEN
   ! The shared root and stem: the canopy is capped by the soil supply plus
-  ! the store's flow (q_f, with the store coupled), E + E_o <= e_supply +
-  ! q_f, so the class by what is left after the other class's E.
-  ! MDK, 30/10/26
+  ! the store's flow (q_f, with the store coupled),
+  !
+  !   E + E_o <= e_supply + q_f,
+  !
+  ! so the class by what is left after the other class's E.
   e_sup_cls(:) = e_supply(:)
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -5699,7 +5609,7 @@ IF ( l_som_shared_stem ) THEN
                            gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
 ELSE IF ( l_store_cpl ) THEN
   ! The class's kmax share of the soil supply plus its own part of the
-  ! store's flow (q_f_c), not share_sup (e_s + q_f). MDK, 25/10/26
+  ! store's flow (q_f_c), not share_sup (e_s + q_f).
   e_sup_cls(:) = e_supply(:)
   WHERE ( e_supply(:) >= 0.0 )                                                 &
     e_sup_cls(:) = MAX(share_sup(:) * e_supply(:) + q_f_c(:) * cut_m_h2o,      &
@@ -5712,8 +5622,8 @@ ELSE
                            share_sup, dq_opt, t_lt_c, pstar, gl_max_c,         &
                            gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
 END IF
-! (The shared root and stem: the whole soil-to-root conductance.
-! MDK, 30/10/26)
+
+! The shared root and stem: the whole soil-to-root conductance.
 IF ( l_som_shared_stem ) THEN
   CALL set_ksr_path( land_pts, veg_pts, veg_index, share_one )
 ELSE
@@ -5739,9 +5649,9 @@ CALL stom_opt_mod (                                                            &
           psi_stem = psi_stem_c, lambda_eff = lam_c,                           &
           lai_cost = lai_c                                                     &
   )
-IF ( l_store_cpl ) CALL clear_store_q_path()   ! MDK, 24/10/26
-! (The shared root and stem: this class's A at its edge, then off.
-! MDK, 30/10/26)
+IF ( l_store_cpl ) CALL clear_store_q_path()
+
+! The shared root and stem: this class's A at its edge, then off.
 IF ( l_som_shared_stem ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -5835,17 +5745,15 @@ END SUBROUTINE ltc_set
 ! 3. The photosynthesis temperature parameters of each class start from the
 !    tile's.
 !
-! (Moved here from the two-leaf code unchanged.)
-!
-! MDK, 23/10/26
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE lt_init()
 IMPLICIT NONE
 INTEGER :: l, m
-    ! Its own loop counters, not the host's. MDK, 24/10/26
+    ! Its own loop counters, not the host's.
 
   ! The wind extinction: leaf_wind_ext (0 by default) for leaf_aero_model
-  ! 0 and 2, CABLE's coexp for 1 (MDK, 19/10/26).
+  ! 0 and 2, CABLE's coexp for 1.
   wind_ext(:) = leaf_wind_ext
   zref_a(:)   = 0.0
   IF ( leaf_aero_model == 1 ) THEN
@@ -5853,9 +5761,9 @@ INTEGER :: l, m
                          z0m_a, zref_a, rt1ab_a, zrd_a, usc_a, usuh_a,         &
                          wind_ext )
   END IF
+
   IF ( l_lt_lyr ) THEN
     ! Also the terms of every layer's sunlit and shaded leaf.
-    ! MDK, 19/10/26
     CALL leaf_temp_setup( ft, land_pts, veg_pts, veg_index, ilayers, lai,      &
                           dlai, fsun, fapar_sun_nir, fapar_shd_nir, ipar,      &
                           wind_ext,                                            &
@@ -5877,13 +5785,13 @@ INTEGER :: l, m
                         wlws_sun_lt, wlws_shd_lt, frad_sun_lt, frad_shd_lt,    &
                         ff_sun_lt, ff_shd_lt )
   END IF
+
   ! First guesses: the leaf-area-weighted leaf temperature (K) and the
   ! stability parameter of the canopy air (-).
   t_g_lt(:)  = tstar(:)
   zeta_lt(:) = 0.0
   ! Defined at every land point (leaf_class_at_temp takes qsat of the
   ! whole array, and the per-layer classes copy it).
-  ! MDK, 19/10/26
   t_sun_lt(:) = tstar(:)
   t_shd_lt(:) = tstar(:)
   DO m = 1,veg_pts
@@ -5922,6 +5830,7 @@ INTEGER :: l, m
     ! Canopy air temperature (K): the air temperature to start.
     t_c_lt(l) = tair(l)
   END DO
+
   ! Canopy air humidity from last timestep's conductance and leaf
   ! temperatures (q1 for leaf_aero_model = 0). (gc on entry is last
   ! timestep's tile conductance, which already includes the soil's.)
@@ -5931,6 +5840,7 @@ INTEGER :: l, m
     q_c_lt(l) = ( q1(l) + ra_lt(l) * gc(l) * qs_g_lt(l) )                      &
                 / ( 1.0 + ra_lt(l) * gc(l) )
   END DO
+
   IF ( leaf_aero_model == 1 ) THEN
     ! The neutral rt1 above is for the first guess only: leaf_temp_update
     ! takes ra where there is no canopy. Keep it as the first guess of
@@ -5941,6 +5851,7 @@ INTEGER :: l, m
       ra_lt(l) = ra(l)
     END DO
   END IF
+
   ! Respiration below uses rd and the classes start from it. The CO2
   ! compensation point (Pa) and the Michaelis-Menten constants (Pa) of each
   ! class start from the tile's (they are reset at the leaf temperatures
@@ -5962,8 +5873,8 @@ END SUBROUTINE lt_init
 ! t_can, with f_sun the sunlit fraction of the leaf area), the fraction of
 ! the classes held at the dt_leaf limit, and with l_leaf_temp_gc_eq the
 ! transpiration-equivalent gc, capped at gc_cap (set by the caller).
-! (Moved here from the two-leaf code unchanged, except t_leaf_clamp.)
-! MDK, 18/10/26
+!
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE lt_finish( lp, f_sun, n_cls_in )
 IMPLICIT NONE
@@ -5972,11 +5883,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: f_sun
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: n_cls_in
     ! Number of leaf classes with leaf area, for t_leaf_clamp (2 at most
     ! when absent; with ml_leaf_temp_model = 2 those of all the layers).
-    ! MDK, 19/10/26
 REAL(KIND=real_jlslsm) :: n_cls
 REAL(KIND=real_jlslsm) :: dq_eq, cap_eq
     ! gc_eq: the tile's actual deficit qs(tstar) - q1 (kg kg-1) and the
-    ! cap on gc (m s-1). MDK, 24/10/26
+    ! cap on gc (m s-1).
 CHARACTER(LEN=300) :: clamp_msg
 
   ! Leaf temperatures used. A class with no leaf area takes the other's.
@@ -5992,33 +5902,34 @@ CHARACTER(LEN=300) :: clamp_msg
   END IF
   t_can(lp) = f_sun * t_leaf_sun(lp) + (1.0 - f_sun) * t_leaf_shd(lp)
 
-  ! The surface energy balance applies gc with qs(tstar) - q1 through
-  ! ra. Return the gc that gives the transpiration the optimisation
-  ! chose (el, at the leaf temperatures) there:
-  !   rho (qs(tstar) - q1) / (ra + 1/gc) = el * m_h2o,
-  ! capped at the canopy som_gl_max. The soil conductance g_s shares ra
-  ! in the tile flux (soil_evap adds it to gc) and the transpiration is
-  ! the stomatal share,
-  !   rho (qs(tstar) - q1) gc / (1 + ra (gc + g_s)) = el * m_h2o,
-  ! so 1/gc is the r_eq above divided by 1 + ra g_s.
-  !
-  ! The deficit is the actual qs(tstar) - q1, not dq, which the stomatal
-  ! optimisation floors at dq_min: with the floor a near-saturated or
-  ! dewy step gave a huge gc that JULES then applied to the real
-  ! deficit. Below dq_min (or with condensation) the optimised gc is
-  ! kept. The cap is always finite: som_gl_max x LAI where the canopy
-  ! cap is off (supply-loss).
-  !
-  ! MDK, 24/10/26
   ! Diagnostics (canopy_diag_mod): the stomatal gc before gc_eq replaces
   ! it, and the canopy air and leaf fluxes of the energy balance.
-  ! MDK, 24/10/26
   gc_stomatal_pft(lp,ft) = gc(lp)
   t_can_air_pft(lp,ft)   = t_c_lt(lp)
   q_can_air_pft(lp,ft)   = q_c_lt(lp)
   h_leaf_pft(lp,ft)      = h_leaf_pts(lp)
   le_leaf_pft(lp,ft)     = le_leaf_pts(lp)
 
+  ! The surface energy balance applies gc with qs(tstar) - q1 through
+  ! ra. Return the gc that gives the transpiration the optimisation
+  ! chose (el, at the leaf temperatures) there,
+  !
+  !   rho (qs(tstar) - q1) / (ra + 1/gc) = el m_h2o,
+  !
+  ! capped at the canopy som_gl_max. The soil conductance g_s shares ra
+  ! in the tile flux (soil_evap adds it to gc) and the transpiration is
+  ! the stomatal share,
+  !
+  !   rho (qs(tstar) - q1) gc / (1 + ra (gc + g_s)) = el m_h2o,
+  !
+  ! so 1/gc is the r_eq above divided by 1 + ra g_s.
+  !
+  ! The deficit is the actual qs(tstar) - q1, not dq, which the stomatal
+  ! optimisation floors at dq_min: with the floor a near-saturated or
+  ! dewy step would give a huge gc that JULES then applies to the real
+  ! deficit. Below dq_min (or with condensation) the optimised gc is
+  ! kept. The cap is always finite: som_gl_max x LAI where the canopy
+  ! cap is off (supply-loss).
   IF ( l_leaf_temp_gc_eq ) THEN
     dq_eq  = qs(lp) - q1(lp)
     cap_eq = gc_cap
@@ -6037,7 +5948,6 @@ CHARACTER(LEN=300) :: clamp_msg
   END IF
 
   ! Fraction of the classes with leaf area held at the dt_leaf limit.
-  ! MDK, 18/10/26
   n_cls = 0.0
   IF ( lai_sun_2l(lp) > EPSILON(0.0) ) n_cls = n_cls + 1.0
   IF ( lai_shd_2l(lp) > EPSILON(0.0) ) n_cls = n_cls + 1.0
@@ -6135,17 +6045,18 @@ SUBROUTINE leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
                                qs_c, dq_c, f_vc )
 
 ! Leaf energy balance (l_leaf_temp; two-leaf and multilayer): the
-! photosynthesis parameters
-! of one leaf class at its temperature t_leaf - the temperature responses,
-! the class totals of Vcmax and Rd (N-weighted leaf area nw), the electron
-! flux - and its humidity deficit to the canopy air, qs(t_leaf) - q_c.
+! photosynthesis parameters of one leaf class at its temperature t_leaf -
+! the temperature responses, the class totals of Vcmax and Rd (N-weighted
+! leaf area nw), the electron flux - and its humidity deficit to the canopy
+! air, qs(t_leaf) - q_c.
+!
+! MDK, 24/10/26
 
 USE jules_vegetation_mod, ONLY: photo_farquhar
 USE qsat_mod, ONLY: qsat
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-! (DrHook: MDK, 24/10/26)
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts),             &
@@ -6357,7 +6268,9 @@ CASE ( photo_farquhar )
 !$OMP END PARALLEL DO
 
   ! (The soil-water factor of Vcmax and Jmax, l_som_vcmax_psi, is applied
-  ! in calc_photo_parameters, after dark respiration. MDK, 25/10/26)
+  ! in calc_photo_parameters, after dark respiration.)
+  !
+  ! MDK, 25/10/26
 
 END SELECT
 
@@ -6374,26 +6287,33 @@ SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
 ! (l_som_vcmax_psi): the Zhou et al. (2013) form on the root-zone (predawn)
 ! water potential, as used by De Kauwe et al. (2015, Biogeosciences 12:
 ! 7503-7518, Eq. 4),
-!   f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi))), psi in MPa,
-! f = 1 in wet soil and about 0.5 at psi = psi_f.
-! Adjustments to De Kauwe et al. (2015), which had neither (both added
-! Oct 2026 after FR-Pue tests, where f -> 0 drove drought GPP to ~0 and
-! capacity recovered within the timestep of the first rain):
-! (1) an optional floor,
-!   f_vc = fmin + (1 - fmin) f   (psi_vcmax_fmin, default 0),
-! so the stomatal (hydraulic) limitation, not capacity, sets photosynthesis
-! in the driest soil.
-! (2) a recovery lag: the factor follows f at once as the soil dries
-! (psi_rz itself changes slowly) but relaxes back towards it with a fixed
-! 5-day e-folding
-! time (90 % back in about 11 days) as the soil rewets, so capacity recovers
-! over days rather than within the timestep of the rain. 5 days sits between
-! fast reversible downregulation (Rubisco activation, mesophyll conductance:
-! hours to days) and protein resynthesis (a week or more), weighted towards
-! the slow end because FR-Pue droughts are long and severe. 3 days changes
-! little (FR-Pue 2005-07 GPP RMSE 0.86 vs 0.85; instant 0.93), so this is a
-! fixed choice, not a parameter. The state is dumped (fvcmax_psi_state), so
-! a restart continues it; a run without it starts at the instant value.
+!
+!   f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi))),   psi in MPa,
+!
+! f = 1 in wet soil and about 0.5 at psi = psi_f. Two adjustments to De
+! Kauwe et al. (2015), which had neither: without them f -> 0 drives
+! drought GPP to ~0, and capacity recovers within the timestep of the first
+! rain.
+!
+! (1) An optional floor,
+!
+!       f_vc = fmin + (1 - fmin) f   (psi_vcmax_fmin, default 0),
+!
+!     so the stomatal (hydraulic) limitation, not capacity, sets
+!     photosynthesis in the driest soil.
+!
+! (2) A recovery lag: the factor follows f at once as the soil dries
+!     (psi_rz itself changes slowly) but relaxes back towards it with a
+!     fixed 5-day e-folding time (90 % back in about 11 days) as the soil
+!     rewets, so capacity recovers over days rather than within the
+!     timestep of the rain. 5 days sits between fast reversible
+!     downregulation (Rubisco activation, mesophyll conductance: hours to
+!     days) and protein resynthesis (a week or more), weighted towards the
+!     slow end for long, severe droughts. A 3-day lag changes little, so
+!     this is a fixed choice, not a parameter. The state is dumped
+!     (fvcmax_psi_state), so a restart continues it; a run without it
+!     starts at the instant value.
+!
 ! MDK, 24/10/26
 
 USE pftparm, ONLY: psi_vcmax_f, sf_vcmax, psi_vcmax_fmin
@@ -6401,7 +6321,7 @@ USE timestep_mod, ONLY: timestep
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-! (DrHook: MDK, 24/10/26)
+
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
@@ -6424,7 +6344,7 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='VCMAX_PSI_FACTOR'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-CALL sf_stom_state_alloc( land_pts )   ! MDK, 22/10/26
+CALL sf_stom_state_alloc( land_pts )
 w_rec = 1.0 - EXP( -timestep / tau_rec )
 
 DO m = 1,veg_pts
@@ -6696,7 +6616,9 @@ END DO
 !$OMP END DO NOWAIT
 !$OMP END PARALLEL
 
-! The soil-water factor (l_som_vcmax_psi), after Rd. MDK, 25/10/26
+! The soil-water factor (l_som_vcmax_psi), after Rd.
+!
+! MDK, 25/10/26
 IF ( PRESENT(f_vc) .AND. pft_photo_model == photo_farquhar ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -6805,13 +6727,19 @@ END SUBROUTINE calc_electron_flux
 !-----------------------------------------------------------------------------
 ! Soil supply limit on transpiration (l_som_supply_limit).
 !
-! stom_opt_mod costs E_sample = dq * gl * pstar / (repsilon * rmol * T)
-! (mol H2O m-2 s-1), so E_sample <= E_supply is the same condition as
-! gl <= gl_supply = E_supply * repsilon * rmol * T / (dq * pstar). That
-! is applied through gl_max, which every Ci search path already checks,
-! so gs, A and E stay consistent: the optimiser picks the most profitable
-! state the soil can supply. gl_max <= 0 means "no cap" in stom_opt_mod,
-! so a zero supply is passed as TINY (no sample feasible: stomata close).
+! stom_opt_mod costs
+!
+!   E_sample = dq gl pstar / (repsilon rmol T)      (mol H2O m-2 s-1),
+!
+! so E_sample <= E_supply is the same condition as
+!
+!   gl <= gl_supply = E_supply repsilon rmol T / (dq pstar).
+!
+! That is applied through gl_max, which every Ci search path already
+! checks, so gs, A and E stay consistent: the optimiser picks the most
+! profitable state the soil can supply. gl_max <= 0 means "no cap" in
+! stom_opt_mod, so a zero supply is passed as TINY (no sample feasible:
+! stomata close).
 !-----------------------------------------------------------------------------
 SUBROUTINE apply_supply_limit( land_pts, veg_pts, veg_index, e_supply, share,  &
                                dq, tstar, pstar, gl_max_in, gl_max_out,        &
@@ -6854,7 +6782,9 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
       ! stom_opt_mod, so that the cap is the g whose coupled E is the supply.
 
 REAL(KIND=real_jlslsm), PARAMETER :: m_h2o = Water_kg_per_mol
-      ! Molar mass of water (kg mol-1). MDK, 24/10/26
+      ! Molar mass of water (kg mol-1).
+      !
+      ! MDK, 24/10/26
 
 REAL(KIND=real_jlslsm) :: gl_sup
 INTEGER :: l, m
@@ -6890,21 +6820,25 @@ END SUBROUTINE apply_supply_limit
 
 !#############################################################################
 ! Coupled transpiration (l_som_coupled_e), two-leaf: the inputs of one leaf
-! class's stom_opt_mod call. Without it, dq_opt is the deficit used before
-! (dq_lt with l_leaf_temp, else dqc) and the resistances are 0. With it, the
-! deficit is from the leaf to the level-1 air (qs(T_leaf) - q1 with
-! l_leaf_temp, else dq), r_bl the class's leaf boundary layer (l_leaf_temp
-! only), r_ca the canopy air resistance and g_oth the other class's
-! stomatal conductance in series with its boundary layer.
+! class's stom_opt_mod call. Without it, dq_opt is dq_lt with l_leaf_temp,
+! else dqc, and the resistances are 0. With it, the deficit is from the leaf
+! to the level-1 air (qs(T_leaf) - q1 with l_leaf_temp, else dq), r_bl the
+! class's leaf boundary layer (l_leaf_temp only), r_ca the canopy air
+! resistance and g_oth the other class's stomatal conductance in series
+! with its boundary layer.
 !
 ! The soil evaporation beneath the canopy (conductance g_s, at
 ! qs_soil = qs(tstar)) is a further path into the canopy air. Solving the
 ! canopy air humidity with the leaf, the other class (taken at this leaf's
-! qs, as before) and the soil gives
+! qs) and the soil gives
+!
 !   E = g' (D + r_ca g_s (qs_lt - qs_soil)) / (1 + r_ca (g' + g'_other + g_s)),
+!
 ! so g_s is added to g_oth and r_ca g_s (qs_lt - qs_soil) to the deficit,
 ! which does not depend on g' (0 without l_leaf_temp, where the leaf is at
 ! tstar).
+!
+! MDK, 24/10/26
 !#############################################################################
 SUBROUTINE coupled_inputs( land_pts, veg_pts, veg_index, l_lt, dq_min, dqc,    &
                            dq, qs_lt, q1, dq_lt, gbw_this, gbw_other, r_ca_in, &
@@ -6915,7 +6849,6 @@ USE jules_vegetation_mod, ONLY: l_som_coupled_e
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-! (DrHook: MDK, 24/10/26)
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts)
@@ -6979,6 +6912,8 @@ END SUBROUTINE coupled_inputs
 ! pass: the last timestep's class conductances, boundary layers and canopy
 ! air resistance, or, before the first, the canopy conductance shared by
 ! leaf area, no boundary layer and a canopy air resistance of -1 (unknown).
+!
+! MDK, 24/10/26
 !#############################################################################
 SUBROUTINE cpl_state_load( ft, land_pts, veg_pts, veg_index, lai, lai_sun,     &
                            lai_shd, gc, gl_sun, gl_shd, gbw_sun, gbw_shd,      &
@@ -6987,7 +6922,6 @@ SUBROUTINE cpl_state_load( ft, land_pts, veg_pts, veg_index, lai, lai_sun,     &
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-! (DrHook: MDK, 24/10/26)
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
@@ -7007,7 +6941,7 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='CPL_STATE_LOAD'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-CALL sf_stom_state_alloc( land_pts )   ! MDK, 22/10/26
+CALL sf_stom_state_alloc( land_pts )
 gl_sun(:)  = 0.0
 gl_shd(:)  = 0.0
 gbw_sun(:) = 0.0
@@ -7033,12 +6967,17 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE cpl_state_load
 
+!#############################################################################
+! Keep this timestep's class conductances, boundary layers and canopy air
+! resistance for the next timestep's first guesses (cpl_state_load).
+!
+! MDK, 24/10/26
+!#############################################################################
 SUBROUTINE cpl_state_save( ft, land_pts, veg_pts, veg_index, gl_sun, gl_shd,   &
                            gbw_sun, gbw_shd, ra_ca )
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-! (DrHook: MDK, 24/10/26)
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)

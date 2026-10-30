@@ -112,6 +112,7 @@ CALL jules_print('pftparm',                                                    &
 CALL check_jules_pftparm(npft,nnpft)
 ! Stomatal optimisation: build the supply-function tables now, from the
 ! checked parameters, rather than on first use in the timestep.
+!
 ! MDK, 21/10/26
 IF ( leaf_flux_mod == leaf_flux_stom_opt ) CALL init_supply_luts(npft)
 ! Check values of pftparm_io not copied to pftparm_mod before spreading

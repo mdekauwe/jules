@@ -10,18 +10,16 @@ MODULE plant_hydraulic_path_mod
 USE um_types, ONLY: real_jlslsm
 USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f, xylem_f_bc, incomplete_gamma_1
 USE supply_table_mod, ONLY: seg_lut_psi, build_supply_lut_seg, newton_psi_drop
-USE jules_vegetation_mod, ONLY: k_ground_ratio_max, l_som_seg_whole   ! MDK, 26/10/26
+USE jules_vegetation_mod, ONLY: k_ground_ratio_max, l_som_seg_whole
 
 IMPLICIT NONE
 
 ! The plant's water path from the soil to the leaf, around the
 ! vulnerability curves: the soil-to-root link (ksr, ksr_path), the root,
 ! stem and leaf segments in series and their solvers, the zero-flow
-! conductance of the path, and the kplant_model = 1 scaling. (Moved here
-! from xylem_hydraulics_CW_jls_mod, which now keeps the cumulative Weibull
-! routines.)
+! conductance of the path, and the kplant_model = 1 scaling.
 !
-! MDK, 23/10/26
+! MDK, 30/10/26
 PRIVATE
 
 CHARACTER(LEN=*),PARAMETER,PRIVATE :: ModuleName='PLANT_HYDRAULIC_PATH_MOD'
@@ -53,8 +51,6 @@ PUBLIC :: set_ksr_path                                                         &
 ! Used by psi_leaf_jls (single conductance curve), the segment solvers
 ! below, k_path_zero_flow, and som_path_psi and the zero-flow cost
 ! reference in stom_opt_mod.
-!
-! MDK, 24/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
 
 ! Plant capacitance coupled to the optimiser (the capacitance store): the
@@ -77,8 +73,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
 !   l_store_q_path : .TRUE. while store_q_path applies (cleared after the
 !                    call, so no other caller of the segment solver sees
 !                    it).
-!
-! MDK, 24/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: store_q_path(:)
 LOGICAL, PUBLIC :: l_store_q_path = .FALSE.
 
@@ -119,8 +113,6 @@ LOGICAL, PUBLIC :: l_store_q_path = .FALSE.
 !                    max_al in stom_opt_bounded_search), held fixed.
 !   shared_amax_self   : this class's, set by the search (0 where it does
 !                    not search), for the other class's next search.
-!
-! MDK, 30/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: shared_k_fac(:),                &
                                                shared_e_other(:),              &
                                                shared_kcrit_plant(:),          &
@@ -138,8 +130,6 @@ LOGICAL, PUBLIC :: l_shared_gain_path = .FALSE.
 ! it at the leaf segment. The root and stem are then not solved twice;
 ! the result is the same to the bit. Cleared by set_shared_stem and
 ! clear_shared_stem.
-!
-! MDK, 30/10/26
 LOGICAL :: l_rs_cache = .FALSE.
 LOGICAL :: rs_intact, rs_exact, rs_closed
 INTEGER :: rs_l
@@ -151,7 +141,9 @@ REAL(KIND=real_jlslsm) :: rs_e, rs_kmax, rs_kcrit, rs_psi0, rs_kcap,           &
 ! stem segments have kmax_pft * seg_kfac_s * r, r = LAI_ref / LAI (capped
 ! at k_ground_ratio_max), and the leaf segment kmax_pft * seg_kfac_leaf, so
 ! the well-watered whole plant (segments in series) is
-!   kmax_pft * g,  1 / g = sum_s 1 / (seg_kfac_s r_s)  (r_leaf = 1).
+!
+!   kmax_pft g,   1 / g = sum_s 1 / (seg_kfac_s r_s)   (r_leaf = 1).
+!
 ! sf_stom gives the optimiser kmax, its intact reference and kcrit times g
 ! (kplant_scale), so every use of the whole-plant kmax (cost, kcrit test,
 ! closed leaf_k) sees the plant actually present, and the segment solvers
@@ -162,14 +154,12 @@ REAL(KIND=real_jlslsm) :: rs_e, rs_kmax, rs_kcrit, rs_psi0, rs_kcap,           &
 ! Both are set per PFT by set_k_ground_basis before the leaf paths.
 !   kplant_scale : g (land_pts).
 !   seg_kscale   : r_s / g (land_pts, 3).
-!
-! MDK, 21/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: kplant_scale(:),                &
                                                seg_kscale(:,:)
 
+! Floor on the root water potential (Pa) with l_som_rhizo_series when
+! the soil conductance is (near) zero.
 REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: som_psi_in_min = -1.0e9
-      ! Floor on the root water potential (Pa) with l_som_rhizo_series when
-      ! the soil conductance is (near) zero.
 
 CONTAINS
 
@@ -356,7 +346,7 @@ END SUBROUTINE clear_shared_stem
 ! lai_ref, per unit ground area; the leaf segment scales with LAI. With
 ! kplant_model = 0 both are 1 and are not used.
 !
-! MDK, 21/10/26
+! MDK, 22/10/26
 ! *****************************************************************************
 SUBROUTINE set_k_ground_basis( pft, land_pts, veg_pts, veg_index, lai,         &
                                lai_ref )
@@ -402,10 +392,9 @@ DO m = 1,veg_pts
   END IF
   ! and floored at 1 / k_ground_ratio_max, so LAI_ref = 0 (no height) or
   ! LAI >> LAI_ref cannot give a zero segment (NaN shares).
-  !
-  ! MDK, 22/10/26
   r(1:2) = MAX(r(1:2), 1.0 / k_ground_ratio_max)
   r(3) = 1.0
+
   ! Whole-plant (series) conductance relative to kmax: 1 / sum_s 1/k_s.
   rinv = 0.0
   DO iseg = 1, 3
@@ -443,7 +432,6 @@ REAL(KIND=real_jlslsm) :: fac
 fac = seg_kfac(pft,iseg)
 IF ( kplant_model == kplant_model_ground ) fac = fac * seg_kscale(l,iseg)
 ! The shared root and stem (l_som_shared_stem): the whole plant's.
-! (MDK, 30/10/26)
 IF ( l_shared_stem_path .AND. ( iseg <= 2 .OR. l_shared_whole_path ) )        &
   fac = fac * shared_k_fac(l)
 
@@ -454,7 +442,9 @@ END FUNCTION seg_kmax_fac
 ! plant is not transpiring. With no flow there is no drop in water
 ! potential along the path, so every element sits at psi_root and the
 ! elements add in series:
-!   1 / K = 1 / ksr_path + sum over segments of 1 / k_s(psi_root)
+!
+!   1 / K = 1 / ksr_path + sum over segments of 1 / k_s(psi_root).
+!
 ! This is what the solvers give at E = 0. It is used for points the
 ! optimiser does not visit (closed stomata), for the zero-flow reference
 ! of the hydraulic cost, for SOX's k(psi_bar) and for CGain's k_max
@@ -475,7 +465,7 @@ END FUNCTION seg_kmax_fac
 !   which must be set by set_ksr_path for this path. Left out when
 !   l_plant_only is .TRUE. (e.g. CGain's k_max).
 !
-! MDK, 24/10/26
+! MDK, 26/10/26
 ! *****************************************************************************
 FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, b, c, kcap_frac, kx,        &
                            l_plant_only ) RESULT( k0 )
@@ -486,25 +476,19 @@ USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
 
 IMPLICIT NONE
 
+! Plant functional type and land point.
 INTEGER, INTENT(IN) :: pft, l
-                            ! Plant functional type and land point.
+! Whole-plant maximum conductance (mol m-2 s-1 Pa-1) and the root zone water
+! potential (Pa).
 REAL(KIND=real_jlslsm), INTENT(IN) :: kmax, psi_root
-                            ! Whole-plant maximum conductance
-                            ! (mol m-2 s-1 Pa-1) and the root zone water
-                            ! potential (Pa).
+! Curve parameters b (Pa) and c (dimensionless); the segment cap fraction
+! (dimensionless); the known plant conductance at psi_root (mol m-2 s-1 Pa-1).
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: b, c, kcap_frac, kx
-                            ! Curve parameters b (Pa) and c
-                            ! (dimensionless); the segment cap fraction
-                            ! (dimensionless); the known plant conductance
-                            ! at psi_root (mol m-2 s-1 Pa-1).
+! .TRUE.: leave out the soil-to-root link.
 LOGICAL, INTENT(IN), OPTIONAL :: l_plant_only
-                            ! .TRUE.: leave out the soil-to-root link.
+! The result (mol m-2 s-1 Pa-1); the series resistance sum; an element's and the
+! soil's conductance.
 REAL(KIND=real_jlslsm) :: k0, r, k_el, k_s
-                            ! The result (mol m-2 s-1 Pa-1); the series
-                            ! resistance sum; an element's and the soil's
-                            ! conductance.
-                            !
-                            ! MDK, 21/10/26
 INTEGER :: iseg
 LOGICAL :: l_soil
 
@@ -522,8 +506,6 @@ ELSE IF ( l_som_plant_segments ) THEN
   DO iseg = 1, 3
     k_el = kmax * seg_kmax_fac(pft,l,iseg) * seg_rel_k(pft, iseg, psi_root)
     ! The cap on the stem and leaf (and the root with l_som_seg_whole).
-    !
-    ! MDK, 26/10/26
     IF ( PRESENT(kcap_frac) .AND. ( iseg >= 2 .OR. l_som_seg_whole ) )         &
       k_el = MIN(k_el, MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac),      &
                                0.0), 1.0) * kmax * seg_kmax_fac(pft,l,iseg))
@@ -591,7 +573,7 @@ END FUNCTION k_path_zero_flow
 !
 ! A single segment gives k = k(psi_leaf) (the default model).
 !
-! MDK, 23/10/26
+! MDK, 30/10/26
 ! *****************************************************************************
 SUBROUTINE psi_leaf_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
                                   veg_index, open_index, e_leaf,               &
@@ -603,7 +585,9 @@ SUBROUTINE psi_leaf_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
 ! Xylem impairment (memory model, pft_xylem_impairment_model = 3) with
 ! segments: with kcap_frac present, the stem and leaf segments (which use
 ! the PFT curve the impairment model damages) are capped,
-!   k_s(psi) = MIN( kmax_s f_s(psi), kcap_frac * kmax_s ),
+!
+!   k_s(psi) = MIN( kmax_s f_s(psi), kcap_frac kmax_s ),
+!
 ! while the root segment stays intact (no root damage). With
 ! l_ximpair_seg_memory kcap_frac caps the stem only, and the leaf segment
 ! takes its own cap (ximpair_kcap_leaf). Each segment's flow
@@ -625,93 +609,81 @@ INTEGER, INTENT(IN) :: pft, n_e_leaf, land_pts, open_pnts
 INTEGER, INTENT(IN) :: veg_index(land_pts), open_index(land_pts)
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Sampled transpiration (same units as kmax * psi).
   e_leaf(n_e_leaf, open_pnts),                                                 &
-      ! Sampled transpiration (same units as kmax * psi).
+  ! Root-zone water potential (Pa).
   root_zone_psi(land_pts),                                                     &
-      ! Root-zone water potential (Pa).
+  ! Whole-plant maximum conductance (intact).
   kmax(land_pts),                                                              &
-      ! Whole-plant maximum conductance (intact).
+  ! Whole-plant critical conductance.
   kcrit(land_pts)
-      ! Whole-plant critical conductance.
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  ! Leaf water potential (Pa).
   leaf_psi(n_e_leaf, open_pnts),                                               &
-      ! Leaf water potential (Pa).
+  ! Whole-plant conductance -dE/dpsi_leaf.
   leaf_k(n_e_leaf, open_pnts)
-      ! Whole-plant conductance -dE/dpsi_leaf.
 
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
+  ! Impaired / intact maximum conductance of the stem and leaf segments.
   kcap_frac(land_pts)
-      ! Impaired / intact maximum conductance of the stem and leaf segments.
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
+  ! Whole-plant conductance of the intact segments at leaf_psi.
   leaf_k_intact(n_e_leaf, open_pnts),                                          &
-      ! Whole-plant conductance of the intact segments at leaf_psi.
+  ! Water potential at the leaf-side end of the stem segment (Pa).
   stem_psi(n_e_leaf, open_pnts)
-      ! Water potential at the leaf-side end of the stem segment (Pa).
+! .TRUE.: each segment's leaf-side psi is refined by bisection on the
+! supply integral after the Newton steps, so it is exact (to
+! rounding) also near the most the segment can carry, where the few
+! Newton steps may not converge; a flow above that most is
+! infeasible (leaf_psi = som_psi_in_min, leaf_k = 0). Used for the
+! cuticular loss, whose psi is used whatever its k.
 LOGICAL, INTENT(IN), OPTIONAL :: l_exact
-      ! .TRUE.: each segment's leaf-side psi is refined by bisection on the
-      ! supply integral after the Newton steps, so it is exact (to
-      ! rounding) also near the most the segment can carry, where the few
-      ! Newton steps may not converge; a flow above that most is
-      ! infeasible (leaf_psi = som_psi_in_min, leaf_k = 0). Used for the
-      ! cuticular loss, whose psi is used whatever its k.
-      !
-      ! MDK, 22/10/26
 
 INTEGER, PARAMETER :: n_seg = 3, max_nr_iter = 4
 
+! Floor on a segment's conductance, as a fraction of its kmax.
 REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
-      ! Floor on a segment's conductance, as a fraction of its kmax.
 
 INTEGER :: j, l, iseg, it, i
+! l_som_rhizo_series: no soil conductance and E > 0 (infeasible).
 LOGICAL :: l_closed(n_e_leaf)
-      ! l_som_rhizo_series: no soil conductance and E > 0 (infeasible).
+! l_som_rhizo_series: this path's soil-to-root conductance.
 REAL(KIND=real_jlslsm) :: k_s
-      ! l_som_rhizo_series: this path's soil-to-root conductance.
 
 REAL(KIND=real_jlslsm) ::                                                      &
+  ! Segment water potential at the root-side / leaf-side end (Pa).
   psi_in(n_e_leaf), psi_out(n_e_leaf),                                         &
-      ! Segment water potential at the root-side / leaf-side end (Pa).
+  ! Segment conductance at the root-side end / current leaf-side end /
+  ! previous pass.
   k_in(n_e_leaf), k_cur(n_e_leaf), k_prev(n_e_leaf),                           &
-      ! Segment conductance at the root-side end / current leaf-side end /
-      ! previous pass.
+  ! Supply integral at the root-side end; flow for the current leaf-side
+  ! end.
   a_in(n_e_leaf), e_cur(n_e_leaf),                                             &
-      ! Supply integral at the root-side end; flow for the current leaf-side
-      ! end.
+  ! d(psi_out)/dE carried down the segments (as solved / intact curves).
   dpsi_de(n_e_leaf), dpsi_de_int(n_e_leaf),                                    &
-      ! d(psi_out)/dE carried down the segments (as solved / intact curves).
+  ! Segment kmax, kcrit, Weibull b (Pa) and c; cap fraction, the psi
+  ! where the intact curve meets the cap and the intact integral there.
   kmx, kcr, bs, cs, fr, psi_cap, a_cap
-      ! Segment kmax, kcrit, Weibull b (Pa) and c; cap fraction, the psi
-      ! where the intact curve meets the cap and the intact integral there.
+! Deepest Newton step below psi_in on the segment's curve (Pa,
+! newton_psi_drop).
 REAL(KIND=real_jlslsm) :: drop_nr
-      ! Deepest Newton step below psi_in on the segment's curve (Pa,
-      ! newton_psi_drop).
-      !
-      ! MDK, 25/10/26
+! The critical conductance of the path the segment belongs to, for
+! drop_nr: kcrit, or the whole plant's for the shared root and stem.
 REAL(KIND=real_jlslsm) :: kcr_drop
-      ! The critical conductance of the path the segment belongs to, for
-      ! drop_nr: kcrit, or the whole plant's for the shared root and stem.
-      !
-      ! MDK, 30/10/26
+! The flow the current segment carries: the leaf's E, or with the
+! store's flow held fixed (l_store_q_path) E_r = E - q_f for the soil
+! link, the root and the stem (dE_r/dE = 1 either way).
 REAL(KIND=real_jlslsm) :: e_seg(n_e_leaf)
-      ! The flow the current segment carries: the leaf's E, or with the
-      ! store's flow held fixed (l_store_q_path) E_r = E - q_f for the soil
-      ! link, the root and the stem (dE_r/dE = 1 either way).
-      !
-      ! MDK, 24/10/26
 LOGICAL :: l_cap, l_impair, l_exact_on
+! The shared root and stem, one sample at one point: the stem state
+! is kept by a class solve and reused by the whole-plant solve of the
+! same inputs (see l_rs_cache).
 LOGICAL :: l_one
-      ! The shared root and stem, one sample at one point: the stem state
-      ! is kept by a class solve and reused by the whole-plant solve of the
-      ! same inputs (see l_rs_cache).
-      !
-      ! MDK, 30/10/26
 INTEGER :: iseg0
 REAL(KIND=real_jlslsm) :: kc_key
+! Newton: samples still iterating (each stops on its own convergence).
 LOGICAL :: l_nr_active(n_e_leaf)
-      ! Newton: samples still iterating (each stops on its own convergence).
-      !
-      ! MDK, 24/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -750,8 +722,6 @@ DO j = 1, open_pnts
   ! above the whole plant's, so the hydraulic cost would be negative there
   ! and jump at q_f, pinning the optimum near q_f.) The store's balance
   ! (sf_stom, store_cpl_q) keeps E_r >= 0 in what is committed.
-  !
-  ! MDK, 24/10/26
   e_seg(:) = e_leaf(:,j)
   IF ( l_store_q_path ) e_seg(:) = e_leaf(:,j) - store_q_path(l)
 
@@ -761,8 +731,6 @@ DO j = 1, open_pnts
   !   E_r = E + E_o - q_f
   !
   ! and dE_r/dE is still 1.
-  !
-  ! MDK, 30/10/26
   IF ( l_shared_stem_path ) e_seg(:) = e_seg(:) + shared_e_other(l)
 
   ! l_som_rhizo_series: the soil (rhizosphere) link in series ahead of the
@@ -785,7 +753,6 @@ DO j = 1, open_pnts
 
   ! The whole-plant solve of the same inputs as the last class solve:
   ! start at the leaf segment from the kept stem state (l_rs_cache).
-  ! (MDK, 30/10/26)
   iseg0 = 1
   kc_key = -1.0
   IF ( l_impair ) kc_key = kcap_frac(l)
@@ -804,10 +771,8 @@ DO j = 1, open_pnts
   END IF
 
   DO iseg = iseg0, n_seg
-    ! The leaf segment carries the leaf's E, whatever the store gives.
-    ! (MDK, 24/10/26)
-    ! (And not the other class's, unless the whole plant's leaf is solved:
-    ! MDK, 30/10/26.)
+    ! The leaf segment carries the leaf's E, whatever the store gives, and
+    ! not the other class's unless the whole plant's leaf is solved.
     IF ( iseg == n_seg .AND. ( l_store_q_path .OR. l_shared_stem_path ) )     &
       e_seg(:) = e_leaf(:,j)
     IF ( iseg == n_seg .AND. l_shared_stem_path .AND. l_shared_whole_path )    &
@@ -815,17 +780,15 @@ DO j = 1, open_pnts
 
     ! This segment's maximum and critical conductance (its share of the
     ! whole-plant values) and its own vulnerability curve (b, c).
-    kmx = kmax(l) * seg_kmax_fac(pft,l,iseg)   ! MDK, 21/10/26
+    kmx = kmax(l) * seg_kmax_fac(pft,l,iseg)
     kcr = kcrit(l) * seg_kmax_fac(pft,l,iseg)
     bs  = conductance_b_seg(pft,iseg)
     cs  = conductance_c_seg(pft,iseg)
     ! Deepest Newton step below psi_in: k there is below the path's kcrit
     ! on this segment's curve, a fraction kcrit / kmx of the segment's own
-    ! kmax (newton_psi_drop; 5 |bs| unless the curve is wide). (It was
-    ! kcrit/kmax, which for a short, wide segment could leave k above the
-    ! path's kcrit.) MDK, 25/10/26
-    ! (The shared root and stem: the whole plant's kcrit, in proportion to
-    ! its kmax. MDK, 30/10/26)
+    ! kmax (newton_psi_drop; 5 |bs| unless the curve is wide). For the
+    ! shared root and stem the path is the whole plant's, with its kcrit in
+    ! proportion to its kmax.
     kcr_drop = kcrit(l)
     IF ( l_shared_stem_path .AND. ( iseg <= 2 .OR. l_shared_whole_path ) )     &
       kcr_drop = kcr_drop * shared_k_fac(l)
@@ -843,8 +806,6 @@ DO j = 1, open_pnts
     ! does. a_cap is the intact supply integral at psi_cap, used to join the
     ! two parts of the capped integral (seg_a).
     ! With l_som_seg_whole the root is capped too (whole-plant damage).
-    !
-    ! MDK, 26/10/26
     fr = 1.0
     IF ( l_impair .AND. ( iseg >= 2 .OR. l_som_seg_whole ) )                   &
       fr = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor), 1.0)
@@ -883,8 +844,6 @@ DO j = 1, open_pnts
     ! missing flow divided by the conductance there. Each sample stops
     ! when its own k has settled (changes by less than 0.1 kcrit), or
     ! after max_nr_iter steps.
-    !
-    ! MDK, 24/10/26
     l_nr_active(:) = .TRUE.
     DO it = 1, max_nr_iter
       k_prev(:) = k_cur(:)
@@ -896,7 +855,7 @@ DO j = 1, open_pnts
       ! Same runaway guard as the single segment (infeasible demand).
       psi_out(:) = MAX(psi_out(:), psi_in(:) - drop_nr)
       ! A flow back from the store (E_r < 0) larger than the segment can
-      ! carry up to psi = 0: the leaf-side end at 0. (MDK, 24/10/26)
+      ! carry up to psi = 0: the leaf-side end at 0.
       IF ( l_store_q_path ) psi_out(:) = MIN(psi_out(:), 0.0_real_jlslsm)
       WHERE (ABS(k_cur(:) - k_prev(:)) < 0.1 * kcr) l_nr_active(:) = .FALSE.
       IF ( .NOT. ANY(l_nr_active(:)) ) EXIT
@@ -912,13 +871,14 @@ DO j = 1, open_pnts
     ! Segment conductances are floored at a tiny fraction of the segment
     ! kmax (not TINY): a collapsed segment has k -> 0 by underflow, and with
     ! a TINY floor the recursion overflows to -Inf and then 0 * -Inf = NaN
-    ! in the next segment, which previously came out as a huge whole-plant k
-    ! and let an infeasible state (psi_leaf ~ -70 MPa) pass the k > kcrit
-    ! mask. With this floor dpsi_de stays finite and k correctly ~ 0.
+    ! in the next segment, a huge whole-plant k that would let an infeasible
+    ! state (psi_leaf ~ -70 MPa) pass the k > kcrit mask. With this floor
+    ! dpsi_de stays finite and k correctly ~ 0.
     !
     ! Carry dpsi/dE down to the leaf-side end of this segment (header):
     !
     !   dpsi_out/dE = (k(psi_in) dpsi_in/dE - 1) / k(psi_out)
+    !
     k_cur(:)   = MAX(seg_k(psi_out), k_floor * kmx)
     dpsi_de(:) = ( MAX(k_in(:), k_floor * kmx) * dpsi_de(:) - 1.0 ) / k_cur(:)
 
@@ -935,7 +895,7 @@ DO j = 1, open_pnts
     ! Hand on to the next segment; keep the stem segment's leaf-side psi.
     psi_in(:)  = psi_out(:)
     IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(:,j) = psi_out(:)
-    ! Keep the stem state of a class solve (l_rs_cache). MDK, 30/10/26
+    ! Keep the stem state of a class solve (l_rs_cache).
     IF ( iseg == 2 .AND. l_one .AND. .NOT. l_shared_whole_path ) THEN
       l_rs_cache  = .TRUE.
       rs_l        = l
@@ -990,10 +950,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 CONTAINS
 
   ! Segment conductance (capped where l_cap). psi is held at <= 0 here and in
-  ! seg_a: a root-zone psi a hair above 0 (rounding) gave a negative base to
-  ! a non-integer power, so NaN, and closed a wet point. (MDK, 23/10/26)
-  ! ELEMENTAL (one psi at a time), so the calls make no array temporaries.
-  ! (MDK, 30/10/26)
+  ! seg_a: a root-zone psi a hair above 0 (rounding) would give a negative
+  ! base to a non-integer power (NaN) and close a wet point. ELEMENTAL (one
+  ! psi at a time), so the calls make no array temporaries.
   ELEMENTAL FUNCTION seg_k( psi ) RESULT( k )
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
   REAL(KIND=real_jlslsm) :: k
@@ -1007,8 +966,6 @@ CONTAINS
   ! the series in incomplete_gamma is still converged there; deeper, its
   ! 40 terms are not enough and seg_a is no longer monotone). A flow above
   ! that is infeasible.
-  !
-  ! MDK, 22/10/26
   SUBROUTINE seg_bisect( i )
   INTEGER, INTENT(IN) :: i
   INTEGER :: ib
@@ -1040,7 +997,7 @@ CONTAINS
 
   ! Integral of the segment conductance from psi to 0 (so that the flow
   ! from psi_in to psi_out is seg_a(psi_out) - seg_a(psi_in)).
-  ! ELEMENTAL, as seg_k. (MDK, 30/10/26)
+  ! ELEMENTAL, as seg_k.
   ELEMENTAL FUNCTION seg_a( psi ) RESULT( a )
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
   REAL(KIND=real_jlslsm) :: a
@@ -1061,10 +1018,15 @@ END SUBROUTINE psi_leaf_segments_jls
 ! *****************************************************************************
 ! As psi_leaf_segments_jls, with each segment solved from its supply-function
 ! table instead of Newton-Raphson (psi_solver_lut): segment s carries
-!   E = kmax_s * ( S_s(psi_out) - S_s(psi_in) ),  kmax_s = kmax * seg_kfac,
+!
+!   E = kmax_s ( S_s(psi_out) - S_s(psi_in) ),   kmax_s = kmax seg_kfac,
+!
 ! so psi_out = S_s^-1( S_s(psi_in) + E / kmax_s ), downstream from
 ! psi_root_zone. The whole-plant conductance -dE/dpsi_leaf comes from the
-! same recursion, dpsi_out/dE = (k_s(psi_in) dpsi_in/dE - 1) / k_s(psi_out),
+! same recursion,
+!
+!   dpsi_out/dE = (k_s(psi_in) dpsi_in/dE - 1) / k_s(psi_out),
+!
 ! with the same floor on segment conductances. A demand beyond what a
 ! segment can supply puts its leaf-side end at the bottom of its table, where k
 ! is ~0, so the state is rejected as infeasible (k <= kcrit).
@@ -1073,8 +1035,10 @@ END SUBROUTINE psi_leaf_segments_jls
 ! psi_leaf_segments_jls, the stem and leaf segments are capped at a fraction
 ! fr of their kmax_s (ximpair_seg_frac), the root is intact. The capped
 ! integral is
+!
 !   A_s(psi) = fr kmax_s (-psi)                                psi >= psi_cap
 !            = fr kmax_s (-psi_cap) + kmax_s (S_s(psi) - S_s(psi_cap))  below,
+!
 ! psi_cap where the intact curve meets the cap, f_s(psi_cap) = fr. So for an
 ! root-side psi above psi_cap the flow down to psi_cap, e_cap = fr kmax_s
 ! (psi_in - psi_cap), is carried at the constant conductance fr kmax_s: an E <=
@@ -1086,7 +1050,7 @@ END SUBROUTINE psi_leaf_segments_jls
 ! the recursion; leaf_k_intact (if present) the intact ones at the same water
 ! potentials (the hydraulic cost), and stem_psi the stem's leaf-side psi.
 !
-! MDK, 18/10/26
+! MDK, 26/10/26
 ! *****************************************************************************
 SUBROUTINE psi_leaf_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
                                       veg_index, open_index, e_leaf,           &
@@ -1105,32 +1069,28 @@ INTEGER, INTENT(IN) :: pft, n_e_leaf, land_pts, open_pnts
 INTEGER, INTENT(IN) :: veg_index(land_pts), open_index(land_pts)
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! As psi_leaf_segments_jls.
   e_leaf(n_e_leaf, open_pnts), root_zone_psi(land_pts), kmax(land_pts)
-      ! As psi_leaf_segments_jls.
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  ! Leaf water potential (Pa) and whole-plant -dE/dpsi_leaf.
   leaf_psi(n_e_leaf, open_pnts), leaf_k(n_e_leaf, open_pnts)
-      ! Leaf water potential (Pa) and whole-plant -dE/dpsi_leaf.
 
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
+  ! Impaired / intact maximum conductance of the stem (and leaf) segment,
+  ! as psi_leaf_segments_jls (kmax is then the intact value).
   kcap_frac(land_pts)
-      ! Impaired / intact maximum conductance of the stem (and leaf) segment,
-      ! as psi_leaf_segments_jls (kmax is then the intact value).
-      !
-      ! MDK, 18/10/26
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
+  ! Whole-plant conductance of the intact segments at leaf_psi.
   leaf_k_intact(n_e_leaf, open_pnts),                                          &
-      ! Whole-plant conductance of the intact segments at leaf_psi.
+  ! Water potential at the leaf-side end of the stem segment (Pa).
   stem_psi(n_e_leaf, open_pnts)
-      ! Water potential at the leaf-side end of the stem segment (Pa).
-      !
-      ! MDK, 18/10/26
 
 INTEGER, PARAMETER :: n_seg = 3
 
+! Floor on a segment's conductance, as a fraction of its kmax (as
+! psi_leaf_segments_jls).
 REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
-      ! Floor on a segment's conductance, as a fraction of its kmax (as
-      ! psi_leaf_segments_jls).
 
 INTEGER :: i, j, l, iseg
 LOGICAL :: l_cap, l_impair
@@ -1139,8 +1099,6 @@ REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de,  &
       ! fr, psi_cap: the segment's cap fraction and where the intact curve
       ! meets it; e_cap the flow the capped part above psi_cap carries;
       ! e_pos the flow (>= 0); dpsi_de_int d(psi)/dE on the intact segments.
-      !
-      ! MDK, 18/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -1169,26 +1127,23 @@ DO j = 1, open_pnts
       ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
         leaf_psi(i,j) = som_psi_in_min
         leaf_k(i,j)   = 0.0
-        ! MDK, 18/10/26
         IF ( PRESENT(leaf_k_intact) ) leaf_k_intact(i,j) = 0.0
         IF ( PRESENT(stem_psi) ) stem_psi(i,j) = som_psi_in_min
         CYCLE
       END IF
     END IF
+
     ! Root, stem then leaf in series. Each segment carries the same E, so its
     ! leaf-side psi comes from its own table with E divided by its own kmax, and
     ! becomes the next segment's root-side psi. dpsi_de carries dpsi/dE down the
     ! chain: from E = integral(k), k_out dpsi_out = k_in dpsi_in - dE.
-    !
-    ! MDK, 18/10/26
     DO iseg = 1, n_seg
-      kmx = kmax(l) * seg_kmax_fac(pft,l,iseg)   ! MDK, 21/10/26
+      kmx = kmax(l) * seg_kmax_fac(pft,l,iseg)
       bs  = conductance_b_seg(pft,iseg)
       cs  = conductance_c_seg(pft,iseg)
+
       ! Cap on the stem and leaf segments (not the root; all three with
       ! l_som_seg_whole), as psi_leaf_segments_jls.
-      !
-      ! MDK, 26/10/26
       l_cap = .FALSE.
       fr = 1.0
       IF ( l_impair .AND. ( iseg >= 2 .OR. l_som_seg_whole ) ) THEN
@@ -1196,11 +1151,10 @@ DO j = 1, open_pnts
                  1.0)
         l_cap = fr < 1.0 - 1.0e-6
       END IF
+
       IF ( l_cap ) THEN
         ! Exact inversion of the capped integral (see above): the straight
         ! capped part down to psi_cap, then the intact table from psi_cap.
-        !
-        ! MDK, 18/10/26
         psi_cap = bs * (-LOG(fr))**(1.0 / cs)
         e_pos   = MAX(e_leaf(i,j), 0.0)
         IF ( psi_in > psi_cap ) THEN
@@ -1226,23 +1180,23 @@ DO j = 1, open_pnts
         k_in  = MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ), k_floor * kmx)
         k_out = MAX(kmx * EXP( -(ABS(psi_out/bs))**cs ), k_floor * kmx)
       END IF
+
       dpsi_de = ( k_in * dpsi_de - 1.0 ) / k_out
+
       ! The intact chain at the same water potentials (hydraulic cost).
-      !
-      ! MDK, 18/10/26
       IF ( PRESENT(leaf_k_intact) )                                            &
         dpsi_de_int = ( MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ),               &
                             k_floor * kmx)                                     &
                         * dpsi_de_int - 1.0 )                                  &
                       / MAX(kmx * EXP( -(ABS(psi_out/bs))**cs ), k_floor * kmx)
+
       psi_in  = psi_out
       IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(i,j) = psi_out
     END DO
+
     ! The leaf segment's leaf-side psi is the leaf psi. The whole-plant
     ! conductance is -dE/dpsi_leaf = -1/dpsi_de; it is zero if the chain gave no
     ! usable slope (e.g. a segment at its conductance floor).
-    !
-    ! MDK, 18/10/26
     leaf_psi(i,j) = psi_in
     IF ( dpsi_de < 0.0 .AND. ABS(dpsi_de) < HUGE(1.0_real_jlslsm) ) THEN
       leaf_k(i,j) = -1.0 / dpsi_de
@@ -1280,12 +1234,12 @@ USE pftparm, ONLY: kcrit, kmax_pft
 
 IMPLICIT NONE
 
+! Plant functional type.
 INTEGER, INTENT(IN) :: ft
-                            ! Plant functional type.
+! Intact maximum conductance of the path.
 REAL(KIND=real_jlslsm), INTENT(IN) :: kmax_ref
-                            ! Intact maximum conductance of the path.
+! Critical conductance of the path.
 REAL(KIND=real_jlslsm) :: kc
-                            ! Critical conductance of the path.
 
 kc = kmax_ref * (kcrit(ft) / kmax_pft(ft))
 

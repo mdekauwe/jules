@@ -15,8 +15,6 @@ IMPLICIT NONE
 ! Supply-function lookup tables for the plant hydraulics
 ! (som_psi_solver = psi_solver_lut): the whole-plant table of each PFT and
 ! the root, stem and leaf segment tables, and the solvers that read them.
-! (Moved here from xylem_hydraulics_CW_jls_mod, which now keeps the
-! cumulative Weibull routines.)
 !
 ! MDK, 23/10/26
 PRIVATE
@@ -37,10 +35,15 @@ PUBLIC :: psi_leaf_lut_jls                                                     &
 ! ---------------------------------------------------------------------
 ! Supply-function lookup table (som_psi_solver = psi_solver_lut),
 ! for either conductance model of the PFT (pft_conductance_model):
+!
 !   cumulative Weibull: f(psi) = exp(-(psi/b)^c)
 !   SOX:                f(psi) = 1 / (1 + (psi/b)^c)
+!
 ! With k(psi) = kmax * f(psi), the transpiration between root zone and
-! leaf is E = kmax * (S(psi_l) - S(psi_r)), S(psi) = integral(f, psi, 0).
+! leaf is
+!
+!   E = kmax * (S(psi_l) - S(psi_r)),   S(psi) = integral(f, psi, 0).
+!
 ! S depends only on the PFT's b and c (not on kmax, which can vary in
 ! space and time), so it is tabulated once per PFT on a uniform psi grid
 ! from 0 down to where f has fallen to well below kcrit/kmax (and below
@@ -49,50 +52,38 @@ PUBLIC :: psi_leaf_lut_jls                                                     &
 ! interpolation) instead of Newton-Raphson on the incomplete gamma or
 ! hypergeometric series.
 ! ---------------------------------------------------------------------
+! Nodes in a table that ends at its usual floor (below). A table extended down
+! to a lower critical conductance keeps the same spacing and has more nodes, up
+! to n_lut_max (lut_grid).
 INTEGER, PARAMETER, PRIVATE :: n_lut = 4001
-                            ! Nodes in a table that ends at its usual floor
-                            ! (below). A table extended down to a lower
-                            ! critical conductance keeps the same spacing and
-                            ! has more nodes, up to n_lut_max (lut_grid).
+! Most nodes in an extended table; beyond it the spacing is widened instead.
 INTEGER, PARAMETER, PRIVATE :: n_lut_max = 16 * (n_lut - 1) + 1
-                            ! Most nodes in an extended table; beyond it the
-                            ! spacing is widened instead.
-                            !
-                            ! MDK, 20/10/26
+! Bottom of the Weibull table (f falls fast).
 REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: lut_f_floor = 1.0e-6
-                            ! Bottom of the Weibull table (f falls fast).
+! Bottom of the SOX table, as a fraction of kcrit/kmax (f has a power-law tail,
+! so a fixed tiny floor would spread the table too thin).
 REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: lut_f_floor_kcrit = 0.1
-                            ! Bottom of the SOX table, as a fraction of
-                            ! kcrit/kmax (f has a power-law tail, so a fixed
-                            ! tiny floor would spread the table too thin).
+! One table. The node count is per table, so a table extended to a low
+! sl_kfail_frac does not enlarge the others.
 TYPE, PRIVATE :: supply_table
+  ! Number of nodes.
   INTEGER :: n = 0
-                            ! Number of nodes.
+  ! Grid spacing (Pa).
   REAL(KIND=real_jlslsm) :: dpsi = 0.0
-                            ! Grid spacing (Pa).
+  ! S(psi_i) (Pa), psi_i = -(i-1)*dpsi, i = 1..n.
   REAL(KIND=real_jlslsm), ALLOCATABLE :: s(:)
-                            ! S(psi_i) (Pa), psi_i = -(i-1)*dpsi, i = 1..n.
 END TYPE supply_table
-                            ! One table. The node count is per table, so a
-                            ! table extended to a low sl_kfail_frac does not
-                            ! enlarge the others.
-                            !
-                            ! MDK, 20/10/26
+! Whole-plant table for each PFT.
 TYPE(supply_table), ALLOCATABLE, SAVE, PRIVATE :: lut_tab(:)
-                            ! Whole-plant table for each PFT.
-                            !
-                            ! MDK, 20/10/26
 LOGICAL, ALLOCATABLE, SAVE, PRIVATE :: lut_ready(:)
+! Table is for the SOX curve (else Weibull).
 LOGICAL, ALLOCATABLE, SAVE, PRIVATE :: lut_sox(:)
-                            ! Table is for the SOX curve (else Weibull).
 ! Root / stem / leaf segment tables (l_som_plant_segments with
 ! psi_solver_lut): the same S(psi) for each segment's own Weibull
 ! (conductance_b_seg, conductance_c_seg), so the segments in series are
 ! solved by three table inversions (psi_leaf_segments_lut_jls).
+! Table for (pft, segment).
 TYPE(supply_table), ALLOCATABLE, SAVE, PRIVATE :: lut_seg_tab(:,:)
-                            ! Table for (pft, segment).
-                            !
-                            ! MDK, 20/10/26
 LOGICAL, ALLOCATABLE, SAVE, PRIVATE :: lut_seg_ready(:)
 
 CONTAINS
@@ -100,8 +91,7 @@ CONTAINS
 ! *****************************************************************************
 ! .TRUE. if every open point's curve (b, c) is the PFT's, so the supply
 ! table (keyed by PFT) holds for all of them. A point with its own curve
-! (e.g. impaired b and c) must be solved by Newton instead; the table
-! solvers used to ignore b and c.
+! (e.g. impaired b and c) must be solved by Newton instead.
 !
 ! MDK, 21/10/26
 ! *****************************************************************************
@@ -132,12 +122,16 @@ END FUNCTION lut_pft_curve
 ! *****************************************************************************
 ! Leaf water potential and conductance by inverting the tabulated supply
 ! function (the table lut_tab, see the top of this module):
+!
 !   S(psi_l) = S(psi_r) + e_leaf/kmax.
+!
 ! Exact up to the table's linear interpolation, with no iteration. A demand
 ! beyond what the curve can supply from psi_r puts the leaf at the bottom of
 ! the table, where k = lut_f_floor * kmax < kcrit, so stom_opt_mod rejects it
 ! as for the Newton-Raphson solve. Has no automatic arrays, so it is cheap to
 ! call for a single sample per point.
+!
+! MDK, 18/10/26
 ! *****************************************************************************
 SUBROUTINE psi_leaf_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,    &
                                 open_index, e_leaf, root_zone_psi, kmax,       &
@@ -150,20 +144,18 @@ INTEGER, INTENT(IN) ::                                                         &
   pft, n_e_leaf, land_pts, open_pnts, veg_index(land_pts), open_index(land_pts)
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Transpiration rates for each open point (mol H2O m-2 s-1).
   e_leaf(n_e_leaf, open_pnts)                                                  &
-                            ! Transpiration rates for each open point
-                            ! (mol H2O m-2 s-1).
+! Water potential in the root zone (Pa).
 , root_zone_psi(land_pts)                                                      &
-                            ! Water potential in the root zone (Pa).
+! Maximum xylem conductance (same units as e_leaf per Pa).
 , kmax(land_pts)
-                            ! Maximum xylem conductance (same units as
-                            ! e_leaf per Pa).
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  ! Leaf water potential (Pa).
   leaf_psi(n_e_leaf, open_pnts)                                                &
-                            ! Leaf water potential (Pa).
+! Xylem conductance at the leaf water potential.
 , leaf_k(n_e_leaf, open_pnts)
-                            ! Xylem conductance at the leaf water potential.
 
 INTEGER :: i, j, l
 
@@ -178,8 +170,6 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 ! point's kmax (the table is per unit kmax, so one table serves every point),
 ! invert the table for psi_leaf, then take k at that psi_leaf from the curve.
 ! The MAX guards a zero kmax.
-!
-! MDK, 18/10/26
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
   DO i = 1, n_e_leaf
@@ -201,9 +191,11 @@ END SUBROUTINE psi_leaf_lut_jls
 ! meets the cap (f(psi_s) = kc/kmax), the flow from psi_r is carried at the
 ! constant conductance kc down to psi_s, e_cap = kc (psi_r - psi_s) if
 ! psi_r > psi_s (else 0), so
+!
 !   E <= e_cap:  psi_l = psi_r - E / kc                     (exact)
 !   E >  e_cap:  S(psi_l) = S(psi_top) + (E - e_cap) / kmax, psi_top =
 !                MIN(psi_r, psi_s)                          (one inversion)
+!
 ! as the Newton-Raphson of psi_leaf_impaired_memory solves. leaf_k is the
 ! capped conductance at psi_l floored at kcrit, as there. The curve must be
 ! the PFT's (the table's): b and c are not changed by the memory model.
@@ -223,20 +215,18 @@ INTEGER, INTENT(IN) ::                                                         &
   pft, n_e_leaf, land_pts, open_pnts, veg_index(land_pts), open_index(land_pts)
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Transpiration rates for each open point (mol H2O m-2 s-1).
   e_leaf(n_e_leaf, open_pnts)                                                  &
-                            ! Transpiration rates for each open point
-                            ! (mol H2O m-2 s-1).
+! Water potential in the root zone (Pa).
 , root_zone_psi(land_pts)                                                      &
-                            ! Water potential in the root zone (Pa).
+! Intact kmax, the cap and kcrit (same units as e_leaf per Pa).
 , kmax_ref(land_pts), kcap(land_pts), kcrit(land_pts)
-                            ! Intact kmax, the cap and kcrit (same units as
-                            ! e_leaf per Pa).
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  ! Leaf water potential (Pa).
   leaf_psi(n_e_leaf, open_pnts)                                                &
-                            ! Leaf water potential (Pa).
+! Capped conductance at leaf_psi (>= kcrit).
 , leaf_k(n_e_leaf, open_pnts)
-                            ! Capped conductance at leaf_psi (>= kcrit).
 
 INTEGER :: i, j, l
 REAL(KIND=real_jlslsm) :: kmx, kc, psi_r, psi_s, psi_top, e_cap, r
@@ -312,6 +302,8 @@ END FUNCTION supply_lut_psi
 ! psi_root while keeping k >= kcrit_frac * kmax: S(psi_crit) - S(psi_root),
 ! with k(psi_crit) = kcrit_frac * kmax. Zero if psi_root is already beyond
 ! psi_crit.
+!
+! MDK, 18/10/26
 ! *****************************************************************************
 FUNCTION supply_lut_e_crit( pft, psi_root, kcrit_frac ) RESULT( e_crit )
 
@@ -324,15 +316,17 @@ REAL(KIND=real_jlslsm) :: e_crit
 REAL(KIND=real_jlslsm) :: psi_crit, r
 
 CALL build_supply_lut(pft)
+
 ! f(psi_crit) = kcrit_frac, kept inside (0, 1) (e.g. kcrit >= kmax would
 ! otherwise give a NaN).
 r = MIN(MAX(kcrit_frac, 1.0e-6_real_jlslsm),                                   &
         1.0_real_jlslsm - 1.0e-6_real_jlslsm)
+
 ! psi_crit by inverting the curve exactly (not from the table):
-! SOX f = 1/(1 + (psi/b)^c) gives psi = b (1/f - 1)^(1/c);
-! Weibull f = exp(-(psi/b)^c) gives psi = b (-ln f)^(1/c).
 !
-! MDK, 18/10/26
+!   SOX:      f = 1/(1 + (psi/b)^c)  gives  psi = b (1/f - 1)^(1/c),
+!   Weibull:  f = exp(-(psi/b)^c)    gives  psi = b (-ln f)^(1/c).
+!
 IF ( lut_sox(pft) ) THEN
   psi_crit = conductance_b_pft(pft)                                            &
              * (1.0 / r - 1.0)**(1.0 / conductance_c_pft(pft))
@@ -340,18 +334,19 @@ ELSE
   psi_crit = conductance_b_pft(pft)                                            &
              * (-LOG(r))**(1.0 / conductance_c_pft(pft))
 END IF
+
 ! The flow (per unit kmax) that takes the leaf from psi_root down to
 ! psi_crit. It uses the same interpolation as supply_lut_psi, so inverting
 ! e_crit lands back on psi_crit. Zero if the root zone is already drier
 ! than psi_crit: then no flow keeps k above kcrit.
-!
-! MDK, 18/10/26
 e_crit = MAX(table_s_at(lut_tab(pft), psi_crit)                                &
              - table_s_at(lut_tab(pft), psi_root), 0.0)
 
 END FUNCTION supply_lut_e_crit
 
 ! Relative conductance f(psi) = k/kmax of the PFT's conductance model.
+!
+! MDK, 18/10/26
 FUNCTION supply_lut_f( pft, psi ) RESULT( f )
 
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
@@ -364,8 +359,6 @@ REAL(KIND=real_jlslsm) :: f
 ! build call only makes sure lut_sox(pft) is set. Callers use it for k at
 ! the psi_leaf from supply_lut_psi (k = kmax * f). b and psi are both
 ! negative, so psi/b >= 0; ABS only guards a psi > 0.
-!
-! MDK, 18/10/26
 CALL build_supply_lut(pft)
 IF ( lut_sox(pft) ) THEN
   f = 1.0 / (1.0 + (ABS(psi / conductance_b_pft(pft)))**conductance_c_pft(pft))
@@ -382,11 +375,11 @@ END FUNCTION supply_lut_f
 !   table_s_at:  S(psi) by linear interpolation;
 !   table_psi:   the psi_out where S(psi_out) = S(psi_in) + e_over_k;
 !   table_build: S at every node, by Simpson's rule.
-!
-! MDK, 23/10/26
 ! *****************************************************************************
 
 ! S(psi) by linear interpolation in table tab (which must be built).
+!
+! MDK, 20/10/26
 FUNCTION table_s_at( tab, psi ) RESULT( s_psi )
 
 TYPE(supply_table), INTENT(IN) :: tab
@@ -400,8 +393,6 @@ REAL(KIND=real_jlslsm) :: r
 ! the bottom. It is clamped, so psi > 0 gives S = 0 and psi below the table
 ! gives S at the bottom (no extrapolation). i0 is the upper (wetter) node of
 ! psi's cell, and S is interpolated linearly between nodes i0 and i0+1.
-!
-! MDK, 20/10/26
 r = MIN(MAX(-psi / tab%dpsi, 0.0), REAL(tab%n - 1))
 i0 = MIN(INT(r) + 1, tab%n - 1)
 s_psi = tab%s(i0) + (r - (i0 - 1)) * (tab%s(i0+1) - tab%s(i0))
@@ -413,6 +404,8 @@ END FUNCTION table_s_at
 ! psi_in (Pa) at the near end and normalised flow e_over_k = E / kmax (Pa):
 ! solves S(psi_out) = S(psi_in) + e_over_k. psi_out is never wetter than
 ! psi_in.
+!
+! MDK, 20/10/26
 ! *****************************************************************************
 FUNCTION table_psi( tab, psi_in, e_over_k ) RESULT( psi_out )
 
@@ -429,8 +422,6 @@ n = tab%n
 ! s_target is the S the far end must reach: E = kmax * (S(psi_out) -
 ! S(psi_in)), rearranged. r_in is psi_in's fractional position in the table
 ! and i_in the upper (wetter) node of its cell, clamped as in table_s_at.
-!
-! MDK, 18/10/26
 r_in = MIN(MAX(-psi_in / dpsi, 0.0), REAL(n - 1))
 i_in = MIN(INT(r_in) + 1, n - 1)
 s_target = table_s_at(tab, psi_in) + e_over_k
@@ -439,8 +430,6 @@ s_target = table_s_at(tab, psi_in) + e_over_k
 ! of the table (or at psi_in, if that is lower). k there is at most half
 ! of kcrit (and of sl_kfail_frac * kmax, when set), so the sample is
 ! rejected (stom_opt_mod) or counted as failed (supply-loss).
-!
-! MDK, 20/10/26
 IF ( s_target >= tab%s(n) ) THEN
   psi_out = MIN(-(n - 1) * dpsi, psi_in)
 ELSE
@@ -448,8 +437,6 @@ ELSE
   ! Binary search for that cell, starting from psi_in's cell (the far end
   ! is never wetter). S rises with depth, so the cell is unique; the search
   ! takes about log2(n) = 12 steps (16 for n_lut_max).
-  !
-  ! MDK, 18/10/26
   lo = i_in
   hi = n
   DO WHILE ( hi - lo > 1 )
@@ -460,12 +447,11 @@ ELSE
       hi = mid
     END IF
   END DO
+
   ! Linear interpolation of psi within the cell (the inverse of table_s_at):
   ! node lo is at psi = -(lo-1)*dpsi, and the fraction of the cell's S rise
   ! that s_target covers sets how far below it psi_out lies. The cap at
   ! psi_in stops rounding putting the far end above the near end.
-  !
-  ! MDK, 18/10/26
   psi_out = -(lo - 1) * dpsi - dpsi * (s_target - tab%s(lo))                   &
             / (tab%s(hi) - tab%s(lo))
   psi_out = MIN(psi_out, psi_in)
@@ -508,8 +494,8 @@ CONTAINS
 
   ! f = k/kmax at psi = p on the curve (as supply_lut_f).
   REAL(KIND=real_jlslsm) FUNCTION f_of(p)
+  ! Water potential (Pa, <= 0).
   REAL(KIND=real_jlslsm), INTENT(IN) :: p
-                            ! Water potential (Pa, <= 0).
   IF ( l_sox ) THEN
     f_of = 1.0 / (1.0 + (ABS(p / b))**c)
   ELSE
@@ -599,24 +585,21 @@ IMPLICIT NONE
 !-----------------------------------------------------------------------------
 ! Subroutine arguments
 !-----------------------------------------------------------------------------
+! Plant functional type whose table is built.
 INTEGER, INTENT(IN) :: pft
-                            ! Plant functional type whose table is built.
 
 !-----------------------------------------------------------------------------
 ! Local variables
 !-----------------------------------------------------------------------------
+! Vulnerability curve parameter b (Pa).
 REAL(KIND=real_jlslsm) :: b
-                            ! Vulnerability curve parameter b (Pa).
+! Vulnerability curve shape parameter c (dimensionless).
 REAL(KIND=real_jlslsm) :: c
-                            ! Vulnerability curve shape parameter c
-                            ! (dimensionless).
+! Conductance fraction (k / kmax) at the bottom of the table.
 REAL(KIND=real_jlslsm) :: f_floor
-                            ! Conductance fraction (k / kmax) at the bottom
-                            ! of the table.
 
+! .TRUE.: SOX conductance curve; .FALSE.: cumulative Weibull.
 LOGICAL :: l_sox
-                            ! .TRUE.: SOX conductance curve; .FALSE.:
-                            ! cumulative Weibull.
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -627,26 +610,20 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='BUILD_SUPPLY_LUT'
 ! call passes through here, so after the first call this is the only work
 ! done. The check is outside the critical section so that it costs no
 ! locking.
-!
-! MDK, 18/10/26
 IF ( ALLOCATED(lut_ready) ) THEN
   IF ( lut_ready(pft) ) RETURN
 END IF
 
 ! (The DrHook calls come after the fast exit, which is taken on almost
 ! every call, so that every IN has a matching OUT.)
-!
-! MDK, 23/10/26
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! First call for any PFT: allocate the tables for all PFTs (npft_max) at
 ! once, none of them built yet. Inside the critical section, so two threads
 ! cannot both allocate or both build the same PFT's table.
-!
-! MDK, 18/10/26
 !$OMP CRITICAL (som_supply_lut)
 IF ( .NOT. ALLOCATED(lut_ready) ) THEN
-  ! (Each PFT's S array is allocated when its table is built; MDK, 20/10/26.)
+  ! (Each PFT's S array is allocated when its table is built.)
   ALLOCATE( lut_tab(npft_max), lut_ready(npft_max), lut_sox(npft_max) )
   lut_ready(:) = .FALSE.
 END IF
@@ -655,11 +632,10 @@ IF ( .NOT. lut_ready(pft) ) THEN
   ! Build from the PFT's own vulnerability curve (b, c) and conductance
   ! model. kmax is not needed: the table holds S for f = k/kmax, and the
   ! callers divide E by each point's kmax.
-  !
-  ! MDK, 18/10/26
   b = conductance_b_pft(pft)
   c = conductance_c_pft(pft)
   l_sox = pft_conductance_model(pft) == SOX_conductance
+
   ! Bottom of the table: where f = f_floor.
   ! The grid runs from psi = 0 (node 1) down to that psi (node n_lut) in
   ! n_lut - 1 equal cells of dpsi. The psi comes from inverting the curve
@@ -667,8 +643,6 @@ IF ( .NOT. lut_ready(pft) ) THEN
   ! kcrit/kmax (lut_f_floor_kcrit); Weibull uses the fixed lut_f_floor.
   ! lut_grid extends the table, at the same spacing, if the critical
   ! conductance (kcrit or sl_kfail_frac) lies below that floor.
-  !
-  ! MDK, 20/10/26
   IF ( l_sox ) THEN
     f_floor = lut_f_floor_kcrit * (1.0 - kcrit_fractional_loss(pft))
   ELSE
@@ -677,10 +651,9 @@ IF ( .NOT. lut_ready(pft) ) THEN
   CALL table_build( lut_tab(pft), b, c, l_sox, f_floor,                        &
                     lut_f_crit(1.0 - kcrit_fractional_loss(pft),               &
                                1.0_real_jlslsm) )
+
   ! Mark the table ready only once it is complete, so the fast exit above
   ! never returns a half-built table.
-  !
-  ! MDK, 18/10/26
   lut_sox(pft) = l_sox
   lut_ready(pft) = .TRUE.
 END IF
@@ -692,8 +665,13 @@ END SUBROUTINE build_supply_lut
 
 ! *****************************************************************************
 ! Leaf-side water potential (Pa) of segment iseg for root-side psi_in (Pa) and
-! normalised flow e_over_k = E / kmax_s (Pa): S_s(psi_out) = S_s(psi_in) +
-! e_over_k (table_psi on the segment's table).
+! normalised flow e_over_k = E / kmax_s (Pa),
+!
+!   S_s(psi_out) = S_s(psi_in) + e_over_k
+!
+! (table_psi on the segment's table).
+!
+! MDK, 23/10/26
 ! *****************************************************************************
 FUNCTION seg_lut_psi( pft, iseg, psi_in, e_over_k ) RESULT( psi_out )
 
@@ -703,8 +681,6 @@ REAL(KIND=real_jlslsm) :: psi_out
 
 ! A negative flow is treated as zero, so the leaf-side end is never wetter
 ! than the root-side end.
-!
-! MDK, 23/10/26
 psi_out = table_psi(lut_seg_tab(pft,iseg), psi_in, MAX(e_over_k, 0.0))
 
 END FUNCTION seg_lut_psi
@@ -713,6 +689,8 @@ END FUNCTION seg_lut_psi
 ! Build (once per PFT) the segment supply-function tables: as
 ! build_supply_lut for each segment's Weibull, from psi = 0 down to where the
 ! normalised conductance falls to lut_f_floor (or lower, see lut_grid).
+!
+! MDK, 24/10/26
 ! *****************************************************************************
 SUBROUTINE build_supply_lut_seg( pft )
 
@@ -728,7 +706,6 @@ INTEGER, INTENT(IN) :: pft
 INTEGER :: iseg
 REAL(KIND=real_jlslsm) :: b, c
 REAL(KIND=real_jlslsm) :: kfac_lut   ! segment share the table is built for
-                                     ! MDK, 21/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -739,20 +716,16 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='BUILD_SUPPLY_LUT_SEG'
 ! PFTs inside the critical section on the first call, then build this PFT's
 ! three tables (root, stem, leaf). Segments are Weibull only, so the floor
 ! is always lut_f_floor.
-!
-! MDK, 18/10/26
 IF ( ALLOCATED(lut_seg_ready) ) THEN
   IF ( lut_seg_ready(pft) ) RETURN
 END IF
 
 ! DrHook after the fast exit, as in build_supply_lut.
-!
-! MDK, 24/10/26
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 !$OMP CRITICAL (som_supply_lut_seg)
 IF ( .NOT. ALLOCATED(lut_seg_ready) ) THEN
-  ! (Each table's S array is allocated when it is built; MDK, 20/10/26.)
+  ! (Each table's S array is allocated when it is built.)
   ALLOCATE( lut_seg_tab(npft_max, 3), lut_seg_ready(npft_max) )
   lut_seg_ready(:) = .FALSE.
 END IF
@@ -761,6 +734,7 @@ IF ( .NOT. lut_seg_ready(pft) ) THEN
   DO iseg = 1, 3
     b = conductance_b_seg(pft,iseg)
     c = conductance_c_seg(pft,iseg)
+
     ! A segment's k is f kmax seg_kfac, and the whole-path k is at most
     ! the leaf segment's, so the critical fraction of the path (kcrit or
     ! sl_kfail_frac) is a fraction 1/seg_kfac of it on the segment's own
@@ -768,8 +742,6 @@ IF ( .NOT. lut_seg_ready(pft) ) THEN
     ! With kplant_model = 1 a segment's share also moves with LAI
     ! (seg_kscale), so the table is built for the largest share the
     ! LAI_ref / LAI cap allows, k_ground_ratio_max x seg_kfac.
-    !
-    ! MDK, 21/10/26
     kfac_lut = MAX(seg_kfac(pft,iseg), 1.0_real_jlslsm)
     IF ( kplant_model == kplant_model_ground )                                 &
       kfac_lut = kfac_lut * k_ground_ratio_max
@@ -790,9 +762,9 @@ END SUBROUTINE build_supply_lut_seg
 ! kcrit_fractional_loss, or sl_kfail_frac when set and lower), divided by
 ! kfac (a segment's kmax over the path's; 1 for the whole-plant table).
 ! sl_kfail_frac (stomata_model = 9) can be far below kcrit (Sperry et al.
-! 2016 use 0.0005), and the tables used to end at a fixed fraction (1e-6
-! Weibull, 0.1 kcrit/kmax SOX), so the failure point could lie below the
-! bottom of the table.
+! 2016 use 0.0005), so a table that only reached the fixed floor (1e-6
+! Weibull, 0.1 kcrit/kmax SOX) could leave the failure point below its
+! bottom.
 !
 ! MDK, 20/10/26
 ! *****************************************************************************
@@ -815,15 +787,14 @@ END FUNCTION lut_f_crit
 ! Weibull). The floor stops runaway steps for a demand the curve cannot
 ! supply, and such a sample is rejected only if k at the floor is below the
 ! failure conductance (f = kcrit/kmax, or sl_kfail_frac when set and lower).
-! The fixed 5 |b| sat above that point for wide curves (Weibull c below
+! A fixed 5 |b| sits above that point for wide curves (Weibull c below
 ! about 0.7, SOX c below about 1.8, or a small sl_kfail_frac), so demands
-! past E_crit were accepted with k above kcrit. The drop is now at least
+! past E_crit would be accepted with k above kcrit. The drop is at least
 ! 1.2 times the depth where f falls to the failure fraction,
 !
 !   Weibull: psi_f = b (-ln f)^(1/c),   SOX: psi_f = b (1/f - 1)^(1/c),
 !
-! and 5 |b| where that is deeper already (bit-for-bit there, e.g. FR-Pue,
-! c 0.84 with kcrit 5 %: 4.4 |b|).
+! and 5 |b| where that is deeper already.
 !
 ! MDK, 25/10/26
 ! *****************************************************************************
@@ -851,13 +822,12 @@ END FUNCTION newton_psi_drop
 
 ! *****************************************************************************
 ! Grid of a supply table on the curve (b, c; SOX or Weibull): spacing dpsi
-! (Pa) and node count n. As before, the table ends where f = f_floor, in
-! n_lut - 1 cells. If f_need (lut_f_crit) is lower, the table is extended
-! down to where f = f_need with the same spacing and more nodes, so the
-! accuracy near psi = 0, where most of the flow is, is unchanged and a
-! table that needs no extension is exactly as before (bit-for-bit). Only
-! past n_lut_max nodes (a 16-fold longer table, e.g. a SOX curve with c ~ 1
-! and a tiny sl_kfail_frac) is the spacing widened instead.
+! (Pa) and node count n. The table ends where f = f_floor, in n_lut - 1
+! cells. If f_need (lut_f_crit) is lower, the table is extended down to
+! where f = f_need with the same spacing and more nodes, so the accuracy
+! near psi = 0, where most of the flow is, is that of the unextended table.
+! Only past n_lut_max nodes (a 16-fold longer table, e.g. a SOX curve with
+! c ~ 1 and a tiny sl_kfail_frac) is the spacing widened instead.
 !
 ! MDK, 20/10/26
 ! *****************************************************************************
@@ -870,7 +840,7 @@ INTEGER, INTENT(OUT) :: n
 
 REAL(KIND=real_jlslsm) :: psi_need, r
 
-! Spacing as before (same expressions, so the same bits).
+! Spacing of the table that ends at f = f_floor.
 IF ( l_sox ) THEN
   dpsi = ABS(b) * (1.0 / f_floor - 1.0)**(1.0 / c) / (n_lut - 1)
 ELSE

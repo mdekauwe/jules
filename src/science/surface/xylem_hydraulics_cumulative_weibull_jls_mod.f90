@@ -17,8 +17,7 @@ IMPLICIT NONE
 ! solver is called from here), the curve fractions xylem_f and xylem_f_bc,
 ! and the incomplete gamma function. The supply tables are in
 ! supply_table_mod and the segments, the soil-to-root link and the
-! zero-flow conductance of the path in plant_hydraulic_path_mod (moved
-! there 23/10/26).
+! zero-flow conductance of the path in plant_hydraulic_path_mod.
 !
 ! MDK, 23/10/26
 PRIVATE
@@ -163,7 +162,7 @@ END SUBROUTINE leaf_conductance_CW_jls
 !       It assumes that the input and output arrays are only large
 !       enough to contain values for points with open stomata.
 !
-! MDK, 21/10/26
+! MDK, 23/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE xylem_conductance_CW_jls( pft,                                      &
                                      n_water_potentials,                       &
@@ -207,8 +206,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 , conductance_c(open_pnts)
                             ! Conductance parameter c for each open point
                             ! (dimensionless).
-                            !
-                            ! MDK, 21/10/26
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   xylem_conductance(n_water_potentials, open_pnts)
@@ -217,8 +214,6 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 
 INTEGER :: i, j
                             ! Water potential and open point.
-                            !
-                            ! MDK, 23/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -228,8 +223,6 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_CW_JLS'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! k(psi) = kmax exp(-|psi/b|^c), floored at kcrit.
-!
-! MDK, 23/10/26
 DO j = 1, open_pnts
   DO i = 1, n_water_potentials
     xylem_conductance(i,j) = kmax(j)                                           &
@@ -259,8 +252,8 @@ END SUBROUTINE xylem_conductance_CW_jls
 ! With l_som_plant_segments, methods 2 and 3 are not done here: plant_path
 ! (xylem_hydraulics_jls_mod) calls the segment solvers
 ! (psi_leaf_segments_jls, psi_leaf_segments_lut_jls) instead.
-! (Method 1, a zeroth-order Taylor expansion about the mid-path psi, was
-! retired: it overstated k near E_crit. MDK, 25/10/26)
+! (There is no method 1: a zeroth-order Taylor expansion about the mid-path
+! psi overstates k near E_crit.)
 !
 ! The conductance returned, leaf_k, is the curve at the leaf, k(psi_leaf).
 ! That is also the plant's marginal conductance, the one the hydraulic
@@ -275,7 +268,7 @@ END SUBROUTINE xylem_conductance_CW_jls
 !       It returns an output array that only contains values for points
 !       with open stomata.
 !
-! MDK, 23/10/26
+! MDK, 25/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_CW_jls( pft,                                               &
                             n_e_leaf,                                          &
@@ -339,8 +332,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 , conductance_c(land_pts)
                             ! Conductance parameter c for each land point
                             ! (dimensionless).
-                            !
-                            ! MDK, 21/10/26
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   leaf_psi(n_e_leaf, open_pnts)                                                &
@@ -348,8 +339,6 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 , leaf_k(n_e_leaf, open_pnts)
                             ! Leaf conductance for each open point
                             ! (mol m-2 s-1 Pa-1)
-                            !
-                            ! MDK, 21/10/26
 
 ! Local variables
 INTEGER :: i, j, l
@@ -357,37 +346,27 @@ INTEGER :: i, j, l
 REAL(KIND=real_jlslsm) :: psi_nr_floor
                             ! Lowest leaf psi a Newton step may reach
                             ! (Pa): root_zone_psi less newton_psi_drop.
-                            !
-                            ! MDK, 25/10/26
 REAL(KIND=real_jlslsm) :: k_conv_tol
                             ! Convergence tolerance on k, 0.1 kcrit
                             ! (mol m-2 s-1 Pa-1).
-                            !
-                            ! MDK, 24/10/26
 LOGICAL :: l_nr_active(n_e_leaf)
                    ! Newton: samples still iterating (each sample stops on
                    ! its own convergence, so the answer for one E does not
                    ! depend on what else is in the call)
-                   !
-                   ! MDK, 24/10/26
 
 ! Newton-Raphson variables
 REAL(KIND=real_jlslsm) :: e_leaf_current(n_e_leaf, open_pnts)
                             ! Current transpiration rates for each open point
                             ! calculated from current leaf_psi. Used in
                             ! Newton-Raphson method. (mol H2O m-2 s-1)
-                            !
-                            ! MDK, 21/10/26
 REAL(KIND=real_jlslsm) :: gamma_root_psi(open_pnts)
                             ! Lower incomplete gamma function for the root
                             ! zone water potential of each open point. Used
                             ! in Newton-Raphson method.
 REAL(KIND=real_jlslsm) :: a_open(open_pnts), x_open(open_pnts)
                             ! Its arguments at the open points: only these
-                            ! are solved, so a one-sample call no longer
-                            ! sums the series over the whole grid.
-                            !
-                            ! MDK, 24/10/26
+                            ! are solved, so a one-sample call does not
+                            ! sum the series over the whole grid.
 REAL(KIND=real_jlslsm) :: leaf_k_prev(n_e_leaf, open_pnts)
                             ! leaf_k from the previous Newton-Raphson
                             ! iteration, used for the convergence check.
@@ -399,16 +378,12 @@ INTEGER, PARAMETER :: max_nr_iter = 4
                             ! Samples that do not converge (demand beyond what
                             ! the curve can supply) end with k below kcrit
                             ! and are rejected by the feasibility mask.
-                            !
-                            ! MDK, 21/10/26
 
 INTEGER :: errcode
 
 INTEGER :: psi_solver
                             ! som_psi_solver, or Newton where the supply
                             ! table cannot follow a point's own b and c.
-                            !
-                            ! MDK, 21/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -420,8 +395,6 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 ! The table is keyed by PFT, so a point with its own curve (b, c) is solved
 ! by Newton. (Segments with the Newton or table solver do not come here:
 ! plant_path in xylem_hydraulics_jls_mod calls the segment solvers.)
-!
-! MDK, 23/10/26
 psi_solver = som_psi_solver
 IF ( psi_solver == psi_solver_lut ) THEN
   IF ( .NOT. lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,   &
@@ -455,17 +428,13 @@ SELECT CASE (psi_solver)
 !
 !  psi_l' = psi_l - (e_leaf - E(psi_l, psi_r)) / k(psi_l)
 !
-! (corrected 23/10/26: this read psi_r - ..., but the code has always
-! stepped from psi_l). The first guess is psi_l = psi_r - e_leaf / k(psi_r);
-! each step is kept above a floor below psi_r (newton_psi_drop: 5 |b|, or
-! deeper where k there would still be above the failure conductance), and
-! the loop stops when k changes by less than k_conv_tol (or after
-! max_nr_iter steps).
+! The first guess is psi_l = psi_r - e_leaf / k(psi_r); each step is kept
+! above a floor below psi_r (newton_psi_drop: 5 |b|, or deeper where k
+! there would still be above the failure conductance), and the loop stops
+! when k changes by less than k_conv_tol (or after max_nr_iter steps).
 !
-! psi is held at <= 0 in (psi/b)**c (a positive psi gave a negative base
-! and NaN).
-!
-! MDK, 25/10/26
+! psi is held at <= 0 in (psi/b)**c (a positive psi would give a negative
+! base and NaN).
 ! ---------------------------------------------------------------------
 CASE(psi_solver_newton)
   ! Calculate the lower incomplete gamma function for the root zone water
@@ -493,10 +462,8 @@ CASE(psi_solver_newton)
     ! zone meaning that the transpiration rate is zero. This simplifies the
     ! first prediction of the leaf water potential to;
     ! (leaf_k floored as in the update below: in very dry soil it
-    ! underflows to 0, and the first guess was then -Inf and the sample
-    ! NaN. Only that case changes.)
-    !
-    ! MDK, 21/10/26
+    ! underflows to 0, which would make the first guess -Inf and the
+    ! sample NaN.)
     leaf_psi(:,j) = root_zone_psi(l) - e_leaf(:,j)                             &
                     / MAX(leaf_k(:,j), TINY(1.0_real_jlslsm))
 
@@ -504,7 +471,7 @@ CASE(psi_solver_newton)
     k_conv_tol = 0.1 * kcrit(l)
 
     ! Floor for the Newton steps, deep enough that k there is below the
-    ! failure conductance (newton_psi_drop). MDK, 25/10/26
+    ! failure conductance (newton_psi_drop).
     psi_nr_floor = root_zone_psi(l)                                            &
                    - newton_psi_drop(conductance_b(l), conductance_c(l),       &
                        kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm)), .FALSE.)
@@ -516,8 +483,6 @@ CASE(psi_solver_newton)
     ! and leaf_psi keeps stepping further negative, which drives leaf_k
     ! below kcrit so the feasibility mask (k > kcrit) rejects the sample.
     ! Each sample stops when its own k has settled.
-    !
-    ! MDK, 24/10/26
     l_nr_active(:) = .TRUE.
     DO i = 1, max_nr_iter
 
@@ -560,8 +525,8 @@ CASE(psi_solver_newton)
       ! has collapsed there is no need to keep tracking the true (very
       ! negative) asymptotic solution, only to land clearly below kcrit
       ! without risking overflow in (leaf_psi/b)**c on the next pass.
-      ! (The floor is now below the failure point of the curve; at 5 |b|
-      ! it was above it for a wide curve. MDK, 25/10/26)
+      ! (The floor is below the failure point of the curve; a fixed 5 |b|
+      ! would be above it for a wide curve.)
       leaf_psi(:,j) = MAX(leaf_psi(:,j), psi_nr_floor)
 
       WHERE (ABS(leaf_k(:,j) - leaf_k_prev(:,j)) < k_conv_tol)                 &
@@ -646,8 +611,6 @@ INTEGER, INTENT(IN) :: n_x ! Size of x array
 REAL(KIND=real_jlslsm), INTENT(IN) :: a(n_x)
                             ! Shape parameter of each value, 1/c
                             ! (dimensionless).
-                            !
-                            ! MDK, 23/10/26
 REAL(KIND=real_jlslsm), INTENT(IN) :: x(n_x)
                             ! Upper limit of the integral, (psi/b)^c
                             ! (dimensionless).
@@ -655,8 +618,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: x(n_x)
 REAL(KIND=real_jlslsm) :: gamma(n_x)
                             ! Lower incomplete gamma of each x
                             ! (dimensionless).
-                            !
-                            ! MDK, 21/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -694,8 +655,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: x(n_x)
 REAL(KIND=real_jlslsm) :: gamma(n_x)
                             ! Lower incomplete gamma of each x
                             ! (dimensionless).
-                            !
-                            ! MDK, 21/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -729,8 +688,6 @@ END FUNCTION incomplete_gamma
 ! x = (psi/b)^c = -ln(k_crit/k_max) whatever b and c are (about 3 for a
 ! 95 % loss), so a few tens of terms converge there. Only samples far below
 ! kcrit need more, and those are rejected by the k > kcrit test anyway.
-! (For Q. ilex: down to about -10.5 MPa against a kcrit at about -8.2 MPa,
-! 17-21 terms.)
 !
 ! MDK, 30/10/26
 ! ---------------------------------------------------------------------

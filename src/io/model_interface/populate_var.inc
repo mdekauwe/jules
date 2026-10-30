@@ -17,25 +17,26 @@ USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, fire_vars, ainfo,      &
 USE jules_fields_mod, ONLY: toppdm
 USE imgn_drive_mod, ONLY: imgn_drive
 USE imgn_vars_mod, ONLY: imgn_vars
+! MDK, 30/10/26
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
     ximpair_repair_pend, ximpair_area_w
-USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
-USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
-USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
+USE trifctl, ONLY: asteps_since_triffid
+USE trifctl, ONLY: asteps_phen
+USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
 USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
-                                    cut_psi_stem, cut_c_store   ! MDK, 22/10/26
+                                    cut_psi_stem, cut_c_store
 USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
                              phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
-USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood   ! MDK, 29/10/26
-USE triffid_nsc_mod, ONLY: nsc_net_wood_growth   ! MDK, 30/10/26
+USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
+USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
 USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft,  &
-    hydmort_plc_peak   ! MDK, 21/10/26
+    hydmort_plc_peak
 
 USE ancil_info, ONLY:                                                          &
   dim_cslayer, land_pts, nsurft, nsoilt
@@ -1597,9 +1598,10 @@ CASE ( 'snow_tile' )
     progs%snow_surft(:,:) = const_val
   END IF
 
-! MDK, 17/10/26
 CASE ( 'smcl' )
   ! From a dump (exact restart); -1 = rebuild from sthuf (init_ic).
+  !
+  ! MDK, 17/10/26
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
     CALL cube_get_data(cube_land, progs%smcl_soilt(:,1,:))
@@ -2117,6 +2119,7 @@ CASE ( 'cut_c_store' )
   END IF
 
 ! Leaf temperatures of the last timestep (l_leaf_temp; 0 = not yet set).
+!
 ! MDK, 24/10/26
 CASE ( 't_leaf_sun_pft' )
   IF ( PRESENT(cube) ) THEN
@@ -2134,7 +2137,9 @@ CASE ( 't_leaf_shd_pft' )
     psparms%t_leaf_shd_pft(:,:) = const_val
   END IF
 
-! sf_stom state (sf_stom_state_mod). MDK, 22/10/26
+! sf_stom state (sf_stom_state_mod).
+!
+! MDK, 22/10/26
 CASE ( 'fvcmax_psi_state' )
   CALL sf_stom_state_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
@@ -2207,7 +2212,7 @@ CASE ( 'nsc_ft_mean' )
     nsc_ft_mean(:,:) = const_val
   END IF
 
-! MDK, 29/10/26
+! MDK, 30/10/26
 CASE ( 'nsc_wood_lost' )
   CALL triffid_nsc_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
@@ -2217,7 +2222,6 @@ CASE ( 'nsc_wood_lost' )
     nsc_wood_lost(:,:) = const_val
   END IF
 
-! MDK, 30/10/26
 CASE ( 'nsc_net_wood_growth' )
   CALL triffid_nsc_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
@@ -2337,7 +2341,6 @@ CASE ( 'hydmort_pref' )
     hydmort_pref(:,:) = const_val
   END IF
 
-! MDK, 21/10/26
 CASE ( 'hydmort_dead' )
   CALL hydmort_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
@@ -2347,7 +2350,6 @@ CASE ( 'hydmort_dead' )
     hydmort_dead_pft(:,:) = const_val
   END IF
 
-! MDK, 21/10/26
 CASE ( 'hydmort_plc_peak' )
   CALL hydmort_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
@@ -3192,7 +3194,9 @@ CASE ( 'albobs_nir' )
     psparms%albobs_nir_gb(:) = const_val
   END IF
 
-! TRIFFID's period timer and accumulators. MDK, 22/10/26
+! TRIFFID's period timer and accumulators.
+!
+! MDK, 22/10/26
 CASE ( 'trif_asteps' )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
@@ -3202,7 +3206,9 @@ CASE ( 'trif_asteps' )
     asteps_since_triffid = NINT(const_val)
   END IF
 
-! The phenology step count. MDK, 24/10/26
+! The phenology step count.
+!
+! MDK, 24/10/26
 CASE ( 'phen_asteps' )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)

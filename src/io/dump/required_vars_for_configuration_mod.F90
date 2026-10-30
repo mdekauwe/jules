@@ -20,7 +20,7 @@ SUBROUTINE required_vars_for_configuration(nvars, identifiers,                 &
 
 USE update_mod, ONLY: l_imogen, have_prescribed_sthuf
 USE pftparm, ONLY: is_set, nsc_limits_on   ! MDK, 24/10/26
-USE jules_surface_types_mod, ONLY: npft    ! MDK, 24/10/26
+USE jules_surface_types_mod, ONLY: npft
 
 USE jules_hydrology_mod, ONLY: l_top
 
@@ -36,9 +36,9 @@ USE pftparm, ONLY: pft_xylem_impairment_model, nsc_psi_turg_zero,              &
                    nsc_t_grow_zero, nsc_grow_start_doy, nsc_grow_end_doy,      &
                    nsc_flush_start_doy, phen_bb_doy, phen_bb_gdd
 
-USE jules_vegetation_mod, ONLY: l_trif_hydmort   ! MDK, 21/10/26
-USE jules_vegetation_mod, ONLY: l_leaf_temp      ! MDK, 24/10/26
-USE jules_vegetation_mod, ONLY: xylem_impairment_memory   ! MDK, 25/10/26
+USE jules_vegetation_mod, ONLY: l_trif_hydmort   ! MDK, 25/10/26
+USE jules_vegetation_mod, ONLY: l_leaf_temp
+USE jules_vegetation_mod, ONLY: xylem_impairment_memory
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_triffid, l_phenol, l_veg_compete,            &
                                 l_crop, l_landuse,                             &
@@ -230,6 +230,7 @@ IF ( ( .NOT. have_prescribed_sthuf ) .OR.                                      &
   ! Dumps also carry the soil moisture content itself, so that a restart is
   ! exact: rebuilding smcl from sthuf can change the last bit in single
   ! precision. Without soil tiling only; read when present (read_dump).
+  !
   ! MDK, 17/10/26
   IF ( read_or_write_dump_local .AND. .NOT. l_tile_soil )                      &
     CALL add_to_list( 'smcl', nvars, identifiers )
@@ -255,6 +256,7 @@ END IF
 ! sf_stom state carried between timesteps (sf_stom_state_mod), so a restart
 ! reproduces a continuous run: the lagged Vcmax(psi) factor and the coupled-E
 ! first guesses (two-leaf only).
+!
 ! MDK, 22/10/26
 IF ( l_som_vcmax_psi ) CALL add_to_list( 'fvcmax_psi_state', nvars, identifiers )
 ! The cuticular-loss store (its water and stem psi), so a restart
@@ -289,9 +291,10 @@ END IF
 ! TRIFFID's period timer and the accumulators that drive the next TRIFFID
 ! step, so a restart that is not on a TRIFFID step is exact (otherwise the
 ! steps restart from the dump time and the partial-period sums are lost).
-! MDK, 22/10/26
 ! The phenology step count, so a restart calls phenology on the days a
-! continuous run does. MDK, 24/10/26
+! continuous run does.
+!
+! MDK, 24/10/26
 IF ( l_phenol ) CALL add_to_list( 'phen_asteps', nvars, identifiers )
 IF ( l_triffid ) THEN
   CALL add_to_list( 'trif_asteps', nvars, identifiers )
@@ -354,15 +357,18 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   CALL add_to_list( 'psi_leaf_extreme', nvars, identifiers )
   CALL add_to_list( 'psi_root_extreme', nvars, identifiers )
   CALL add_to_list( 'ximpair_lock', nvars, identifiers )
-  ! Per-segment memory: the leaf segment's own cap.
-  ! (and the stem psi, for the PLC output until the first update;
-  ! MDK, 25/10/26)
+  ! Per-segment memory: the leaf segment's own cap, and the stem psi for
+  ! the PLC output until the first update.
+  !
+  ! MDK, 25/10/26
   IF ( l_ximpair_seg_memory ) THEN
     CALL add_to_list( 'ximpair_kcap_leaf', nvars, identifiers )
     CALL add_to_list( 'ximpair_psi_stem', nvars, identifiers )
   END IF
   ! Dilution of the impaired kmax by TRIFFID's gain of area, applied at
-  ! the next update (memory model with competition). MDK, 25/10/26
+  ! the next update (memory model with competition).
+  !
+  ! MDK, 25/10/26
   IF ( l_veg_compete .AND.                                                     &
        ANY( pft_xylem_impairment_model(:) == xylem_impairment_memory ) )       &
     CALL add_to_list( 'ximpair_area_w', nvars, identifiers )
@@ -375,6 +381,7 @@ END IF
 
 ! Hydraulic mortality: the damage the stand has withstood, the stand
 ! killed so far and the period's peak damage.
+!
 ! MDK, 21/10/26
 IF ( l_trif_hydmort ) THEN
   CALL add_to_list( 'hydmort_pref', nvars, identifiers )
@@ -382,46 +389,37 @@ IF ( l_trif_hydmort ) THEN
   CALL add_to_list( 'hydmort_plc_peak', nvars, identifiers )
 END IF
 
-! MDK, 17/10/26
+! MDK, 30/10/26
 IF ( l_triffid_nsc ) THEN
   ! TRIFFID storage pool and the running mean of NPP that sets its loading.
   CALL add_to_list( 'nsc_store', nvars, identifiers )
   CALL add_to_list( 'nsc_npp_mean', nvars, identifiers )
   CALL add_to_list( 'nsc_npp_wt', nvars, identifiers )
   ! The day's NPP for the daily store step without TRIFFID.
-  ! MDK, 17/10/26
   IF ( .NOT. l_triffid ) CALL add_to_list( 'nsc_npp_day', nvars, identifiers )
-  ! The turgor factor so far over the store period (turgor-limited sink).
-  ! MDK, 18/10/26
-  ! (nsc_limits_on, the same test as the store. MDK, 24/10/26)
+  ! The turgor factor so far over the store period (turgor-limited sink;
+  ! nsc_limits_on, the same test as the store).
   IF ( ANY( [ (nsc_limits_on(i), i = 1, npft) ] ) )                            &
     CALL add_to_list( 'nsc_turg_acc', nvars, identifiers )
   ! The daily running mean air temperature of the cold limit.
-  ! MDK, 18/10/26
   IF ( ANY(is_set(nsc_t_grow_zero(:))) )                                       &
     CALL add_to_list( 'nsc_t_run', nvars, identifiers )
   ! The annual mean growth factor of the leaf renewal.
-  ! MDK, 18/10/26
   IF ( l_ximpair_rec_leaf_turn .OR. l_nsc_wmax_norm )                          &
     CALL add_to_list( 'nsc_ft_mean', nvars, identifiers )
   ! The wood still owed to the regrowth before new rings count (net ring
   ! count of the ring renewal).
-  !
-  ! MDK, 29/10/26
   IF ( l_ximpair_rec_nsc )                                                     &
     CALL add_to_list( 'nsc_wood_lost', nvars, identifiers )
   ! The ring year's net wood growth.
-  !
-  ! MDK, 30/10/26
   IF ( l_ximpair_rec_nsc )                                                     &
     CALL add_to_list( 'nsc_net_wood_growth', nvars, identifiers )
   ! The sapwood pool (the conducting stem sapwood).
-  !
-  ! MDK, 30/10/26
   IF ( l_nsc_sapwood_pool )                                                    &
     CALL add_to_list( 'nsc_sapwood', nvars, identifiers )
 END IF
 ! Drought leaf shedding: daily water-status memory and the leaf factor.
+!
 ! MDK, 18/10/26
 IF ( l_phen_psi ) THEN
   CALL add_to_list( 'phen_psi_acc', nvars, identifiers )
@@ -431,11 +429,13 @@ IF ( l_phen_psi ) THEN
   CALL add_to_list( 'nsc_regrow_acc', nvars, identifiers )
 END IF
 ! The leaf flush queues regrowth for the store as well.
+!
 ! MDK, 20/10/26
 IF ( l_triffid_nsc .AND. .NOT. l_phen_psi .AND.                                &
      ANY(is_set(nsc_flush_start_doy(:))) )                                     &
   CALL add_to_list( 'nsc_regrow_acc', nvars, identifiers )
 ! Budburst for deciduous phenology: degree-days, budburst day, dormancy.
+!
 ! MDK, 20/10/26
 IF ( ANY(is_set(phen_bb_doy(:))) .OR. ANY(is_set(phen_bb_gdd(:))) ) THEN
   CALL add_to_list( 'phen_gdd', nvars, identifiers )
@@ -668,6 +668,7 @@ CALL add_to_list( 'frac', nvars, identifiers )
 
 ! Hydraulic mortality changes frac too (fixed fractions lose the killed
 ! cover to bare soil), so it is then read as an initial condition as well.
+!
 ! MDK, 21/10/26
 IF ( l_veg_compete .OR. l_trif_hydmort ) THEN
   ! With competing veg on, frac is a prognostic and should always be read

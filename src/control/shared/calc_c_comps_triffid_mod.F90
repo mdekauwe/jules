@@ -15,8 +15,9 @@ PUBLIC calc_c_comps_triffid, lai_bal_from_ht, ht_from_lai_bal, ht_from_wood,  &
 
 ! The TRIFFID allometry in one place: balanced LAI and height, live
 ! (respiring) stemwood, and the conducting sapwood of the store. Each
-! function keeps the arithmetic order of the code it replaced, so the
-! answers are unchanged to the bit.
+! function keeps the arithmetic order of the expressions it stands for, so
+! the answers do not change to the bit.
+!
 ! MDK, 20/10/26
 
 !-----------------------------------------------------------------------------
@@ -84,7 +85,9 @@ END SUBROUTINE calc_c_comps_triffid
 
 !-----------------------------------------------------------------------------
 ! Balanced LAI from canopy height (m):
-!   lai_bal = (a_ws eta_sl h / a_wl)^(1/(b_wl-1))
+!
+!   lai_bal = (a_ws eta_sl h / a_wl)^(1 / (b_wl - 1))
+!
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
 ELEMENTAL FUNCTION lai_bal_from_ht(n, ht) RESULT(lai_bal)
@@ -103,7 +106,9 @@ END FUNCTION lai_bal_from_ht
 
 !-----------------------------------------------------------------------------
 ! Canopy height (m) from the balanced LAI, the inverse of lai_bal_from_ht:
-!   h = a_wl / (a_ws eta_sl) lai_bal^(b_wl-1)
+!
+!   h = a_wl / (a_ws eta_sl) lai_bal^(b_wl - 1)
+!
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
 ELEMENTAL FUNCTION ht_from_lai_bal(n, lai_bal) RESULT(ht)
@@ -123,7 +128,9 @@ END FUNCTION ht_from_lai_bal
 !-----------------------------------------------------------------------------
 ! Canopy height (m) from the wood carbon (kg C m-2), with
 ! wood = a_wl lai_bal^b_wl:
-!   h = wood / (a_ws eta_sl) (a_wl / wood)^(1/b_wl)
+!
+!   h = wood / (a_ws eta_sl) (a_wl / wood)^(1 / b_wl)
+!
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
 ELEMENTAL FUNCTION ht_from_wood(n, wood) RESULT(ht)
@@ -145,6 +152,7 @@ END FUNCTION ht_from_wood
 ! JULES stem (1 / a_ws of the wood at the balanced LAI). Used for stem
 ! nitrogen and respiration and for the conducting wood that xylem
 ! recovery renews.
+!
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
 ELEMENTAL FUNCTION live_stemwood(n, ht, lai) RESULT(stemc)
@@ -168,6 +176,7 @@ END FUNCTION live_stemwood
 ! LAI_bal / nsc_la_sa times height, wood density and carbon fraction), as in
 ! FATES; otherwise the fraction nsc_sapwood_frac of the wood carbon
 ! (Trugman et al. 2018, Table S2).
+!
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
 ELEMENTAL FUNCTION sapwood_c(n, ht, lai_bal, wood) RESULT(x_s)

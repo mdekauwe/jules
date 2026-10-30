@@ -12,8 +12,8 @@ MODULE leaf_energy_balance_mod
 ! Leaf energy balance of the sunlit and shaded leaf classes (l_leaf_temp):
 ! the canopy aerodynamics (leaf_aero_geom), the terms fixed over the passes
 ! of the stomatal optimisation (leaf_temp_setup) and the leaf and canopy air
-! temperature update (leaf_temp_update, leaf_temp_update_n). Moved here from
-! sf_stom_mod unchanged; called by sf_stom.
+! temperature update (leaf_temp_update, leaf_temp_update_n). Called by
+! sf_stom.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -44,12 +44,14 @@ SUBROUTINE leaf_aero_geom( land_pts, veg_pts, veg_index, lai, canht, z1,       &
 ! coexp is returned per unit cumulative leaf area: as CABLE's gbhu uses it,
 ! or with l_leaf_coexp_lai as derived, per normalised height (divided by
 ! the leaf area).
+!
+! MDK, 24/10/26
 
 USE jules_vegetation_mod, ONLY: l_leaf_coexp_lai
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-! (DrHook: MDK, 24/10/26)
+
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts)
@@ -61,13 +63,12 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: z0m(land_pts), zref(land_pts),          &
                                        coexp(land_pts)
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
+  ! CABLE physical constants (cable_data).
   vonk = 0.40, a33 = 1.25, csw = 0.50, ctl = 0.40, crd = 0.3, csd = 0.003,     &
   ccd = 15.0, ccw_c = 2.0, usuhm = 0.3
-      ! CABLE physical constants (cable_data).
 
 REAL(KIND=real_jlslsm) :: xx, dh, disp, h, lai_h, term2, term3, term5, zruffs
 INTEGER :: l, m
-
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -148,13 +149,14 @@ SUBROUTINE leaf_temp_setup( ft, land_pts, veg_pts, veg_index, ilayers, lai,    &
 ! classes 2n-1 (sunlit) and 2n (shaded) of layer n, the PAR part from the
 ! layer's own absorbed PAR (fapar_*_vis); the class leaf area too. The
 ! layer terms sum to the canopy ones.
-! MDK, 19/10/26
+!
+! MDK, 24/10/26
 
 USE pftparm, ONLY: orient
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-! (DrHook: MDK, 24/10/26)
+
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts), ilayers
@@ -169,7 +171,6 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   wlws_sun(land_pts), wlws_shd(land_pts), frad_sun(land_pts),                  &
   frad_shd(land_pts), ff_sun(land_pts), ff_shd(land_pts)
 
-! MDK, 19/10/26
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
   fapar_sun_vis(land_pts,ilayers), fapar_shd_vis(land_pts,ilayers)
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL ::                               &
@@ -181,9 +182,6 @@ REAL(KIND=real_jlslsm) :: kd, xi0, xi1, dtop, dbot, dwind
 INTEGER :: l, m, n
 LOGICAL :: l_lyr
 
-
-! Diffuse (long-wave) extinction coefficient: spherical leaves (Wang &
-! Leuning, 1998), or horizontal.
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
@@ -191,6 +189,8 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_TEMP_SETUP'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+! Diffuse (long-wave) extinction coefficient: spherical leaves (Wang &
+! Leuning, 1998), or horizontal.
 IF ( orient(ft) == 1 ) THEN
   kd = 1.0
 ELSE
@@ -284,11 +284,12 @@ SUBROUTINE leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
 ! temperatures, and canopy air temperature and humidity, for the stomatal
 ! conductances of the last pass. The balance of leaf_temp_update_n for
 ! the two classes (sunlit, shaded).
-! MDK, 19/10/26
+!
+! MDK, 24/10/26
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-! (DrHook: MDK, 24/10/26)
+
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts)
@@ -306,18 +307,15 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
   q_c(land_pts), gbw_sun(land_pts), gbw_shd(land_pts), ra_out(land_pts),       &
   n_clamp(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN OUT), OPTIONAL ::                            &
+  ! The sunlit (1) and shaded (2) leaves' temperature as a linear
+  ! function of their transpiration (see leaf_temp_update_n;
+  ! l_leaf_temp_ci).
   lt_a(land_pts,2), lt_b(land_pts,2)
-      ! The sunlit (1) and shaded (2) leaves' temperature as a linear
-      ! function of their transpiration (see leaf_temp_update_n;
-      ! l_leaf_temp_ci).
-      !
-      ! MDK, 24/10/26
 
 REAL(KIND=real_jlslsm) ::                                                      &
   lai_x(land_pts,2), sw_x(land_pts,2), wlw_x(land_pts,2), wlws_x(land_pts,2),  &
   frad_x(land_pts,2), ff_x(land_pts,2), gl_x(land_pts,2), t_x(land_pts,2),     &
   gbw_x(land_pts,2)
-
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -375,15 +373,16 @@ SUBROUTINE leaf_temp_update_n( land_pts, veg_pts, veg_index, nc, tair, q1,     &
 ! (the same) or the multilayer canopy layer by layer (nc = 2 x ilayers, the
 ! sunlit and shaded leaf of every layer; ml_leaf_temp_model = 2, as
 ! MAESPA). Leaf temperatures, and canopy air temperature and humidity, for
-! the stomatal conductances of the last pass. (Generalised from the
-! two-leaf balance to nc classes, MDK, 19/10/26.)
+! the stomatal conductances of the last pass.
 !
 ! Each leaf class exchanges with the canopy air (t_c, q_c) through its
 ! boundary layer, as a big leaf: Penman-Monteith with the isothermal net
 ! radiation, linearised about t_c (Leuning et al., 1995, App. E; Wang &
 ! Leuning, 1998), as in the two-leaf model of De Kauwe (two_leaf_at_WTC):
+!
 !   LE = (s Rn + D gh cp) / (s + gamma gh / gw),
 !   T  = t_c + (Rn - LE) / (cp gh),   gh = 2 gbH + grn,
+!
 ! with forced convection for gbH (per unit leaf area at the canopy-top wind
 ! u_wind, divided by leaf_shelter, times the class leaf area weighted by
 ! the wind profile in the canopy, ff) and free convection (times the class
@@ -391,20 +390,25 @@ SUBROUTINE leaf_temp_update_n( land_pts, veg_pts, veg_index, nc, tair, q1,     &
 !
 ! The canopy air is coupled to level 1 through ra (from leaf_aero_model:
 ! 0, so t_c = tair and q_c = q1; 1, CABLE's rt1; 2, JULES's ra):
-!   q_c = q1 + ra (LE_sun + LE_shd + LE_soil) / (rho lc),
+!
+!   q_c = q1 + ra (LE_sun + LE_shd + LE_soil) / (rho L),
 !   t_c = tair + ra (H_sun + H_shd) / (rho cp),
-! LE_soil = rho lc g_soil (qs_soil - q_c) being the soil evaporation into
-! the canopy air, as in CABLE (soil sensible heat is not included: there is
-! no soil surface temperature separate from tstar on vegetated tiles).
+!
+! with L the latent heat at t_c and LE_soil = rho L g_soil (qs_soil - q_c)
+! the soil evaporation into the canopy air, as in CABLE (soil sensible heat
+! is not included: there is no soil surface temperature separate from tstar
+! on vegetated tiles).
 ! The balance is solved for these conductances: LE is linear in q_c, so q_c
 ! is explicit for a given t_c, and t_c is found by regula falsi within
 ! dt_can of tair (at once when ra = 0). Leaf temperatures are kept
 ! within dt_leaf of t_c.
+!
+! MDK, 24/10/26
 
 USE conversions_mod, ONLY: zerodegc
 USE c_rmol, ONLY: rmol
 USE csigma, ONLY: sbcon
-USE canopy_diag_mod, ONLY: h_leaf_pts, le_leaf_pts   ! MDK, 24/10/26
+USE canopy_diag_mod, ONLY: h_leaf_pts, le_leaf_pts
 USE planet_constants_mod, ONLY: cp, r, repsilon
 USE water_constants_mod, ONLY: lc, Water_kg_per_mol
 USE jules_vegetation_mod, ONLY: leaf_width, leaf_shelter, leaf_aero_model
@@ -412,104 +416,99 @@ USE qsat_mod, ONLY: qsat
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-! (DrHook: MDK, 24/10/26)
+
 IMPLICIT NONE
 
+! nc: number of leaf classes.
 INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts), nc
-      ! nc: number of leaf classes. MDK, 19/10/26
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Of each class (see leaf_temp_setup; for two-leaf the sunlit and
+  ! shaded leaf's lai_sun, sw_sun, ... gl_sun and lai_shd, ... gl_shd):
+  ! leaf area, absorbed short-wave, long-wave weights, radiative
+  ! conductance scalar, wind-weighted leaf area and stomatal
+  ! conductance (m s-1, ground).
   tair(land_pts), q1(land_pts), pstar(land_pts), ra(land_pts),                 &
   lw_down(land_pts), u_wind(land_pts),                                         &
   lai_c(land_pts,nc), sw_c(land_pts,nc), wlw_c(land_pts,nc),                   &
   wlws_c(land_pts,nc), frad_c(land_pts,nc), ff_c(land_pts,nc),                 &
   gl_c(land_pts,nc),                                                           &
-      ! Of each class (see leaf_temp_setup; the sunlit and shaded leaf of
-
-      ! two-leaf were lai_sun, sw_sun, ... gl_sun and lai_shd, ... gl_shd):
-      ! leaf area, absorbed short-wave, long-wave weights, radiative
-      ! conductance scalar, wind-weighted leaf area and stomatal
-      ! conductance (m s-1, ground). MDK, 19/10/26
+  ! CABLE canopy geometry (leaf_aero_model = 1; see leaf_aero_geom).
   z0m_a(land_pts), zref_a(land_pts), rt1ab_a(land_pts), zrd_a(land_pts),       &
   usc_a(land_pts), usuh_a(land_pts),                                           &
-      ! CABLE canopy geometry (leaf_aero_model = 1; see leaf_aero_geom).
+  ! Soil evaporation conductance into the canopy air (m s-1, ground
+  ! area) and the saturated humidity it evaporates at (kg kg-1).
   g_soil(land_pts), qs_soil(land_pts)
-      ! Soil evaporation conductance into the canopy air (m s-1, ground
-      ! area) and the saturated humidity it evaporates at (kg kg-1).
 
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+  ! zref/L (leaf_aero_model = 1): the start of the Monin-Obukhov
+  ! iteration, and the last iterate on output, so successive passes in
+  ! a timestep continue the iteration (0 for the first).
   zeta_a(land_pts),                                                            &
-      ! zref/L (leaf_aero_model = 1): the start of the Monin-Obukhov
-      ! iteration, and the last iterate on output, so successive passes in
-      ! a timestep continue the iteration (0 for the first).
+  ! t_cls: leaf temperature of each class.
   t_cls(land_pts,nc), t_c(land_pts), q_c(land_pts)
-      ! (t_cls: leaf temperature of each class; MDK, 19/10/26)
 
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+  ! Leaf boundary layer conductance for water of each class (m/s, class
+  ! basis; 0 without leaf area) and the canopy air resistance (s/m) of
+  ! the balance found, for l_som_coupled_e. Points not solved keep
+  ! their values.
   gbw_c(land_pts,nc), ra_out(land_pts)
-      ! Leaf boundary layer conductance for water of each class (m/s, class
-      ! basis; 0 without leaf area) and the canopy air resistance (s/m) of
-      ! the balance found, for l_som_coupled_e. Points not solved keep
-      ! their values.
 
+! Number of leaf classes (0-nc) whose temperature was held at dt_leaf
+! from the canopy air in the balance found.
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: n_clamp(land_pts)
-      ! Number of leaf classes (0-nc) whose temperature was held at dt_leaf
-      ! from the canopy air in the balance found.
-      ! MDK, 18/10/26
 
 REAL(KIND=real_jlslsm), INTENT(IN OUT), OPTIONAL ::                            &
+  ! Each class's leaf temperature as a linear function of its
+  ! transpiration E (mol m-2 s-1, ground) at the canopy air of the
+  ! balance found, T_leaf = lt_a - lt_b E, i.e. lt_a = t_c + Rn / (cp gh)
+  ! (K) and lt_b = lambda / (cp gh) (K per mol m-2 s-1); lt_b = 0
+  ! without leaf area (l_leaf_temp_ci). Points not solved keep their
+  ! values.
   lt_a_c(land_pts,nc), lt_b_c(land_pts,nc)
-      ! Each class's leaf temperature as a linear function of its
-      ! transpiration E (mol m-2 s-1, ground) at the canopy air of the
-      ! balance found, T_leaf = lt_a - lt_b E, i.e. lt_a = t_c + Rn / (cp gh)
-      ! (K) and lt_b = lambda / (cp gh) (K per mol m-2 s-1); lt_b = 0
-      ! without leaf area (l_leaf_temp_ci). Points not solved keep their
-      ! values.
-      !
-      ! MDK, 24/10/26
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
+  ! CABLE constants: von Karman, gravity, limits on zref/L, minimum rt1.
   vonk = 0.40, grav = 9.81, zetneg = -15.0, zetpos = 1.0, rt_min = 5.0,        &
-      ! CABLE constants: von Karman, gravity, limits on zref/L, minimum rt1.
+  ! CABLE constants: minimum wind at zref for u* (m s-1), Pohlhausen
+  ! coefficient (single-sided plate), Prandtl number, minimum
+  ! boundary-layer conductance of the top leaf (mol m-2 s-1).
   umin_cable = 1.0, apol = 0.70, prandt = 0.71, gbv_min = 0.05,                &
-      ! CABLE constants: minimum wind at zref for u* (m s-1), Pohlhausen
-      ! coefficient (single-sided plate), Prandtl number, minimum
-      ! boundary-layer conductance of the top leaf (mol m-2 s-1).
+  ! Leaf emissivity (Wang & Leuning, 1998, Table 3).
   eps_leaf = 0.96,                                                             &
-      ! Leaf emissivity (Wang & Leuning, 1998, Table 3).
+  ! Soil emissivity (Wang & Leuning, 1998, Table 3).
   eps_soil = 0.94,                                                             &
-      ! Soil emissivity (Wang & Leuning, 1998, Table 3).
+  ! Molecular diffusivity of heat (m2 s-1).
   dheat = 21.5e-6,                                                             &
-      ! Molecular diffusivity of heat (m2 s-1).
+  ! Ratio of boundary-layer conductances for water vapour and heat.
   gbh_2_gbw = 1.075,                                                           &
-      ! Ratio of boundary-layer conductances for water vapour and heat.
+  ! Molar mass of water (kg mol-1).
   m_h2o = Water_kg_per_mol,                                                    &
-      ! Molar mass of water (kg mol-1).
+  ! Minimum wind speed for forced convection (m s-1).
   u_min = 0.1,                                                                 &
-      ! Minimum wind speed for forced convection (m s-1).
+  ! Limits on leaf - canopy air and canopy air - tair (K).
   dt_leaf = 15.0, dt_can = 10.0
-      ! Limits on leaf - canopy air and canopy air - tair (K).
 
+! Maximum evaluations of the canopy balance in the t_c search.
 INTEGER, PARAMETER :: n_solve = 8
-      ! Maximum evaluations of the canopy balance in the t_c search.
+! Tolerance on t_c (K).
 REAL(KIND=real_jlslsm), PARAMETER :: tol_tc = 0.01
-      ! Tolerance on t_c (K).
 
+! Monin-Obukhov iterations for leaf_aero_model = 1 (CABLE niter).
 INTEGER, PARAMETER :: n_mo_cable = 4
-      ! Monin-Obukhov iterations for leaf_aero_model = 1 (CABLE niter).
 
 REAL(KIND=real_jlslsm) ::                                                      &
+  ! ncl_last: classes held at dt_leaf in the last canopy_balance call.
+  ! tx_v, gbw_last: of each class.
   t_lo(veg_pts), t_hi(veg_pts), r_lo(veg_pts), r_hi(veg_pts), t_try(veg_pts),  &
   t_try1(veg_pts), p_v(veg_pts), qs0_v(veg_pts), qs1_v(veg_pts),               &
   tx_v(nc,veg_pts), qc_v(veg_pts), h_v(veg_pts), le_v(veg_pts),                &
   hb_v(veg_pts), leb_v(veg_pts), res, ra_m(land_pts),                          &
   u_m(land_pts), us, rt1usc, zr, gbw_last(nc), ncl_last, lta_last(nc),       &
   ltb_last(nc)
-      ! (ncl_last: classes held at dt_leaf in the last canopy_balance call;
-      ! MDK, 18/10/26. tx_v, gbw_last of each class; MDK, 19/10/26)
 LOGICAL :: l_done(veg_pts)
 INTEGER :: l, m, it, side(veg_pts), it_mo, n_mo
-
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -630,10 +629,13 @@ DO it = 1,n_solve
 END DO
 
 ! Stability for the next iteration (CABLE): zref/L from the canopy sensible
-! heat and the buoyancy of the latent heat, -k g zref (H + 0.07 LE) /
-! (rho cp T u*^3). Only the leaves' fluxes: the soil's sensible heat is not
-! known here (nor is its latent heat added).
-! Also after the last iteration, for the next pass to start from.
+! heat and the buoyancy of the latent heat,
+!
+!   zref/L = -k g zref (H + 0.07 LE) / (rho cp T u*^3).
+!
+! Only the leaves' fluxes: the soil's sensible heat is not known here (nor
+! is its latent heat added). Also after the last iteration, for the next
+! pass to start from.
 IF ( leaf_aero_model == 1 ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -657,7 +659,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 CONTAINS
 
 SUBROUTINE set_out( l, m, tc, qc )
-! (The class temperatures from tx_v; MDK, 19/10/26.)
+! The outputs at point l (the class temperatures from tx_v).
 INTEGER, INTENT(IN) :: l, m
 REAL(KIND=real_jlslsm), INTENT(IN) :: tc, qc
 t_c(l)   = tc
@@ -667,14 +669,16 @@ q_c(l)   = qc
 gbw_c(l,:) = gbw_last(:)
 h_v(m)   = hb_v(m)
 le_v(m)  = leb_v(m)
-! For the canopy diagnostics (canopy_diag_mod). MDK, 24/10/26
+
+! For the canopy diagnostics (canopy_diag_mod).
 IF ( ALLOCATED(h_leaf_pts) ) THEN
   h_leaf_pts(l)  = hb_v(m)
   le_leaf_pts(l) = leb_v(m)
 END IF
-! (ncl_last too.) MDK, 18/10/26
+
+! ncl_last is from that call too, and so are lta_last and ltb_last
+! (l_leaf_temp_ci).
 n_clamp(l) = ncl_last
-! (And lta_last, ltb_last for l_leaf_temp_ci. MDK, 24/10/26)
 IF ( PRESENT(lt_a_c) ) lt_a_c(l,:) = lta_last(:)
 IF ( PRESENT(lt_b_c) ) lt_b_c(l,:) = ltb_last(:)
 END SUBROUTINE set_out
@@ -710,10 +714,11 @@ END FUNCTION psis
 
 SUBROUTINE canopy_balance( l, tc, qs0, qs1, res, t_new, qc_new, h_out, le_out )
 
-! Leaf temperatures and canopy humidity for canopy air temperature tc, and
-! the residual of the canopy air sensible heat balance,
+! Leaf temperatures (of the nc classes) and canopy humidity for canopy air
+! temperature tc, and the residual of the canopy air sensible heat balance,
+!
 !   res = tc - tair - ra (sum of the classes' H) / (rho cp).
-! (nc classes; MDK, 19/10/26)
+!
 
 INTEGER, INTENT(IN) :: l
 REAL(KIND=real_jlslsm), INTENT(IN) :: tc, qs0, qs1
@@ -789,20 +794,20 @@ DO ic = 1,nc
   END IF
 END DO
 
-! Canopy humidity: q_c = q1 + c_q sum(LE), c_q = ra / (rho L), with L the
-! latent heat at tc that the leaves' LE uses (lhv / m_h2o, J kg-1; it was
-! the constant lc, 2-3 % off at 25-35 C). The soil's vapour flux is
-! rho g_soil (qs_soil - q_c), so ra multiplies g_soil.
+! Canopy humidity:
 !
-! MDK, 24/10/26
+!   q_c = q1 + c_q sum(LE),   c_q = ra / (rho L),
+!
+! with L the latent heat at tc that the leaves' LE uses (lhv / m_h2o,
+! J kg-1; the constant lc is 2-3 % off at 25-35 C). The soil's vapour flux
+! is rho g_soil (qs_soil - q_c), so ra multiplies g_soil.
 c_q    = ra_x * m_h2o / ( rho * lhv )
+
 ! Only the classes whose LE is positive at the solved q_c take part, as the
 ! leaf heat balance below clips each class's LE at 0: a class that would
 ! condense (at night) adds no vapour to, and removes none from, the canopy
 ! air. Classes are dropped and q_c re-solved until none of those left is
-! negative (at most nc passes; with none negative this is the single solve
-! as before).
-! MDK, 22/10/26
+! negative (at most nc passes; with none negative, a single solve).
 l_act(:) = .TRUE.
 DO it_q = 1,nc
   sum_a  = 0.0
@@ -831,8 +836,10 @@ le_out = 0.0
 ncl_last = 0.0
 DO ic = 1,nc
   ! The leaf temperature as a function of the class's transpiration at
-  ! this tc (l_leaf_temp_ci): T = tc + (rn - lhv E) / (cp_mol gh).
-  ! MDK, 24/10/26
+  ! this tc (l_leaf_temp_ci),
+  !
+  !   T = tc + (rn - lhv E) / (cp_mol gh).
+  !
   lta_last(ic) = tc
   ltb_last(ic) = 0.0
   IF ( lai_x(ic) > EPSILON(0.0) .AND. gh(ic) > 0.0 ) THEN
@@ -843,7 +850,7 @@ DO ic = 1,nc
     le     = MAX(0.0, a(ic) + b(ic) * (qs0 - qc_new))
     le_out = le_out + le
     dt     = ( rn(ic) - le ) / ( cp_mol * gh(ic) )
-    ! Count the classes held at the limit (t_leaf_clamp). MDK, 18/10/26
+    ! Count the classes held at the limit (t_leaf_clamp).
     IF ( ABS(dt) > dt_leaf ) ncl_last = ncl_last + 1.0
     dt     = MIN(MAX(dt, -dt_leaf), dt_leaf)
     t_new(ic) = tc + dt

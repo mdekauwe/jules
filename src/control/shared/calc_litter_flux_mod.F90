@@ -83,7 +83,8 @@ REAL(KIND=real_jlslsm) :: litter_flux
 ! A PFT with no cover at the start of the step (frac_flux = 0, e.g. the
 ! absent PFTs of a fixed-fraction site run) has no litter per m2 of PFT;
 ! its land litter is the change in its carbon alone (0 if it stays absent).
-! The division gave NaN, which reached the soil carbon.
+! The division would give NaN, which would reach the soil carbon.
+!
 ! MDK, 21/10/26
 IF ( frac_flux > 0.0 ) THEN
   litter_flux = npp - r_gamma / frac_flux *                                    &

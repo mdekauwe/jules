@@ -39,7 +39,7 @@ USE model_time_mod, ONLY:                                                      &
 
 USE spinup_mod, ONLY: max_spinup_vars, nvars, spinup_vars
 
-USE trifctl, ONLY: asteps_since_triffid, asteps_phen   ! asteps_phen: MDK, 24/10/26
+USE trifctl, ONLY: asteps_since_triffid, asteps_phen   ! MDK, 24/10/26
 
 USE switches, ONLY: l_360_sw => l_360
 
@@ -258,7 +258,9 @@ oasis_time = 0
 ! Initialise the number of timesteps since triffid was called
 asteps_since_triffid = 1
 ! and the phenology step count (as timestep_number; from the dump on a
-! restart). MDK, 24/10/26
+! restart).
+!
+! MDK, 24/10/26
 asteps_phen = 1
 
 ! Set the variables that indicate if we are starting or ending a year

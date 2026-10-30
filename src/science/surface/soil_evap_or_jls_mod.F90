@@ -97,15 +97,13 @@ CONTAINS
 !   - The sublayer depth uses visc / u*_surface, dividing by the canopy
 !     wind-profile factor, as Decker et al. (2017, eq. 17 and 21: u* scaled
 !     down beneath the canopy) and CABLE CMIP6-GM2; CABLE trunk and Decker's
-!     later branch multiply by it. (Corrected 24/10/26: this said CABLE
-!     multiplies.)
+!     later branch multiply by it.
 !   - u* is supplied by the caller (JULES computes the tile u* after physiol,
 !     so a neutral-stability estimate is used).
 !   - K(theta) uses CABLE's Campbell form, K = Ks S**(2b+3), with the JULES
 !     b and Ks, even when l_vg_soil = T. The JULES van Genuchten K for the
 !     same b is far smaller in the top layer (e.g. ~50x at S = 0.7 for
-!     FR-Pue, b = 6.7), which pins the resistance at rtevap_max almost
-!     permanently.
+!     b = 6.7), which pins the resistance at rtevap_max almost permanently.
 !   - No snow adjustments (JULES handles snow separately); litter is a
 !     series resistance (see litter_dz).
 !   - Residual water content watr = 0 (CABLE default 0.05).

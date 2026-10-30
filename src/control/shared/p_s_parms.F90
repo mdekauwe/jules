@@ -130,6 +130,7 @@ TYPE :: psparms_data_type
     ! l_leaf_temp: fraction of the leaf classes of each PFT whose
     ! temperature was held at the dt_leaf limit from the canopy air
     ! this timestep (0 without l_leaf_temp).
+    !
     ! MDK, 18/10/26
   REAL(KIND=real_jlslsm), ALLOCATABLE :: leaf_k_pft(:,:)
     ! Conductance at the leaf (mol m-2 s-1 Pa-1) JBaguley

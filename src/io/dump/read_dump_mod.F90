@@ -13,15 +13,16 @@ CONTAINS
 
 SUBROUTINE read_dump(file_name, identifiers)
 
-USE trifctl, ONLY: asteps_since_triffid   ! MDK, 22/10/26
-USE trifctl, ONLY: asteps_phen            ! MDK, 24/10/26
-USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state   ! MDK, 22/10/26
+USE trifctl, ONLY: asteps_since_triffid   ! MDK, 24/10/26
+USE trifctl, ONLY: asteps_phen
+USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
 USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
-                                    cut_psi_stem, cut_c_store   ! MDK, 22/10/26
+                                    cut_psi_stem, cut_c_store
 USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, ainfo, trif_vars,      &
                             soilecosse, progs, progs_data, trifctltype,        &
                             jules_vars, fluxes, rivers, water_resources
 USE imgn_vars_mod, ONLY: imgn_vars
+! MDK, 30/10/26
 USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
     ximpair_repair_pend, ximpair_area_w
@@ -30,12 +31,12 @@ USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
-USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood   ! MDK, 29/10/26
-USE triffid_nsc_mod, ONLY: nsc_net_wood_growth   ! MDK, 30/10/26
+USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
+USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
 USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft,  &
-    hydmort_plc_peak   ! MDK, 21/10/26
+    hydmort_plc_peak
 
 
 USE model_grid_mod, ONLY:                                                      &
@@ -137,8 +138,10 @@ INTEGER :: seed_rain_len
 
 INTEGER :: i, j, m, n, s  ! Loop counters
 
-REAL :: trif_asteps_r   ! TRIFFID timer from the dump (MDK, 22/10/26)
-REAL :: phen_asteps_r   ! Phenology step count from the dump (MDK, 24/10/26)
+REAL :: trif_asteps_r   ! TRIFFID timer from the dump
+REAL :: phen_asteps_r   ! Phenology step count from the dump
+                        !
+                        ! MDK, 24/10/26
 INTEGER :: ERROR  ! Variable to collect MPI errors - most MPI
                   ! implementations bail on error, so this is not checked.
 
@@ -251,16 +254,17 @@ DO i = 1,nvars
       ELSE
         ! TRIFFID store state not in a dump written without the store: start
         ! from the "not yet set" values (read_dump_shared warns).
-        ! MDK, 18/10/26
+        !
+        ! MDK, 23/10/26
         SELECT CASE ( identifiers(i) )
         CASE ( 'nsc_store', 'nsc_t_run', 'nsc_ft_mean', 'nsc_sapwood',         &
                'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd',                 &
                'cpl_gbw_sun', 'cpl_gbw_shd', 'cpl_ra_ca',                      &
                'phen_bb_day' )
-          ! (sf_stom state: -1 = not yet set; MDK, 22/10/26)
+          ! sf_stom state: -1 = not yet set.
           global_data_2d(:,1:npft) = -1.0
         ! Hydraulic mortality: not set (the damage at the first TRIFFID
-        ! step). MDK, 22/10/26
+        ! step).
         CASE ( 'hydmort_pref', 'hydmort_plc_peak' )
           global_data_2d(:,1:npft) = -1.0
         CASE ( 'nsc_turg_acc' )
@@ -270,8 +274,6 @@ DO i = 1,nvars
         CASE ( 'cut_w_store', 'cut_psi_stem' )
           ! Capacitance store: not yet set (> 0), so it starts at the first
           ! step's psi (in balance with it).
-          !
-          ! MDK, 23/10/26
           global_data_2d(:,1:npft) = 1.0
         CASE DEFAULT
           global_data_2d(:,1:npft) = 0.0
@@ -289,9 +291,10 @@ DO i = 1,nvars
       CALL file_read_var(FILE, var_ids(i),                                     &
                          global_data_2d(:,1:sm_levels))
 
-    ! MDK, 17/10/26
     CASE ( 'smcl' )
-      ! Not in older dumps: -1 = rebuild from sthuf (init_ic).
+      ! A dump without smcl: -1 = rebuild from sthuf (init_ic).
+      !
+      ! MDK, 17/10/26
       IF ( var_ids(i) > 0 ) THEN
         CALL file_read_var(FILE, var_ids(i),                                   &
                            global_data_2d(:,1:sm_levels))
@@ -330,7 +333,8 @@ DO i = 1,nvars
       CALL file_read_var(FILE, var_ids(i),                                     &
                          global_data_3d(:,1:dim_cslayer,1:dim_cs1))
 
-    ! Not in dumps written before it was added: an empty sum (as before).
+    ! Dumps written without it: an empty sum.
+    !
     ! MDK, 22/10/26
     CASE ( 'resp_s_acc' )
       IF ( var_ids(i) > 0 ) THEN
@@ -500,13 +504,17 @@ DO i = 1,nvars
         CALL file_read_var(FILE, var_ids(i), global_data_1d)
       END IF
 
-      ! TRIFFID's period timer. MDK, 22/10/26
+      ! TRIFFID's period timer.
+      !
+      ! MDK, 22/10/26
     CASE ( 'trif_asteps' )
       ! < 0: not in the dump, so the timer keeps its start-of-run value.
       trif_asteps_r = -1.0
       IF ( var_ids(i) > 0 ) CALL file_read_var(FILE, var_ids(i), trif_asteps_r)
 
-      ! The phenology step count, as trif_asteps. MDK, 24/10/26
+      ! The phenology step count, as trif_asteps.
+      !
+      ! MDK, 24/10/26
     CASE ( 'phen_asteps' )
       phen_asteps_r = -1.0
       IF ( var_ids(i) > 0 ) CALL file_read_var(FILE, var_ids(i), phen_asteps_r)
@@ -719,7 +727,9 @@ DO i = 1,nvars
       CALL scatter_land_field(global_data_2d(:,n), nsc_t_run(:,n))
     END DO
 
-  ! sf_stom state (sf_stom_state_mod). MDK, 22/10/26
+  ! sf_stom state (sf_stom_state_mod).
+  !
+  ! MDK, 22/10/26
   CASE ( 'fvcmax_psi_state' )
     CALL sf_stom_state_alloc( land_pts )
     DO n = 1,npft
@@ -743,7 +753,9 @@ DO i = 1,nvars
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), cut_c_store(:,n))
     END DO
-  ! Leaf temperatures of the last timestep (l_leaf_temp). MDK, 24/10/26
+  ! Leaf temperatures of the last timestep (l_leaf_temp).
+  !
+  ! MDK, 24/10/26
   CASE ( 't_leaf_sun_pft' )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), psparms%t_leaf_sun_pft(:,n))
@@ -784,14 +796,13 @@ DO i = 1,nvars
       CALL scatter_land_field(global_data_2d(:,n), nsc_ft_mean(:,n))
     END DO
 
-  ! MDK, 29/10/26
+  ! MDK, 30/10/26
   CASE ( 'nsc_wood_lost' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), nsc_wood_lost(:,n))
     END DO
 
-  ! MDK, 30/10/26
   CASE ( 'nsc_net_wood_growth' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
@@ -872,14 +883,12 @@ DO i = 1,nvars
       CALL scatter_land_field(global_data_2d(:,n), hydmort_pref(:,n))
     END DO
 
-  ! MDK, 21/10/26
   CASE ( 'hydmort_dead' )
     CALL hydmort_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), hydmort_dead_pft(:,n))
     END DO
 
-  ! MDK, 21/10/26
   CASE ( 'hydmort_plc_peak' )
     CALL hydmort_alloc( land_pts )
     DO n = 1,npft
@@ -1814,13 +1823,14 @@ DO i = 1,nvars
       CALL scatter_land_field(global_data_1d, water_resources%sfc_water_frac)
     END IF
 
-  ! TRIFFID's period timer and accumulators. MDK, 22/10/26
+  ! TRIFFID's period timer and accumulators, and the phenology step count.
+  !
+  ! MDK, 24/10/26
   CASE ( 'trif_asteps' )
     CALL mpi_bcast(trif_asteps_r, 1, mpi_real,                                 &
          master_task_id, mpi_local_comm, ERROR)
     IF ( trif_asteps_r >= 0.0 ) asteps_since_triffid = NINT(trif_asteps_r)
 
-  ! MDK, 24/10/26
   CASE ( 'phen_asteps' )
     CALL mpi_bcast(phen_asteps_r, 1, mpi_real,                                 &
          master_task_id, mpi_local_comm, ERROR)

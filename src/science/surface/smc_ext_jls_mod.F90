@@ -103,9 +103,9 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 ! psi/soil_k/soil_to_root_k are IN OUT, not OUT: physiol calls smc_ext once
 ! per PFT with the same (soil-tile) arrays, and they are output as
 ! diagnostics. Only this PFT's surft points are reset/written below, so a
-! later call for a PFT with no points no longer wipes the values set by an
-! earlier one (previously every call zeroed all npnts, so the diagnostics
-! always came out as the last PFT's - usually all zeros).
+! later call for a PFT with no points does not wipe the values set by an
+! earlier one (zeroing all npnts would leave the diagnostics as the last
+! PFT's, usually all zeros).
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
  psi(npnts,nshyd)                                                              &
 !                     ! Negative soil water potential in each soil layer
@@ -467,16 +467,15 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
 
     ! (Frozen or all-dry soil: the k-weighted psi here is the Webb psi of
     ! hyd_psi_mod, which can reach tens of MPa, and the impairment drivers
-    ! on psi_root_zone (2, 3) then see it at cold sites. MDK, 25/10/26)
+    ! on psi_root_zone (2, 3) then see it at cold sites.)
     !
     ! If psi_root_zone is exactly zero (no weights at this point), use the
     ! thickness-weighted mean over the rooted layers instead (as CABLE),
     ! or over all layers if no layer has roots.
     !
-    ! (This PFT's points only: psi of the others is not this PFT's.
-    ! MDK, 25/10/26)
+    ! (This PFT's points only: psi of the others is not this PFT's.)
     !
-    ! MDK, 23/10/26
+    ! MDK, 25/10/26
     DO j = 1,surft_pts
       i = surft_index(j)
       IF (psi_root_zone(i) == 0.0) THEN
@@ -556,7 +555,9 @@ ELSE
     ! the layer height. This occurs when fsmc, and subsequently wt_ext, is zero
     !for all layers.
     soil_weights(:) = dzsoil(:) / SUM(dzsoil(:))
-    ! This PFT's points only. MDK, 25/10/26
+    ! This PFT's points only.
+    !
+    ! MDK, 25/10/26
     DO j = 1,surft_pts
       i = surft_index(j)
       IF (psi_root_zone(i) == 0.0) THEN
@@ -808,7 +809,7 @@ FUNCTION soil_to_root_conductance(npnts,nshyd,surft_pts,surft_index,ft         &
 !   soil-plant-atmosphere continuum. Geosci. Model Dev., 7, 2193-2222,
 !   https://doi.org/10.5194/gmd-7-2193-2014
 !
-! MDK, 23/10/26
+! MDK, 25/10/26
 !---------------------------------------------------------------------
 USE pftparm, ONLY: root_radi_pft, rootc_density_pft
 
@@ -893,9 +894,10 @@ rootc_pft_local(:) = root_mass(:)
 !
 ! Where f_{r,j} is the root fraction in the layer, m_{r} is the total root
 ! mass (kg) and rho_{r} is the root density (kg m-3).
+!
 ! A layer with no roots (f_root or the root mass 0), or with more root
 ! volume than soil (f m >= rho dz, a log <= 0), has no conductance: guarded,
-! as f = 0 divided by zero (a trap under -ffpe-trap=zero). MDK, 25/10/26
+! as f = 0 divided by zero (a trap under -ffpe-trap=zero).
 DO n = 1,nshyd
   DO j = 1,surft_pts
     i = surft_index(j)

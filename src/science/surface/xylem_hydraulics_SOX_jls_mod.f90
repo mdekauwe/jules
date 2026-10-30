@@ -189,9 +189,9 @@ END SUBROUTINE xylem_conductance_SOX_jls
 !                            1 + (psi/b)^c
 !
 ! The code below uses one of two methods to estimate the leaf
-! water potential from the transpiration rate. (Method 1, a zeroth-order
-! Taylor expansion about the mid-path psi, was retired: it overstated k
-! near E_crit. MDK, 25/10/26)
+! water potential from the transpiration rate (there is no method 1: a
+! zeroth-order Taylor expansion about the mid-path psi overstates k near
+! E_crit):
 !   2: Uses a Newton-Raphson solve of the integrated conductance
 !      equation (psi_solver_newton).
 !   3: Inverts the tabulated supply function (psi_solver_lut; see
@@ -201,7 +201,7 @@ END SUBROUTINE xylem_conductance_SOX_jls
 !       It returns an output array that only contains values for points
 !       with open stomata.
 !
-! MDK, 24/10/26
+! MDK, 25/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_SOX_jls( pft,                                              &
                              n_e_leaf,                                         &
@@ -247,8 +247,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   e_leaf(n_e_leaf, open_pnts)                                                  &
                             ! Transpiration rates for each open point
                             ! (mol H2O m-2 s-1)
-                            !
-                            ! MDK, 24/10/26
 , root_zone_psi(land_pts)                                                      &
                             ! Water potential in the root zone (Pa)
 , kmax(land_pts)                                                               &
@@ -281,48 +279,37 @@ INTEGER :: i, j, l
 REAL(KIND=real_jlslsm) :: psi_nr_floor
                             ! Lowest leaf psi a Newton step may reach
                             ! (Pa): root_zone_psi less newton_psi_drop.
-                            !
-                            ! MDK, 25/10/26
 REAL(KIND=real_jlslsm) :: k_conv_tol
                             ! Convergence tolerance on k, 0.1 kcrit
                             ! (mol m-2 s-1 Pa-1).
-                            !
-                            ! MDK, 24/10/26
 LOGICAL :: l_nr_active(n_e_leaf)
                    ! Newton: samples still iterating (each sample stops on
                    ! its own convergence)
-                   !
-                   ! MDK, 24/10/26
 
 ! Newton-Raphson variables
 REAL(KIND=real_jlslsm) :: e_leaf_current(n_e_leaf, open_pnts)
                             ! Current transpiration rates for each open point
                             ! calculated from current leaf_psi. Used in
                             ! Newton-Raphson method. (mol H2O m-2 s-1)
-                            !
-                            ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) :: root_psi_component(open_pnts)
                             ! psi_r 2F1 at the root zone water potential of
                             ! each open point. Used in Newton-Raphson method.
 REAL(KIND=real_jlslsm) :: cf_open(open_pnts), xf_open(open_pnts)
                             ! Its arguments at the open points: only these
-                            ! are solved, so a one-sample call no longer
-                            ! sums the series over the whole grid.
-                            !
-                            ! MDK, 24/10/26
+                            ! are solved, so a one-sample call does not
+                            ! sum the series over the whole grid.
 REAL(KIND=real_jlslsm) :: leaf_k_prev(n_e_leaf, open_pnts)
                             ! leaf_k from the previous Newton-Raphson
                             ! iteration, used for the convergence check.
 INTEGER, PARAMETER :: max_nr_iter = 4
-                            ! Cap on Newton-Raphson iterations. Mirrors the
-                            ! equivalent fix and its reasoning in
+                            ! Cap on Newton-Raphson iterations, as in
                             ! psi_leaf_CW_jls (xylem_hydraulics_cumulative_
-                            ! weibull_jls_mod.f90): this used to be a fixed
-                            ! 2 iterations with no convergence check, which
-                            ! is inaccurate under water stress and does not
-                            ! correctly drive an infeasible sample's leaf_k
-                            ! below kcrit. Not independently numerically
-                            ! re-verified for this conductance model's
+                            ! weibull_jls_mod.f90): a fixed 2 iterations
+                            ! with no convergence check is inaccurate under
+                            ! water stress and does not correctly drive an
+                            ! infeasible sample's leaf_k below kcrit. Not
+                            ! independently numerically re-verified for
+                            ! this conductance model's
                             ! k(psi) = kmax/(1+(psi/b)^c) form specifically -
                             ! same value used on the assumption the same
                             ! convergence behaviour holds, since the
@@ -336,8 +323,6 @@ INTEGER :: errcode
 INTEGER :: psi_solver
                             ! som_psi_solver, or Newton where the supply
                             ! table cannot follow a point's own b and c.
-                            !
-                            ! MDK, 21/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -348,8 +333,6 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! The table is keyed by PFT, so a point with its own curve (b, c) is solved
 ! by Newton.
-!
-! MDK, 21/10/26
 psi_solver = som_psi_solver
 IF ( psi_solver == psi_solver_lut ) THEN
   IF ( .NOT. lut_pft_curve( pft, land_pts, open_pnts, veg_index, open_index,   &
@@ -358,10 +341,8 @@ IF ( psi_solver == psi_solver_lut ) THEN
 END IF
 
 ! Select the method to approximate the leaf water potential.
-! psi is held at <= 0 in (psi/b)**c: a positive psi gave a negative base and
-! NaN. Unchanged for psi <= 0.
-!
-! MDK, 24/10/26
+! psi is held at <= 0 in (psi/b)**c: a positive psi would give a negative
+! base and NaN.
 SELECT CASE (psi_solver)
 
 ! ---------------------------------------------------------------------
@@ -388,22 +369,17 @@ SELECT CASE (psi_solver)
 !
 !  psi_l' = psi_l - (e_leaf - E(psi_l, psi_r)) / k(psi_l)
 !
-! (corrected 23/10/26: this read psi_r - ..., but the code has always
-! stepped from psi_l). The first guess is psi_l = psi_r - e_leaf / k(psi_r);
-! each step is kept above a floor below psi_r (newton_psi_drop: 5 |b|, or
-! deeper where k there would still be above the failure conductance, e.g.
-! c below about 1.8), and the loop stops when k changes by less than
-! k_conv_tol (or after max_nr_iter steps). Each sample stops on its own
-! convergence (l_nr_active).
-!
-! MDK, 25/10/26
+! The first guess is psi_l = psi_r - e_leaf / k(psi_r); each step is kept
+! above a floor below psi_r (newton_psi_drop: 5 |b|, or deeper where k
+! there would still be above the failure conductance, e.g. c below about
+! 1.8), and the loop stops when k changes by less than k_conv_tol (or after
+! max_nr_iter steps). Each sample stops on its own convergence
+! (l_nr_active).
 ! ---------------------------------------------------------------------
 CASE(psi_solver_newton)
 
   ! psi_r * 2F1 at the root zone water potential, for the open points
   ! (each value converges on its own).
-  !
-  ! MDK, 24/10/26
   DO j = 1, open_pnts
     l = veg_index(open_index(j))
     cf_open(j) = 1 + 1/conductance_c(l)
@@ -430,8 +406,8 @@ CASE(psi_solver_newton)
     ! The initial guess for the leaf water potential is that of the root zone
     ! meaning that the transpiration rate is zero. This simplifies the first
     ! prediction of the leaf water potential to;
-    ! (leaf_k floored: it underflows to 0 in very dry soil, which gave a
-    ! -Inf first guess and then NaN. Only that case changes. MDK, 22/10/26)
+    ! (leaf_k floored: it underflows to 0 in very dry soil, which would give
+    ! a -Inf first guess and then NaN.)
     leaf_psi(:,j) = root_zone_psi(l) - e_leaf(:,j)                             &
                     / MAX(leaf_k(:,j), TINY(1.0_real_jlslsm))
 
@@ -439,17 +415,15 @@ CASE(psi_solver_newton)
     k_conv_tol = 0.1 * kcrit(l)
 
     ! Floor for the Newton steps, deep enough that k there is below the
-    ! failure conductance (newton_psi_drop). MDK, 25/10/26
+    ! failure conductance (newton_psi_drop).
     psi_nr_floor = root_zone_psi(l)                                            &
                    - newton_psi_drop(conductance_b(l), conductance_c(l),       &
                        kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm)), .TRUE.)
 
     ! Iterate the water potential until converged, or until max_nr_iter is
     ! reached. See the max_nr_iter comment above for why a fixed 2
-    ! iterations with no convergence check was wrong. Each sample stops
+    ! iterations with no convergence check is not used. Each sample stops
     ! when its own k has settled.
-    !
-    ! MDK, 24/10/26
     l_nr_active(:) = .TRUE.
     DO i = 1, max_nr_iter
 
@@ -461,8 +435,6 @@ CASE(psi_solver_newton)
 
       ! Calculate the transpiration rate for the current leaf water potential.
       ! First get the 2F1 term for the leaf water potential.
-      !
-      ! MDK, 24/10/26
       e_leaf_current(:,j) = SOX_2F1(n_e_leaf,                                  &
                                     1 + 1/conductance_c(l),                    &
                    -(MIN(leaf_psi(:,j),0.0_real_jlslsm)/conductance_b(l))      &
@@ -472,23 +444,19 @@ CASE(psi_solver_newton)
 
       ! Calculate the difference between psi * 2F1 at the leaf and root
       ! zone water potentials.
-      !
-      ! MDK, 24/10/26
       e_leaf_current(:,j) = e_leaf_current(:,j) - root_psi_component(j)
 
       ! Multiply by -kmax to get the transpiration rate,
-      !  E = kmax * (psi_r 2F1_r - psi_l 2F1_l).
       !
-      ! MDK, 24/10/26
+      !   E = kmax * (psi_r 2F1_r - psi_l 2F1_l).
+      !
       e_leaf_current(:,j) = - e_leaf_current(:,j) * kmax(l)
 
       ! Calculate the new leaf water potential. leaf_k is floored in the
       ! denominator to avoid a literal divide-by-zero for a sample that has
       ! already collapsed leaf_k to (numerically) 0; see psi_leaf_CW_jls for
-      ! the equivalent reasoning.
-      ! (Was "+": the update must lower psi_leaf when the demand exceeds the
-      ! supply, as in psi_leaf_CW_jls; with "+" it stepped away from the
-      ! root, e.g. -5.0 instead of -5.5 MPa at high demand.)
+      ! the equivalent reasoning. The update lowers psi_leaf when the demand
+      ! exceeds the supply, as in psi_leaf_CW_jls.
       WHERE (l_nr_active(:))                                                   &
         leaf_psi(:,j) = leaf_psi(:,j)                                          &
                - (e_leaf(:,j) - e_leaf_current(:,j))                           &
@@ -512,8 +480,6 @@ CASE(psi_solver_newton)
   END DO
 
 ! Supply-function lookup table (see psi_leaf_lut_jls in supply_table_mod).
-!
-! MDK, 24/10/26
 CASE(psi_solver_lut)
   CALL psi_leaf_lut_jls( pft, n_e_leaf, land_pts, open_pnts, veg_index,        &
                          open_index, e_leaf, root_zone_psi, kmax,              &
@@ -572,10 +538,6 @@ END SUBROUTINE psi_leaf_SOX_jls
 ! 2F1(1,1/c;1+1/c;xf) =
 !     (1 - xf)^(-1) * 2F1(1,1;1+1/c;xf/(xf - 1))
 !
-! (NOTE: an earlier version of this comment had (1 + xf)^(-1) here, which
-! does not match the general formula above with af=1, (1-xf)^(-af). The
-! sign was corrected; see also the note below the series recursion.)
-!
 ! Given that xf <= 0, xf/(xf-1) exists over the range [0,1). Meaning
 ! that the series solution for 2F1(1,1;1+1/c;xf/(xf-1)) can be
 ! calculated using the series solution for 2F1.
@@ -612,13 +574,6 @@ END SUBROUTINE psi_leaf_SOX_jls
 !         n - 1 + cf
 !
 ! Where Tn-1 is the previous term in the sum.
-!
-! (NOTE: an earlier version of this routine used Tn = n * cf * z * Tn-1,
-! i.e. multiplying by cf instead of dividing by (n-1+cf). That recursion
-! does not converge - for any fixed xf < 0 the terms grow without bound
-! as n increases, rather than shrinking, so taking more terms made the
-! result worse rather than more accurate. It was also missing the
-! (1-xf)^(-1) prefactor derived above. Both are fixed in the code below.)
 ! ---------------------------------------------------------------------
 FUNCTION SOX_2F1(n_xf, cf, xf) RESULT( f21 )
 
@@ -653,8 +608,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: cf(n_xf)
 REAL(KIND=real_jlslsm), INTENT(IN) :: xf(n_xf)
 
 REAL(KIND=real_jlslsm) :: f21(n_xf)
-                            ! (Was named sum, which hid the intrinsic.
-                            ! MDK, 24/10/26)
+                            ! (Not named sum, which would hide the
+                            ! intrinsic.)
+                            !
+                            ! MDK, 24/10/26
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: current_term(n_xf)
@@ -666,12 +623,12 @@ LOGICAL :: l_active(n_xf)
 REAL(KIND=real_jlslsm) :: z(n_xf)
 INTEGER :: i
 
-! Series convergence controls, mirroring the equivalent fix to
-! incomplete_gamma in xylem_hydraulics_cumulative_weibull_jls_mod.f90.
-! Same caveat applies: this series is only well conditioned while z is
-! not too close to 1 (i.e. xf not too large in magnitude - deep into the
-! vulnerability curve, close to hydraulic failure); very extreme xf would
-! need more terms than max_terms to converge fully.
+! Series convergence controls, as for incomplete_gamma in
+! xylem_hydraulics_cumulative_weibull_jls_mod.f90. Same caveat applies:
+! this series is only well conditioned while z is not too close to 1 (i.e.
+! xf not too large in magnitude - deep into the vulnerability curve, close
+! to hydraulic failure); very extreme xf would need more terms than
+! max_terms to converge fully.
 !
 ! How far off: z = xf / (xf - 1) tends to 1 as |psi/b|^c grows, and the
 ! terms shrink about as z^n. At xf = -25, z = 0.96 and 0.96^100 is about
@@ -701,7 +658,9 @@ f21 = 1.0
 
 ! Tn = [n / (n-1+cf)] * z * Tn-1 (see the derivation above SOX_2F1),
 ! each value until its own remaining term is negligible relative to its
-! running sum (as incomplete_gamma; MDK, 23/10/26).
+! running sum (as incomplete_gamma).
+!
+! MDK, 23/10/26
 l_active(:) = .TRUE.
 DO i = 1, max_terms
   WHERE ( l_active )

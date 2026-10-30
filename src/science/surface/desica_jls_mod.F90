@@ -12,21 +12,28 @@ MODULE desica_jls_mod
 ! DESICA plant hydraulics (stomata_model = stomata_desica).
 !
 ! Stomata follow the Tuzet et al. (2003) closure on leaf water potential,
+!
 !   fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf))),
 !   gs = g1 fw An / ca   (set in leaf_limits as ci = ca (1 - 1.6/(g1 fw))).
+!
 ! DESICA and CABLE take psi_leaf from the previous timestep. At 30 min that
 ! oscillates (the leaf pool equilibrates in ~minutes, so a step at high gs
 ! drives psi_leaf down, the next step shuts, and so on), so sf_stom instead
-! solves fw = Tuzet(psi_leaf at the end of the step, for the E that fw
-! gives) by bisection, in the big-leaf block of sf_stom: the right-hand
-! side falls as fw rises, so the root is unique. This is the limit of
-! DESICA's (Python) repeated solves within a step.
+! solves
+!
+!   fw = Tuzet(psi_leaf at the end of the step, for the E that fw gives)
+!
+! by bisection, in the big-leaf block of sf_stom: the right-hand side falls
+! as fw rises, so the root is unique. This is the limit of DESICA's
+! (Python) repeated solves within a step.
 !
 ! psi_leaf and psi_stem are prognostic and follow Xu et al. (2016) Notes S1:
+!
 !   C_stem dpsi_stem/dt = Q - J                     (Eqn S4a)
 !   C_leaf dpsi_leaf/dt = J - E                     (Eqn S4b)
 !   J = k_stem2leaf (psi_stem - psi_leaf - psi_h)   (Eqn S2a)
 !   Q = k_root2stem (psi_soil - psi_stem), Q = 0 if psi_soil < psi_stem (S1a)
+!
 ! Each equation is solved analytically with the other pool held fixed
 ! (Eqn S4c): psi_leaf first with psi_stem fixed, J from mass conservation,
 ! then psi_stem with psi_soil fixed. Xu et al. use 600 s steps, so the
@@ -56,9 +63,12 @@ MODULE desica_jls_mod
 ! step's inputs (desica_store_inputs). Once the surface fluxes are final,
 ! sf_evap advances psi_leaf and psi_stem with the actual transpiration T
 ! (desica_commit) and extracts the root uptake Q from the soil instead of
-! T; the plant store takes up the difference, dW/dt = Q - T. Where the
-! plant cannot deliver T (a psi bound), the shortfall is added to Q, and
-! where the soil cannot supply Q, Q is cut and the stem store pays
+! T; the plant store takes up the difference,
+!
+!   dW/dt = Q - T.
+!
+! Where the plant cannot deliver T (a psi bound), the shortfall is added to
+! Q, and where the soil cannot supply Q, Q is cut and the stem store pays
 ! (desica_cut_uptake), so soil + plant + atmosphere water is conserved.
 ! psi_leaf and psi_stem are dumped ('psi_leaf_desica', 'psi_stem_desica',
 ! Pa). A value >= 0 (e.g. an initial condition of 0) means "not set": the
@@ -68,10 +78,12 @@ MODULE desica_jls_mod
 ! Tuzet et al. (2003) Plant Cell Environ. 26: 1097-1116.
 ! Xu et al. (2016) New Phytol. 212: 80-95, doi:10.1111/nph.14009.
 ! De Kauwe et al. (2020) Biogeosciences 17: 3589-3612 (CABLE-DESICA).
+!
+! MDK, 24/10/26
 ! *********************************************************************
 
 USE um_types, ONLY: real_jlslsm
-USE water_constants_mod, ONLY: Water_kg_per_mol   ! MDK, 24/10/26
+USE water_constants_mod, ONLY: Water_kg_per_mol
 
 IMPLICIT NONE
 
@@ -82,37 +94,30 @@ PUBLIC :: desica_alloc, desica_fw, desica_hydraulics, tuzet_fw,                &
           dw_plant_desica
 
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE ::                                   &
+  ! Leaf water potential (Pa), (land_pts, npft).
   psi_leaf_desica(:,:),                                                        &
-                            ! Leaf water potential (Pa), (land_pts, npft).
+  ! Stem water potential (Pa).
   psi_stem_desica(:,:),                                                        &
-                            ! Stem water potential (Pa).
+  ! Root water uptake Q, timestep mean (kg m-2 ground s-1).
   flux_root_desica(:,:),                                                       &
-                            ! Root water uptake Q, timestep mean
-                            ! (kg m-2 ground s-1).
+  ! Sap flow stem -> leaf J, timestep mean (kg m-2 ground s-1).
   flux_sap_desica(:,:),                                                        &
-                            ! Sap flow stem -> leaf J, timestep mean
-                            ! (kg m-2 ground s-1).
+  ! Change of plant water store, Q - T (kg m-2 ground s-1).
   dw_plant_desica(:,:),                                                        &
-                            ! Change of plant water store, Q - T
-                            ! (kg m-2 ground s-1).
+  ! This step's LAI, canopy height (m), root zone water potential (Pa) and
+  ! soil-to-root conductance (mol m-2 s-1 Pa-1, < 0: none), stored by sf_stom
+  ! for desica_commit.
   lai_desica(:,:), ht_desica(:,:), psi_soil_desica(:,:), ksr_desica(:,:)
-                            ! This step's LAI, canopy height (m), root
-                            ! zone water potential (Pa) and soil-to-root
-                            ! conductance (mol m-2 s-1 Pa-1, < 0: none),
-                            ! stored by sf_stom for desica_commit.
 
+! Longest sub-step (s), Xu et al. (2016).
 REAL(KIND=real_jlslsm), PARAMETER :: dt_max = 600.0
-                            ! Longest sub-step (s), Xu et al. (2016).
+! Lower bound on psi_leaf (Pa), as CABLE-DESICA.
 REAL(KIND=real_jlslsm), PARAMETER :: psi_leaf_min = -20.0e6
-                            ! Lower bound on psi_leaf (Pa), as CABLE-DESICA.
+! Below this LAI there is no leaf pool.
 REAL(KIND=real_jlslsm), PARAMETER :: lai_min = 1.0e-3
-                            ! Below this LAI there is no leaf pool.
+! kg H2O per mol (JULES's value, so mol/kg round trips with the rest of the code
+! close).
 REAL(KIND=real_jlslsm), PARAMETER :: mol_h2o = Water_kg_per_mol
-                            ! kg H2O per mol (JULES's value; was 0.018, so
-                            ! mol/kg round trips with the rest of the code
-                            ! did not close).
-                            !
-                            ! MDK, 24/10/26
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='DESICA_JLS_MOD'
 
@@ -168,10 +173,10 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
+! Root zone water potential (Pa).
 REAL(KIND=real_jlslsm), INTENT(IN) :: psi_root_zone(land_pts)
-                            ! Root zone water potential (Pa).
+! Tuzet factor (0-1).
 REAL(KIND=real_jlslsm), INTENT(OUT) :: fw(land_pts)
-                            ! Tuzet factor (0-1).
 
 INTEGER :: l, m
 
@@ -221,6 +226,8 @@ END FUNCTION tuzet_fw
 !-----------------------------------------------------------------------------
 ! Advance psi_leaf and psi_stem over the timestep for the canopy
 ! transpiration el (Xu et al. 2016, Eqns S1, S2, S4).
+!
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,      &
                               lai, canht, psi_root_zone, ksr, el, l_commit,    &
@@ -237,51 +244,43 @@ USE yomhook, ONLY: lhook, dr_hook
 
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Model timestep (s).
   timestep,                                                                    &
-                            ! Model timestep (s).
+  ! Leaf area index.
   lai(land_pts),                                                               &
-                            ! Leaf area index.
+  ! Canopy height (m), for the gravity term.
   canht(land_pts),                                                             &
-                            ! Canopy height (m), for the gravity term.
+  ! Root zone (uptake-weighted) soil water potential (Pa).
   psi_root_zone(land_pts),                                                     &
-                            ! Root zone (uptake-weighted) soil water
-                            ! potential (Pa).
+  ! Soil-to-root conductance, per m2 ground (mol m-2 s-1 Pa-1); < 0: no soil
+  ! link.
   ksr(land_pts),                                                               &
-                            ! Soil-to-root conductance, per m2 ground
-                            ! (mol m-2 s-1 Pa-1); < 0: no soil link.
+  ! Canopy transpiration (mol H2O m-2 s-1).
   el(land_pts)
-                            ! Canopy transpiration (mol H2O m-2 s-1).
+! Store the new state (else only project it).
 LOGICAL, INTENT(IN) :: l_commit
-                            ! Store the new state (else only project it).
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
+  ! Leaf water potential at the end of the step (Pa).
   psi_leaf(land_pts),                                                          &
-                            ! Leaf water potential at the end of the step (Pa).
+  ! Kplant: soil-to-leaf conductance, ksr in series with the xylem at psi_stem
+  ! (mol m-2 ground s-1 Pa-1).
   leaf_k(land_pts),                                                            &
-                            ! Kplant: soil-to-leaf conductance, ksr in
-                            ! series with the xylem at psi_stem
-                            ! (mol m-2 ground s-1 Pa-1).
+  ! Transpiration the plant can deliver over the step (mol m-2 s-1): el, or less
+  ! where psi_stem or psi_leaf reach their lower bounds.
   el_hyd(land_pts)
-                            ! Transpiration the plant can deliver over the
-                            ! step (mol m-2 s-1): el, or less where psi_stem
-                            ! or psi_leaf reach their lower bounds.
 
 INTEGER :: l, m, n, n_sub
 REAL(KIND=real_jlslsm) ::                                                      &
+  ! Sub-step (s); canopy kmax, xylem, leaf-side, root-side and soil-to-leaf
+  ! conductances (mol m-2 s-1 Pa-1); leaf and stem capacitances (mol m-2 Pa-1);
+  ! gravity drop and stem bound (Pa); leaf and stem psi at the start and end of
+  ! a sub-step (Pa); the pool solution's a, b and EXP(a dt); sap flow, its cap,
+  ! root uptake and their step sums, and transpiration (mol m-2 s-1); and ksr
+  ! here.
   dt, kmax_c, k_xylem, k_leaf, k_root, k_plant, c_leaf, c_stem, psi_h,         &
   psi_stem_min,                                                                &
   pl, ps, pl_new, ps_new, ap, bp, ex, j_sap, j_cap, q_root, q_sum, j_sum,      &
   e, e_sub, e_sum, ksr_l
-                            ! Sub-step (s); canopy kmax, xylem, leaf-side,
-                            ! root-side and soil-to-leaf conductances
-                            ! (mol m-2 s-1 Pa-1); leaf and stem
-                            ! capacitances (mol m-2 Pa-1); gravity drop
-                            ! and stem bound (Pa); leaf and stem psi at the
-                            ! start and end of a sub-step (Pa); the pool
-                            ! solution's a, b and EXP(a dt); sap flow, its
-                            ! cap, root uptake and their step sums, and
-                            ! transpiration (mol m-2 s-1); and ksr here.
-                            !
-                            ! MDK, 24/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -348,11 +347,16 @@ DO m = 1,veg_pts
     ! fluxes, not the potentials, so that the stores stay in balance
     ! (C dpsi = in - out): clamping psi after the solve would let water
     ! leave a store that no longer falls. For a pool dx/dt = a x + b over dt,
-    ! x ends at x_end for b = a (x_end - x e^(a dt)) / (e^(a dt) - 1).
+    ! x ends at x_end for
+    !
+    !   b = a (x_end - x e^(a dt)) / (e^(a dt) - 1).
 
-    ! Leaf (Eqn S4c), psi_stem fixed: dpl/dt = ap pl + bp. If psi_leaf
-    ! would fall below its bound, the pathway cannot deliver E: cut the
-    ! transpiration to what keeps psi_leaf at the bound.
+    ! Leaf (Eqn S4c), psi_stem fixed:
+    !
+    !   dpl/dt = ap pl + bp.
+    !
+    ! If psi_leaf would fall below its bound, the pathway cannot deliver E:
+    ! cut the transpiration to what keeps psi_leaf at the bound.
     e_sub  = e
     ap     = -k_leaf / c_leaf
     ex     = EXP(ap * dt)
@@ -426,6 +430,8 @@ END SUBROUTINE desica_hydraulics
 
 !-----------------------------------------------------------------------------
 ! Store this step's plant inputs for desica_commit (called from sf_stom).
+!
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, canht,  &
                                 psi_root_zone, ksr )
@@ -437,8 +443,6 @@ INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: lai(land_pts), canht(land_pts),          &
                                       psi_root_zone(land_pts), ksr(land_pts)
                             ! As desica_hydraulics.
-                            !
-                            ! MDK, 24/10/26
 INTEGER :: l, m
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -449,6 +453,7 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='DESICA_STORE_INPUTS'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL desica_alloc( land_pts )
+
 DO m = 1,veg_pts
   l = veg_index(m)
   lai_desica(l,ft)      = lai(l)
@@ -465,6 +470,8 @@ END SUBROUTINE desica_store_inputs
 ! Advance psi_leaf/psi_stem with the actual transpiration t_stom of PFT ft
 ! (kg m-2 s-1) and return the root uptake to take from the soil, q_soil
 ! (kg m-2 s-1). Called from sf_evap once the surface fluxes are final.
+!
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE desica_commit( ft, land_pts, npts, pts_index, timestep, t_stom,     &
                           q_soil )
@@ -477,13 +484,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: timestep, t_stom(land_pts)
 REAL(KIND=real_jlslsm), INTENT(OUT) :: q_soil(land_pts)
 
 INTEGER :: l, m
+! Transpiration (mol m-2 s-1), and the desica_hydraulics outputs: psi_leaf (Pa),
+! leaf_k and the deliverable transpiration.
 REAL(KIND=real_jlslsm) :: el(land_pts), psi_l(land_pts), k_l(land_pts),        &
                           el_hyd(land_pts)
-                            ! Transpiration (mol m-2 s-1), and the
-                            ! desica_hydraulics outputs: psi_leaf (Pa),
-                            ! leaf_k and the deliverable transpiration.
-                            !
-                            ! MDK, 24/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -493,16 +497,19 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='DESICA_COMMIT'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL desica_alloc( land_pts )
+
 q_soil(:) = 0.0
 el(:)     = 0.0
 DO m = 1,npts
   l = pts_index(m)
   el(l) = MAX(t_stom(l), 0.0) / mol_h2o
 END DO
+
 CALL desica_hydraulics( ft, land_pts, npts, pts_index, timestep,               &
                         lai_desica(:,ft), ht_desica(:,ft),                     &
                         psi_soil_desica(:,ft), ksr_desica(:,ft), el, .TRUE.,   &
                         psi_l, k_l, el_hyd )
+
 DO m = 1,npts
   l = pts_index(m)
   ! Transpiration the plant could not deliver (psi at a bound) comes

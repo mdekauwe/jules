@@ -913,7 +913,9 @@ DO j = 1,nvars
     sf_diag % l_et_stom_surft = .TRUE.
 
   CASE ( 'et_stom_gb', 'esoil_surf_gb' )
-    ! (esoil_surf_gb = esoil_gb - et_stom_gb. MDK, 24/10/26)
+    ! esoil_surf_gb = esoil_gb - et_stom_gb.
+    !
+    ! MDK, 24/10/26
     sf_diag % l_et_stom = .TRUE.
 
   CASE ( 'fprf' )

@@ -341,11 +341,17 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
     ELSE
       !-----------------------------------------------------------------------
       ! Soil-to-root conductance in series ahead of the impaired plant, as
-      ! psi_leaf_jls: the root water potential of each sample is psi_in =
-      ! psi_src - E/K_s, the impaired plant path runs from there, and the
-      ! whole-path marginal conductance is k_p / (1 + k(psi_in) / K_s),
-      ! k(psi_in) this model's impaired conductance at the root. The soil is not
-      ! damaged.
+      ! psi_leaf_jls: the root water potential of each sample is
+      !
+      !   psi_in = psi_src - E/K_s,
+      !
+      ! the impaired plant path runs from there, and the whole-path marginal
+      ! conductance is
+      !
+      !   k_p / (1 + k(psi_in) / K_s),
+      !
+      ! with k(psi_in) this model's impaired conductance at the root. The soil
+      ! is not damaged.
       !-----------------------------------------------------------------------
       DO i = 1, n_e_leaf
         psi_in(:) = root_zone_psi(:)
@@ -502,12 +508,8 @@ INTEGER, INTENT(IN) ::                                                         &
                             ! Number of land points
 , n_open_pts                                                                   &
                             ! Number of land points with open stomata
-                            !
-                            ! MDK, 24/10/26
 , open_index(n_open_pts)                                                       &
                             ! Land point of each point with open stomata
-                            !
-                            ! MDK, 24/10/26
 , pft
                             ! Plant functional type
 
@@ -534,12 +536,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Canopy height (m)
 , anetc(n_land_pts)
                             ! Canopy net photosynthesis (mol CO2 m-2 s-1)
-                            ! (lai, canht and anetc are not used since the
-                            ! time-based recovery was retired; kept so the
-                            ! sf_stom calls are unchanged.)
-                            !
-                            ! MDK, 23/10/26
-
+                            ! (lai, canht and anetc are not used.)
 
 INTEGER :: errcode
 
@@ -592,9 +589,5 @@ END SELECT
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE update_xylem_impairment
-
-! (canopy_impaired_psi_jls, a separate single-curve solve for the
-! psi_canopy_pft and PLC_canopy_pft outputs, was removed: those outputs are
-! now psi_leaf_pft and PLC_pft. MDK, 24/10/26)
 
 END MODULE xylem_impairment_mod
