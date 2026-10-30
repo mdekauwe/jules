@@ -949,12 +949,6 @@ INTEGER ::                                                                     &
   ximpair_stomatal_response = ximpair_hold_gs
       ! See ximpair_hold_*. ximpair_hold_psi needs som_ci_search = 2.
 LOGICAL ::                                                                     &
-      ! (l_ximpair_rec_growth, the memory model's time-based recovery from
-      ! new xylem grown from carbon gain, was retired 23/10/26 in favour of
-      ! the store repair, l_ximpair_rec_nsc, itself replaced by ring
-      ! renewal 26/10/26; both are in the git history.)
-      !
-      ! MDK, 26/10/26
   l_ximpair_leaf_loss = .FALSE.,                                               &
       ! Xylem impairment model 3 (memory) with TRIFFID phenology (l_phenol):
       ! cap the phenological state at what the damaged xylem can supply,
@@ -968,41 +962,40 @@ LOGICAL ::                                                                     &
       ! (psi_stem, psi_leaf) on its own vulnerability curve
       ! (conductance_b/c_seg). The leaf segment recovers with leaf turnover
       ! (ximpair_tau_leaf), the stem by ring renewal (l_ximpair_rec_nsc).
-      ! ximpair_psi_driver is then not used. .FALSE.: one cap on both segments
-      ! (as before). (ximpair_tau_stem retired 23/10/26.)
+      ! ximpair_psi_driver is then not used. .FALSE.: one cap on both
+      ! segments.
       !
-      ! MDK, 26/10/26
+      ! MDK, 30/10/26
   l_ximpair_rec_nsc = .FALSE.,                                                 &
-      ! Stem recovery by ring renewal: memory model
-      ! (pft_xylem_impairment_model = 3) with the TRIFFID storage pool
-      ! (l_triffid_nsc) and dynamic TRIFFID (l_triffid, not l_trif_eq). At
-      ! each TRIFFID step the wood TRIFFID grows from the store's release,
-      ! its gross wood production G net of the wood it lost earlier in
-      ! the ring year (nsc_ring_deficit), is the new xylem ring, which renews
-      ! the share rho = nsc_xylem_cond_ratio G dt / X of the stem's
-      ! conductance (X the conducting sapwood) and dilutes the whole stem's
-      ! loss, L -> L (1 - rho), as leaf renewal does the leaf's. No store
-      ! carbon is spent on it. See triffid_nsc_mod. The only recovery of
-      ! the stem (the time-based terms were retired 23/10/26, the
-      ! store-paid repair of Trugman et al. 2018 26/10/26, and with it the
-      ! W_max hold 29/10/26); the leaf segment keeps ximpair_tau_leaf or
-      ! l_ximpair_rec_leaf_turn. Use with l_ximpair_leaf_loss
-      ! (ximpair_leaf_sens = 1) for leaf area in proportion to the
-      ! functional xylem.
+      ! Stem recovery by ring renewal, with the memory model
+      ! (pft_xylem_impairment_model = 3), the TRIFFID storage pool
+      ! (l_triffid_nsc) and dynamic TRIFFID (l_triffid, not l_trif_eq). The
+      ! wood TRIFFID grows from the store's release, counted as net wood
+      ! growth (wood lost is regrown first), is the new xylem ring. It
+      ! renews the share
       !
-      ! MDK, 29/10/26
+      !   rho = nsc_xylem_cond_ratio G dt / X
+      !
+      ! of the stem's conductance (X the conducting sapwood, the sapwood
+      ! pool by default) and dilutes the stem's loss, L -> L (1 - rho), as
+      ! leaf renewal does the leaf's. No store carbon is spent on it. See
+      ! triffid_nsc_mod. Use with l_ximpair_leaf_loss (ximpair_leaf_sens =
+      ! 1) for leaf area in proportion to the functional xylem.
+      !
+      ! MDK, 30/10/26
   l_ximpair_rec_leaf_turn = .FALSE.,                                           &
       ! Per-segment memory (l_ximpair_seg_memory) with the TRIFFID store
       ! (l_triffid_nsc): the leaf segment recovers by leaf renewal, not by
       ! the fixed e-folding time ximpair_tau_leaf. New leaves arrive intact,
       ! so the leaf segment's loss falls by the fraction of the canopy that
       ! is new: leaf production at the turnover rate g_leaf_0, made only when
-      ! the store's growth limits allow (turgor, cold; a spring and an
-      ! autumn flush at FR-Pue) and normalised by the running annual mean
-      ! of the growth factor so a year's production still matches the
-      ! turnover, plus, with phenology, the regrowth after shedding. No extra
-      ! carbon: the store already pays for the leaves.
-      ! MDK, 18/10/26
+      ! the store's growth limits allow (turgor, cold, season) and
+      ! normalised by the running annual mean of the growth factor so a
+      ! year's production still matches the turnover, plus, with phenology,
+      ! the regrowth after shedding. No extra carbon: the store already pays
+      ! for the leaves.
+      !
+      ! MDK, 30/10/26
   l_phen_psi = .FALSE.,                                                        &
       ! Drought leaf shedding from water potential (Xu et al. 2016, New
       ! Phytol, Notes S1 Eqn S7), with phenology (l_phenol): a leaf biomass
@@ -1021,24 +1014,28 @@ LOGICAL ::                                                                     &
       ! is allowed (spring flush drawn from the store) while the annual
       ! release still matches NPP. .FALSE.: W_max = running mean NPP.
       ! MDK, 18/10/26
-  l_nsc_sapwood_state = .FALSE.,                                               &
-      ! Ring renewal (l_ximpair_rec_nsc): the
-      ! conducting stem sapwood the rings renew is a prognostic pool
-      ! (nsc_sapwood, in dumps) that gains the stem's share of the new wood
-      ! (nsc_stem_frac) and loses nsc_heartwood_rate of itself a year to
-      ! heartwood, as in MEDFATE, instead of the pipe model on the current
-      ! leaf area. In equilibrium the ring renews nsc_heartwood_rate of the
-      ! stem a year. See triffid_nsc_mod.
+  l_nsc_sapwood_pool = .TRUE.,                                                 &
+      ! Ring renewal (l_ximpair_rec_nsc): the conducting stem sapwood the
+      ! rings renew is a pool of its own (nsc_sapwood, in dumps), as in
+      ! MEDFATE, instead of the pipe model on the current leaf area. It
+      ! gains the stem's share of the new wood (nsc_stem_frac), loses
+      ! nsc_heartwood_rate of itself a (360-day) year to heartwood, and
+      ! loses the stem's share of the wood lost in a ring year with a net
+      ! loss. In equilibrium the ring renews nsc_heartwood_rate of the stem
+      ! a year. On by default; without ring renewal check_jules_vegetation
+      ! switches it off. .FALSE.: the pipe model.
       !
-      ! MDK, 29/10/26
+      ! MDK, 30/10/26
   l_nsc_ring_additive = .FALSE.,                                               &
-      ! Ring renewal (l_ximpair_rec_nsc) replaces damaged xylem first: the
-      ! stem's loss of conductance falls by the ring's share,
-      ! L -> MAX(L - rho, 0), as in MEDFATE, instead of being diluted,
-      ! L -> L (1 - rho) (.FALSE.: the sapwood retired to heartwood has the
-      ! mean loss).
+      ! Ring renewal (l_ximpair_rec_nsc) replaces damaged xylem first, as in
+      ! MEDFATE: the stem's loss of conductance falls by the ring's share,
       !
-      ! MDK, 29/10/26
+      !   L -> MAX(L - rho, 0),
+      !
+      ! instead of being diluted, L -> L (1 - rho) (.FALSE.: the sapwood
+      ! retired to heartwood has the mean loss).
+      !
+      ! MDK, 30/10/26
   l_som_fast = .FALSE.
       ! RETIRED input: .TRUE. stops the run; use som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table). Still read so namelists that
@@ -1210,7 +1207,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_ximpair_leaf_loss, l_ximpair_seg_memory,                                 &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
     l_nsc_wmax_norm, l_trif_hydmort,                                           &
-    l_nsc_sapwood_state, l_nsc_ring_additive,                                  &
+    l_nsc_sapwood_pool, l_nsc_ring_additive,                                   &
     ximpair_stomatal_response,                                                 &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,    &
     sl_kfail_frac,                                                             &
@@ -2320,14 +2317,12 @@ IF ( l_nsc_wmax_norm .AND. .NOT. l_triffid_nsc ) THEN
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_nsc_wmax_norm needs the TRIFFID store (l_triffid_nsc=T)')
 END IF
-! The sapwood state and the additive recovery are forms of ring renewal.
+! The sapwood pool and the additive recovery are forms of ring renewal.
+! The sapwood pool is on by default, so without ring renewal it is
+! switched off here (no sapwood in the dumps).
 !
-! MDK, 29/10/26
-IF ( l_nsc_sapwood_state .AND. .NOT. l_ximpair_rec_nsc ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_nsc_sapwood_state needs ring renewal (l_ximpair_rec_nsc=T)')
-END IF
+! MDK, 30/10/26
+IF ( .NOT. l_ximpair_rec_nsc ) l_nsc_sapwood_pool = .FALSE.
 IF ( l_nsc_ring_additive .AND. .NOT. l_ximpair_rec_nsc ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2549,7 +2544,7 @@ WRITE(lineBuffer,*) ' l_phen_psi = ', l_phen_psi
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_wmax_norm = ', l_nsc_wmax_norm
 CALL jules_print('jules_vegetation_mod',lineBuffer)
-WRITE(lineBuffer,*) ' l_nsc_sapwood_state = ', l_nsc_sapwood_state
+WRITE(lineBuffer,*) ' l_nsc_sapwood_pool = ', l_nsc_sapwood_pool
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_ring_additive = ', l_nsc_ring_additive
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2713,7 +2708,7 @@ INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
 INTEGER, PARAMETER :: n_log = 57 + npft_max
-                                  ! +2 l_nsc_sapwood_state,
+                                  ! +2 l_nsc_sapwood_pool,
                                   ! l_nsc_ring_additive (MDK, 29/10/26)
                                   ! +1 l_som_cuticular_day_only (MDK,
                                   ! 29/10/26)
@@ -2824,7 +2819,7 @@ TYPE :: my_namelist
   LOGICAL :: l_ximpair_rec_leaf_turn
   LOGICAL :: l_phen_psi
   LOGICAL :: l_nsc_wmax_norm
-  LOGICAL :: l_nsc_sapwood_state   ! MDK, 29/10/26
+  LOGICAL :: l_nsc_sapwood_pool   ! MDK, 29/10/26
   LOGICAL :: l_nsc_ring_additive   ! MDK, 29/10/26
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_rhizo_mfp
@@ -2948,7 +2943,7 @@ IF (mype == 0) THEN
   my_nml % l_ximpair_rec_leaf_turn = l_ximpair_rec_leaf_turn
   my_nml % l_phen_psi = l_phen_psi
   my_nml % l_nsc_wmax_norm = l_nsc_wmax_norm
-  my_nml % l_nsc_sapwood_state = l_nsc_sapwood_state   ! MDK, 29/10/26
+  my_nml % l_nsc_sapwood_pool = l_nsc_sapwood_pool   ! MDK, 29/10/26
   my_nml % l_nsc_ring_additive = l_nsc_ring_additive   ! MDK, 29/10/26
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
@@ -3061,7 +3056,7 @@ IF (mype /= 0) THEN
   l_ximpair_rec_leaf_turn = my_nml % l_ximpair_rec_leaf_turn
   l_phen_psi = my_nml % l_phen_psi
   l_nsc_wmax_norm = my_nml % l_nsc_wmax_norm
-  l_nsc_sapwood_state = my_nml % l_nsc_sapwood_state   ! MDK, 29/10/26
+  l_nsc_sapwood_pool = my_nml % l_nsc_sapwood_pool   ! MDK, 29/10/26
   l_nsc_ring_additive = my_nml % l_nsc_ring_additive   ! MDK, 29/10/26
   l_som_gravity = my_nml % l_som_gravity
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp

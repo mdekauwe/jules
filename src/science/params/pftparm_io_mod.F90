@@ -443,17 +443,14 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 180 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 178 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
                                              ! hydmort; count the REAL
-                                             ! declarations of the type;
-                                             ! +3 nsc_heartwood_rate,
-                                             ! nsc_stem_frac and
-                                             ! nsc_grow_thresh)
+                                             ! declarations of the type)
                                              !
-                                             ! MDK, 29/10/26
+                                             ! MDK, 30/10/26
 
 TYPE :: my_namelist
   SEQUENCE
@@ -1152,7 +1149,7 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 l_ximpair_seg_memory, l_triffid,               &
                                 l_trif_hydmort, l_som_capacitance_on,          &
                                 leaf_flux_mod, leaf_flux_stom_opt, l_trif_eq
-USE jules_vegetation_mod, ONLY: l_nsc_sapwood_state   ! MDK, 29/10/26
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_pool   ! MDK, 29/10/26
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1513,7 +1510,9 @@ DO i = 1, npft
   ! MDK, 25/10/26
   IF (ABS(nsc_xylem_cond_ratio_io(i) - rmdi) > EPSILON(1.0))                   &
     nsc_xylem_cond_ratio(i) = nsc_xylem_cond_ratio_io(i)
-  ! Sapwood state and the store's growth threshold. MDK, 29/10/26
+  ! Sapwood pool and the store's growth threshold.
+  !
+  ! MDK, 29/10/26
   IF (ABS(nsc_heartwood_rate_io(i) - rmdi) > EPSILON(1.0))                     &
     nsc_heartwood_rate(i) = nsc_heartwood_rate_io(i)
   IF (ABS(nsc_stem_frac_io(i) - rmdi) > EPSILON(1.0))                          &
@@ -1649,18 +1648,18 @@ IF ( l_triffid_nsc ) THEN
                  'it has no effect there.')
   END IF
 END IF
-! Sapwood state: the heartwood rate set (> 0) and the stem's share 0-1 for
+! Sapwood pool: the heartwood rate set (> 0) and the stem's share 0-1 for
 ! the PFTs with the memory model.
 !
 ! MDK, 29/10/26
-IF ( l_nsc_sapwood_state ) THEN
+IF ( l_nsc_sapwood_pool ) THEN
   IF ( ANY(pft_xylem_impairment_model(1:npft) == xylem_impairment_memory      &
            .AND. (nsc_heartwood_rate(1:npft) <= 0.0                            &
                   .OR. nsc_stem_frac(1:npft) <= 0.0                            &
                   .OR. nsc_stem_frac(1:npft) > 1.0)) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
-                 'l_nsc_sapwood_state needs nsc_heartwood_rate_io > 0 '    //  &
+                 'l_nsc_sapwood_pool needs nsc_heartwood_rate_io > 0 '    //   &
                  '(per year) and 0 < nsc_stem_frac_io <= 1 for the '       //  &
                  'memory-model PFTs.')
   END IF

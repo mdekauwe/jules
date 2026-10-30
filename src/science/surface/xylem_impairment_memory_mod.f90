@@ -32,20 +32,17 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock(:,:)
 ! Stem recovery by ring renewal (l_ximpair_rec_nsc): the share of the
 ! stem's conductance renewed by the wood TRIFFID grew, queued at the
 ! TRIFFID step by triffid_nsc_ring_renewal and applied (then cleared) at
-! the next update, where it dilutes the stem's loss.
+! the next update, where it dilutes the stem's loss (with
+! l_nsc_ring_additive it is taken off the loss).
 !
-! MDK, 26/10/26
+! MDK, 30/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_repair_pend(:,:)
 
 ! ximpair_lock, ximpair_repair_pend and ximpair_area_w (with
 ! l_veg_compete) are written to and read from dumps (ximpair_memory_alloc
-! allocates them). ximpair_npp_prev, ximpair_wood_prev, ximpair_renew_mean
-! and ximpair_renew_wt went with the time-based recovery; ximpair_rebuilt,
-! ximpair_lock_new (the two-pool memory) and ximpair_grow_acc (the growth
-! gate) with the store-paid repair; ximpair_fmin_acc (the lowest intact
-! stem fraction imposed) with the W_max hold of the TRIFFID store.
+! allocates them).
 !
-! MDK, 29/10/26
+! MDK, 30/10/26
 
 ! Factor (0-1) by which TRIFFID's gain of PFT area has diluted the stem
 ! damage (ximpair_dilute_area) since the last update, applied to the
@@ -71,7 +68,10 @@ CONTAINS
 ! The queued ring share (ximpair_repair_pend) is a multiplicative factor
 ! on the loss, L -> L (1 - rho), the same for old and new cover, so it is
 ! not diluted: scaling it too would give L w (1 - rho w) instead of the
-! area-weighted L w (1 - rho).
+! area-weighted L w (1 - rho). With additive recovery
+! (l_nsc_ring_additive, L -> MAX(L - rho, 0)) the share renews only the
+! cover that grew it, so it is scaled by w too:
+! MAX(w L - w rho, 0) = w MAX(L - rho, 0).
 ! With hydraulic mortality (m_kill, the fraction of the old cover killed in
 ! the step) the trees killed carry the mean damage and the area regrown in
 ! their place is intact too, so w = frac_old (1 - m) / frac_new wherever
@@ -79,15 +79,16 @@ CONTAINS
 !
 ! (The survivors' cover frac_old (1 - m) is approximate where lotka does not
 ! remove exactly m frac_old: the old lotka without l_ht_compete, and the
-! frac_seed floor. MDK, 25/10/26)
+! frac_seed floor.)
 !
-! MDK, 26/10/26
+! MDK, 30/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac,   &
                                 m_kill )
 
 USE jules_surface_types_mod, ONLY: npft, nnpft, ntype
 USE jules_vegetation_mod, ONLY: xylem_impairment_memory
+USE jules_vegetation_mod, ONLY: l_nsc_ring_additive
 USE pftparm, ONLY: pft_xylem_impairment_model
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
 
@@ -103,8 +104,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: m_kill(land_pts,npft)
       ! Fraction of each PFT's old cover killed in the step (hydraulic
       ! mortality, l_trif_hydmort).
-      !
-      ! MDK, 25/10/26
 
 INTEGER :: n, t, l
 REAL(KIND=real_jlslsm) :: w, m, frac_surv
@@ -119,7 +118,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 IF ( ALLOCATED(ximpair_lock) ) THEN
   CALL ximpair_memory_alloc( land_pts )
   ! Natural PFTs only: lotka changes their cover (crop cover is set
-  ! elsewhere). MDK, 25/10/26
+  ! elsewhere).
   DO n = 1,nnpft
     IF ( pft_xylem_impairment_model(n) /= xylem_impairment_memory ) CYCLE
     DO t = 1,trif_pts
@@ -138,6 +137,9 @@ IF ( ALLOCATED(ximpair_lock) ) THEN
       ximpair_lock(l,n)        = ximpair_lock(l,n) * w
       IF ( ALLOCATED(ximpair_kcap_leaf) )                                      &
         ximpair_kcap_leaf(l,n) = 1.0 - (1.0 - ximpair_kcap_leaf(l,n)) * w
+      ! Additive recovery: the queued share renews the old cover only.
+      IF ( l_nsc_ring_additive )                                               &
+        ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n) * w
     END DO
   END DO
 END IF
@@ -149,6 +151,8 @@ END SUBROUTINE ximpair_dilute_area
 ! ---------------------------------------------------------------------
 ! Allocate the impairment memory (n_land_pts, npft) with its start values,
 ! if not done yet (first update, or a dump / initial-condition read).
+!
+! MDK, 25/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_memory_alloc( n_land_pts )
 
@@ -170,12 +174,10 @@ IF (.NOT. ALLOCATED(ximpair_lock)) THEN
   ALLOCATE(ximpair_lock(n_land_pts, npft))
   ximpair_lock(:,:) = 0.0
 END IF
-! MDK, 17/10/26
 IF (.NOT. ALLOCATED(ximpair_repair_pend)) THEN
   ALLOCATE(ximpair_repair_pend(n_land_pts, npft))
   ximpair_repair_pend(:,:) = 0.0
 END IF
-! MDK, 25/10/26
 IF (.NOT. ALLOCATED(ximpair_area_w)) THEN
   ALLOCATE(ximpair_area_w(n_land_pts, npft))
   ximpair_area_w(:,:) = 1.0
@@ -207,14 +209,12 @@ END SUBROUTINE ximpair_memory_alloc
 !   - recovery: optional, ring renewal of the stem by TRIFFID wood
 !               growth (l_ximpair_rec_nsc), leaf turnover of the leaf
 !               segment (ximpair_tau_leaf), and an annual reset
-!               (ximpair_reset_mmdd). (The growth and refilling
-!               recovery were retired 23/10/26, and the store-paid stem
-!               repair replaced by ring renewal 26/10/26.)
+!               (ximpair_reset_mmdd).
 !
 ! This is the target curve of Mackay et al. (2015, WRR, eqs 11-12; TREES):
 ! Kcav = Ksat f(psi_min) with the intact curve followed below psi_min. TREES
-! then fits a new Weibull (b, c) to it (the retired model 4 did the same
-! analytically), whereas this model uses the capped curve exactly.
+! then fits a new Weibull (b, c) to it, whereas this model uses the capped
+! curve exactly.
 !
 ! With the cap, transpiration from psi_r to psi_l is
 !   E = k_cap * (psi_r - MAX(psi_l, psi_s))               [capped part]
@@ -385,21 +385,16 @@ USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_lut
 USE supply_table_mod, ONLY: psi_leaf_capped_lut_jls
-! MDK, 18/10/26
 
 INTEGER, INTENT(IN) ::                                                         &
   pft, n_e_leaf, land_pnts, open_pnts, veg_index(land_pnts),                   &
   open_index(land_pnts)
                             ! See psi_leaf_impaired_jls.
-                            !
-                            ! MDK, 24/10/26
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   e_leaf(n_e_leaf, open_pnts)                                                  &
                             ! Transpiration rates for each open point
                             ! (mol H2O m-2 leaf s-1)
-                            !
-                            ! MDK, 24/10/26
 , root_zone_psi(land_pnts)                                                     &
                             ! Water potential in the root zone (Pa)
 , kmax_ref(land_pnts), kcap(land_pnts), kcrit(land_pnts)                       &
@@ -434,8 +429,6 @@ LOGICAL :: l_nr_active(n_e_leaf)
                             ! Newton: samples still iterating (each stops
                             ! on its own convergence, so the answer for one
                             ! E does not depend on the rest of the call).
-                            !
-                            ! MDK, 24/10/26
 
 INTEGER, PARAMETER :: max_nr_iter = 20
 REAL(KIND=real_jlslsm), PARAMETER :: psi_tol = 1.0
@@ -451,8 +444,6 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 ! som_psi_solver = 3: the same capped curve inverted exactly from the PFT's
 ! supply table (psi_leaf_capped_lut_jls). Every point is on the PFT curve
 ! (b, c), which the memory model does not change.
-!
-! MDK, 24/10/26
 IF ( som_psi_solver == psi_solver_lut ) THEN
   CALL psi_leaf_capped_lut_jls( pft, n_e_leaf, land_pnts, open_pnts,           &
                                 veg_index, open_index, e_leaf,                 &
@@ -546,17 +537,13 @@ END SUBROUTINE psi_leaf_impaired_memory
 !   l_ximpair_rec_nsc - ring renewal: the stem's loss is diluted by the
 !                       share of the stem renewed by TRIFFID's wood
 !                       growth, queued at the TRIFFID step in
-!                       ximpair_repair_pend (triffid_nsc_ring_renewal).
+!                       ximpair_repair_pend (triffid_nsc_ring_renewal);
+!                       with l_nsc_ring_additive the share is taken off
+!                       the loss instead.
 !   ximpair_tau_leaf  - with per-segment memory, the leaf segment recovers
 !                       with leaf turnover (e-folding time in calendar
 !                       years), or by new leaves with l_ximpair_rec_leaf_turn.
 !   ximpair_reset_mmdd - an annual reset (off by default).
-! The time-based recovery of the stem (l_ximpair_rec_growth, new xylem
-! from carbon gain on a growth clock; ximpair_rec_years; ximpair_tau_stem;
-! refilling with ximpair_tau_rec) and, earlier, a leaf-area term were
-! retired in favour of the store repair, and the store repair (26/10/26)
-! in favour of ring renewal. They are in the git history (e.g. branch
-! ximpair_prune; 6133017 for the store repair).
 !
 ! Per-segment memory (l_ximpair_seg_memory, with l_som_plant_segments):
 ! kcap is the stem segment's cap and ximpair_kcap_leaf the leaf segment's
@@ -569,7 +556,7 @@ END SUBROUTINE psi_leaf_impaired_memory
 ! few years while the stem keeps its damage until the rings renew it.
 ! The reset restores both.
 !
-! MDK, 26/10/26
+! MDK, 30/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment_memory ( n_land_pts                         &
 ,                                           n_open_pts                         &
@@ -589,12 +576,11 @@ USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
                                 l_ximpair_rec_leaf_turn, l_trif_hydmort,       &
                                 l_som_seg_whole
-USE jules_vegetation_mod, ONLY: l_nsc_ring_additive   ! MDK, 29/10/26
+USE jules_vegetation_mod, ONLY: l_nsc_ring_additive
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_psi_stem,                    &
                                           ximpair_seg_state_alloc
 USE triffid_hydmort_mod, ONLY: hydmort_accumulate
-                            ! MDK, 21/10/26
 USE jules_surface_types_mod, ONLY: npft
 USE model_time_mod, ONLY: current_time, timestep_len
 USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
@@ -631,8 +617,6 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 INTEGER :: j, l, errcode
 REAL(KIND=real_jlslsm) :: rep_l
                             ! Queued ring share at one point.
-                            !
-                            ! MDK, 26/10/26
 
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_x(n_land_pts), k_x(n_land_pts), kmax_pts(n_land_pts),                    &
@@ -641,18 +625,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! intact conductance there, and the PFT's
                             ! intact curve (kmax, kcrit, b in Pa, c) on
                             ! each point.
-                            !
-                            ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) :: dt_years
                             ! This timestep in years, for the leaf
                             ! segment's recovery.
-                            !
-                            ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) :: frac_crit
                             ! kcrit / kmax (floor of the leaf segment's
                             ! cap).
-                            !
-                            ! MDK, 26/10/26
 
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_year = 365.25 * 86400.0
 
@@ -688,8 +666,6 @@ c_pts(:)     = conductance_c_pft(pft)
 
 ! Area gained by TRIFFID since the last update (ximpair_dilute_area): the
 ! stem's loss of conductance diluted by the new, intact area.
-!
-! MDK, 25/10/26
 IF ( ALLOCATED(ximpair_area_w) ) THEN
   WHERE ( ximpair_area_w(:,pft) < 1.0 )                                        &
     kcap(:) = kmax_pts(:) - (kmax_pts(:) - kcap(:)) * ximpair_area_w(:,pft)
@@ -698,27 +674,30 @@ END IF
 
 !-----------------------------------------------------------------------------
 ! Recovery: the stem by ring renewal (l_ximpair_rec_nsc), the leaf segment
-! by leaf turnover, and the annual reset. (The time-based recovery of the
-! stem, l_ximpair_rec_growth, ximpair_rec_years, ximpair_tau_stem and
-! ximpair_tau_rec, was retired. MDK, 23/10/26)
-!
-! MDK, 26/10/26
+! by leaf turnover, and the annual reset.
 !-----------------------------------------------------------------------------
 
 IF (l_ximpair_rec_nsc) THEN
+
   CALL ximpair_memory_alloc( n_land_pts )
-  ! Ring renewal: repair_pend is the share of the stem's conductance
-  ! renewed by the new rings since the last update, new and old xylem
-  ! replaced alike (random), so the whole stem's loss is diluted by it,
-  ! L -> L (1 - rho). Points with nothing queued are left untouched.
+
+  ! Ring renewal: repair_pend is the share rho of the stem's conductance
+  ! renewed by the new rings since the last update. New and old xylem are
+  ! replaced alike (at random), so the whole stem's loss is diluted,
   !
-  ! MDK, 26/10/26
+  !   L -> L (1 - rho),
+  !
+  ! or with l_nsc_ring_additive the new ring replaces damaged xylem first,
+  ! as in MEDFATE, as if the sapwood retired to heartwood were the
+  ! embolised part (old rings, vessels sealed by tyloses),
+  !
+  !   L -> MAX(L - rho, 0).
+  !
+  ! Points with nothing queued are left untouched.
   DO l = 1, n_land_pts
     rep_l = ximpair_repair_pend(l,pft)
     IF (rep_l <= 0.0) CYCLE
     IF (l_nsc_ring_additive) THEN
-      ! The new ring replaces damaged xylem first (MEDFATE): the loss falls
-      ! by the ring's share. MDK, 29/10/26
       kcap(l) = kmax_pts(l) * (1.0 - MAX(1.0 - kcap(l) / kmax_pts(l)          &
                                          - rep_l, 0.0))
     ELSE
@@ -727,6 +706,7 @@ IF (l_ximpair_rec_nsc) THEN
     END IF
   END DO
   ximpair_repair_pend(:,pft) = 0.0
+
 END IF
 
 ! This timestep in years, for the leaf segment's recovery.
@@ -734,8 +714,6 @@ dt_years = REAL(timestep_len) / sec_per_year
 
 ! With the segments on the PFT curve (l_som_seg_whole) the stem psi is
 ! kept for the psi_stem_pft output only (the leaf state is not used).
-!
-! MDK, 26/10/26
 IF (l_som_seg_whole) THEN
   IF (.NOT. ALLOCATED(ximpair_psi_stem)) THEN
     ALLOCATE(ximpair_psi_stem(n_land_pts, npft))
@@ -749,8 +727,6 @@ IF (l_ximpair_seg_memory) THEN
   ximpair_psi_stem(:,pft) = psi_stem(:)
   ! With leaf renewal (l_ximpair_rec_leaf_turn) the leaf segment recovers
   ! by new leaves instead (triffid_nsc_turgor, phenol).
-  !
-  ! MDK, 18/10/26
   IF (ximpair_tau_leaf(pft) > 0.0 .AND. .NOT. l_ximpair_rec_leaf_turn) THEN
     ximpair_kcap_leaf(:,pft) = 1.0 - (1.0 - ximpair_kcap_leaf(:,pft))          &
                                * EXP(-dt_years / ximpair_tau_leaf(pft))
@@ -797,8 +773,6 @@ IF (.NOT. ALLOCATED(ximpair_lock)) THEN
 END IF
 ximpair_lock(:,pft) = 1.0 - kcap(:) / kmax_pts(:)
 ! Worst damage of the TRIFFID period, for hydraulic mortality.
-!
-! MDK, 21/10/26
 IF (l_trif_hydmort) CALL hydmort_accumulate( n_land_pts, pft,                  &
                                              ximpair_lock(:,pft) )
 

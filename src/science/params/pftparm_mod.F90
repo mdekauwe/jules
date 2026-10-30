@@ -763,22 +763,21 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !
                  !  MDK, 26/10/26
 ,nsc_heartwood_rate(:)                                                         &
-                 ! Sapwood state (l_nsc_sapwood_state): the share of the
+                 ! Sapwood pool (l_nsc_sapwood_pool): the share of the
                  !  conducting stem sapwood that becomes heartwood each year
-                 !  (per year, > 0), about 1 / the number of rings in the
-                 !  sapwood (Q. ilex at Puechabon: sapwood about 3 cm, rings
-                 !  0.4-1.1 mm, so 0.02-0.04). In equilibrium the ring renews
-                 !  this share of the stem a year.
+                 !  (per 360-day TRIFFID year, > 0), about 1 / the number of
+                 !  rings in the sapwood. In equilibrium the ring renews this
+                 !  share of the stem a year. Default 0.025 (40 rings).
                  !
-                 !  MDK, 29/10/26
+                 !  MDK, 30/10/26
 ,nsc_stem_frac(:)                                                              &
-                 ! Sapwood state: the stem's share of TRIFFID's gross wood
+                 ! Sapwood pool: the stem's share of TRIFFID's gross wood
                  !  production (0-1; the rest is branches and coarse roots),
-                 !  e.g. stem ANPP over total woody production (FR-Pue about
-                 !  0.5). With nsc_heartwood_rate it sets the equilibrium
-                 !  sapwood, nsc_stem_frac G / nsc_heartwood_rate.
+                 !  e.g. stem ANPP over total woody production. With
+                 !  nsc_heartwood_rate it sets the equilibrium sapwood,
+                 !  nsc_stem_frac G / nsc_heartwood_rate. Default 0.5.
                  !
-                 !  MDK, 29/10/26
+                 !  MDK, 30/10/26
 ,nsc_grow_thresh(:)
                  ! Growth threshold of the TRIFFID store (fraction of C_max,
                  !  0-1): the release for growth draws only on the store
@@ -1281,8 +1280,8 @@ nsc_flush_days(:) = 45.0
 nsc_overflow_resp(:) = 0.0
 nsc_cmax(:) = 0.0
 nsc_xylem_cond_ratio(:) = 1.0   ! MDK, 25/10/26
-nsc_heartwood_rate(:) = -1.0e30   ! MDK, 29/10/26
-nsc_stem_frac(:) = 1.0   ! MDK, 29/10/26
+nsc_heartwood_rate(:) = 0.025   ! MDK, 30/10/26
+nsc_stem_frac(:) = 0.5   ! MDK, 30/10/26
 nsc_grow_thresh(:) = -1.0e30   ! MDK, 29/10/26
 phen_psi_tlp(:) = -1.0e30
 phen_dfbleaf(:) = 0.05

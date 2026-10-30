@@ -10587,7 +10587,7 @@ DATA metadata(816) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Ring renewal: gross wood production (new ring), per m2 of the PFT",        &
+    "Ring renewal: net new wood counted as new ring, per m2 of the PFT",       &
 ! Units
     "kg m-2 per 360days"                                                       &
   ) /
@@ -10602,24 +10602,24 @@ DATA metadata(817) / var_metadata(                                             &
     "per 360days"                                                              &
   ) /
 !-----------------------------------------------------------------------------
-! Metadata for nsc_ring_deficit (the net ring count of ring renewal)
+! Metadata for nsc_wood_lost (ring renewal: wood lost, not yet regrown)
 !
-! MDK, 29/10/26
+! MDK, 30/10/26
 !-----------------------------------------------------------------------------
 DATA metadata(818) / var_metadata(                                             &
 ! String identifier
-    'nsc_ring_deficit',                                                        &
+    'nsc_wood_lost',                                                           &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Ring renewal: wood lost this ring year, repaid before new rings count",   &
+    "Ring renewal: wood lost and not yet regrown (repaid before new rings)",   &
 ! Units
     "kg m-2"                                                                   &
   ) /
 !-----------------------------------------------------------------------------
-! Metadata for nsc_sapwood (sapwood state, l_nsc_sapwood_state)
+! Metadata for nsc_sapwood (sapwood pool, l_nsc_sapwood_pool)
 !
-! MDK, 29/10/26
+! MDK, 30/10/26
 !-----------------------------------------------------------------------------
 DATA metadata(819) / var_metadata(                                             &
 ! String identifier
@@ -10627,7 +10627,23 @@ DATA metadata(819) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Ring renewal: conducting stem sapwood (state), per m2 of the PFT",        &
+    "Ring renewal: sapwood pool, the conducting stem sapwood of the PFT",      &
+! Units
+    "kg m-2"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_net_wood_growth (ring renewal: the ring year's net wood
+! growth so far)
+!
+! MDK, 30/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(820) / var_metadata(                                             &
+! String identifier
+    'nsc_net_wood_growth',                                                     &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ring renewal: net wood growth of the ring year so far",                   &
 ! Units
     "kg m-2"                                                                   &
   ) /

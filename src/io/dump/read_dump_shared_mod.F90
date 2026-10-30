@@ -220,17 +220,20 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
              "its 'not yet set' value (store filled at the first step).")
-        CASE ( 'nsc_ring_deficit' )
-          ! Net ring count: dumps written without it start with no wood
-          ! owed to the regrowth (restart not exact within a ring year).
+        CASE ( 'nsc_wood_lost', 'nsc_net_wood_growth' )
+          ! Ring renewal: dumps written without them start with no wood
+          ! lost and no net wood growth in the ring year (a restart is
+          ! then not exact within a ring year).
           !
-          ! MDK, 29/10/26
+          ! MDK, 30/10/26
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts at 0 " //  &
              "(restart not exact within a ring year).")
         CASE ( 'nsc_sapwood' )
-          ! Sapwood state: dumps written without it start from the pipe
-          ! model at the first ring step. MDK, 29/10/26
+          ! Sapwood pool: dumps written without it start from the pipe
+          ! model at the first ring step.
+          !
+          ! MDK, 30/10/26
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
              "the pipe model at the first ring step.")
