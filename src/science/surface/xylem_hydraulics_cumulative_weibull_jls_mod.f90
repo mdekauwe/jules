@@ -29,6 +29,7 @@ PUBLIC :: leaf_conductance_CW_jls                                              &
 ,         xylem_conductance_CW_jls                                             &
 ,         psi_leaf_CW_jls                                                      &
 ,         incomplete_gamma                                                     &
+,         incomplete_gamma_1                                                   &
 ,         xylem_f                                                              &
 ,         xylem_f_bc
 
@@ -657,35 +658,6 @@ REAL(KIND=real_jlslsm) :: gamma(n_x)
                             !
                             ! MDK, 21/10/26
 
-! Local variables
-REAL(KIND=real_jlslsm) :: step(n_x)
-LOGICAL :: l_active(n_x)
-                            ! .TRUE. while x's own series has not converged.
-                            !
-                            ! MDK, 23/10/26
-INTEGER :: i
-
-! Series convergence controls. NOTE: the series is only well conditioned
-! for x < a+1 or so (Numerical Recipes in Fortran 90, section 6.2). Deep
-! into the vulnerability curve it converges slowly and its terms grow
-! large. If that becomes a problem, pair it with a continued-fraction
-! evaluation for x >= a+1 (NR's gcf) rather than raising max_terms.
-!
-! MDK, 21/10/26
-REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
-INTEGER, PARAMETER :: max_terms = 40
-                            ! Enough for the feasible range of any PFT. The
-                            ! terms shrink once n > x, and at the critical
-                            ! conductance x = (psi/b)^c = -ln(k_crit/k_max)
-                            ! whatever b and c are (about 3 for a 95 % loss),
-                            ! so a few tens of terms converge there. Only
-                            ! samples far below kcrit need more, and those
-                            ! are rejected by the k > kcrit test anyway.
-                            ! (For Q. ilex: down to about -10.5 MPa against
-                            ! a kcrit at about -8.2 MPa, 17-21 terms.)
-                            !
-                            ! MDK, 23/10/26
-
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
 REAL(KIND=jprb)               :: zhook_handle
@@ -693,41 +665,18 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='INCOMPLETE_GAMMA_DIFFERENT_A'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-! Set initial values (the n=0 term of the series)
-step(:) = 1/a
-gamma(:) = step
-
-! Calculate the series. Each x stops adding terms once its own remaining
-! term is negligible relative to its running sum (see max_terms and
-! series_tol above), so its value does not depend on which other values
-! share the call. (It used to stop all of them together, when the last
-! had converged, so the same x could differ in the last bits between
-! calls.)
-!
-! MDK, 23/10/26
-l_active(:) = .TRUE.
-DO i = 1, max_terms
-  WHERE ( l_active )
-    step = step * x / (a + i)
-    gamma = gamma + step
-    l_active = ABS(step) >= series_tol * ABS(gamma)
-  END WHERE
-
-  IF ( .NOT. ANY(l_active) ) EXIT
-END DO
-
-! Multiply by terms outside the sum
-gamma = gamma * EXP(-x) * x**a
+! The series of each x is incomplete_gamma_1 (one value at a time, so no
+! array temporaries).
+gamma = incomplete_gamma_1(a, x)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END FUNCTION incomplete_gamma_different_a
 
 ! ---------------------------------------------------------------------
 ! The lower incomplete gamma function with one shape parameter a for all
-! x: incomplete_gamma_different_a with a repeated. (This was a second copy
-! of the series.)
+! x (incomplete_gamma_1 with the same a for every x).
 !
-! MDK, 23/10/26
+! MDK, 30/10/26
 ! ---------------------------------------------------------------------
 FUNCTION incomplete_gamma( n_x, a, x ) RESULT( gamma )
 
@@ -755,9 +704,63 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='INCOMPLETE_GAMMA'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-gamma = incomplete_gamma_different_a( n_x, SPREAD(a, 1, n_x), x )
+gamma = incomplete_gamma_1(a, x)
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END FUNCTION incomplete_gamma
+
+! ---------------------------------------------------------------------
+! The lower incomplete gamma function of one value,
+!
+!   gamma(a, x) = integral( t^(a-1) exp(-t) dt, 0, x )
+!               = x^a exp(-x) sum_{n>=0} x^n / (a (a+1) ... (a+n))
+!
+! by its series (Numerical Recipes in Fortran 90, section 6.2), adding
+! terms until the next is below series_tol of the sum or max_terms is
+! reached. ELEMENTAL, so it can be called with arrays as well, without
+! array temporaries; incomplete_gamma and incomplete_gamma_different_a call
+! it. The series is only well conditioned for x < a+1 or so; deep into the
+! vulnerability curve it converges slowly and its terms grow large. If that
+! becomes a problem, pair it with a continued-fraction evaluation for
+! x >= a+1 (NR's gcf) rather than raising max_terms.
+!
+! max_terms = 40 is enough for the feasible range of any PFT. The terms
+! shrink once n > x, and at the critical conductance
+! x = (psi/b)^c = -ln(k_crit/k_max) whatever b and c are (about 3 for a
+! 95 % loss), so a few tens of terms converge there. Only samples far below
+! kcrit need more, and those are rejected by the k > kcrit test anyway.
+! (For Q. ilex: down to about -10.5 MPa against a kcrit at about -8.2 MPa,
+! 17-21 terms.)
+!
+! MDK, 30/10/26
+! ---------------------------------------------------------------------
+ELEMENTAL FUNCTION incomplete_gamma_1( a, x ) RESULT( gamma )
+
+REAL(KIND=real_jlslsm), INTENT(IN) :: a
+                            ! Shape parameter, 1/c (dimensionless).
+REAL(KIND=real_jlslsm), INTENT(IN) :: x
+                            ! Upper limit of the integral, (psi/b)^c
+                            ! (dimensionless).
+REAL(KIND=real_jlslsm) :: gamma
+                            ! Lower incomplete gamma (dimensionless).
+
+REAL(KIND=real_jlslsm) :: step
+INTEGER :: i
+
+REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
+INTEGER, PARAMETER :: max_terms = 40
+
+step  = 1/a
+gamma = step
+
+DO i = 1, max_terms
+  step  = step * x / (a + i)
+  gamma = gamma + step
+  IF ( ABS(step) < series_tol * ABS(gamma) ) EXIT
+END DO
+
+gamma = gamma * EXP(-x) * x**a
+
+END FUNCTION incomplete_gamma_1
 
 END MODULE xylem_hydraulics_CW_jls_mod

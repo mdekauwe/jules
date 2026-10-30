@@ -8,7 +8,7 @@
 MODULE plant_hydraulic_path_mod
 
 USE um_types, ONLY: real_jlslsm
-USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f, xylem_f_bc, incomplete_gamma
+USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f, xylem_f_bc, incomplete_gamma_1
 USE supply_table_mod, ONLY: seg_lut_psi, build_supply_lut_seg, newton_psi_drop
 USE jules_vegetation_mod, ONLY: k_ground_ratio_max, l_som_seg_whole   ! MDK, 26/10/26
 
@@ -526,9 +526,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! end.
   dpsi_de(n_e_leaf), dpsi_de_int(n_e_leaf),                                    &
       ! d(psi_out)/dE carried down the segments (as solved / intact curves).
-  a_one(1),                                                                    &
-      ! Supply integral at psi_root_zone (the root water potential, same for all
-      ! samples).
   kmx, kcr, bs, cs, fr, psi_cap, a_cap
       ! Segment kmax, kcrit, Weibull b (Pa) and c; cap fraction, the psi
       ! where the intact curve meets the cap and the intact integral there.
@@ -645,8 +642,7 @@ DO j = 1, open_pnts
     l_cap = fr < 1.0 - 1.0e-6
     IF ( l_cap ) THEN
       psi_cap = bs * (-LOG(fr))**(1.0 / cs)
-      a_one(:) = incomplete_gamma(1, 1.0/cs, [(psi_cap/bs)**cs])
-      a_cap = kmx * (-bs/cs) * a_one(1)
+      a_cap = kmx * (-bs/cs) * incomplete_gamma_1(1.0/cs, (psi_cap/bs)**cs)
     ELSE
       psi_cap = 0.0
       a_cap = 0.0
@@ -659,10 +655,9 @@ DO j = 1, open_pnts
       ! The root water potential is psi_root_zone for every sample: one
       ! evaluation.
       ! (With l_som_rhizo_series it falls with E, so not here.)
-      a_one(:) = seg_a(1, psi_in(1:1))
-      a_in(:)  = a_one(1)
+      a_in(:) = seg_a(psi_in(1))
     ELSE
-      a_in(:) = seg_a(n_e_leaf, psi_in)
+      a_in(:) = seg_a(psi_in)
     END IF
 
     ! First guess: the root-side conductance over the whole drop (Ohm's
@@ -685,7 +680,7 @@ DO j = 1, open_pnts
     DO it = 1, max_nr_iter
       k_prev(:) = k_cur(:)
       k_cur(:)  = seg_k(psi_out)
-      e_cur(:)  = seg_a(n_e_leaf, psi_out) - a_in(:)
+      e_cur(:)  = seg_a(psi_out) - a_in(:)
       WHERE (l_nr_active(:))                                                   &
         psi_out(:) = psi_out(:) - (e_seg(:) - e_cur(:))                        &
                                   / MAX(k_cur(:), TINY(1.0_real_jlslsm))
@@ -772,11 +767,13 @@ CONTAINS
   ! Segment conductance (capped where l_cap). psi is held at <= 0 here and in
   ! seg_a: a root-zone psi a hair above 0 (rounding) gave a negative base to
   ! a non-integer power, so NaN, and closed a wet point. (MDK, 23/10/26)
-  FUNCTION seg_k( psi ) RESULT( k )
-  REAL(KIND=real_jlslsm), INTENT(IN) :: psi(n_e_leaf)
-  REAL(KIND=real_jlslsm) :: k(n_e_leaf)
-  k(:) = kmx * EXP( -(MIN(psi(:), 0.0_real_jlslsm)/bs)**cs )
-  IF ( l_cap ) k(:) = MIN(k(:), fr * kmx)
+  ! ELEMENTAL (one psi at a time), so the calls make no array temporaries.
+  ! (MDK, 30/10/26)
+  ELEMENTAL FUNCTION seg_k( psi ) RESULT( k )
+  REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+  REAL(KIND=real_jlslsm) :: k
+  k = kmx * EXP( -(MIN(psi, 0.0_real_jlslsm)/bs)**cs )
+  IF ( l_cap ) k = MIN(k, fr * kmx)
   END FUNCTION seg_k
 
   ! l_exact: the leaf-side psi of sample i by bisection, seg_a(psi_out) =
@@ -790,49 +787,47 @@ CONTAINS
   SUBROUTINE seg_bisect( i )
   INTEGER, INTENT(IN) :: i
   INTEGER :: ib
-  REAL(KIND=real_jlslsm) :: lo(1), hi(1), mid(1), a_t, a1(1)
-  a_t   = a_in(i) + e_seg(i)
-  hi(1) = psi_in(i)
-  lo(1) = -ABS(bs) * 12.0**(1.0 / cs)
+  REAL(KIND=real_jlslsm) :: lo, hi, mid, a_t
+  a_t = a_in(i) + e_seg(i)
+  hi  = psi_in(i)
+  lo  = -ABS(bs) * 12.0**(1.0 / cs)
   IF ( l_closed(i) ) RETURN
-  IF ( lo(1) >= hi(1) ) THEN
+  IF ( lo >= hi ) THEN
     l_closed(i) = .TRUE.
-    psi_out(i)  = lo(1)
+    psi_out(i)  = lo
     RETURN
   END IF
-  a1 = seg_a(1, lo)
-  IF ( a1(1) < a_t ) THEN
+  IF ( seg_a(lo) < a_t ) THEN
     l_closed(i) = .TRUE.
-    psi_out(i)  = lo(1)
+    psi_out(i)  = lo
     RETURN
   END IF
   DO ib = 1, 60
-    mid(1) = 0.5 * (lo(1) + hi(1))
-    a1 = seg_a(1, mid)
-    IF ( a1(1) < a_t ) THEN
-      hi(1) = mid(1)
+    mid = 0.5 * (lo + hi)
+    IF ( seg_a(mid) < a_t ) THEN
+      hi = mid
     ELSE
-      lo(1) = mid(1)
+      lo = mid
     END IF
   END DO
-  psi_out(i) = 0.5 * (lo(1) + hi(1))
+  psi_out(i) = 0.5 * (lo + hi)
   END SUBROUTINE seg_bisect
 
   ! Integral of the segment conductance from psi to 0 (so that the flow
   ! from psi_in to psi_out is seg_a(psi_out) - seg_a(psi_in)).
-  FUNCTION seg_a( n, psi ) RESULT( a )
-  INTEGER, INTENT(IN) :: n
-  REAL(KIND=real_jlslsm), INTENT(IN) :: psi(n)
-  REAL(KIND=real_jlslsm) :: a(n)
+  ! ELEMENTAL, as seg_k. (MDK, 30/10/26)
+  ELEMENTAL FUNCTION seg_a( psi ) RESULT( a )
+  REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+  REAL(KIND=real_jlslsm) :: a
   ! Note: the negative sign is present because bs is negative.
-  a(:) = kmx * (-bs/cs) * incomplete_gamma(n, 1.0/cs,                          &
-                                          (MIN(psi(:), 0.0_real_jlslsm)/bs)**cs)
+  a = kmx * (-bs/cs) * incomplete_gamma_1(1.0/cs,                              &
+                                          (MIN(psi, 0.0_real_jlslsm)/bs)**cs)
   IF ( l_cap ) THEN
-    WHERE ( psi(:) >= psi_cap )
-      a(:) = fr * kmx * (-psi(:))
-    ELSEWHERE
-      a(:) = fr * kmx * (-psi_cap) + a(:) - a_cap
-    END WHERE
+    IF ( psi >= psi_cap ) THEN
+      a = fr * kmx * (-psi)
+    ELSE
+      a = fr * kmx * (-psi_cap) + a - a_cap
+    END IF
   END IF
   END FUNCTION seg_a
 
