@@ -10703,4 +10703,28 @@ DATA metadata(825) / var_metadata(                                             &
 ! Units
     "mol CO2 m-2 s-1"                                                          &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for psi_leaf_sun_pft and psi_leaf_shd_pft (two-leaf canopy)
+! MDK, 30/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(826) / var_metadata(                                             &
+! String identifier
+    'psi_leaf_sun_pft',                                                        &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Sunlit-leaf water potential at the optimiser's choice (two-leaf)",       &
+! Units
+    "MPa"                                                                      &
+  ) /
+DATA metadata(827) / var_metadata(                                             &
+! String identifier
+    'psi_leaf_shd_pft',                                                        &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Shaded-leaf water potential at the optimiser's choice (two-leaf)",       &
+! Units
+    "MPa"                                                                      &
+  ) /
 #endif

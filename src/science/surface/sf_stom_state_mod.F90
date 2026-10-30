@@ -26,7 +26,8 @@ USE um_types, ONLY: real_jlslsm
 IMPLICIT NONE
 
 PRIVATE
-PUBLIC :: f_vcmax_state, cpl_state, sf_stom_state_alloc, n_cpl_state
+PUBLIC :: f_vcmax_state, cpl_state, sf_stom_state_alloc, n_cpl_state,        &
+          shared_e_shd_prev, shared_amax_shd_prev
 
 INTEGER, PARAMETER :: n_cpl_state = 5
     ! gl_sun, gl_shd, gbw_sun, gbw_shd, ra_ca
@@ -35,6 +36,22 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: f_vcmax_state(:,:)
     ! (land_pts, npft)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cpl_state(:,:,:)
     ! (land_pts, npft, n_cpl_state)
+
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: shared_e_shd_prev(:,:)
+    ! (land_pts, npft) The shared root and stem (l_som_shared_stem),
+    ! two-leaf: the shaded leaves' transpiration of the last timestep
+    ! (mol H2O m-2 s-1), the flow the sunlit leaves' search puts on the
+    ! shared root and stem in a timestep's first pass. Allocated and set to
+    ! 0 by sf_stom. It is deliberately not in the dump, so it is 0 after a
+    ! restart, which changes nothing for a dump written at night (no
+    ! transpiration).
+    !
+    ! MDK, 30/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: shared_amax_shd_prev(:,:)
+    ! (land_pts, npft) The same for the shaded leaves' A at their hydraulic
+    ! edge (mol CO2 m-2 s-1), for the whole-plant gain (l_som_shared_gain).
+    !
+    ! MDK, 30/10/26
 
 CONTAINS
 

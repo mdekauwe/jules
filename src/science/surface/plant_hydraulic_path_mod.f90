@@ -29,6 +29,8 @@ CHARACTER(LEN=*),PARAMETER,PRIVATE :: ModuleName='PLANT_HYDRAULIC_PATH_MOD'
 PUBLIC :: set_ksr_path                                                         &
 ,         set_store_q_path                                                     &
 ,         clear_store_q_path                                                   &
+,         set_shared_stem                                                      &
+,         clear_shared_stem                                                    &
 ,         set_k_ground_basis                                                   &
 ,         k_path_zero_flow                                                     &
 ,         psi_leaf_segments_jls                                                &
@@ -79,6 +81,70 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
 ! MDK, 24/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: store_q_path(:)
 LOGICAL, PUBLIC :: l_store_q_path = .FALSE.
+
+! Shared root and stem (l_som_shared_stem, two-leaf canopy): the sunlit and
+! shaded leaf paths draw on one root and one stem. While a class is
+! searched, its root and stem segments (and the soil-to-root link) are the
+! whole plant's, and carry the whole canopy's flow,
+!
+!   E_r = E + E_o - q_f
+!
+! (E the class's transpiration, E_o the other class's, held fixed, and q_f
+! the whole store's flow out with the store coupled), while its leaf
+! segment keeps the class's own conductance and carries E. So the stem
+! water potential the class sees is that of the shared stem.
+!   shared_k_fac   : the whole plant's root and stem conductance over the
+!                    class's (1 / its share of the plant), applied to the
+!                    root and stem segments in seg_kmax_fac.
+!   shared_e_other : E_o, in the units of the transpiration the solver is
+!                    given.
+!   l_shared_stem_path : .TRUE. while they apply (set by sf_stom with
+!                    set_shared_stem before a class's search, cleared after
+!                    it, as store_q_path).
+! The hydraulic cost of either class is that of the whole plant at the
+! whole canopy's flow: the shared root and stem, then one leaf segment
+! with the sunlit and shaded leaves' conductance together, all carrying
+! E + E_o (less q_f on the root and stem). The search solves that path
+! with l_shared_whole_path set, which makes the leaf segment the whole
+! plant's too (shared_k_fac on all three segments) and puts E_o on it.
+!   l_shared_whole_path : .TRUE. while the whole-plant path is solved.
+!   shared_kcrit_plant  : kcrit of the whole plant (kcrit_of_path of its
+!                    intact conductance), in the units of the class's kmax,
+!                    for the cost.
+! The gain of a class may also be on the whole plant's basis
+! (l_som_shared_gain): A over the sum of both classes' A at their
+! hydraulic edges.
+!   l_shared_gain_path : .TRUE. for that gain.
+!   shared_amax_other  : the other class's A at its hydraulic edge (as
+!                    max_al in stom_opt_bounded_search), held fixed.
+!   shared_amax_self   : this class's, set by the search (0 where it does
+!                    not search), for the other class's next search.
+!
+! MDK, 30/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: shared_k_fac(:),                &
+                                               shared_e_other(:),              &
+                                               shared_kcrit_plant(:),          &
+                                               shared_amax_other(:),           &
+                                               shared_amax_self(:)
+LOGICAL, PUBLIC :: l_shared_stem_path = .FALSE.
+LOGICAL, PUBLIC :: l_shared_whole_path = .FALSE.
+LOGICAL, PUBLIC :: l_shared_gain_path = .FALSE.
+
+! The whole-plant solve differs from the class's solve of the same E only
+! in the leaf segment, so with one sample at one point the class's solve
+! keeps the state at the stem's leaf-side end (water potential, dpsi/dE on
+! the solved and on the intact segments, infeasible flag), with the inputs
+! it came from, and the whole-plant solve of the same inputs starts from
+! it at the leaf segment. The root and stem are then not solved twice;
+! the result is the same to the bit. Cleared by set_shared_stem and
+! clear_shared_stem.
+!
+! MDK, 30/10/26
+LOGICAL :: l_rs_cache = .FALSE.
+LOGICAL :: rs_intact, rs_exact, rs_closed
+INTEGER :: rs_l
+REAL(KIND=real_jlslsm) :: rs_e, rs_kmax, rs_kcrit, rs_psi0, rs_kcap,           &
+                          rs_psi, rs_dpsi, rs_dpsi_int
 
 ! Root and stem conductance per unit ground area (kplant_model = 1, with
 ! l_som_plant_segments). On the leaf-area basis of kmax_pft the root and
@@ -202,6 +268,88 @@ l_store_q_path = .FALSE.
 END SUBROUTINE clear_store_q_path
 
 ! *****************************************************************************
+! l_som_shared_stem: set the shared root and stem for the next leaf path
+! (one class of the two-leaf canopy). share is the class's share of the
+! undamaged plant conductance (as in set_ksr_path), so its root and stem
+! segments are 1 / share times its own; e_other is the other class's
+! transpiration (same units as the class's). A class with no share keeps
+! its own root and stem. kcrit_plant is the whole plant's kcrit (units of
+! the class's kmax), amax_other the other class's A at its hydraulic edge
+! and l_gain the whole-plant gain (l_som_shared_gain).
+!
+! MDK, 30/10/26
+! *****************************************************************************
+SUBROUTINE set_shared_stem( land_pts, veg_pts, veg_index, share, e_other,      &
+                            kcrit_plant, amax_other, l_gain )
+
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: share(land_pts), e_other(land_pts),     &
+                                      kcrit_plant(land_pts),                   &
+                                      amax_other(land_pts)
+LOGICAL, INTENT(IN) :: l_gain
+
+INTEGER :: l, m
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='SET_SHARED_STEM'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+IF ( .NOT. ALLOCATED(shared_k_fac) ) THEN
+  ALLOCATE(shared_k_fac(land_pts))
+  ALLOCATE(shared_e_other(land_pts))
+  ALLOCATE(shared_kcrit_plant(land_pts))
+  ALLOCATE(shared_amax_other(land_pts))
+  ALLOCATE(shared_amax_self(land_pts))
+END IF
+shared_k_fac(:)       = 1.0
+shared_e_other(:)     = 0.0
+shared_kcrit_plant(:) = 0.0
+shared_amax_other(:)  = 0.0
+shared_amax_self(:)   = 0.0
+DO m = 1,veg_pts
+  l = veg_index(m)
+  shared_kcrit_plant(l) = kcrit_plant(l)
+  shared_amax_other(l)  = MAX(amax_other(l), 0.0_real_jlslsm)
+  IF ( share(l) > TINY(1.0_real_jlslsm) ) THEN
+    shared_k_fac(l)   = 1.0 / share(l)
+    shared_e_other(l) = MAX(e_other(l), 0.0_real_jlslsm)
+  END IF
+END DO
+l_shared_stem_path  = .TRUE.
+l_shared_whole_path = .FALSE.
+l_rs_cache          = .FALSE.
+l_shared_gain_path  = l_gain
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
+END SUBROUTINE set_shared_stem
+
+! *****************************************************************************
+! l_som_shared_stem: switch the shared root and stem off again after the
+! call they were set for.
+!
+! MDK, 30/10/26
+! *****************************************************************************
+SUBROUTINE clear_shared_stem()
+
+IMPLICIT NONE
+
+l_shared_stem_path  = .FALSE.
+l_shared_whole_path = .FALSE.
+l_shared_gain_path  = .FALSE.
+l_rs_cache          = .FALSE.
+
+END SUBROUTINE clear_shared_stem
+
+! *****************************************************************************
 ! kplant_model = 1: set kplant_scale and seg_kscale (see their declaration)
 ! for PFT pft from the current LAI and the reference LAI lai_ref (both m2
 ! leaf m-2 ground). Root and stem keep the conductance they have at
@@ -276,9 +424,11 @@ END SUBROUTINE set_k_ground_basis
 ! *****************************************************************************
 ! Maximum conductance of segment iseg as a multiple of the whole-plant kmax
 ! given to the solvers at point l: seg_kfac, times seg_kscale with
-! kplant_model = 1 (see set_k_ground_basis).
+! kplant_model = 1 (see set_k_ground_basis), and for the root and stem
+! times shared_k_fac while the shared root and stem apply (and the leaf
+! too while the whole-plant path is solved).
 !
-! MDK, 21/10/26
+! MDK, 30/10/26
 ! *****************************************************************************
 FUNCTION seg_kmax_fac( pft, l, iseg ) RESULT( fac )
 
@@ -292,6 +442,10 @@ REAL(KIND=real_jlslsm) :: fac
 
 fac = seg_kfac(pft,iseg)
 IF ( kplant_model == kplant_model_ground ) fac = fac * seg_kscale(l,iseg)
+! The shared root and stem (l_som_shared_stem): the whole plant's.
+! (MDK, 30/10/26)
+IF ( l_shared_stem_path .AND. ( iseg <= 2 .OR. l_shared_whole_path ) )        &
+  fac = fac * shared_k_fac(l)
 
 END FUNCTION seg_kmax_fac
 
@@ -534,6 +688,11 @@ REAL(KIND=real_jlslsm) :: drop_nr
       ! newton_psi_drop).
       !
       ! MDK, 25/10/26
+REAL(KIND=real_jlslsm) :: kcr_drop
+      ! The critical conductance of the path the segment belongs to, for
+      ! drop_nr: kcrit, or the whole plant's for the shared root and stem.
+      !
+      ! MDK, 30/10/26
 REAL(KIND=real_jlslsm) :: e_seg(n_e_leaf)
       ! The flow the current segment carries: the leaf's E, or with the
       ! store's flow held fixed (l_store_q_path) E_r = E - q_f for the soil
@@ -541,6 +700,14 @@ REAL(KIND=real_jlslsm) :: e_seg(n_e_leaf)
       !
       ! MDK, 24/10/26
 LOGICAL :: l_cap, l_impair, l_exact_on
+LOGICAL :: l_one
+      ! The shared root and stem, one sample at one point: the stem state
+      ! is kept by a class solve and reused by the whole-plant solve of the
+      ! same inputs (see l_rs_cache).
+      !
+      ! MDK, 30/10/26
+INTEGER :: iseg0
+REAL(KIND=real_jlslsm) :: kc_key
 LOGICAL :: l_nr_active(n_e_leaf)
       ! Newton: samples still iterating (each stops on its own convergence).
       !
@@ -556,6 +723,8 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 l_impair = PRESENT(kcap_frac)
 l_exact_on = .FALSE.
 IF ( PRESENT(l_exact) ) l_exact_on = l_exact
+l_one = l_shared_stem_path .AND. n_e_leaf == 1 .AND. open_pnts == 1
+IF ( l_one .AND. .NOT. l_shared_whole_path ) l_rs_cache = .FALSE.
 
 ! For each open point, walk every sampled transpiration down the chain of
 ! segments (root, then stem, then leaf). Each segment takes the water
@@ -586,6 +755,16 @@ DO j = 1, open_pnts
   e_seg(:) = e_leaf(:,j)
   IF ( l_store_q_path ) e_seg(:) = e_leaf(:,j) - store_q_path(l)
 
+  ! The shared root and stem (l_shared_stem_path): the soil link, the root
+  ! and the stem also carry the other class's E, held fixed, so
+  !
+  !   E_r = E + E_o - q_f
+  !
+  ! and dE_r/dE is still 1.
+  !
+  ! MDK, 30/10/26
+  IF ( l_shared_stem_path ) e_seg(:) = e_seg(:) + shared_e_other(l)
+
   ! l_som_rhizo_series: the soil (rhizosphere) link in series ahead of the
   ! root segment. Linear in E: psi_root = psi_src - E / K_s, and the chain
   ! starts from dpsi_root/dE = -1/K_s, so leaf_k is the conductance of the
@@ -604,10 +783,35 @@ DO j = 1, open_pnts
     END IF
   END IF
 
-  DO iseg = 1, n_seg
+  ! The whole-plant solve of the same inputs as the last class solve:
+  ! start at the leaf segment from the kept stem state (l_rs_cache).
+  ! (MDK, 30/10/26)
+  iseg0 = 1
+  kc_key = -1.0
+  IF ( l_impair ) kc_key = kcap_frac(l)
+  IF ( l_one .AND. l_shared_whole_path .AND. l_rs_cache ) THEN
+    IF ( rs_l == l .AND. rs_e == e_leaf(1,j) .AND. rs_kmax == kmax(l) .AND.   &
+         rs_kcrit == kcrit(l) .AND. rs_psi0 == root_zone_psi(l) .AND.         &
+         rs_kcap == kc_key .AND. ( rs_intact .EQV. PRESENT(leaf_k_intact) )   &
+         .AND. ( rs_exact .EQV. l_exact_on ) ) THEN
+      psi_in(1)      = rs_psi
+      dpsi_de(1)     = rs_dpsi
+      dpsi_de_int(1) = rs_dpsi_int
+      l_closed(1)    = rs_closed
+      IF ( PRESENT(stem_psi) ) stem_psi(1,j) = rs_psi
+      iseg0 = n_seg
+    END IF
+  END IF
+
+  DO iseg = iseg0, n_seg
     ! The leaf segment carries the leaf's E, whatever the store gives.
     ! (MDK, 24/10/26)
-    IF ( iseg == n_seg .AND. l_store_q_path ) e_seg(:) = e_leaf(:,j)
+    ! (And not the other class's, unless the whole plant's leaf is solved:
+    ! MDK, 30/10/26.)
+    IF ( iseg == n_seg .AND. ( l_store_q_path .OR. l_shared_stem_path ) )     &
+      e_seg(:) = e_leaf(:,j)
+    IF ( iseg == n_seg .AND. l_shared_stem_path .AND. l_shared_whole_path )    &
+      e_seg(:) = e_seg(:) + shared_e_other(l)
 
     ! This segment's maximum and critical conductance (its share of the
     ! whole-plant values) and its own vulnerability curve (b, c).
@@ -620,8 +824,13 @@ DO j = 1, open_pnts
     ! kmax (newton_psi_drop; 5 |bs| unless the curve is wide). (It was
     ! kcrit/kmax, which for a short, wide segment could leave k above the
     ! path's kcrit.) MDK, 25/10/26
+    ! (The shared root and stem: the whole plant's kcrit, in proportion to
+    ! its kmax. MDK, 30/10/26)
+    kcr_drop = kcrit(l)
+    IF ( l_shared_stem_path .AND. ( iseg <= 2 .OR. l_shared_whole_path ) )     &
+      kcr_drop = kcr_drop * shared_k_fac(l)
     drop_nr = newton_psi_drop(bs, cs,                                          &
-                              kcrit(l) / MAX(kmx, TINY(1.0_real_jlslsm)),      &
+                              kcr_drop / MAX(kmx, TINY(1.0_real_jlslsm)),      &
                               .FALSE.)
 
     ! Cap on the stem and leaf segments (not the root) under xylem
@@ -726,6 +935,22 @@ DO j = 1, open_pnts
     ! Hand on to the next segment; keep the stem segment's leaf-side psi.
     psi_in(:)  = psi_out(:)
     IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(:,j) = psi_out(:)
+    ! Keep the stem state of a class solve (l_rs_cache). MDK, 30/10/26
+    IF ( iseg == 2 .AND. l_one .AND. .NOT. l_shared_whole_path ) THEN
+      l_rs_cache  = .TRUE.
+      rs_l        = l
+      rs_e        = e_leaf(1,j)
+      rs_kmax     = kmax(l)
+      rs_kcrit    = kcrit(l)
+      rs_psi0     = root_zone_psi(l)
+      rs_kcap     = kc_key
+      rs_intact   = PRESENT(leaf_k_intact)
+      rs_exact    = l_exact_on
+      rs_psi      = psi_out(1)
+      rs_dpsi     = dpsi_de(1)
+      rs_dpsi_int = dpsi_de_int(1)
+      rs_closed   = l_closed(1)
+    END IF
   END DO
 
   ! The leaf-side end of the leaf segment is the leaf water potential, and

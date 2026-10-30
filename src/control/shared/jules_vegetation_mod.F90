@@ -573,6 +573,34 @@ LOGICAL ::                                                                     &
       ! MDK, 29/10/26
 
 LOGICAL ::                                                                     &
+  l_som_shared_stem = .FALSE.
+      ! When .TRUE., the sunlit and shaded leaves of the two-leaf canopy
+      ! (can_rad_mod = 7) under the stomatal optimisation share one root and
+      ! one stem, so one stem water potential. Each class's search sees the
+      ! whole plant's root and stem conductance carrying the whole canopy's
+      ! flow (its own E, the other class's latest E and, with the
+      ! capacitance store, less the store's flow out), and its own leaf
+      ! segment carrying its own E. The canopy is capped by the soil supply
+      ! (plus the store's flow) as a whole. .FALSE.: each class has its own
+      ! root, stem and leaf path, with its share of the plant conductance.
+      ! The hydraulic cost of either class is the whole plant's (shared
+      ! root and stem, both classes' leaves together) at the whole
+      ! canopy's flow, so the passes seek the joint optimum of the two
+      ! classes. Needs l_som_plant_segments, som_psi_solver = 2 and
+      ! som_ci_search = 2.
+      !
+      ! MDK, 30/10/26
+
+LOGICAL ::                                                                     &
+  l_som_shared_gain = .FALSE.
+      ! With l_som_shared_stem: when .TRUE., the carbon gain of either
+      ! class is on the whole plant's basis, A over the sum of both
+      ! classes' A at their hydraulic edges (the other class's from its
+      ! last search). .FALSE.: each class's gain over its own.
+      !
+      ! MDK, 30/10/26
+
+LOGICAL ::                                                                     &
   l_som_capacitance = .FALSE.
       ! Plant capacitance. When .TRUE., the stomatal optimisation (profit
       ! max) has a plant water store at the stem node of the root, stem
@@ -1219,6 +1247,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_gain_gross,                                                          &
     l_som_cuticular_loss,                                                      &
     l_som_cuticular_day_only,                                                  &
+    l_som_shared_stem, l_som_shared_gain,                                      &
     l_som_capacitance,                                                         &
     l_som_gravity,                                                             &
     l_som_rhizo_mfp,                                                           &
@@ -2109,6 +2138,30 @@ IF ( l_som_cuticular_day_only .AND.                                            &
                'and the stomatal optimisation (not DESICA)')
 END IF
 
+! The shared root and stem: the two-leaf canopy under the stomatal
+! optimisation, with the segments, the Newton solver (whose segment chain
+! carries the other class's flow) and the bounded Ci search (whose cost
+! reference it sets).
+!
+! MDK, 30/10/26
+IF ( l_som_shared_stem .AND.                                                   &
+     ( can_rad_mod /= 7 .OR. leaf_flux_mod /= leaf_flux_stom_opt .OR.          &
+       .NOT. l_som_plant_segments .OR.                                         &
+       som_psi_solver /= psi_solver_newton .OR.                                &
+       som_ci_search /= som_ci_bounded .OR.                                    &
+       l_som_skip_search_wellwatered ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_shared_stem requires can_rad_mod = 7, the stomatal ' //  &
+               'optimisation, l_som_plant_segments, som_psi_solver = 2, ' //   &
+               'som_ci_search = 2 and l_som_skip_search_wellwatered=F')
+END IF
+IF ( l_som_shared_gain .AND. .NOT. l_som_shared_stem ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_shared_gain requires l_som_shared_stem')
+END IF
+
 IF ( l_som_gravity .AND. leaf_flux_mod /= leaf_flux_stom_opt ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2534,6 +2587,12 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_cuticular_day_only = ', l_som_cuticular_day_only
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 29/10/26
 
+WRITE(lineBuffer,*) ' l_som_shared_stem = ', l_som_shared_stem
+CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 30/10/26
+
+WRITE(lineBuffer,*) ' l_som_shared_gain = ', l_som_shared_gain
+CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 30/10/26
+
 WRITE(lineBuffer,*) ' l_som_capacitance = ', l_som_capacitance   ! MDK, 23/10/26
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -2718,7 +2777,9 @@ INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! leaf_width/shelter, +4 for
                                   ! som_hc_negligible_tol/som_leaf_resist_frac/
                                   ! som_gl_max/light_curvature_fvcb
-INTEGER, PARAMETER :: n_log = 57 + npft_max
+INTEGER, PARAMETER :: n_log = 59 + npft_max
+                                  ! +2 l_som_shared_stem, l_som_shared_gain
+                                  ! (MDK, 30/10/26)
                                   ! +2 l_nsc_sapwood_pool,
                                   ! l_nsc_ring_additive (MDK, 29/10/26)
                                   ! +1 l_som_cuticular_day_only (MDK,
@@ -2821,6 +2882,8 @@ TYPE :: my_namelist
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_loss
   LOGICAL :: l_som_cuticular_day_only   ! MDK, 29/10/26
+  LOGICAL :: l_som_shared_stem   ! MDK, 30/10/26
+  LOGICAL :: l_som_shared_gain   ! MDK, 30/10/26
   LOGICAL :: l_som_capacitance   ! MDK, 23/10/26
   LOGICAL :: l_ximpair_leaf_loss
   LOGICAL :: l_ximpair_seg_memory
@@ -2945,6 +3008,8 @@ IF (mype == 0) THEN
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_cuticular_loss = l_som_cuticular_loss
   my_nml % l_som_cuticular_day_only = l_som_cuticular_day_only
+  my_nml % l_som_shared_stem = l_som_shared_stem
+  my_nml % l_som_shared_gain = l_som_shared_gain
   my_nml % l_som_capacitance = l_som_capacitance
   my_nml % l_ximpair_leaf_loss = l_ximpair_leaf_loss
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
@@ -3058,6 +3123,8 @@ IF (mype /= 0) THEN
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_cuticular_loss = my_nml % l_som_cuticular_loss
   l_som_cuticular_day_only = my_nml % l_som_cuticular_day_only
+  l_som_shared_stem = my_nml % l_som_shared_stem
+  l_som_shared_gain = my_nml % l_som_shared_gain
   l_som_capacitance = my_nml % l_som_capacitance
   l_ximpair_leaf_loss = my_nml % l_ximpair_leaf_loss
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory

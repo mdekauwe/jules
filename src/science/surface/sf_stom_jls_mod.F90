@@ -10,6 +10,8 @@ MODULE sf_stom_mod
 
 USE um_types, ONLY: real_jlslsm
 USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state, sf_stom_state_alloc
+USE sf_stom_state_mod, ONLY: shared_e_shd_prev, shared_amax_shd_prev
+                                       ! MDK, 30/10/26
                             ! MDK, 22/10/26
 USE leaf_energy_balance_mod, ONLY: leaf_aero_geom, leaf_temp_setup,          &
                                    leaf_temp_update, leaf_temp_update_n
@@ -108,7 +110,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_gl_max, l_som_supply_limit,                                            &
     l_som_cuticular_loss, l_som_gravity, l_red, l_som_rhizo_series,            &
-    l_som_cuticular_day_only,                                                  &
+    l_som_cuticular_day_only, l_som_shared_stem, l_som_shared_gain,            &
     l_som_coupled_e, l_som_capacitance_on,                                     &
     l_som_vcmax_psi, kplant_model, kplant_model_ground,                        &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model,           &
@@ -178,6 +180,7 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_daily, triffid_nsc_turgor,              &
 USE jules_vegetation_mod, ONLY: discrimination_model, discrimination_off
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft, d13c_disc_alloc, d13c_disc_leaf
 USE canopy_diag_mod, ONLY: gs_sun_pft, gs_shd_pft, lai_sun_pft
+USE canopy_diag_mod, ONLY: psi_leaf_sun_pft, psi_leaf_shd_pft   ! MDK, 30/10/26
 USE canopy_diag_mod, ONLY: vcmax_pft, jmax_pft, anetc_pft, anetl_top_pft,      &
                            anetl_bot_pft
 USE jules_vegetation_mod, ONLY: l_photo_diag   ! MDK, 30/10/26
@@ -194,6 +197,9 @@ USE plant_hydraulic_path_mod, ONLY: set_ksr_path, ksr, set_k_ground_basis,     &
 USE plant_hydraulic_path_mod, ONLY: set_store_q_path, clear_store_q_path,      &
                                     psi_leaf_segments_jls
                                        ! MDK, 24/10/26
+USE plant_hydraulic_path_mod, ONLY: set_shared_stem, clear_shared_stem,       &
+                                    shared_amax_self
+                                       ! MDK, 30/10/26
 
 USE planet_constants_mod, ONLY: g, r
 USE water_constants_mod, ONLY: rho_water, Water_kg_per_mol
@@ -968,6 +974,24 @@ REAL(KIND=real_jlslsm) :: q_f_sun(land_pts), q_f_shd(land_pts),                &
                             ! of capacitance off. The parts add up to q_f.
                             !
                             ! MDK, 25/10/26
+REAL(KIND=real_jlslsm) :: e_oth_2l(land_pts)
+                            ! The shared root and stem (l_som_shared_stem):
+                            ! the other class's transpiration (mol H2O m-2
+                            ! ground s-1) that a class's search puts on the
+                            ! shared root and stem: for the sunlit leaves the
+                            ! shaded leaves' of the last pass (of the last
+                            ! timestep in the first pass), for the shaded
+                            ! leaves the sunlit leaves' of this pass.
+                            !
+                            ! MDK, 30/10/26
+REAL(KIND=real_jlslsm) :: a_oth_2l(land_pts), amax_sun_2l(land_pts),          &
+                          amax_shd_2l(land_pts)
+                            ! The shared root and stem: the other class's A
+                            ! at its hydraulic edge (the gain normalisation,
+                            ! mol CO2 m-2 ground s-1), taken as e_oth_2l;
+                            ! and each class's, from its last search.
+                            !
+                            ! MDK, 30/10/26
 REAL(KIND=real_jlslsm) :: e_sup_use(land_pts)
                             ! The soil supply the two-leaf optimiser is
                             ! capped by (kg m-2 s-1; < 0: no cap): e_supply,
@@ -3785,6 +3809,22 @@ CASE ( 7 )
   !---------------------------------------------------------------------------
   ltc_a_2l(:,:) = 0.0
   ltc_b_2l(:,:) = 0.0
+  ! The shared root and stem: the last timestep's shaded flow (0 before the
+  ! first). MDK, 30/10/26
+  e_oth_2l(:) = 0.0
+  a_oth_2l(:) = 0.0
+  amax_sun_2l(:) = 0.0
+  amax_shd_2l(:) = 0.0
+  IF ( l_som_shared_stem ) THEN
+!$OMP CRITICAL (som_shared_stem_alloc)
+    IF ( .NOT. ALLOCATED(shared_e_shd_prev) ) THEN
+      ALLOCATE( shared_e_shd_prev(land_pts, npft) )
+      ALLOCATE( shared_amax_shd_prev(land_pts, npft) )
+      shared_e_shd_prev(:,:) = 0.0
+      shared_amax_shd_prev(:,:) = 0.0
+    END IF
+!$OMP END CRITICAL (som_shared_stem_alloc)
+  END IF
   DO k = 1,n_pass_2l
 
     DO m = 1,veg_pts
@@ -3829,6 +3869,20 @@ CASE ( 7 )
       CALL ltc_set( 1, t_sun_lt, nw_sun_2l, i2_sun, ccp_sun_lt, kc_sun_lt,     &
                     ko_sun_lt, km_sun_lt, vcmax_sun_2l, je_sun, rd_sun,        &
                     qs_sun_lt )
+    ! The shared root and stem: the shaded leaves' flow on it, of the last
+    ! pass, or in the first pass of the last timestep. (MDK, 30/10/26)
+    IF ( l_som_shared_stem ) THEN
+      DO m = 1,veg_pts
+        l = veg_index(m)
+        IF ( k == 1 ) THEN
+          e_oth_2l(l) = shared_e_shd_prev(l,ft)
+          a_oth_2l(l) = shared_amax_shd_prev(l,ft)
+        ELSE
+          e_oth_2l(l) = MAX(el_shd(l), 0.0)
+          a_oth_2l(l) = amax_shd_2l(l)
+        END IF
+      END DO
+    END IF
     CALL two_leaf_class( apar_sun_2l, lai_sun_2l, kmax_ref_sun_2l,             &
                          qs_sun_lt, dq_sun_lt, gbw_sun_lt, gbw_shd_lt,         &
                          gl_shd, t_sun_lt, gl_max_sun_2l, acr_sun_2l,          &
@@ -3837,12 +3891,21 @@ CASE ( 7 )
                          rd_sun, ci_sun_2l, anetl_sun, el_sun,                 &
                          flux_o3_l_sun, fo3_l_sun, gl_sun, psi_leaf_sun,       &
                          CG_sun, HC_sun, leaf_k_sun, psi_stem_sun, lam_sun,    &
-                         q_f_sun )
+                         q_f_sun, e_oth_2l, a_oth_2l, amax_sun_2l )
     IF ( l_leaf_temp_ci .AND. k > 1 ) THEN
       CALL clear_leaf_temp_ci()
       CALL ltc_set( 2, t_shd_lt, nw_shd_2l, i2_shd, ccp_shd_lt, kc_shd_lt,     &
                     ko_shd_lt, km_shd_lt, vcmax_shd_2l, je_shd, rd_shd,        &
                     qs_shd_lt )
+    END IF
+    ! The shared root and stem: the sunlit leaves' flow of this pass.
+    ! (MDK, 30/10/26)
+    IF ( l_som_shared_stem ) THEN
+      DO m = 1,veg_pts
+        l = veg_index(m)
+        e_oth_2l(l) = MAX(el_sun(l), 0.0)
+        a_oth_2l(l) = amax_sun_2l(l)
+      END DO
     END IF
     CALL two_leaf_class( apar_shd_2l, lai_shd_2l, kmax_ref_shd_2l,             &
                          qs_shd_lt, dq_shd_lt, gbw_shd_lt, gbw_sun_lt,         &
@@ -3852,7 +3915,7 @@ CASE ( 7 )
                          rd_shd, ci_shd_2l, anetl_shd, el_shd,                 &
                          flux_o3_l_shd, fo3_l_shd, gl_shd, psi_leaf_shd,       &
                          CG_shd, HC_shd, leaf_k_shd, psi_stem_shd, lam_shd,    &
-                         q_f_shd )
+                         q_f_shd, e_oth_2l, a_oth_2l, amax_shd_2l )
     IF ( l_leaf_temp_ci .AND. k > 1 ) CALL clear_leaf_temp_ci()
 
     DO m = 1,veg_pts
@@ -3917,6 +3980,28 @@ CASE ( 7 )
   IF ( l_som_coupled_e ) CALL cpl_state_save( ft, land_pts, veg_pts, veg_index,&
                                               gl_sun, gl_shd, gbw_sun_lt,      &
                                               gbw_shd_lt, ra_ca_lt )
+
+  ! The shared root and stem (l_som_shared_stem): the shaded leaves' flow
+  ! (and A at their edge) for the next timestep's first pass, and one stem
+  ! water potential for
+  ! both classes. The shaded leaves' search, the last, put this pass's flow
+  ! of both classes on the stem, so its stem psi is the shared stem's;
+  ! where the shaded leaves do not transpire, the sunlit leaves' (whose
+  ! search had the shaded leaves' flow of the last pass on it).
+  !
+  ! MDK, 30/10/26
+  IF ( l_som_shared_stem ) THEN
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      shared_e_shd_prev(l,ft) = MAX(el_shd(l), 0.0)
+      shared_amax_shd_prev(l,ft) = amax_shd_2l(l)
+      IF ( el_shd(l) > 0.0 ) THEN
+        psi_stem_sun(l) = psi_stem_shd(l)
+      ELSE
+        psi_stem_shd(l) = psi_stem_sun(l)
+      END IF
+    END DO
+  END IF
 
   ! Diagnostic marginal water price of the canopy (som_lambda_eff_pft):
   ! the sunlit and shaded leaves' dA/dE weighted by their transpiration.
@@ -4006,6 +4091,9 @@ CASE ( 7 )
       gs_sun_pft(l,ft) = gl_sun(l) / lai_sun_2l(l)
     IF ( lai_shd_2l(l) > EPSILON(0.0) )                                        &
       gs_shd_pft(l,ft) = gl_shd(l) / lai_shd_2l(l)
+    ! and their leaf water potentials. MDK, 30/10/26
+    psi_leaf_sun_pft(l,ft) = psi_leaf_sun(l)
+    psi_leaf_shd_pft(l,ft) = psi_leaf_shd(l)
 
     IF ( l_leaf_temp ) THEN
       ! Leaf temperatures used and the transpiration-equivalent gc
@@ -5435,14 +5523,23 @@ END SUBROUTINE ml_class
 ! points that end up closed. The arguments are the class's arrays (_o: the
 ! other class's). This was two copies of the same code, one per class.
 !
-! MDK, 21/10/26
+! With the shared root and stem (l_som_shared_stem) the class's root and
+! stem are the whole plant's and carry the other class's flow e_o_c as
+! well (set_shared_stem), with the whole store's q_f, the whole soil-to-root
+! conductance, and the soil supply left after e_o_c; its leaf keeps its own
+! share of the plant conductance. kcrit stays the same fraction of the
+! path's intact conductance (kcrit_of_path), now that of the path with the
+! whole root and stem.
+!
+! MDK, 30/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE two_leaf_class( apar_c, lai_c, kmax_ref_c, qs_lt_c, dq_lt_c,        &
                            gbw_c, gbw_o, gl_o, t_lt_c, gl_max_c, acr_c,        &
                            vcmax_c, kc_lt_c, ko_lt_c, ccp_lt_c, km_lt_c,       &
                            je_c, kmax_c, kcrit_c, rd_c, ci_c, anetl_c, el_c,   &
                            flux_o3_c, fo3_c, gl_c, psi_leaf_c, cg_c, hc_c,     &
-                           leaf_k_c, psi_stem_c, lam_c, q_f_c )
+                           leaf_k_c, psi_stem_c, lam_c, q_f_c, e_o_c,      &
+                           a_o_c, amax_c )
 IMPLICIT NONE
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
@@ -5470,8 +5567,34 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: q_f_c(land_pts)
                             ! stom_opt_mod; 0 where not set).
                             !
                             ! MDK, 23/10/26
+REAL(KIND=real_jlslsm), INTENT(IN) :: e_o_c(land_pts)
+                            ! The shared root and stem: the other class's
+                            ! transpiration (mol H2O m-2 ground s-1, >= 0),
+                            ! held fixed. Not used otherwise.
+                            !
+                            ! MDK, 30/10/26
+REAL(KIND=real_jlslsm), INTENT(IN) :: a_o_c(land_pts)
+                            ! The shared root and stem: the other class's A
+                            ! at its hydraulic edge (mol CO2 m-2 ground s-1),
+                            ! for the whole-plant gain (l_som_shared_gain).
+                            !
+                            ! MDK, 30/10/26
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: amax_c(land_pts)
+                            ! The shared root and stem: this class's A at its
+                            ! hydraulic edge from this search (0 where it was
+                            ! not searched); unchanged otherwise.
+                            !
+                            ! MDK, 30/10/26
 
 INTEGER :: i, l, m
+REAL(KIND=real_jlslsm) :: kcrit_use(land_pts), k_own(land_pts),               &
+                          kcrit_pl(land_pts)
+                            ! The shared root and stem: the class's kcrit on
+                            ! the path with the whole root and stem, and the
+                            ! intact conductance of the class's own path
+                            ! (relative to its kmax) it is scaled from.
+                            !
+                            ! MDK, 30/10/26
 REAL(KIND=real_jlslsm) :: e_sup_cls(land_pts)
                             ! With the store: the class's supply, its kmax
                             ! share of the soil supply plus its own part of
@@ -5509,17 +5632,72 @@ CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,        &
 
 ! The store coupled to the optimiser (the capacitance store): this class's
 ! part of the store's flow out (store_cpl_split), held fixed for its search
-! (cleared after).
+! (cleared after). With the shared root and stem the whole store's flow,
+! which leaves at the shared stem node.
 !
-! MDK, 25/10/26
-IF ( l_store_cpl ) CALL set_store_q_path( land_pts, veg_pts, veg_index,        &
-                                          share_one, q_f_c )
+! MDK, 30/10/26
+IF ( l_store_cpl .AND. l_som_shared_stem ) THEN
+  CALL set_store_q_path( land_pts, veg_pts, veg_index, share_one, q_f )
+ELSE IF ( l_store_cpl ) THEN
+  CALL set_store_q_path( land_pts, veg_pts, veg_index, share_one, q_f_c )
+END IF
+
+! The shared root and stem (l_som_shared_stem): kcrit as kcrit_of_path, a
+! fixed fraction of the path's intact conductance, which with the whole
+! root and stem is k_sh / k_own times the class's own,
+!
+!   kcrit_sh = kcrit_c k_sh / k_own,
+!
+! k_sh and k_own the path's intact conductance at psi = 0 with and without
+! the whole root and stem (k_path_zero_flow, plant only, per unit kmax).
+! Then the class's root and stem are set to the whole plant's, with the
+! other class's flow (cleared after the search). The cost is the whole
+! plant's (stom_opt_mod), with the whole plant's kcrit, kcrit_of_path of
+! its intact conductance: kcrit_c / share_sup in the class's units.
+!
+! MDK, 30/10/26
+kcrit_use(:) = kcrit_c(:)
+IF ( l_som_shared_stem ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    k_own(l) = k_path_zero_flow(ft, l, 1.0_real_jlslsm, 0.0_real_jlslsm,      &
+                                l_plant_only = .TRUE.)
+    kcrit_pl(l) = kcrit_c(l) / MAX(share_sup(l), TINY(1.0_real_jlslsm))
+  END DO
+  CALL set_shared_stem( land_pts, veg_pts, veg_index, share_sup, e_o_c,        &
+                        kcrit_pl, a_o_c, l_som_shared_gain )
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( k_own(l) > TINY(1.0_real_jlslsm) )                                    &
+      kcrit_use(l) = kcrit_c(l)                                                &
+                     * k_path_zero_flow(ft, l, 1.0_real_jlslsm,                &
+                                        0.0_real_jlslsm,                       &
+                                        l_plant_only = .TRUE.) / k_own(l)
+  END DO
+END IF
 
 ! At the class's leaf temperature (l_leaf_temp), else tstar: the class
 ! arrays hold the tile's values then (see the two-leaf set-up).
 !
 ! MDK, 24/10/26
-IF ( l_store_cpl ) THEN
+IF ( l_som_shared_stem ) THEN
+  ! The shared root and stem: the canopy is capped by the soil supply plus
+  ! the store's flow (q_f, with the store coupled), E + E_o <= e_supply +
+  ! q_f, so the class by what is left after the other class's E.
+  ! MDK, 30/10/26
+  e_sup_cls(:) = e_supply(:)
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( e_supply(l) >= 0.0 ) THEN
+      e_sup_cls(l) = e_supply(l) - e_o_c(l) * cut_m_h2o
+      IF ( l_store_cpl ) e_sup_cls(l) = e_sup_cls(l) + q_f(l) * cut_m_h2o
+      e_sup_cls(l) = MAX(e_sup_cls(l), 0.0)
+    END IF
+  END DO
+  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_cls,            &
+                           share_one, dq_opt, t_lt_c, pstar, gl_max_c,         &
+                           gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
+ELSE IF ( l_store_cpl ) THEN
   ! The class's kmax share of the soil supply plus its own part of the
   ! store's flow (q_f_c), not share_sup (e_s + q_f). MDK, 25/10/26
   e_sup_cls(:) = e_supply(:)
@@ -5534,7 +5712,13 @@ ELSE
                            share_sup, dq_opt, t_lt_c, pstar, gl_max_c,         &
                            gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
 END IF
-CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
+! (The shared root and stem: the whole soil-to-root conductance.
+! MDK, 30/10/26)
+IF ( l_som_shared_stem ) THEN
+  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_one )
+ELSE
+  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
+END IF
 CALL stom_opt_mod (                                                            &
         ! IN
           land_pts, ft, open_pts, open_index,                                  &
@@ -5543,7 +5727,7 @@ CALL stom_opt_mod (                                                            &
           kc_lt_c, ko_lt_c, ccp_lt_c, pstar,                                   &
           km_lt_c, dq_opt, je_c, t_lt_c, je_dummy,                             &
           fapar_dummy,                                                         &
-          kmax_c, kcrit_c, gl_max_eff, ipar,                                   &
+          kmax_c, kcrit_use, gl_max_eff, ipar,                                 &
           l_multilayer, r_bl_c, r_ca_c, g_oth_c,                               &
           kmax_ref_c, conductance_b, conductance_c,                            &
           psi_leaf_extreme, psi_root_extreme, .TRUE.,                          &
@@ -5556,6 +5740,15 @@ CALL stom_opt_mod (                                                            &
           lai_cost = lai_c                                                     &
   )
 IF ( l_store_cpl ) CALL clear_store_q_path()   ! MDK, 24/10/26
+! (The shared root and stem: this class's A at its edge, then off.
+! MDK, 30/10/26)
+IF ( l_som_shared_stem ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    amax_c(l) = shared_amax_self(l)
+  END DO
+  CALL clear_shared_stem()
+END IF
 
 ! Closed leaves get min_gl_pft from stom_opt_mod as a canopy value; share it
 ! by leaf area so the two classes together give big-leaf's (half each when

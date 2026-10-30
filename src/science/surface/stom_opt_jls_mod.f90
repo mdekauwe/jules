@@ -295,7 +295,8 @@ USE pftparm, ONLY:                                                             &
 USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, ksr_path,                &
-                                    l_store_q_path
+                                    l_store_q_path, l_shared_stem_path,        &
+                                    l_shared_whole_path
 USE model_time_mod, ONLY: is_spinup
 
 LOGICAL, INTENT(IN) :: l_multilayer
@@ -839,6 +840,22 @@ IF ( l_store_q_path .AND. .NOT. l_xylem_impairment ) THEN
     l = veg_index(m)
     kl_hc_max(l) = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
   END DO
+END IF
+
+! The shared root and stem (l_shared_stem_path, l_som_shared_stem): the
+! cost of either leaf class is the whole plant's (see psi_k_at_e), so the
+! reference is the intact whole plant (shared root and stem, the sunlit
+! and shaded leaves together, kmax_ref) at zero flow, in series with the
+! soil link, with or without impairment.
+!
+! MDK, 30/10/26
+IF ( l_shared_stem_path ) THEN
+  l_shared_whole_path = .TRUE.
+  DO m = 1, veg_pts
+    l = veg_index(m)
+    kl_hc_max(l) = k_path_zero_flow(pft, l, kmax_ref(l), psi_root_zone(l))
+  END DO
+  l_shared_whole_path = .FALSE.
 END IF
 
 ! ----------------------------------------------------------------------------
@@ -2376,7 +2393,10 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 l_som_rhizo_series, l_som_coupled_e,           &
                                 photo_johnson   ! MDK, 25/10/26
 USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kplant_scale,            &
-                                    l_store_q_path
+                                    l_store_q_path, l_shared_stem_path,        &
+                                    l_shared_whole_path, l_shared_gain_path,   &
+                                    shared_kcrit_plant, shared_amax_other,     &
+                                    shared_amax_self
 USE pftparm, ONLY: pft_conductance_model, psi_nsl_onset, psi_nsl0,             &
                    fsmc_mod, cmax_a, cmax_b, kmax_pft, cgain_varpi,            &
                    conductance_b_pft, conductance_c_pft,                       &
@@ -2544,6 +2564,12 @@ REAL(KIND=real_jlslsm) :: e_crit
                             !
                             ! MDK, 22/10/26
 REAL(KIND=real_jlslsm) :: lai_call, k_unstressed, k_sox_ref
+REAL(KIND=real_jlslsm) :: kcrit_hc
+                            ! kcrit of the hydraulic cost: kcrit, or with
+                            ! the shared root and stem the whole plant's
+                            ! (shared_kcrit_plant).
+                            !
+                            ! MDK, 30/10/26
                             ! k_sox_ref: SOX's whole-path k at zero flow
                             ! (psi_bar = psi_root_zone), which normalises
                             ! the SOX factor (a constant for the point, so
@@ -2705,6 +2731,8 @@ CONTAINS
 
   k_unstressed = 1.0
   k_sox_ref = 1.0
+  kcrit_hc = kcrit(l)
+  IF ( l_shared_stem_path ) kcrit_hc = shared_kcrit_plant(l)   ! MDK, 30/10/26
 
   IF ( l_sox ) k_sox_ref = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
 
@@ -2752,7 +2780,8 @@ CONTAINS
     max_kl = kl_hc_max(l)
   ! The store's flow held fixed: the unshifted path at zero flow (see
   ! kl_hc_max in stom_opt_mod). MDK, 24/10/26
-  IF ( l_store_q_path ) max_kl = kl_hc_max(l)
+  ! The shared root and stem: the same (see kl_hc_max). MDK, 30/10/26
+  IF ( l_store_q_path .OR. l_shared_stem_path ) max_kl = kl_hc_max(l)
   IF ( .NOT. ok_u ) THEN
     CALL set_closed()
     l_shut = .TRUE.
@@ -2854,6 +2883,18 @@ CONTAINS
     l_shut = .TRUE.
     RETURN
   END IF
+
+  ! The shared root and stem: this class's A at its edge for the other
+  ! class's search, and with the whole-plant gain (l_shared_gain_path)
+  ! the normalisation by both classes' A at their edges,
+  !
+  !   gain = (A + g_off) / (max_al + max_al_o),
+  !
+  ! max_al_o the other class's, held fixed.
+  !
+  ! MDK, 30/10/26
+  IF ( l_shared_stem_path ) shared_amax_self(l) = max_al
+  IF ( l_shared_gain_path ) max_al = max_al + shared_amax_other(l)
 
   ! ProfitMax2: E_crit of the point (needs the edge state e_*; overwrites
   ! the *_u evaluation state, which is not used again before eval_ci).
@@ -3066,7 +3107,7 @@ CONTAINS
   ! (Guarded as the flat search: with impairment max_kl is kl_hc_max, not
   ! taken from a sample. MDK, 21/10/26)
   hydraulic_cost_g(j) = (max_kl - best_khc)                                    &
-                        / MAX(max_kl - kcrit(l), TINY(1.0_real_jlslsm))
+                        / MAX(max_kl - kcrit_hc, TINY(1.0_real_jlslsm))
   ! CMax, CGain: the cost as a fraction of the maximum A on the range.
   ! ProfitMax2: Theta = A_n E / E_crit, as a fraction of max A.
   !
@@ -3280,7 +3321,9 @@ CONTAINS
       g_hi = 1.0 - nsl_factor(psi_u)
       f_lo = 0.0
       g_lo = -nsl_factor(psi_root_zone(l))
-      IF ( l_store_q_path ) THEN
+      ! The same with the shared root and stem, where the other class's
+      ! flow keeps the leaf below psi_root_zone. (MDK, 30/10/26)
+      IF ( l_store_q_path .OR. l_shared_stem_path ) THEN
         CALL hydraulic_state(ci, -rd(l))
         g_lo = -nsl_factor(psi_u)
       END IF
@@ -3470,6 +3513,41 @@ CONTAINS
   khc_u = kl_u
   IF ( l_xylem_impairment .AND. .NOT. l_intact_search .AND.                    &
        ximpair_stomatal_response == ximpair_hold_gs ) khc_u = khc1(1,1)
+
+  ! The shared root and stem (l_shared_stem_path): the cost conductance is
+  ! the whole plant's at the whole canopy's flow E + E_o, on the same
+  ! basis as above (the search's path; the intact segments at the impaired
+  ! water potentials with impairment and ximpair_hold_gs). The leaf psi
+  ! and the conductance of the feasibility test stay the class's own.
+  ! With a cost common to both classes, of their total flow, and their
+  ! own gains, the passes (sunlit, then shaded, each with the other's flow
+  ! held) seek the joint optimum, where the marginal gain of E is the same
+  ! in both classes. (Not after a hold-psi search, section 4, where the
+  ! cost is not used.)
+  !
+  ! MDK, 30/10/26
+  IF ( l_shared_stem_path .AND. .NOT. ( l_xylem_impairment .AND.               &
+       .NOT. l_intact_search .AND.                                             &
+       ximpair_stomatal_response == ximpair_hold_psi ) ) THEN
+    el1(1,1) = el_u
+    l_shared_whole_path = .TRUE.
+    IF ( l_xylem_impairment .AND. .NOT. l_intact_search ) THEN
+      CALL impaired_state( el1, psi1, kl1, khc1 )
+      khc_u = kl1(1,1)
+      IF ( ximpair_stomatal_response == ximpair_hold_gs ) khc_u = khc1(1,1)
+    ELSE IF ( l_intact_search ) THEN
+      CALL psi_leaf_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,            &
+                         psi_root_zone, kmax_ref, kcrit, b_curve, c_curve,     &
+                         psi1, kl1 )
+      khc_u = kl1(1,1)
+    ELSE
+      CALL psi_leaf_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,            &
+                         psi_root_zone, kmax, kcrit, conductance_b,            &
+                         conductance_c, psi1, kl1 )
+      khc_u = kl1(1,1)
+    END IF
+    l_shared_whole_path = .FALSE.
+  END IF
   END SUBROUTINE psi_k_at_e
 
   !---------------------------------------------------------------------------
@@ -3809,8 +3887,10 @@ CONTAINS
     ! gain), else 0; max_al and max_kl are the maxima over the Ci range.
     ! (max_kl > kcrit at any feasible point; the guard is as for the
     ! diagnostic cost in stom_opt_bounded_search. MDK, 23/10/26)
+    ! (kcrit_hc: kcrit, or the whole plant's with the shared root and
+    ! stem. MDK, 30/10/26)
     profit = (al_in + g_off) / max_al - (max_kl - kl_in)                       &
-             / MAX(max_kl - kcrit(l), TINY(1.0_real_jlslsm))
+             / MAX(max_kl - kcrit_hc, TINY(1.0_real_jlslsm))
   END IF
   END FUNCTION profit
 

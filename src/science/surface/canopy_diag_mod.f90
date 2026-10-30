@@ -34,6 +34,10 @@ MODULE canopy_diag_mod
 !   bottom canopy layer (mol CO2 m-2 s-1, leaf); layered canopies
 !   (can_rad_mod = 4, 5, 6) only.
 !   These five are computed only when one of them is output (l_photo_diag).
+! - psi_leaf_sun_pft, psi_leaf_shd_pft: the leaf water potential of the
+!   sunlit and the shaded leaves at the conductance the optimiser chose
+!   (Pa), before any cuticular leak or store balance; two-leaf canopy
+!   (can_rad_mod = 7) only.
 !
 ! MDK, 30/10/26
 !
@@ -51,13 +55,15 @@ PRIVATE
 PUBLIC :: gc_stomatal_pft, gsoil_pft, t_can_air_pft, q_can_air_pft,           &
           h_leaf_pft, le_leaf_pft, h_leaf_pts, le_leaf_pts, canopy_diag_alloc, &
           gs_sun_pft, gs_shd_pft, lai_sun_pft, vcmax_pft, jmax_pft,           &
-          anetc_pft, anetl_top_pft, anetl_bot_pft
+          anetc_pft, anetl_top_pft, anetl_bot_pft, psi_leaf_sun_pft,          &
+          psi_leaf_shd_pft
 
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE ::                                   &
   gc_stomatal_pft(:,:), gsoil_pft(:,:), t_can_air_pft(:,:),                   &
   q_can_air_pft(:,:), h_leaf_pft(:,:), le_leaf_pft(:,:),                     &
   gs_sun_pft(:,:), gs_shd_pft(:,:), lai_sun_pft(:,:), vcmax_pft(:,:),       &
-  jmax_pft(:,:), anetc_pft(:,:), anetl_top_pft(:,:), anetl_bot_pft(:,:)
+  jmax_pft(:,:), anetc_pft(:,:), anetl_top_pft(:,:), anetl_bot_pft(:,:),     &
+  psi_leaf_sun_pft(:,:), psi_leaf_shd_pft(:,:)
     ! (land_pts, npft): see the header.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: h_leaf_pts(:), le_leaf_pts(:)
     ! (land_pts): the leaf balance's H and LE of the current PFT, passed
@@ -92,7 +98,9 @@ IF ( .NOT. ALLOCATED(gc_stomatal_pft) ) THEN
             gs_sun_pft(n_land_pts,npft), gs_shd_pft(n_land_pts,npft),         &
             lai_sun_pft(n_land_pts,npft), vcmax_pft(n_land_pts,npft),         &
             jmax_pft(n_land_pts,npft), anetc_pft(n_land_pts,npft),            &
-            anetl_top_pft(n_land_pts,npft), anetl_bot_pft(n_land_pts,npft) )
+            anetl_top_pft(n_land_pts,npft), anetl_bot_pft(n_land_pts,npft),   &
+            psi_leaf_sun_pft(n_land_pts,npft),                                 &
+            psi_leaf_shd_pft(n_land_pts,npft) )
   gc_stomatal_pft(:,:) = 0.0
   gsoil_pft(:,:)       = 0.0
   t_can_air_pft(:,:)   = 0.0
@@ -109,6 +117,8 @@ IF ( .NOT. ALLOCATED(gc_stomatal_pft) ) THEN
   anetc_pft(:,:)       = 0.0
   anetl_top_pft(:,:)   = 0.0
   anetl_bot_pft(:,:)   = 0.0
+  psi_leaf_sun_pft(:,:) = 0.0
+  psi_leaf_shd_pft(:,:) = 0.0
 END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

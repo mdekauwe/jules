@@ -49,6 +49,7 @@ USE canopy_diag_mod, ONLY: gc_stomatal_pft, gsoil_pft, t_can_air_pft,          &
 USE canopy_diag_mod, ONLY: gs_sun_pft, gs_shd_pft, lai_sun_pft   ! MDK, 25/10/26
 USE canopy_diag_mod, ONLY: vcmax_pft, jmax_pft, anetc_pft, anetl_top_pft,      &
                            anetl_bot_pft   ! MDK, 30/10/26
+USE canopy_diag_mod, ONLY: psi_leaf_sun_pft, psi_leaf_shd_pft   ! MDK, 30/10/26
 USE stom_opt_jls_mod, ONLY: som_lambda_eff_pft   ! MDK, 22/10/26
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
 USE pftparm, ONLY: seg_kfac, seg_rel_k
@@ -3762,7 +3763,8 @@ CASE ('cica_ratio_pft')
 ! where the PFT has no tile fraction). MDK, 24/10/26
 CASE ( 'gc_stomatal_pft', 'gsoil_pft', 'h_leaf_pft', 'le_leaf_pft',          &
        'gs_sun_pft', 'gs_shd_pft', 'lai_sun_pft',                             &
-       'vcmax', 'jmax', 'anetc', 'anetl_top', 'anetl_bot' )
+       'vcmax', 'jmax', 'anetc', 'anetl_top', 'anetl_bot',                    &
+       'psi_leaf_sun_pft', 'psi_leaf_shd_pft' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(gc_stomatal_pft) ) THEN
     SELECT CASE ( get_string_identifier(var_id) )
@@ -3788,6 +3790,12 @@ CASE ( 'gc_stomatal_pft', 'gsoil_pft', 'h_leaf_pft', 'le_leaf_pft',          &
       workspace_pft(:,:) = gs_shd_pft
     CASE ( 'lai_sun_pft' )
       workspace_pft(:,:) = lai_sun_pft
+    ! Two-leaf sunlit and shaded leaf water potential (Pa -> MPa).
+    ! MDK, 30/10/26
+    CASE ( 'psi_leaf_sun_pft' )
+      workspace_pft(:,:) = psi_leaf_sun_pft * 1.0e-6
+    CASE ( 'psi_leaf_shd_pft' )
+      workspace_pft(:,:) = psi_leaf_shd_pft * 1.0e-6
     CASE ( 'gc_stomatal_pft' )
       workspace_pft(:,:) = gc_stomatal_pft
     CASE ( 'gsoil_pft' )
