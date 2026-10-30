@@ -68,15 +68,16 @@ MODULE triffid_nsc_mod
 !
 !   G = dC_W/dt + g_wood C_W,
 !
-! and its share of the stem conductance dilutes the stem's loss L,
+! and its share of the stem conductance comes off the stem's loss L,
 !
-!   rho = nsc_xylem_cond_ratio G dt / X,    L -> L (1 - rho),
+!   rho = nsc_xylem_cond_ratio G dt / X,    L -> MAX(L - rho, 0),
 !
 ! with X the conducting sapwood (nsc_sapwood_frac of the wood, or the pipe
 ! model on the balanced leaf area with nsc_la_sa > 0, as in FATES). No
 ! carbon is drawn from the store for it: the store paces the renewal
-! through W. With l_nsc_ring_additive the ring replaces damaged xylem
-! first, L -> MAX(L - rho, 0), as in MEDFATE.
+! through W. The ring replaces damaged xylem first (l_nsc_ring_additive,
+! the default, as in MEDFATE); with it off the ring dilutes the loss,
+! L -> L (1 - rho).
 !
 ! Net wood growth. While the release is shut TRIFFID still charges the
 ! turnover, so the wood shrinks (G < 0) and regrows when the release opens.
@@ -977,8 +978,9 @@ END SUBROUTINE triffid_nsc_daily
 !   rho = nsc_xylem_cond_ratio G dt / X,
 !
 ! with X the conducting sapwood before the step's growth, is queued in
-! ximpair_repair_pend for the next impairment update, which dilutes the
-! stem's loss by it (or with l_nsc_ring_additive takes it off the loss).
+! ximpair_repair_pend for the next impairment update, which takes it off
+! the stem's loss (l_nsc_ring_additive, the default) or dilutes the loss
+! by it.
 ! Not in spin-up, where the impairment is frozen. No carbon moves here.
 !
 ! MDK, 30/10/26

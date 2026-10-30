@@ -1054,14 +1054,15 @@ LOGICAL ::                                                                     &
       ! switches it off. .FALSE.: the pipe model.
       !
       ! MDK, 30/10/26
-  l_nsc_ring_additive = .FALSE.,                                               &
+  l_nsc_ring_additive = .TRUE.,                                                &
       ! Ring renewal (l_ximpair_rec_nsc) replaces damaged xylem first, as in
       ! MEDFATE: the stem's loss of conductance falls by the ring's share,
       !
       !   L -> MAX(L - rho, 0),
       !
       ! instead of being diluted, L -> L (1 - rho) (.FALSE.: the sapwood
-      ! retired to heartwood has the mean loss).
+      ! retired to heartwood has the mean loss). On by default; without
+      ! ring renewal check_jules_vegetation switches it off.
       !
       ! MDK, 30/10/26
   l_som_fast = .FALSE.
@@ -2382,15 +2383,13 @@ IF ( l_nsc_wmax_norm .AND. .NOT. l_triffid_nsc ) THEN
                'l_nsc_wmax_norm needs the TRIFFID store (l_triffid_nsc=T)')
 END IF
 ! The sapwood pool and the additive recovery are forms of ring renewal.
-! The sapwood pool is on by default, so without ring renewal it is
-! switched off here (no sapwood in the dumps).
+! Both are on by default, so without ring renewal they are switched off
+! here (no sapwood in the dumps).
 !
 ! MDK, 30/10/26
-IF ( .NOT. l_ximpair_rec_nsc ) l_nsc_sapwood_pool = .FALSE.
-IF ( l_nsc_ring_additive .AND. .NOT. l_ximpair_rec_nsc ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_nsc_ring_additive needs ring renewal (l_ximpair_rec_nsc=T)')
+IF ( .NOT. l_ximpair_rec_nsc ) THEN
+  l_nsc_sapwood_pool  = .FALSE.
+  l_nsc_ring_additive = .FALSE.
 END IF
 IF ( l_phen_psi .AND. .NOT. l_phenol ) THEN
   errcode = 101
