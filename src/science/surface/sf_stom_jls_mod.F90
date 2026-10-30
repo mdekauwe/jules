@@ -178,6 +178,9 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_daily, triffid_nsc_turgor,              &
 USE jules_vegetation_mod, ONLY: discrimination_model, discrimination_off
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft, d13c_disc_alloc, d13c_disc_leaf
 USE canopy_diag_mod, ONLY: gs_sun_pft, gs_shd_pft, lai_sun_pft
+USE canopy_diag_mod, ONLY: vcmax_pft, jmax_pft, anetc_pft, anetl_top_pft,      &
+                           anetl_bot_pft
+USE jules_vegetation_mod, ONLY: l_photo_diag   ! MDK, 30/10/26
 USE canopy_diag_mod, ONLY: canopy_diag_alloc, gc_stomatal_pft, t_can_air_pft,  &
                            q_can_air_pft, h_leaf_pft, le_leaf_pft,            &
                            h_leaf_pts, le_leaf_pts   ! MDK, 24/10/26
@@ -814,6 +817,12 @@ REAL(KIND=real_jlslsm) :: fw_lo(land_pts), fw_hi(land_pts),                    &
                             ! transpiration the plant can deliver.
 REAL(KIND=real_jlslsm) :: f_vc(land_pts)
                             ! Soil-water capacity factor (l_som_vcmax_psi).
+REAL(KIND=real_jlslsm) :: vcmax_top_d(land_pts), jmax_top_d(land_pts),         &
+                          rd_top_d(land_pts)
+                            ! Vcmax, Jmax and Rd of a leaf at the top of
+                            ! the canopy at tstar (vcmax_pft, jmax_pft).
+                            !
+                            ! MDK, 30/10/26
 REAL(KIND=real_jlslsm) :: psi_src(land_pts)
                             ! Water potential at the base of the plant path
                             ! seen by the stomatal optimisation (Pa):
@@ -1383,6 +1392,11 @@ n_lit = 0   ! MDK, 25/10/26
 gs_sun_pft(:,ft)      = 0.0   ! MDK, 25/10/26
 gs_shd_pft(:,ft)      = 0.0
 lai_sun_pft(:,ft)     = 0.0
+vcmax_pft(:,ft)       = 0.0   ! MDK, 30/10/26
+jmax_pft(:,ft)        = 0.0
+anetc_pft(:,ft)       = 0.0
+anetl_top_pft(:,ft)   = 0.0
+anetl_bot_pft(:,ft)   = 0.0
 t_can_air_pft(:,ft)   = 0.0
 q_can_air_pft(:,ft)   = 0.0
 h_leaf_pft(:,ft)      = 0.0
@@ -1731,6 +1745,25 @@ CASE DEFAULT
 END SELECT  !  pft_photo_model
 
 !-----------------------------------------------------------------------------
+! Diagnostics (l_photo_diag, only when output): Vcmax and Jmax of a leaf at
+! the top of the canopy at tstar, with any thermal acclimation and the
+! soil-water factor (canopy_diag_mod).
+!
+! MDK, 30/10/26
+!-----------------------------------------------------------------------------
+IF ( l_photo_diag ) THEN
+  CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,          &
+                              veg_index, denom, jmax_temp, jv25,               &
+                              nleaf_top, qtenf_term, vcmax_temp,               &
+                              jmax_top_d, rd_top_d, vcmax_top_d, f_vc = f_vc )
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    vcmax_pft(l,ft) = vcmax_top_d(l)
+    jmax_pft(l,ft)  = jmax_top_d(l)
+  END DO
+END IF
+
+!-----------------------------------------------------------------------------
 ! Soil water factor for the leaf fluxes. DESICA: no fsmc, the stomata close
 ! on psi_leaf through the Tuzet factor, from psi_leaf of the last timestep.
 !-----------------------------------------------------------------------------
@@ -1945,6 +1978,17 @@ CASE ( 4 )
       END IF
     END DO
 !$OMP END PARALLEL DO
+    ! Net leaf photosynthesis of the top and the bottom layer
+    ! (l_photo_diag, canopy_diag_mod).
+    !
+    ! MDK, 30/10/26
+    IF ( l_photo_diag ) THEN
+      DO m = 1,veg_pts
+        l = veg_index(m)
+        IF ( n == 1 ) anetl_top_pft(l,ft) = anetl(l)
+        IF ( n == ilayers ) anetl_bot_pft(l,ft) = anetl(l)
+      END DO
+    END IF
 
   END DO                   ! N LAYERS
 
@@ -2594,6 +2638,17 @@ CASE ( 5, 6 )
             END IF
             END DO
         !$OMP END PARALLEL DO
+            ! Net leaf photosynthesis of the top and the bottom layer
+            ! (l_photo_diag, canopy_diag_mod).
+            !
+            ! MDK, 30/10/26
+            IF ( l_photo_diag ) THEN
+              DO m = 1,veg_pts
+                l = veg_index(m)
+                IF ( n == 1 ) anetl_top_pft(l,ft) = anetl(l)
+                IF ( n == ilayers ) anetl_bot_pft(l,ft) = anetl(l)
+              END DO
+            END IF
 
             ! l_leaf_temp: the class conductances (m s-1, ground) for the
             ! leaf energy balance.
@@ -3038,6 +3093,17 @@ ELSE
       END IF
       END DO
   !$OMP END PARALLEL DO
+  ! Net leaf photosynthesis of the top and the bottom layer
+  ! (l_photo_diag, canopy_diag_mod).
+  !
+  ! MDK, 30/10/26
+  IF ( l_photo_diag ) THEN
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      IF ( n == 1 ) anetl_top_pft(l,ft) = anetl(l)
+      IF ( n == ilayers ) anetl_bot_pft(l,ft) = anetl(l)
+    END DO
+  END IF
 
   END DO                   ! N LAYERS
 
@@ -4534,6 +4600,7 @@ DO m = 1,veg_pts
   END IF
 
   gpp(l) = cconu * (anetc(l) + rdc(l) * fsmc_leaf_resp(l))
+  IF ( l_photo_diag ) anetc_pft(l,ft) = anetc(l)   ! MDK, 30/10/26
 
   IF (l_scale_resp_pm) THEN
     fsmc_scale(l) = fsmc(l)

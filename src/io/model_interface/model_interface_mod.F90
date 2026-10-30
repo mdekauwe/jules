@@ -177,7 +177,7 @@ END TYPE var_metadata
 ! or output. The CABLE land surface model adds 10 prognostics for tiled
 ! soil/snow prognostics.
 ! soil/snow prognostics.
-INTEGER, PARAMETER :: n_vars = 820 ! upstream 723 + 97 on this branch
+INTEGER, PARAMETER :: n_vars = 825 ! upstream 723 + 102 on this branch
                                     ! + 6 DESICA + gc_stom_pft + 6 xylem
                                     ! impairment + 11 xylem impairment state
                                     ! + 3 leaf temperatures + kplant_pft

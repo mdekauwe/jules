@@ -339,7 +339,8 @@ USE jules_soil_ecosse_mod, ONLY: l_soil_N
 USE jules_surface_mod, ONLY: l_urban2t
 
 USE jules_vegetation_mod, ONLY: l_fapar_diag, l_fao_ref_evapotranspiration,    &
-    photo_acclim_model, l_sugar, stomata_model, stomata_sox_analytical
+    photo_acclim_model, l_sugar, stomata_model, stomata_sox_analytical,        &
+    l_photo_diag
 
 USE jules_water_resources_mod, ONLY: l_have_groundwater, l_have_renew_gwater,  &
     l_have_surface_water, l_water_domestic, l_water_environment,               &
@@ -970,6 +971,9 @@ DO j = 1,nvars
 
   CASE ( 'fao_et0' )
     l_fao_ref_evapotranspiration = .TRUE.
+
+  CASE ( 'vcmax', 'jmax', 'anetc', 'anetl_top', 'anetl_bot' )
+    l_photo_diag = .TRUE.
 
   END SELECT
 

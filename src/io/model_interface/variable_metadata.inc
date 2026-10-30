@@ -10647,4 +10647,60 @@ DATA metadata(820) / var_metadata(                                             &
 ! Units
     "kg m-2"                                                                   &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for vcmax, jmax, anetc, anetl_top and anetl_bot (canopy_diag_mod,
+! l_photo_diag)
+!
+! MDK, 30/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(821) / var_metadata(                                             &
+! String identifier
+    'vcmax',                                                                   &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Vcmax of a top-of-canopy leaf at tstar",                                  &
+! Units
+    "mol CO2 m-2 s-1"                                                          &
+  ) /
+DATA metadata(822) / var_metadata(                                             &
+! String identifier
+    'jmax',                                                                    &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Jmax (Johnson-Berry: Vqmax) of a top-of-canopy leaf at tstar",            &
+! Units
+    "mol m-2 s-1"                                                              &
+  ) /
+DATA metadata(823) / var_metadata(                                             &
+! String identifier
+    'anetc',                                                                   &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Net canopy photosynthesis",                                               &
+! Units
+    "mol CO2 m-2 s-1"                                                          &
+  ) /
+DATA metadata(824) / var_metadata(                                             &
+! String identifier
+    'anetl_top',                                                               &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Net leaf photosynthesis of the top canopy layer (layered canopies)",      &
+! Units
+    "mol CO2 m-2 s-1"                                                          &
+  ) /
+DATA metadata(825) / var_metadata(                                             &
+! String identifier
+    'anetl_bot',                                                               &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Net leaf photosynthesis of the bottom canopy layer (layered canopies)",   &
+! Units
+    "mol CO2 m-2 s-1"                                                          &
+  ) /
 #endif

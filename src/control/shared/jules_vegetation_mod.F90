@@ -1261,6 +1261,12 @@ LOGICAL :: l_fapar_diag = .FALSE.
 LOGICAL :: l_fao_ref_evapotranspiration = .FALSE.
     ! Only true if fao_et0 is in one of the output profiles
 
+LOGICAL :: l_photo_diag = .FALSE.
+    ! Only true if vcmax, jmax, anetc, anetl_top or anetl_bot is in one of
+    ! the output profiles (canopy_diag_mod)
+    !
+    ! MDK, 30/10/26
+
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='JULES_VEGETATION_MOD'
 
 CONTAINS
@@ -2219,6 +2225,10 @@ IF ( ximpair_stomatal_response == ximpair_hold_psi .AND.                       &
                '= 2 only')
 END IF
 
+! Johnson-Berry C3 leaves take the Farquhar path, so the factor scales Vcmax
+! and Vqmax (held in jmax) as it scales Vcmax and Jmax.
+!
+! MDK, 30/10/26
 IF ( l_som_vcmax_psi .AND. ( ( stomata_model /= stomata_profit_max .AND.       &
                                stomata_model /= stomata_sox_opt .AND.          &
                                stomata_model /= stomata_cmax .AND.             &
@@ -2226,12 +2236,13 @@ IF ( l_som_vcmax_psi .AND. ( ( stomata_model /= stomata_profit_max .AND.       &
                                stomata_model /= stomata_supply_loss .AND.      &
                                stomata_model /= stomata_cap .AND.              &
                                stomata_model /= stomata_pm2 ) .OR.             &
-                             photo_model /= photo_farquhar ) ) THEN
+                             ( photo_model /= photo_farquhar .AND.             &
+                               photo_model /= photo_johnson ) ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_som_vcmax_psi requires stomata_model=4 to 7 or 9 to 11 ' //  &
                'and ' //                                                       &
-               'photo_model=2')
+               'photo_model=2 or 4')
 END IF
 
 IF ( l_som_nsl .AND. ( ( stomata_model /= stomata_profit_max .AND.             &
