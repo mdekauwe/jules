@@ -775,7 +775,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  nsc_stem_frac G / nsc_heartwood_rate. Default 0.5.
                  !
                  !  MDK, 30/10/26
-,nsc_grow_thresh(:)
+,nsc_grow_thresh(:)                                                            &
                  ! Growth threshold of the TRIFFID store (fraction of C_max,
                  !  0-1): the release for growth draws only on the store
                  !  above nsc_grow_thresh C_max, so after a deep drawdown the
@@ -785,6 +785,25 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  (< -1e29) = the reserve only (no threshold).
                  !
                  !  MDK, 29/10/26
+,nsc_sink_days(:)                                                              &
+                 ! Sink feedback (l_nsc_sink_feedback): the time (days) over
+                 !  which the carbon the turgor limit keeps from growth is
+                 !  set against the room left in the store,
+                 !
+                 !    X    = blocked release x nsc_sink_days / (C_max - store),
+                 !    beta = beta_min + (1 - beta_min) exp(-X^2),
+                 !
+                 !  so the feedback is 63 % on when the carbon kept from
+                 !  growth over nsc_sink_days would fill the room. Default
+                 !  240.
+                 !
+                 !  MDK, 31/10/26
+,nsc_sink_beta_min(:)
+                 ! Sink feedback: the floor beta_min of that factor (0-1),
+                 !  the largest cut in capacity being 1 - beta_min. Default
+                 !  0.8 (Mahmud et al. 2018 measured a 20-35 % cut).
+                 !
+                 !  MDK, 31/10/26
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -1202,6 +1221,8 @@ ALLOCATE( nsc_xylem_cond_ratio(npft))   ! MDK, 25/10/26
 ALLOCATE( nsc_heartwood_rate(npft))   ! MDK, 29/10/26
 ALLOCATE( nsc_stem_frac(npft))   ! MDK, 29/10/26
 ALLOCATE( nsc_grow_thresh(npft))   ! MDK, 29/10/26
+ALLOCATE( nsc_sink_days(npft))   ! MDK, 31/10/26
+ALLOCATE( nsc_sink_beta_min(npft))   ! MDK, 31/10/26
 ALLOCATE( phen_psi_tlp(npft))
 ALLOCATE( phen_dfbleaf(npft))
 ALLOCATE( phen_ndays(npft))
@@ -1280,6 +1301,8 @@ nsc_xylem_cond_ratio(:) = 1.0   ! MDK, 25/10/26
 nsc_heartwood_rate(:) = 0.025   ! MDK, 30/10/26
 nsc_stem_frac(:) = 0.5   ! MDK, 30/10/26
 nsc_grow_thresh(:) = -1.0e30   ! MDK, 29/10/26
+nsc_sink_days(:) = 240.0   ! MDK, 31/10/26
+nsc_sink_beta_min(:) = 0.8   ! MDK, 31/10/26
 phen_psi_tlp(:) = -1.0e30
 phen_dfbleaf(:) = 0.05
 phen_ndays(:) = 10.0
@@ -1657,6 +1680,10 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_stem_frac = ',nsc_stem_frac
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_grow_thresh = ',nsc_grow_thresh
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_sink_days = ',nsc_sink_days
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_sink_beta_min = ',nsc_sink_beta_min
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_psi_tlp = ',phen_psi_tlp
 CALL jules_print('pftparm',lineBuffer)

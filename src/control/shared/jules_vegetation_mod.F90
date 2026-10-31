@@ -1074,6 +1074,26 @@ LOGICAL ::                                                                     &
       ! ring renewal check_jules_vegetation switches it off.
       !
       ! MDK, 30/10/26
+  l_nsc_sink_feedback = .FALSE.,                                               &
+      ! Sink feedback on photosynthesis (TRIFFID store, l_triffid_nsc):
+      ! when drought shuts growth (the turgor limit, nsc_psi_turg_zero set)
+      ! the release the store would give growth stays in it, and Vcmax and
+      ! Jmax fall as that carbon would fill the room left in the store, in
+      ! the form of QUINCY (Thum et al. 2019; Mahmud et al. 2018 measured a
+      ! 20-35 % cut in photosynthesis under sink limitation). With W_pot
+      ! that release, f_turg the turgor factor of growth (0-1), R the room
+      ! left (C_max less the store) and t = nsc_sink_days,
+      !
+      !   X    = W_pot (1 - f_turg) t / R,
+      !   beta = beta_min + (1 - beta_min) EXP(-X^2),
+      !
+      ! so wet soil costs nothing whatever the store holds. beta multiplies
+      ! the capacity factor of l_som_vcmax_psi (the direct response to
+      ! drought; or is the factor when that is off), so the feedback is a
+      ! further limit when carbon backs up in the store. .FALSE.: no
+      ! feedback.
+      !
+      ! MDK, 31/10/26
   l_som_fast = .FALSE.
       ! RETIRED input: .TRUE. stops the run; use som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table). Still read so namelists that
@@ -1245,6 +1265,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
     l_nsc_wmax_norm, l_trif_hydmort,                                           &
     l_nsc_sapwood_pool, l_nsc_ring_additive,                                   &
+    l_nsc_sink_feedback,                                                       &
     ximpair_stomatal_response,                                                 &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,    &
     sl_kfail_frac,                                                             &
@@ -2416,6 +2437,14 @@ IF ( .NOT. l_ximpair_rec_nsc ) THEN
   l_nsc_sapwood_pool  = .FALSE.
   l_nsc_ring_additive = .FALSE.
 END IF
+! The sink feedback needs the TRIFFID store.
+!
+! MDK, 31/10/26
+IF ( l_nsc_sink_feedback .AND. .NOT. l_triffid_nsc ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_sink_feedback needs the TRIFFID store (l_triffid_nsc=T)')
+END IF
 IF ( l_phen_psi .AND. .NOT. l_phenol ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2640,6 +2669,8 @@ WRITE(lineBuffer,*) ' l_nsc_sapwood_pool = ', l_nsc_sapwood_pool
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_ring_additive = ', l_nsc_ring_additive
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_sink_feedback = ', l_nsc_sink_feedback
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' ximpair_stomatal_response = ', ximpair_stomatal_response
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2787,11 +2818,11 @@ INTEGER, PARAMETER :: n_int = 24
 INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! The REAL items: 20 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 59 + npft_max
-                                  ! The LOGICAL items: 59 scalars and
+INTEGER, PARAMETER :: n_log = 60 + npft_max
+                                  ! The LOGICAL items: 60 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
-                                  ! MDK, 30/10/26
+                                  ! MDK, 31/10/26
 
 TYPE :: my_namelist
   SEQUENCE
@@ -2872,6 +2903,7 @@ TYPE :: my_namelist
   LOGICAL :: l_nsc_wmax_norm
   LOGICAL :: l_nsc_sapwood_pool   ! MDK, 29/10/26
   LOGICAL :: l_nsc_ring_additive   ! MDK, 29/10/26
+  LOGICAL :: l_nsc_sink_feedback   ! MDK, 30/10/26
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_rhizo_mfp
   LOGICAL :: l_nrun_mid_trif
@@ -2998,6 +3030,7 @@ IF (mype == 0) THEN
   my_nml % l_nsc_wmax_norm = l_nsc_wmax_norm
   my_nml % l_nsc_sapwood_pool = l_nsc_sapwood_pool   ! MDK, 29/10/26
   my_nml % l_nsc_ring_additive = l_nsc_ring_additive   ! MDK, 29/10/26
+  my_nml % l_nsc_sink_feedback = l_nsc_sink_feedback   ! MDK, 30/10/26
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
@@ -3113,6 +3146,7 @@ IF (mype /= 0) THEN
   l_nsc_wmax_norm = my_nml % l_nsc_wmax_norm
   l_nsc_sapwood_pool = my_nml % l_nsc_sapwood_pool   ! MDK, 29/10/26
   l_nsc_ring_additive = my_nml % l_nsc_ring_additive   ! MDK, 29/10/26
+  l_nsc_sink_feedback = my_nml % l_nsc_sink_feedback   ! MDK, 30/10/26
   l_som_gravity = my_nml % l_som_gravity
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif

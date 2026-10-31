@@ -326,6 +326,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_heartwood_rate_io(npft_max) = rmdi,                                      &
   nsc_stem_frac_io(npft_max) = rmdi,                                           &
   nsc_grow_thresh_io(npft_max) = rmdi,                                         &
+  nsc_sink_days_io(npft_max) = rmdi,                                           &
+  nsc_sink_beta_min_io(npft_max) = rmdi,                                       &
   phen_psi_tlp_io(npft_max) = rmdi,                                            &
   phen_dfbleaf_io(npft_max) = rmdi,                                            &
   phen_ndays_io(npft_max) = rmdi,                                              &
@@ -415,6 +417,7 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_cmax_io, phen_psi_tlp_io,                                                &
   nsc_xylem_cond_ratio_io,                                                     &
   nsc_heartwood_rate_io, nsc_stem_frac_io, nsc_grow_thresh_io,                 &
+  nsc_sink_days_io, nsc_sink_beta_min_io,                                      &
   phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io,                         &
   phen_bb_doy_io, phen_bb_gdd_io, phen_bb_tbase_io, phen_bb_min_days_io
 
@@ -460,7 +463,7 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 178 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 180 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
@@ -649,6 +652,8 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_heartwood_rate_io(npft_max)   ! MDK, 29/10/26
   REAL(KIND=real_jlslsm) :: nsc_stem_frac_io(npft_max)   ! MDK, 29/10/26
   REAL(KIND=real_jlslsm) :: nsc_grow_thresh_io(npft_max)   ! MDK, 29/10/26
+  REAL(KIND=real_jlslsm) :: nsc_sink_days_io(npft_max)   ! MDK, 31/10/26
+  REAL(KIND=real_jlslsm) :: nsc_sink_beta_min_io(npft_max)   ! MDK, 31/10/26
   REAL(KIND=real_jlslsm) :: phen_psi_tlp_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_dfbleaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_ndays_io(npft_max)
@@ -853,6 +858,8 @@ IF (mype == 0) THEN
   my_nml % nsc_heartwood_rate_io = nsc_heartwood_rate_io   ! MDK, 29/10/26
   my_nml % nsc_stem_frac_io = nsc_stem_frac_io   ! MDK, 29/10/26
   my_nml % nsc_grow_thresh_io = nsc_grow_thresh_io   ! MDK, 29/10/26
+  my_nml % nsc_sink_days_io = nsc_sink_days_io   ! MDK, 31/10/26
+  my_nml % nsc_sink_beta_min_io = nsc_sink_beta_min_io   ! MDK, 31/10/26
   my_nml % phen_psi_tlp_io = phen_psi_tlp_io
   my_nml % phen_dfbleaf_io = phen_dfbleaf_io
   my_nml % phen_ndays_io = phen_ndays_io
@@ -1045,6 +1052,8 @@ IF (mype /= 0) THEN
   nsc_heartwood_rate_io = my_nml % nsc_heartwood_rate_io   ! MDK, 29/10/26
   nsc_stem_frac_io = my_nml % nsc_stem_frac_io   ! MDK, 29/10/26
   nsc_grow_thresh_io = my_nml % nsc_grow_thresh_io   ! MDK, 29/10/26
+  nsc_sink_days_io = my_nml % nsc_sink_days_io   ! MDK, 31/10/26
+  nsc_sink_beta_min_io = my_nml % nsc_sink_beta_min_io   ! MDK, 31/10/26
   phen_psi_tlp_io = my_nml % phen_psi_tlp_io
   phen_dfbleaf_io = my_nml % phen_dfbleaf_io
   phen_ndays_io = my_nml % phen_ndays_io
@@ -1144,6 +1153,7 @@ USE pftparm, ONLY:                                                             &
   nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min,          &
   nsc_xylem_cond_ratio,                                                       &
   nsc_heartwood_rate, nsc_stem_frac, nsc_grow_thresh,                         &
+  nsc_sink_days, nsc_sink_beta_min,                                            &
   phen_bb_doy, phen_bb_gdd, phen_bb_tbase, phen_bb_min_days
 
 
@@ -1167,6 +1177,7 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 l_trif_hydmort, l_som_capacitance_on,          &
                                 leaf_flux_mod, leaf_flux_stom_opt, l_trif_eq
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_pool   ! MDK, 29/10/26
+USE jules_vegetation_mod, ONLY: l_nsc_sink_feedback   ! MDK, 31/10/26
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1372,6 +1383,15 @@ IF ( l_som_vcmax_psi .AND. ( ANY(psi_vcmax_fmin(:) < 0.0) .OR.               &
   CALL ereport(RoutineName, errcode,                                         &
                'l_som_vcmax_psi needs 0 <= psi_vcmax_fmin_io < 1.')
 END IF
+! The sink feedback's time and floor (MDK, 31/10/26)
+IF ( l_nsc_sink_feedback .AND. ( ANY(nsc_sink_days(:) < 0.0) .OR.              &
+                                 ANY(nsc_sink_beta_min(:) < 0.0) .OR.        &
+                                 ANY(nsc_sink_beta_min(:) > 1.0) ) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                           &
+               'l_nsc_sink_feedback needs nsc_sink_days_io >= 0 and '  //      &
+               '0 <= nsc_sink_beta_min_io <= 1.')
+END IF
 g1_tuzet(:)         = g1_tuzet_io(1:npft)
 sf_tuzet(:)         = sf_tuzet_io(1:npft)
 psi_f_tuzet(:)      = mpa_to_pa(psi_f_tuzet_io(1:npft))
@@ -1536,6 +1556,10 @@ DO i = 1, npft
     nsc_stem_frac(i) = nsc_stem_frac_io(i)
   IF (ABS(nsc_grow_thresh_io(i) - rmdi) > EPSILON(1.0))                        &
     nsc_grow_thresh(i) = nsc_grow_thresh_io(i)
+  IF (ABS(nsc_sink_days_io(i) - rmdi) > EPSILON(1.0))                          &
+    nsc_sink_days(i) = nsc_sink_days_io(i)
+  IF (ABS(nsc_sink_beta_min_io(i) - rmdi) > EPSILON(1.0))                      &
+    nsc_sink_beta_min(i) = nsc_sink_beta_min_io(i)
   IF (ABS(phen_psi_tlp_io(i) - rmdi) > EPSILON(1.0))                           &
     phen_psi_tlp(i) = phen_psi_tlp_io(i)
   IF (ABS(phen_dfbleaf_io(i) - rmdi) > EPSILON(1.0))                           &

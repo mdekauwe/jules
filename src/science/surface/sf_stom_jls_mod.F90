@@ -118,6 +118,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_som_cuticular_day_only, l_som_shared_stem, l_som_shared_gain,            &
     l_som_coupled_e, l_som_capacitance_on,                                     &
     l_som_vcmax_psi, kplant_model, kplant_model_ground,                        &
+    l_nsc_sink_feedback,                                                       &
     l_leaf_temp, leaf_temp_iter, l_leaf_temp_gc_eq, leaf_aero_model,           &
     leaf_wind_ext, ml_leaf_temp_model, ml_leaf_temp_layers, l_leaf_temp_ci
 
@@ -829,6 +830,11 @@ REAL(KIND=real_jlslsm) :: fw_lo(land_pts), fw_hi(land_pts),                    &
                             ! transpiration the plant can deliver.
 REAL(KIND=real_jlslsm) :: f_vc(land_pts)
                             ! Soil-water capacity factor (l_som_vcmax_psi).
+REAL(KIND=real_jlslsm) :: beta_sink(land_pts)
+                            ! Sink feedback factor (l_nsc_sink_feedback;
+                            ! 1 = none).
+                            !
+                            ! MDK, 31/10/26
 REAL(KIND=real_jlslsm) :: vcmax_top_d(land_pts), jmax_top_d(land_pts),         &
                           rd_top_d(land_pts)
                             ! Vcmax, Jmax and Rd of a leaf at the top of
@@ -1330,10 +1336,23 @@ END IF
 
 ! Soil-water capacity factor of Vcmax/Jmax (l_som_vcmax_psi), once per
 ! timestep, so the recovery lag advances once whatever the number of leaf
-! classes and leaf temperature iterations.
+! classes and leaf temperature iterations. The sink feedback
+! (l_nsc_sink_feedback) multiplies it: the direct response to drought,
+! then a further limit when carbon backs up in the store.
+!
+! MDK, 31/10/26
 f_vc(:) = 1.0
 IF ( l_som_vcmax_psi ) CALL vcmax_psi_factor( ft, land_pts, veg_pts,           &
                                               veg_index, psi_root_zone, f_vc )
+IF ( l_nsc_sink_feedback ) THEN
+  beta_sink(:) = 1.0
+  CALL nsc_sink_factor( ft, land_pts, veg_pts, veg_index, psi_root_zone,       &
+                        beta_sink )
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    f_vc(l) = f_vc(l) * beta_sink(l)
+  END DO
+END IF
 
 !-----------------------------------------------------------------------------
 ! Initialisation.
@@ -6367,6 +6386,85 @@ END DO
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE vcmax_psi_factor
+
+!#############################################################################
+!#############################################################################
+
+SUBROUTINE nsc_sink_factor( ft, land_pts, veg_pts, veg_index, psi_rz, beta )
+
+! Sink feedback on photosynthetic capacity (l_nsc_sink_feedback), in the
+! form of QUINCY (Thum et al. 2019, GMD 12: 4781, eqs S43-S44) but set
+! against the room left in the TRIFFID store. When drought shuts growth
+! (the turgor factor f_turg, 0-1, from the root-zone psi between
+! nsc_psi_turg_zero and nsc_psi_turg_full) the release the store would
+! give growth, W_pot, stays in the store. With R = C_max - store the room
+! left and t = nsc_sink_days,
+!
+!   B    = W_pot (1 - f_turg),
+!   X    = B t / R,
+!   beta = beta_min + (1 - beta_min) EXP(-X^2),
+!
+! X being the share of the room the carbon kept from growth would fill in
+! t days, so the feedback is 63 % on at X = 1. Wet soil (f_turg = 1) costs
+! nothing whatever the store holds (the cold and the season are not
+! counted), and the feedback strengthens as a drought goes on and the room
+! shrinks. The largest cut in capacity is 1 - beta_min. No feedback
+! without the turgor limit or before the first store step.
+!
+! MDK, 31/10/26
+
+USE triffid_nsc_mod, ONLY: nsc_pft, nsc_cmax_pft, nsc_wpot_pft
+USE pftparm, ONLY: is_set, nsc_psi_turg_zero, nsc_psi_turg_full,              &
+                   nsc_sink_days, nsc_sink_beta_min
+
+USE parkind1, ONLY: jprb, jpim
+USE yomhook, ONLY: lhook, dr_hook
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_rz(land_pts)
+    ! Root-zone water potential (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: beta(land_pts)
+    ! Sink feedback factor (-); only veg points are set.
+
+REAL(KIND=real_jlslsm), PARAMETER :: room_min = 1.0e-6
+    ! Smallest room counted (kg C m-2), so a full store gives a large X.
+
+INTEGER :: l, m
+REAL(KIND=real_jlslsm) :: room, blocked, x, f_turg
+
+INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
+INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
+REAL(KIND=jprb)               :: zhook_handle
+CHARACTER(LEN=*), PARAMETER :: RoutineName='NSC_SINK_FACTOR'
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+IF ( ALLOCATED(nsc_pft) .AND. ALLOCATED(nsc_cmax_pft) .AND.                    &
+     ALLOCATED(nsc_wpot_pft) .AND. is_set(nsc_psi_turg_zero(ft)) ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    beta(l) = 1.0
+    IF ( nsc_cmax_pft(l,ft) <= 0.0 .OR. nsc_pft(l,ft) < 0.0 ) CYCLE
+
+    f_turg = MIN(MAX((1.0e-6 * psi_rz(l) - nsc_psi_turg_zero(ft))              &
+                     / (nsc_psi_turg_full(ft) - nsc_psi_turg_zero(ft)),        &
+                     0.0), 1.0)
+
+    ! The carbon kept from growth over t days (the release is per 360
+    ! days) against the room left in the store.
+    blocked = nsc_wpot_pft(l,ft) * (1.0 - f_turg) * nsc_sink_days(ft) / 360.0
+    room = MAX(nsc_cmax_pft(l,ft) - nsc_pft(l,ft), room_min)
+    x = blocked / room
+
+    beta(l) = nsc_sink_beta_min(ft) + (1.0 - nsc_sink_beta_min(ft))            &
+              * EXP( -x**2 )
+  END DO
+END IF
+
+IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
+END SUBROUTINE nsc_sink_factor
 
 !#############################################################################
 !#############################################################################

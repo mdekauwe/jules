@@ -131,10 +131,19 @@ PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,                     &
           phen_fbleaf, nsc_regrow_acc, phen_psi_update,                        &
           triffid_nsc_alloc, triffid_nsc_store, triffid_nsc_area,              &
           triffid_nsc_daily, triffid_nsc_turgor, triffid_nsc_ring_renewal
+PUBLIC :: nsc_cmax_pft, nsc_wpot_pft
 
 ! Store (kg C m-2 of the PFT); < 0 = not yet set (filled to C_max at the
 ! first TRIFFID step). In dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_pft(:,:)
+! The store's capacity C_max at the last store step (kg C m-2 of the PFT),
+! for the sink feedback on photosynthesis (l_nsc_sink_feedback); < 0 = not
+! yet set (no feedback until the first store step, also after a restart).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_cmax_pft(:,:)
+! The release for growth at the last store step with the growth limits
+! open (kg C m-2 of the PFT per 360 days), for the sink feedback: what the
+! store would give growth if the turgor limit allowed.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_wpot_pft(:,:)
 ! Running mean of NPP (kg C m-2 per 360 days) and its weight, for W_max
 ! (bias-corrected mean = nsc_npp_mean / nsc_npp_wt). In dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_mean(:,:)
@@ -270,6 +279,14 @@ END IF
 IF (.NOT. ALLOCATED(nsc_turg_acc)) THEN
   ALLOCATE(nsc_turg_acc(n_land_pts, npft))
   nsc_turg_acc(:,:) = -1.0e30
+END IF
+IF (.NOT. ALLOCATED(nsc_cmax_pft)) THEN
+  ALLOCATE(nsc_cmax_pft(n_land_pts, npft))
+  nsc_cmax_pft(:,:) = -1.0
+END IF
+IF (.NOT. ALLOCATED(nsc_wpot_pft)) THEN
+  ALLOCATE(nsc_wpot_pft(n_land_pts, npft))
+  nsc_wpot_pft(:,:) = 0.0
 END IF
 IF (.NOT. ALLOCATED(nsc_t_run)) THEN
   ALLOCATE(nsc_t_run(n_land_pts, npft))
@@ -422,6 +439,7 @@ DO n = n1,n2
     ! starts full.
     c_max = nsc_flush(n) * (leafc(l,n) + rootc(l,n))
     IF (nsc_cmax(n) > 0.0) c_max = nsc_cmax(n)
+    nsc_cmax_pft(l,n) = c_max
     c_res = nsc_reserve_frac(n) * c_max
     IF (nsc_pft(l,n) < 0.0) nsc_pft(l,n) = c_max
     c_old = nsc_pft(l,n)
@@ -491,8 +509,15 @@ DO n = n1,n2
       IF (c_grow > 0.0 .AND. c_grow_max > 0.0)                                 &
         w = w_max * f_turg * c_grow / (nsc_kc(n) * c_max + c_grow)             &
             * (nsc_kc(n) * c_max + c_grow_max) / c_grow_max
+      ! The release with the limits open, for the sink feedback.
+      nsc_wpot_pft(l,n) = 0.0
+      IF (f_turg > 0.0) nsc_wpot_pft(l,n) = w / f_turg
+      IF (f_turg <= 0.0 .AND. c_grow > 0.0 .AND. c_grow_max > 0.0)             &
+        nsc_wpot_pft(l,n) = w_max * c_grow / (nsc_kc(n) * c_max + c_grow)      &
+                            * (nsc_kc(n) * c_max + c_grow_max) / c_grow_max
     ELSE
       IF (c_grow > 0.0) w = w_max * c_grow / (nsc_kc(n) * c_max + c_grow)
+      nsc_wpot_pft(l,n) = w
     END IF
 
     ! Growth threshold: the step's release for growth can not take the
