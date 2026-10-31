@@ -2106,18 +2106,20 @@ END IF
 ! (given on the PFT curve when l_som_plant_segments is off, above),
 ! seen by the optimiser (its flow out held fixed in each pass of the
 ! search). It is coded for profit max with the root, stem and leaf segments
-! and the Newton solver, the bounded Ci search and the big-leaf, multilayer
-! and two-leaf canopies (with or without the cuticular loss).
+! and the Newton or lookup-table solver, the bounded Ci search and the
+! big-leaf, multilayer and two-leaf canopies (with or without the cuticular
+! loss).
 !
-! MDK, 26/10/26
+! MDK, 31/10/26
 IF ( l_som_capacitance_on ) THEN
   IF ( .NOT. l_som_plant_segments .OR.                                         &
-       som_psi_solver /= psi_solver_newton ) THEN
+       ( som_psi_solver /= psi_solver_newton .AND.                             &
+         som_psi_solver /= psi_solver_lut ) ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
                  'Plant capacitance (l_som_capacitance or ' //                 &
                  'l_som_cuticular_loss) requires l_som_plant_segments ' //    &
-                 'and som_psi_solver = 2 (Newton)')
+                 'and som_psi_solver = 2 (Newton) or 3 (lookup table)')
   END IF
   IF ( can_rad_mod /= 1 .AND. can_rad_mod /= 5 .AND. can_rad_mod /= 6 .AND.   &
        can_rad_mod /= 7 ) THEN
@@ -2179,21 +2181,23 @@ IF ( l_som_cuticular_day_only .AND.                                            &
 END IF
 
 ! The shared root and stem: the two-leaf canopy under the stomatal
-! optimisation, with the segments, the Newton solver (whose segment chain
-! carries the other class's flow) and the bounded Ci search (whose cost
-! reference it sets).
+! optimisation, with the segments, the Newton or lookup-table solver (whose
+! segment chains carry the other class's flow) and the bounded Ci search
+! (whose cost reference it sets).
 !
-! MDK, 30/10/26
+! MDK, 31/10/26
 IF ( l_som_shared_stem .AND.                                                   &
      ( can_rad_mod /= 7 .OR. leaf_flux_mod /= leaf_flux_stom_opt .OR.          &
        .NOT. l_som_plant_segments .OR.                                         &
-       som_psi_solver /= psi_solver_newton .OR.                                &
+       ( som_psi_solver /= psi_solver_newton .AND.                             &
+         som_psi_solver /= psi_solver_lut ) .OR.                               &
        som_ci_search /= som_ci_bounded .OR.                                    &
        l_som_skip_search_wellwatered ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_som_shared_stem requires can_rad_mod = 7, the stomatal ' //  &
-               'optimisation, l_som_plant_segments, som_psi_solver = 2, ' //   &
+               'optimisation, l_som_plant_segments, som_psi_solver = 2 ' //    &
+               'or 3, ' //                                                     &
                'som_ci_search = 2 and l_som_skip_search_wellwatered=F')
 END IF
 IF ( l_som_shared_gain .AND. .NOT. l_som_shared_stem ) THEN

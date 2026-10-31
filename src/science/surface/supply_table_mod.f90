@@ -30,7 +30,9 @@ PUBLIC :: psi_leaf_lut_jls                                                     &
 ,         init_supply_luts                                                     &
 ,         seg_lut_psi                                                          &
 ,         build_supply_lut_seg                                                 &
-,         newton_psi_drop
+,         newton_psi_drop                                                      &
+,         seg_lut_psi_back                                                     &
+,         seg_lut_s
 
 ! ---------------------------------------------------------------------
 ! Supply-function lookup table (som_psi_solver = psi_solver_lut),
@@ -405,7 +407,7 @@ END FUNCTION table_s_at
 ! solves S(psi_out) = S(psi_in) + e_over_k. psi_out is never wetter than
 ! psi_in.
 !
-! MDK, 20/10/26
+! MDK, 31/10/26
 ! *****************************************************************************
 FUNCTION table_psi( tab, psi_in, e_over_k ) RESULT( psi_out )
 
@@ -413,7 +415,7 @@ TYPE(supply_table), INTENT(IN) :: tab
 REAL(KIND=real_jlslsm), INTENT(IN) :: psi_in, e_over_k
 REAL(KIND=real_jlslsm) :: psi_out
 
-INTEGER :: lo, hi, mid, i_in, n
+INTEGER :: lo, hi, mid, i_in, n, step
 REAL(KIND=real_jlslsm) :: dpsi, r_in, s_target
 
 dpsi = tab%dpsi
@@ -434,11 +436,21 @@ IF ( s_target >= tab%s(n) ) THEN
   psi_out = MIN(-(n - 1) * dpsi, psi_in)
 ELSE
   ! S(lo) <= s_target < S(hi); S is strictly increasing.
-  ! Binary search for that cell, starting from psi_in's cell (the far end
-  ! is never wetter). S rises with depth, so the cell is unique; the search
-  ! takes about log2(n) = 12 steps (16 for n_lut_max).
+  ! Search for that cell starting from psi_in's cell (the far end is never
+  ! wetter). S rises with depth, so the cell is unique. The bracket is first
+  ! widened from psi_in's cell in steps of 1, 2, 4, ... nodes, so a flow
+  ! that takes the far end only a few cells down (most of them) needs a few
+  ! steps on nearby nodes instead of about log2(n) = 12 across the table;
+  ! then a binary search within the bracket. The cell, and so psi_out, is
+  ! the same as from a binary search over the whole table.
   lo = i_in
-  hi = n
+  step = 1
+  DO WHILE ( lo + step < n )
+    IF ( tab%s(lo + step) > s_target ) EXIT
+    lo = lo + step
+    step = 2 * step
+  END DO
+  hi = MIN(lo + step, n)
   DO WHILE ( hi - lo > 1 )
     mid = (lo + hi) / 2
     IF ( tab%s(mid) <= s_target ) THEN
@@ -684,6 +696,71 @@ REAL(KIND=real_jlslsm) :: psi_out
 psi_out = table_psi(lut_seg_tab(pft,iseg), psi_in, MAX(e_over_k, 0.0))
 
 END FUNCTION seg_lut_psi
+
+! *****************************************************************************
+! Root-side to leaf-side water potential (Pa) of segment iseg for a flow back
+! towards the soil, e_over_k = E / kmax_s < 0 (Pa): the root and stem
+! carrying E - q_f with the plant capacitance store giving more than E
+! (l_store_q_path). Solves
+!
+!   S_s(psi_out) = S_s(psi_in) + e_over_k
+!
+! upwards from psi_in (psi_out is wetter), and psi_out = 0 when the flow is
+! more than the segment carries from psi_in up to psi = 0, as the Newton
+! solver's cap at 0 (psi_leaf_segments_jls).
+!
+! MDK, 31/10/26
+! *****************************************************************************
+FUNCTION seg_lut_psi_back( pft, iseg, psi_in, e_over_k ) RESULT( psi_out )
+
+INTEGER, INTENT(IN) :: pft, iseg
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_in, e_over_k
+REAL(KIND=real_jlslsm) :: psi_out
+
+INTEGER :: lo, hi, mid, n
+REAL(KIND=real_jlslsm) :: dpsi, r_in, s_target
+
+dpsi = lut_seg_tab(pft,iseg)%dpsi
+n = lut_seg_tab(pft,iseg)%n
+s_target = table_s_at(lut_seg_tab(pft,iseg), psi_in) + MIN(e_over_k, 0.0)
+
+IF ( s_target <= 0.0 ) THEN
+  psi_out = 0.0
+ELSE
+  ! S(lo) <= s_target < S(hi), searched between psi = 0 and psi_in's cell
+  ! (the far end is never drier than psi_in).
+  r_in = MIN(MAX(-psi_in / dpsi, 0.0), REAL(n - 1))
+  lo = 1
+  hi = MIN(INT(r_in) + 2, n)
+  DO WHILE ( hi - lo > 1 )
+    mid = (lo + hi) / 2
+    IF ( lut_seg_tab(pft,iseg)%s(mid) <= s_target ) THEN
+      lo = mid
+    ELSE
+      hi = mid
+    END IF
+  END DO
+  psi_out = -(lo - 1) * dpsi - dpsi * (s_target - lut_seg_tab(pft,iseg)%s(lo)) &
+            / (lut_seg_tab(pft,iseg)%s(hi) - lut_seg_tab(pft,iseg)%s(lo))
+  psi_out = MIN(MAX(psi_out, psi_in), 0.0_real_jlslsm)
+END IF
+
+END FUNCTION seg_lut_psi_back
+
+! *****************************************************************************
+! S_s(psi) of segment iseg (Pa), by linear interpolation in its table.
+!
+! MDK, 31/10/26
+! *****************************************************************************
+FUNCTION seg_lut_s( pft, iseg, psi ) RESULT( s_psi )
+
+INTEGER, INTENT(IN) :: pft, iseg
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+REAL(KIND=real_jlslsm) :: s_psi
+
+s_psi = table_s_at(lut_seg_tab(pft,iseg), psi)
+
+END FUNCTION seg_lut_s
 
 ! *****************************************************************************
 ! Build (once per PFT) the segment supply-function tables: as

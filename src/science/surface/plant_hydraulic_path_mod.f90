@@ -9,7 +9,8 @@ MODULE plant_hydraulic_path_mod
 
 USE um_types, ONLY: real_jlslsm
 USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f, xylem_f_bc, incomplete_gamma_1
-USE supply_table_mod, ONLY: seg_lut_psi, build_supply_lut_seg, newton_psi_drop
+USE supply_table_mod, ONLY: seg_lut_psi, build_supply_lut_seg,                &
+                            newton_psi_drop, seg_lut_psi_back, seg_lut_s
 USE jules_vegetation_mod, ONLY: k_ground_ratio_max, l_som_seg_whole
 
 IMPLICIT NONE
@@ -1050,7 +1051,14 @@ END SUBROUTINE psi_leaf_segments_jls
 ! the recursion; leaf_k_intact (if present) the intact ones at the same water
 ! potentials (the hydraulic cost), and stem_psi the stem's leaf-side psi.
 !
-! MDK, 26/10/26
+! The plant capacitance store (l_store_q_path) and the shared root and stem
+! (l_shared_stem_path) as psi_leaf_segments_jls: the soil link, the root
+! and the stem carry E_r = E - q_f + E_o, the leaf E (plus E_o on the
+! whole-plant path). E_r < 0 (the store giving more than E) is a flow back
+! towards the soil, found upwards in the table (seg_lut_psi_back) and capped
+! at psi = 0, as the Newton solver's cap.
+!
+! MDK, 31/10/26
 ! *****************************************************************************
 SUBROUTINE psi_leaf_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
                                       veg_index, open_index, e_leaf,           &
@@ -1099,6 +1107,10 @@ REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de,  &
       ! fr, psi_cap: the segment's cap fraction and where the intact curve
       ! meets it; e_cap the flow the capped part above psi_cap carries;
       ! e_pos the flow (>= 0); dpsi_de_int d(psi)/dE on the intact segments.
+! The flow of the soil link, root and stem (E_r) and of the current
+! segment; with a flow back, the flow per unit kmax from psi_in up to psi_cap
+! (< 0) and the flow per unit kmax.
+REAL(KIND=real_jlslsm) :: e_r, e_s, x_cap, x_s
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -1116,15 +1128,21 @@ DO j = 1, open_pnts
     psi_in  = root_zone_psi(l)
     dpsi_de = 0.0
     dpsi_de_int = 0.0
+    ! The flow up to the stem node, as psi_leaf_segments_jls: less the
+    ! store's flow held fixed (not floored at 0), plus the other class's
+    ! flow on the shared root and stem.
+    e_r = e_leaf(i,j)
+    IF ( l_store_q_path ) e_r = e_r - store_q_path(l)
+    IF ( l_shared_stem_path ) e_r = e_r + shared_e_other(l)
     ! l_som_rhizo_series: soil link ahead of the root segment (as
     ! psi_leaf_segments_jls).
     IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
       k_s = ksr_path(l)
       IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
-        psi_in  = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s, som_psi_in_min)
+        psi_in  = MAX(root_zone_psi(l) - e_r / k_s, som_psi_in_min)
         dpsi_de = -1.0 / k_s
         dpsi_de_int = -1.0 / k_s
-      ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
+      ELSE IF ( e_r > 0.0 ) THEN
         leaf_psi(i,j) = som_psi_in_min
         leaf_k(i,j)   = 0.0
         IF ( PRESENT(leaf_k_intact) ) leaf_k_intact(i,j) = 0.0
@@ -1142,6 +1160,13 @@ DO j = 1, open_pnts
       bs  = conductance_b_seg(pft,iseg)
       cs  = conductance_c_seg(pft,iseg)
 
+      ! The leaf carries the leaf's E (and the other class's on the
+      ! whole-plant path); the soil link, root and stem E_r.
+      e_s = e_r
+      IF ( iseg == n_seg ) e_s = e_leaf(i,j)
+      IF ( iseg == n_seg .AND. l_shared_stem_path .AND. l_shared_whole_path )  &
+        e_s = e_s + shared_e_other(l)
+
       ! Cap on the stem and leaf segments (not the root; all three with
       ! l_som_seg_whole), as psi_leaf_segments_jls.
       l_cap = .FALSE.
@@ -1152,11 +1177,40 @@ DO j = 1, open_pnts
         l_cap = fr < 1.0 - 1.0e-6
       END IF
 
-      IF ( l_cap ) THEN
+      IF ( l_cap .AND. l_store_q_path .AND. e_s < 0.0 ) THEN
+        ! A flow back towards the soil on a capped segment: up the intact
+        ! curve to psi_cap, then up the straight capped part, to at most
+        ! psi = 0.
+        psi_cap = bs * (-LOG(fr))**(1.0 / cs)
+        x_s = e_s / MAX(kmx, TINY(1.0_real_jlslsm))
+        IF ( psi_in >= psi_cap ) THEN
+          psi_out = psi_in - e_s / MAX(fr * kmx, TINY(1.0_real_jlslsm))
+        ELSE
+          x_cap = seg_lut_s(pft, iseg, psi_cap) - seg_lut_s(pft, iseg, psi_in)
+          IF ( x_s >= x_cap ) THEN
+            psi_out = seg_lut_psi_back(pft, iseg, psi_in, x_s)
+          ELSE
+            psi_out = psi_cap - (x_s - x_cap) / fr
+          END IF
+        END IF
+        psi_out = MIN(psi_out, 0.0_real_jlslsm)
+        k_in  = MAX(MIN(kmx * EXP( -(MIN(psi_in, 0.0_real_jlslsm)/bs)**cs ),   &
+                        fr * kmx), k_floor * kmx)
+        k_out = MAX(MIN(kmx * EXP( -(MIN(psi_out, 0.0_real_jlslsm)/bs)**cs ),  &
+                        fr * kmx), k_floor * kmx)
+      ELSE IF ( l_store_q_path .AND. e_s < 0.0 ) THEN
+        ! A flow back on an intact segment (as above).
+        psi_out = seg_lut_psi_back(pft, iseg, psi_in,                          &
+                                   e_s / MAX(kmx, TINY(1.0_real_jlslsm)))
+        k_in  = MAX(kmx * EXP( -(MIN(psi_in, 0.0_real_jlslsm)/bs)**cs ),       &
+                    k_floor * kmx)
+        k_out = MAX(kmx * EXP( -(MIN(psi_out, 0.0_real_jlslsm)/bs)**cs ),      &
+                    k_floor * kmx)
+      ELSE IF ( l_cap ) THEN
         ! Exact inversion of the capped integral (see above): the straight
         ! capped part down to psi_cap, then the intact table from psi_cap.
         psi_cap = bs * (-LOG(fr))**(1.0 / cs)
-        e_pos   = MAX(e_leaf(i,j), 0.0)
+        e_pos   = MAX(e_s, 0.0)
         IF ( psi_in > psi_cap ) THEN
           e_cap = fr * kmx * (psi_in - psi_cap)
           IF ( e_pos <= e_cap ) THEN
@@ -1176,7 +1230,7 @@ DO j = 1, open_pnts
                     k_floor * kmx)
       ELSE
         psi_out = seg_lut_psi(pft, iseg, psi_in,                               &
-                              e_leaf(i,j) / MAX(kmx, TINY(1.0_real_jlslsm)))
+                              e_s / MAX(kmx, TINY(1.0_real_jlslsm)))
         k_in  = MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ), k_floor * kmx)
         k_out = MAX(kmx * EXP( -(ABS(psi_out/bs))**cs ), k_floor * kmx)
       END IF
@@ -1185,10 +1239,11 @@ DO j = 1, open_pnts
 
       ! The intact chain at the same water potentials (hydraulic cost).
       IF ( PRESENT(leaf_k_intact) )                                            &
-        dpsi_de_int = ( MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ),               &
-                            k_floor * kmx)                                     &
+        dpsi_de_int = ( MAX(kmx * EXP( -(MIN(psi_in, 0.0_real_jlslsm)          &
+                                         / bs)**cs ), k_floor * kmx)           &
                         * dpsi_de_int - 1.0 )                                  &
-                      / MAX(kmx * EXP( -(ABS(psi_out/bs))**cs ), k_floor * kmx)
+                      / MAX(kmx * EXP( -(MIN(psi_out, 0.0_real_jlslsm)         &
+                                       / bs)**cs ), k_floor * kmx)
 
       psi_in  = psi_out
       IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(i,j) = psi_out

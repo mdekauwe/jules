@@ -203,6 +203,8 @@ USE plant_hydraulic_path_mod, ONLY: set_ksr_path, ksr, set_k_ground_basis,     &
 USE plant_hydraulic_path_mod, ONLY: set_store_q_path, clear_store_q_path,      &
                                     psi_leaf_segments_jls
                                        ! MDK, 24/10/26
+USE plant_hydraulic_path_mod, ONLY: psi_leaf_segments_lut_jls   ! MDK, 31/10/26
+USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_lut   ! MDK, 31/10/26
 USE plant_hydraulic_path_mod, ONLY: set_shared_stem, clear_shared_stem,       &
                                     shared_amax_self
                                        ! MDK, 30/10/26
@@ -5362,7 +5364,24 @@ END DO
 psi_in(:) = psi_src(:)
 IF ( PRESENT(psi_from) ) psi_in(:) = psi_from(:)
 CALL set_store_q_path( land_pts, veg_pts, veg_index, share_sup, q_try )
-IF ( l_imp_be ) THEN
+! som_psi_solver = 3: the segments from their supply tables, also for the
+! commit (l_ex), as the table inversion is exact to its interpolation and a
+! flow beyond what a segment carries ends at the bottom of its table, below
+! the floors applied at the commit.
+!
+! MDK, 31/10/26
+IF ( som_psi_solver == psi_solver_lut .AND. l_imp_be ) THEN
+  CALL psi_leaf_segments_lut_jls( ft, 1, land_pts, n_be, veg_index, idx_be,    &
+                                  e1(:,1:n_be), psi_in, kref_c,               &
+                                  psi1(:,1:n_be), k1(:,1:n_be),                &
+                                  kcap_frac = kcap_c,                          &
+                                  stem_psi = st1(:,1:n_be) )
+ELSE IF ( som_psi_solver == psi_solver_lut ) THEN
+  CALL psi_leaf_segments_lut_jls( ft, 1, land_pts, n_be, veg_index, idx_be,    &
+                                  e1(:,1:n_be), psi_in, kmx_c,                &
+                                  psi1(:,1:n_be), k1(:,1:n_be),                &
+                                  stem_psi = st1(:,1:n_be) )
+ELSE IF ( l_imp_be ) THEN
   CALL psi_leaf_segments_jls( ft, 1, land_pts, n_be, veg_index, idx_be,        &
                               e1(:,1:n_be), psi_in, kref_c, kcr_c,            &
                               psi1(:,1:n_be), k1(:,1:n_be),                    &
