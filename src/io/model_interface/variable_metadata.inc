@@ -10598,7 +10598,7 @@ DATA metadata(817) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Ring renewal: share of the stem conductance renewed per 360 days",        &
+    "Ring renewal: stem share renewed per 360 d (rings: new wood/sapwood)",    &
 ! Units
     "per 360days"                                                              &
   ) /
@@ -10728,5 +10728,111 @@ DATA metadata(827) / var_metadata(                                             &
     "Shaded-leaf water potential at the optimiser's choice (two-leaf)",       &
 ! Units
     "MPa"                                                                      &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for the sapwood's ring cohorts (l_nsc_sapwood_rings)
+!
+! MDK, 30/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(828) / var_metadata(                                             &
+! String identifier
+    'ximpair_ring_frac',                                                       &
+! Variable type
+    var_type_pft_ring,                                                         &
+! Long name
+    "Ring cohorts: each ring's share of the conducting sapwood",               &
+! Units
+    "1"                                                                        &
+  ) /
+DATA metadata(829) / var_metadata(                                             &
+! String identifier
+    'ximpair_ring_loss',                                                       &
+! Variable type
+    var_type_pft_ring,                                                         &
+! Long name
+    "Ring cohorts: each ring's loss of conductance",                           &
+! Units
+    "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for the pipe-model target (l_nsc_pipe_target)
+!
+! MDK, 30/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(830) / var_metadata(                                             &
+! String identifier
+    'nsc_heartwood',                                                           &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Pipe-model target: heartwood carbon, the wood less the sapwood",          &
+! Units
+    "kg m-2"                                                                   &
+  ) /
+DATA metadata(831) / var_metadata(                                             &
+! String identifier
+    'nsc_sapwood_target',                                                      &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Pipe-model target: the target conducting sapwood carbon of the PFT",      &
+! Units
+    "kg m-2"                                                                   &
+  ) /
+DATA metadata(832) / var_metadata(                                             &
+! String identifier
+    'ximpair_ring_func',                                                       &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ring cohorts: functional share of the sapwood (conducting, by age)",      &
+! Units
+    "1"                                                                        &
+  ) /
+DATA metadata(833) / var_metadata(                                             &
+! String identifier
+    'nsc_k_area_frac',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Conductance from the sapwood area: factor on the plant's kmax",           &
+! Units
+    "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for the pipe-model target's peak LAI and the ring cohorts'
+! growth year
+!
+! MDK, 31/10/26
+!-----------------------------------------------------------------------------
+DATA metadata(834) / var_metadata(                                             &
+! String identifier
+    'nsc_lai_peak',                                                            &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Pipe-model target: peak LAI of the ring year so far",                     &
+! Units
+    "1"                                                                        &
+  ) /
+DATA metadata(835) / var_metadata(                                             &
+! String identifier
+    'nsc_lai_peak_prev',                                                       &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Pipe-model target: peak LAI of the last ring year",                       &
+! Units
+    "1"                                                                        &
+  ) /
+DATA metadata(836) / var_metadata(                                             &
+! String identifier
+    'ximpair_ring_year',                                                       &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ring cohorts: calendar year in which the youngest ring grows",            &
+! Units
+    "year"                                                                     &
   ) /
 #endif

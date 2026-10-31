@@ -16,12 +16,16 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_IMPAIRMENT_MEMORY_MOD'
 
 PRIVATE
 
+PUBLIC :: ximpair_ring_init, ximpair_ring_mean,                                &
+          ximpair_ring_grow, ximpair_ring_functional,                          &
+          ximpair_ring_cweight, ximpair_ring_cref
 PUBLIC :: ximpair_memory_alloc, ximpair_dilute_area,                           &
           leaf_conductance_impaired_memory_jls,                                &
           psi_leaf_impaired_memory,                                            &
           update_xylem_impairment_memory
 
-PRIVATE :: k_intact, antideriv, psi_at_k
+PRIVATE :: k_intact, antideriv, psi_at_k, ring_cond, ring_age, ring_n0,       &
+           ring_sums
 
 ! Locked-in loss of conductivity, 1 - k_cap/kmax, of each PFT at each land
 ! point, kept for TRIFFID phenology (l_ximpair_leaf_loss). Not allocated
@@ -52,6 +56,19 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_repair_pend(:,:)
 !
 ! MDK, 25/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_area_w(:,:)
+
+! Ring cohorts of the sapwood (l_nsc_sapwood_rings): for each annual ring
+! of the conducting sapwood, youngest first (ring 1 is the ring being
+! built), its share of the sapwood (< 0 in ring 1 = not yet set) and its
+! loss of conductance (0-1), and the calendar year in which the youngest
+! ring grows (< 0 = not yet set), which gives every ring's age in winters.
+! Rings older than nsc_n_ring are merged into the last. In dumps;
+! allocated only with the switch, with nsc_n_ring rings.
+!
+! MDK, 31/10/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_frac(:,:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_loss(:,:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_year(:,:)
 
 CONTAINS
 
@@ -150,13 +167,15 @@ END SUBROUTINE ximpair_dilute_area
 
 ! ---------------------------------------------------------------------
 ! Allocate the impairment memory (n_land_pts, npft) with its start values,
-! if not done yet (first update, or a dump / initial-condition read).
+! if not done yet (first update, or a dump / initial-condition read). The
+! ring cohorts (n_land_pts, npft, nsc_n_ring) only with them.
 !
-! MDK, 25/10/26
+! MDK, 30/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_memory_alloc( n_land_pts )
 
 USE jules_surface_types_mod, ONLY: npft
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -183,9 +202,429 @@ IF (.NOT. ALLOCATED(ximpair_area_w)) THEN
   ximpair_area_w(:,:) = 1.0
 END IF
 
+! The ring cohorts, only with them, not yet set.
+IF (l_nsc_sapwood_rings .AND. .NOT. ALLOCATED(ximpair_ring_frac)) THEN
+  ALLOCATE(ximpair_ring_frac(n_land_pts, npft, nsc_n_ring))
+  ALLOCATE(ximpair_ring_loss(n_land_pts, npft, nsc_n_ring))
+  ALLOCATE(ximpair_ring_year(n_land_pts, npft))
+  ximpair_ring_frac(:,:,:) = -1.0
+  ximpair_ring_loss(:,:,:) = 0.0
+  ximpair_ring_year(:,:)   = -1.0
+END IF
+
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE ximpair_memory_alloc
+
+! ---------------------------------------------------------------------
+! Ring cohorts at their first use (l_nsc_sapwood_rings): the sapwood in
+! 1 / nsc_heartwood_rate equal rings (at most nsc_n_ring), all with the
+! stem's loss of conductance loss0, the youngest growing in the current
+! calendar year (or the next, if started in the second half of the year).
+!
+! MDK, 31/10/26
+! ---------------------------------------------------------------------
+SUBROUTINE ximpair_ring_init( l, pft, loss0 )
+
+USE model_time_mod, ONLY: current_time
+USE datetime_utils_mod, ONLY: day_of_year, days_in_year
+USE time_info_mod, ONLY: l_360, l_leap
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! The stem's loss of conductance (0-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: loss0
+
+! Number of rings in the sapwood, and the day of year.
+INTEGER :: n0, doy
+
+n0 = ring_n0(pft)
+ximpair_ring_frac(l,pft,:)    = 0.0
+ximpair_ring_frac(l,pft,1:n0) = 1.0 / REAL(n0)
+ximpair_ring_loss(l,pft,:)    = loss0
+doy = day_of_year(current_time%year, current_time%month, current_time%day,   &
+                  l_360, l_leap)
+ximpair_ring_year(l,pft) = REAL(current_time%year)
+IF (2 * doy > days_in_year(current_time%year, l_360, l_leap))                  &
+  ximpair_ring_year(l,pft) = REAL(current_time%year + 1)
+
+END SUBROUTINE ximpair_ring_init
+
+! ---------------------------------------------------------------------
+! The number of rings of equal carbon in equilibrium, 1 / k_h
+! (nsc_heartwood_rate), between 1 and nsc_n_ring.
+!
+! MDK, 31/10/26
+! ---------------------------------------------------------------------
+FUNCTION ring_n0( pft ) RESULT( n0 )
+
+USE pftparm, ONLY: nsc_heartwood_rate
+USE jules_vegetation_mod, ONLY: nsc_n_ring
+
+! PFT.
+INTEGER, INTENT(IN) :: pft
+! Number of rings.
+INTEGER :: n0
+
+n0 = MAX(NINT(MIN(1.0 / MAX(nsc_heartwood_rate(pft),                           &
+                            TINY(1.0_real_jlslsm)),                            &
+                  REAL(nsc_n_ring))), 1)
+
+END FUNCTION ring_n0
+
+! ---------------------------------------------------------------------
+! The age of ring i in winters: the years since the calendar year in which
+! the youngest ring grows (ximpair_ring_year) plus i - 1. After the end of
+! the ring year (a new, empty youngest ring that grows next year) the
+! youngest ring's age is -1 and the year's ring (ring 2) keeps age 0 until
+! the calendar year ends: the rings age over winter, for every stem.
+!
+! MDK, 31/10/26
+! ---------------------------------------------------------------------
+FUNCTION ring_age( l, pft, i ) RESULT( age )
+
+USE model_time_mod, ONLY: current_time
+
+! Land point, PFT and ring.
+INTEGER, INTENT(IN) :: l, pft, i
+! Age (winters; < 0 for a ring not grown yet).
+INTEGER :: age
+
+age = current_time%year - NINT(ximpair_ring_year(l,pft)) + i - 1
+
+END FUNCTION ring_age
+
+! ---------------------------------------------------------------------
+! The conductivity of a ring of age a (winters) relative to a new ring,
+!
+!   c(a) = c_old + (1 - c_old) EXP(-a / e),
+!
+! with c_old = nsc_ring_c_old and e = nsc_ring_cond_efold (unset: c = 1),
+! taken relative to age a0 (EXP(-(a - a0) / e)) for the loss's weights;
+! 0 for a ring not grown yet (a < 0) and, in a ring-porous stem
+! (nsc_ring_func_doy set), for the year's ring (a = 0) before day
+! nsc_ring_func_doy of the calendar year (as the budburst day).
+!
+! MDK, 31/10/26
+! ---------------------------------------------------------------------
+FUNCTION ring_cond( pft, age, a0 ) RESULT( c )
+
+USE pftparm, ONLY: is_set, nsc_ring_cond_efold, nsc_ring_c_old,                &
+                   nsc_ring_func_doy
+USE model_time_mod, ONLY: current_time
+USE datetime_utils_mod, ONLY: day_of_year
+USE time_info_mod, ONLY: l_360, l_leap
+
+! PFT, the ring's age and the reference age (winters).
+INTEGER, INTENT(IN) :: pft, age, a0
+! Relative conductivity (0-1).
+REAL(KIND=real_jlslsm) :: c
+
+! Day of year now.
+INTEGER :: doy
+
+c = 0.0
+IF (age < 0) RETURN
+IF (age == 0 .AND. is_set(nsc_ring_func_doy(pft))) THEN
+  doy = day_of_year(current_time%year, current_time%month,                     &
+                    current_time%day, l_360, l_leap)
+  IF (doy < NINT(nsc_ring_func_doy(pft))) RETURN
+END IF
+
+c = 1.0
+IF (is_set(nsc_ring_cond_efold(pft))) THEN
+  IF (a0 > 0 .AND. nsc_ring_c_old(pft) <= 0.0) THEN
+    c = EXP(-REAL(age - a0) / nsc_ring_cond_efold(pft))
+  ELSE
+    c = nsc_ring_c_old(pft) + (1.0 - nsc_ring_c_old(pft))                      &
+        * EXP(-REAL(age) / nsc_ring_cond_efold(pft))
+  END IF
+END IF
+
+END FUNCTION ring_cond
+
+! ---------------------------------------------------------------------
+! The rings' sums at point l, PFT pft, over the rings with sapwood, with
+! the conductivity c_i (ring_cond):
+!   sw  = SUM_i f_i c_i,
+!   swl = SUM_i f_i c_i L_i,
+!   swf = SUM_i f_i c_i (1 - L_i).
+! With l_rel and c_old = 0 the conductivity is taken relative to the
+! youngest conducting ring, which leaves the ratios unchanged but keeps
+! that ring's weight at f_i for any e, so a very small e cannot underflow
+! every weight.
+!
+! MDK, 31/10/26
+! ---------------------------------------------------------------------
+SUBROUTINE ring_sums( l, pft, l_rel, sw, swl, swf )
+
+USE jules_vegetation_mod, ONLY: nsc_n_ring
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! Weights relative to the youngest conducting ring.
+LOGICAL, INTENT(IN) :: l_rel
+! The sums.
+REAL(KIND=real_jlslsm), INTENT(OUT) :: sw, swl, swf
+
+! Ring counter, a ring's age and the reference age.
+INTEGER :: i, age, a0
+! A ring's weight.
+REAL(KIND=real_jlslsm) :: w
+
+a0 = 0
+IF (l_rel) THEN
+  a0 = -1
+  DO i = 1, nsc_n_ring
+    IF (ximpair_ring_frac(l,pft,i) <= 0.0) CYCLE
+    age = ring_age(l, pft, i)
+    IF (ring_cond(pft, age, 0) > 0.0 .OR. age > 0) THEN
+      a0 = MAX(age, 0)
+      EXIT
+    END IF
+  END DO
+  a0 = MAX(a0, 0)
+END IF
+
+sw  = 0.0
+swl = 0.0
+swf = 0.0
+DO i = 1, nsc_n_ring
+  IF (ximpair_ring_frac(l,pft,i) <= 0.0) CYCLE
+  w = ximpair_ring_frac(l,pft,i) * ring_cond(pft, ring_age(l, pft, i), a0)
+  sw  = sw  + w
+  swl = swl + w * ximpair_ring_loss(l,pft,i)
+  swf = swf + w * (1.0 - ximpair_ring_loss(l,pft,i))
+END DO
+
+END SUBROUTINE ring_sums
+
+! ---------------------------------------------------------------------
+! The stem's loss of conductance from its ring cohorts: the rings' losses
+! weighted by their share of the sapwood f_i and their conductivity c_i
+! (ring_cond; newer rings conduct more, unset = all alike),
+!
+!   L = SUM_i f_i c_i L_i / SUM_i f_i c_i.
+!
+! If no ring conducts (only a ring-porous earlywood not yet conducting has
+! sapwood), the plain mean of the other rings, or 0.
+!
+! MDK, 31/10/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_mean( l, pft ) RESULT( loss )
+
+USE jules_vegetation_mod, ONLY: nsc_n_ring
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! Loss of conductance (0-1).
+REAL(KIND=real_jlslsm) :: loss
+
+! Ring counter.
+INTEGER :: i
+! The sums, and the plain sums of shares and share-weighted losses.
+REAL(KIND=real_jlslsm) :: sw, swl, swf, sum_f, sum_fl
+
+CALL ring_sums(l, pft, .TRUE., sw, swl, swf)
+loss = 0.0
+IF (sw > 0.0) THEN
+  loss = swl / sw
+ELSE
+  sum_f  = 0.0
+  sum_fl = 0.0
+  DO i = 2, nsc_n_ring
+    IF (ximpair_ring_frac(l,pft,i) <= 0.0) CYCLE
+    sum_f  = sum_f + ximpair_ring_frac(l,pft,i)
+    sum_fl = sum_fl + ximpair_ring_frac(l,pft,i) * ximpair_ring_loss(l,pft,i)
+  END DO
+  IF (sum_f > 0.0) loss = sum_fl / sum_f
+END IF
+
+END FUNCTION ximpair_ring_mean
+
+! ---------------------------------------------------------------------
+! The rings' conductivity-weighted share of the sapwood, SUM_i f_i c_i
+! (ring_cond, with the season), so that SUM_i X_i c_i is X_s times it.
+!
+! MDK, 31/10/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_cweight( l, pft ) RESULT( share )
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! Weighted share (0-1).
+REAL(KIND=real_jlslsm) :: share
+
+! The other sums.
+REAL(KIND=real_jlslsm) :: swl, swf
+
+CALL ring_sums(l, pft, .FALSE., share, swl, swf)
+
+END FUNCTION ximpair_ring_cweight
+
+! ---------------------------------------------------------------------
+! The functional share of the sapwood from its ring cohorts (an output):
+! each ring's share f_i, still conducting (1 - L_i), weighted by its
+! conductivity c_i relative to a new ring (ring_cond),
+!
+!   X_f / X_s = SUM_i f_i (1 - L_i) c_i.
+!
+! MDK, 31/10/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_functional( l, pft ) RESULT( share )
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! Functional share of the sapwood (0-1).
+REAL(KIND=real_jlslsm) :: share
+
+! The other sums.
+REAL(KIND=real_jlslsm) :: sw, swl
+
+CALL ring_sums(l, pft, .FALSE., sw, swl, share)
+
+END FUNCTION ximpair_ring_functional
+
+! ---------------------------------------------------------------------
+! The conductivity-weighted mean of the rings of a stand in equilibrium on
+! the same day: n0 = 1 / nsc_heartwood_rate rings (at most nsc_n_ring) of
+! equal carbon at the ages of the point's rings (ring_age), the youngest
+! holding the share q of a ring grown so far this year (q the fraction of
+! the growing season nsc_grow_start_doy to nsc_grow_end_doy, or of the
+! calendar year, gone; 0 for a ring not grown yet, 1 for an older one),
+!
+!   c_ref = SUM_j s_j c(a_j) / SUM_j s_j,
+!
+! so a stand at its target with that ring structure has
+! SUM_i X_i c_i = X_t c_ref on any date.
+!
+! MDK, 31/10/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_cref( l, pft ) RESULT( c_ref )
+
+USE pftparm, ONLY: is_set, nsc_grow_start_doy, nsc_grow_end_doy
+USE model_time_mod, ONLY: current_time
+USE datetime_utils_mod, ONLY: day_of_year, days_in_year
+USE time_info_mod, ONLY: l_360, l_leap
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! Equilibrium mean conductivity (0-1).
+REAL(KIND=real_jlslsm) :: c_ref
+
+! Ring counter, the number of rings, the youngest ring's age, the last
+! ring and the day of year.
+INTEGER :: j, n0, a1, j_last, doy
+! The youngest ring's share, a ring's share and the sum of the shares.
+REAL(KIND=real_jlslsm) :: q, s, sum_s
+
+n0  = ring_n0(pft)
+a1  = ring_age(l, pft, 1)
+doy = day_of_year(current_time%year, current_time%month, current_time%day,   &
+                  l_360, l_leap)
+IF (a1 < 0) THEN
+  q = 0.0
+ELSE IF (a1 > 0) THEN
+  q = 1.0
+ELSE IF (is_set(nsc_grow_start_doy(pft)) .AND.                                 &
+         is_set(nsc_grow_end_doy(pft))) THEN
+  q = (REAL(doy) - nsc_grow_start_doy(pft))                                    &
+      / MAX(nsc_grow_end_doy(pft) - nsc_grow_start_doy(pft), 1.0)
+ELSE
+  q = REAL(doy) / REAL(days_in_year(current_time%year, l_360, l_leap))
+END IF
+q = MAX(MIN(q, 1.0), 0.0)
+
+! An empty youngest ring leaves n0 full rings behind it.
+j_last = n0
+IF (a1 < 0) j_last = n0 + 1
+c_ref = 0.0
+sum_s = 0.0
+DO j = 1, j_last
+  s = 1.0
+  IF (j == 1) s = q
+  c_ref = c_ref + s * ring_cond(pft, a1 + j - 1, 0)
+  sum_s = sum_s + s
+END DO
+IF (sum_s > 0.0) c_ref = c_ref / sum_s
+
+END FUNCTION ximpair_ring_cref
+
+! ---------------------------------------------------------------------
+! One TRIFFID step of the ring cohorts (l_nsc_sapwood_rings): the step's
+! new wood dg joins the youngest ring, intact; heartwood takes
+! x_old (1 - EXP(-f_heart)) from the oldest rings first, as the sapwood
+! pool loses it in total; at the end of the ring year (l_shift) a new
+! ring starts, to grow in the calendar year g_year, and the oldest two
+! rings merge (with one ring, the ring goes on). x_old: the sapwood
+! before the step, after TRIFFID's turnover (all rings alike; kg C m-2);
+! dg (kg C m-2); f_heart = the heartwood rate times the step.
+!
+! MDK, 31/10/26
+! ---------------------------------------------------------------------
+SUBROUTINE ximpair_ring_grow( l, pft, x_old, dg, f_heart, l_shift, g_year )
+
+USE jules_vegetation_mod, ONLY: nsc_n_ring
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! Sapwood before the step and the new wood (kg C m-2); heartwood rate
+! times the step (-).
+REAL(KIND=real_jlslsm), INTENT(IN) :: x_old, dg, f_heart
+! The ring year ends with this step.
+LOGICAL, INTENT(IN) :: l_shift
+! The calendar year in which a ring started at this step grows.
+INTEGER, INTENT(IN) :: g_year
+
+! Ring counter and the number of rings.
+INTEGER :: i, n
+! Sapwood of each ring (kg C m-2), ring 1 with the new wood, heartwood still
+! to take, the part taken from a ring, the total, and the merged rings'
+! share.
+REAL(KIND=real_jlslsm) :: a(nsc_n_ring), a1, h, take, tot, f_old
+
+n = nsc_n_ring
+a(:) = MAX(ximpair_ring_frac(l,pft,:), 0.0) * x_old
+
+! The new wood is intact: it dilutes the youngest ring's loss.
+IF (dg > 0.0) THEN
+  a1 = a(1) + dg
+  ximpair_ring_loss(l,pft,1) = ximpair_ring_loss(l,pft,1) * a(1) / a1
+  a(1) = a1
+END IF
+
+! Heartwood from the oldest rings first.
+h = x_old * (1.0 - EXP(-f_heart))
+DO i = n, 1, -1
+  IF (h <= 0.0) EXIT
+  take = MIN(a(i), h)
+  a(i) = a(i) - take
+  h = h - take
+END DO
+tot = SUM(a)
+IF (tot > 0.0) ximpair_ring_frac(l,pft,:) = a(:) / tot
+
+! End of the ring year: the oldest two rings merge and a new ring starts.
+IF (l_shift) THEN
+  IF (n > 1) THEN
+    f_old = ximpair_ring_frac(l,pft,n) + ximpair_ring_frac(l,pft,n-1)
+    IF (f_old > 0.0)                                                           &
+      ximpair_ring_loss(l,pft,n) = (ximpair_ring_frac(l,pft,n)                 &
+                                    * ximpair_ring_loss(l,pft,n)               &
+                                    + ximpair_ring_frac(l,pft,n-1)             &
+                                    * ximpair_ring_loss(l,pft,n-1)) / f_old
+    ximpair_ring_frac(l,pft,n) = f_old
+    DO i = n - 1, 2, -1
+      ximpair_ring_frac(l,pft,i) = ximpair_ring_frac(l,pft,i-1)
+      ximpair_ring_loss(l,pft,i) = ximpair_ring_loss(l,pft,i-1)
+    END DO
+    ximpair_ring_frac(l,pft,1) = 0.0
+    ximpair_ring_loss(l,pft,1) = 0.0
+  END IF
+  ximpair_ring_year(l,pft) = REAL(g_year)
+END IF
+
+END SUBROUTINE ximpair_ring_grow
 
 ! *********************************************************************
 ! Embolism memory xylem impairment model (pft_xylem_impairment_model = 3).
@@ -539,7 +978,11 @@ END SUBROUTINE psi_leaf_impaired_memory
 !                       growth, queued at the TRIFFID step in
 !                       ximpair_repair_pend (triffid_nsc_ring_renewal);
 !                       with l_nsc_ring_additive the share is taken off
-!                       the loss instead.
+!                       the loss instead. With the ring cohorts
+!                       (l_nsc_sapwood_rings) nothing is queued: the
+!                       stem's loss is the rings' weighted mean
+!                       (ximpair_ring_mean), and damage raises every
+!                       ring's loss to at least the loss it imposes.
 !   ximpair_tau_leaf  - with per-segment memory, the leaf segment recovers
 !                       with leaf turnover (e-folding time in calendar
 !                       years), or by new leaves with l_ximpair_rec_leaf_turn.
@@ -577,6 +1020,7 @@ USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 l_ximpair_rec_leaf_turn, l_trif_hydmort,       &
                                 l_som_seg_whole
 USE jules_vegetation_mod, ONLY: l_nsc_ring_additive
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_psi_stem,                    &
                                           ximpair_seg_state_alloc
@@ -664,11 +1108,32 @@ kcrit_pts(:) = kcrit(pft)
 b_pts(:)     = conductance_b_pft(pft)
 c_pts(:)     = conductance_c_pft(pft)
 
+! Ring cohorts: set at the first update, all rings with the stem's loss;
+! rings from a dump without their year grow from the current year.
+IF (l_nsc_sapwood_rings) THEN
+  CALL ximpair_memory_alloc( n_land_pts )
+  DO l = 1, n_land_pts
+    IF (ximpair_ring_frac(l,pft,1) < 0.0)                                      &
+      CALL ximpair_ring_init(l, pft, MAX(1.0 - kcap(l) / kmax_pts(l), 0.0))
+    IF (ximpair_ring_year(l,pft) < 0.0)                                        &
+      ximpair_ring_year(l,pft) = REAL(current_time%year)
+  END DO
+END IF
+
 ! Area gained by TRIFFID since the last update (ximpair_dilute_area): the
 ! stem's loss of conductance diluted by the new, intact area.
 IF ( ALLOCATED(ximpair_area_w) ) THEN
-  WHERE ( ximpair_area_w(:,pft) < 1.0 )                                        &
-    kcap(:) = kmax_pts(:) - (kmax_pts(:) - kcap(:)) * ximpair_area_w(:,pft)
+  IF (l_nsc_sapwood_rings) THEN
+    ! Every ring of the old cover keeps its loss, diluted alike.
+    DO l = 1, n_land_pts
+      IF (ximpair_area_w(l,pft) < 1.0)                                         &
+        ximpair_ring_loss(l,pft,:) = ximpair_ring_loss(l,pft,:)                &
+                                     * ximpair_area_w(l,pft)
+    END DO
+  ELSE
+    WHERE ( ximpair_area_w(:,pft) < 1.0 )                                      &
+      kcap(:) = kmax_pts(:) - (kmax_pts(:) - kcap(:)) * ximpair_area_w(:,pft)
+  END IF
   ximpair_area_w(:,pft) = 1.0
 END IF
 
@@ -694,17 +1159,27 @@ IF (l_ximpair_rec_nsc) THEN
   !   L -> MAX(L - rho, 0).
   !
   ! Points with nothing queued are left untouched.
-  DO l = 1, n_land_pts
-    rep_l = ximpair_repair_pend(l,pft)
-    IF (rep_l <= 0.0) CYCLE
-    IF (l_nsc_ring_additive) THEN
-      kcap(l) = kmax_pts(l) * (1.0 - MAX(1.0 - kcap(l) / kmax_pts(l)          &
-                                         - rep_l, 0.0))
-    ELSE
-      kcap(l) = kmax_pts(l) * (1.0 - MAX(1.0 - kcap(l) / kmax_pts(l), 0.0)    &
-                                     * (1.0 - MIN(rep_l, 1.0)))
-    END IF
-  END DO
+  !
+  ! With the ring cohorts the rings carry the loss instead (TRIFFID adds
+  ! the new wood to the youngest ring and retires the oldest), so the cap
+  ! follows them and nothing is queued.
+  IF (l_nsc_sapwood_rings) THEN
+    DO l = 1, n_land_pts
+      kcap(l) = kmax_pts(l) * (1.0 - ximpair_ring_mean(l, pft))
+    END DO
+  ELSE
+    DO l = 1, n_land_pts
+      rep_l = ximpair_repair_pend(l,pft)
+      IF (rep_l <= 0.0) CYCLE
+      IF (l_nsc_ring_additive) THEN
+        kcap(l) = kmax_pts(l) * (1.0 - MAX(1.0 - kcap(l) / kmax_pts(l)        &
+                                           - rep_l, 0.0))
+      ELSE
+        kcap(l) = kmax_pts(l) * (1.0 - MAX(1.0 - kcap(l) / kmax_pts(l), 0.0)  &
+                                       * (1.0 - MIN(rep_l, 1.0)))
+      END IF
+    END DO
+  END IF
   ximpair_repair_pend(:,pft) = 0.0
 
 END IF
@@ -738,6 +1213,8 @@ IF (ximpair_reset_mmdd(pft) > 0) THEN
       .AND. current_time%time < timestep_len) THEN
     kcap(:) = kmax_pts(:)
     IF (l_ximpair_seg_memory) ximpair_kcap_leaf(:,pft) = 1.0
+    ! The ring cohorts' losses too, or the rings would restore the loss.
+    IF (l_nsc_sapwood_rings) ximpair_ring_loss(:,pft,:) = 0.0
   END IF
 END IF
 
@@ -750,7 +1227,13 @@ IF (l_ximpair_seg_memory) THEN
   ! psi_leaf on the leaf curve (the segments' intact Weibull curves).
   DO j = 1, n_open_pts
     l = open_index(j)
-    kcap(l) = MIN(kcap(l), kmax_pts(l) * seg_rel_k(pft, 2, psi_stem(l)))
+    IF (l_nsc_sapwood_rings) THEN
+      ! Every ring takes at least the imposed loss.
+      CALL ring_damage(l, 1.0 - seg_rel_k(pft, 2, psi_stem(l)))
+      kcap(l) = kmax_pts(l) * (1.0 - ximpair_ring_mean(l, pft))
+    ELSE
+      kcap(l) = MIN(kcap(l), kmax_pts(l) * seg_rel_k(pft, 2, psi_stem(l)))
+    END IF
     ximpair_kcap_leaf(l,pft) = MIN(ximpair_kcap_leaf(l,pft),                   &
                                    seg_rel_k(pft, 3, psi_leaf(l)))
   END DO
@@ -761,7 +1244,13 @@ ELSE
                              b_pts, c_pts, k_x )
   DO j = 1, n_open_pts
     l = open_index(j)
-    kcap(l) = MIN(kcap(l), k_x(l))
+    IF (l_nsc_sapwood_rings) THEN
+      ! Every ring takes at least the imposed loss.
+      CALL ring_damage(l, 1.0 - k_x(l) / kmax_pts(l))
+      kcap(l) = kmax_pts(l) * (1.0 - ximpair_ring_mean(l, pft))
+    ELSE
+      kcap(l) = MIN(kcap(l), k_x(l))
+    END IF
   END DO
 END IF
 
@@ -777,6 +1266,39 @@ IF (l_trif_hydmort) CALL hydmort_accumulate( n_land_pts, pft,                  &
                                              ximpair_lock(:,pft) )
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
+
+CONTAINS
+
+! ---------------------------------------------------------------------
+! The conducting rings at point l take at least the loss loss_imp, at most
+! the loss at kcrit (the floor of the cap): every ring but a youngest ring
+! that does not conduct (not grown yet, or a ring-porous earlywood before
+! its day).
+!
+! MDK, 31/10/26
+! ---------------------------------------------------------------------
+SUBROUTINE ring_damage( l, loss_imp )
+
+! Land point.
+INTEGER, INTENT(IN) :: l
+! The loss of conductance the step imposes (0-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: loss_imp
+
+! The loss at kcrit.
+REAL(KIND=real_jlslsm) :: loss_max
+
+loss_max = 1.0 - kcrit_pts(l) / kmax_pts(l)
+IF (ring_age(l, pft, 1) < 0 .OR.                                               &
+    ring_cond(pft, ring_age(l, pft, 1), 0) <= 0.0 .AND.                        &
+    ring_age(l, pft, 1) == 0) THEN
+  ximpair_ring_loss(l,pft,2:) = MAX(ximpair_ring_loss(l,pft,2:),               &
+                                    MIN(loss_imp, loss_max))
+ELSE
+  ximpair_ring_loss(l,pft,:) = MAX(ximpair_ring_loss(l,pft,:),                 &
+                                   MIN(loss_imp, loss_max))
+END IF
+
+END SUBROUTINE ring_damage
 
 END SUBROUTINE update_xylem_impairment_memory
 

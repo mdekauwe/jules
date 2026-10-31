@@ -2276,6 +2276,7 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 ximpair_hold_psi,                              &
                                 l_som_rhizo_series, l_som_coupled_e,           &
                                 photo_johnson
+USE plant_hydraulic_path_mod, ONLY: l_kscale
 USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kplant_scale,            &
                                     l_store_q_path, l_shared_stem_path,        &
                                     l_shared_whole_path, l_shared_gain_path,   &
@@ -2564,11 +2565,11 @@ CONTAINS
 
   ! The leaf area of the call from the intact plant (kmax_ref; = kmax
   ! without xylem impairment), so damage does not shrink the CMax or CGain
-  ! cost, and without the kplant_model = 1 ground factor, which is not leaf
-  ! area.
+  ! cost, and without the kplant_model = 1 ground factor or the sapwood-area
+  ! factor (l_kscale), which are not leaf area.
   IF ( l_abs ) lai_call = kmax_ref(l)                                          &
                           / MAX(kmax_pft(pft), TINY(1.0_real_jlslsm))
-  IF ( l_abs .AND. kplant_model == kplant_model_ground )                       &
+  IF ( l_abs .AND. l_kscale )                                                  &
     lai_call = lai_call / kplant_scale(l)
 
   ! The two-leaf sunlit and shaded leaves give their leaf area (their kmax

@@ -137,11 +137,20 @@ IF ( is_master_task() ) THEN
           FILE, dim_names(j), dim_ids(j), dim_size_file, is_record_dim         &
         )
 
-        ! Check that we found a dimension
-        IF ( dim_ids(j) < 0 )                                                  &
+        ! Check that we found a dimension. A dump written without the ring
+        ! cohorts has no ring dimension: their variables are then missing
+        ! (below), and start from the stem's loss.
+        !
+        ! MDK, 30/10/26
+        IF ( dim_ids(j) < 0 ) THEN
+          SELECT CASE ( identifiers(i) )
+          CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss' )
+            CYCLE
+          END SELECT
           CALL log_fatal("read_dump_shared",                                   &
                          "Could not find expected dimension '" //              &
                          TRIM(dim_names(j)) // "' in dump file")
+        END IF
 
         ! Check that the dimension is not a record dimension (there shouldn't
         ! be one in dump files).
@@ -244,6 +253,26 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
              "the pipe model at the first ring step.")
+        CASE ( 'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',   &
+               'ximpair_ring_year' )
+          ! Pipe-model target and ring cohorts: dumps written without these
+          ! start them not yet set: the target at the first ring step, the
+          ! peak LAI from the balanced LAI until a ring year has ended, the
+          ! youngest ring growing in the current year (a restart is then
+          ! not exact).
+          !
+          ! MDK, 31/10/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts " //       &
+             "'not yet set' (restart not exact).")
+        CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss' )
+          ! Ring cohorts: dumps written without them start them at the
+          ! first update, all rings with the stem's loss.
+          !
+          ! MDK, 30/10/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump: the rings " //      &
+             "start at the first update with the stem's loss.")
         CASE ( 'ximpair_psi_stem', 'ximpair_area_w' )
           ! Dumps written without them: the stem psi of the PLC output is
           ! unset until the first update, and the area dilution of the

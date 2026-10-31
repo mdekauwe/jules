@@ -69,7 +69,9 @@ USE model_interface_mod, ONLY: bedrock_dim_name => bedrock_dim_name_out,       &
                                ch4layer_dim_name => ch4layer_dim_name_out,     &
                                soil_n_pool_dim_name =>                         &
                                   soil_n_pool_dim_name_out,                    &
-                               nmasst_dim_name => nmasst_dim_name_out
+                               nmasst_dim_name => nmasst_dim_name_out,         &
+                               ring_dim_name => ring_dim_name_out
+USE jules_vegetation_mod, ONLY: nsc_n_ring   ! MDK, 30/10/26
 
 USE dump_mod, ONLY: ancil_dump_read
 
@@ -171,6 +173,8 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
            'nsc_turg_acc', 'nsc_t_run',                                        &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
+           'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
+           'ximpair_ring_year',                                                &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
            'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &
@@ -183,6 +187,14 @@ CASE ( 'plantNumDensity' )
   ndims = 3
   dim_names(1:ndims) = [ land_dim_name, pft_dim_name, nmasst_dim_name ]
   dim_sizes(1:ndims) = [ global_land_pts, npft, nmasst ]
+
+! The sapwood's ring cohorts.
+!
+! MDK, 30/10/26
+CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss' )
+  ndims = 3
+  dim_names(1:ndims) = [ land_dim_name, pft_dim_name, ring_dim_name ]
+  dim_sizes(1:ndims) = [ global_land_pts, npft, nsc_n_ring ]
 
 CASE ( 'cropdvi', 'croprootc', 'cropharvc', 'cropreservec',                    &
        'croplai', 'cropcanht' )

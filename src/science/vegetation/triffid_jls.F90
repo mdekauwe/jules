@@ -842,13 +842,14 @@ END DO  !  PFTs
 ! Stem recovery by ring renewal (l_ximpair_rec_nsc): the wood just grown
 ! is the new xylem ring, which dilutes the stem damage of the memory
 ! impairment model. No carbon moves (before the height update: the
-! sapwood is the one the store saw).
+! sapwood is the one the store saw). The current LAI is passed for the
+! pipe-model target's peak LAI.
 !
-! MDK, 26/10/26
+! MDK, 31/10/26
 !-----------------------------------------------------------------------------
 IF ( l_triffid_nsc )                                                           &
   CALL triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index, r_gamma,      &
-                                 ht, lai_bal_pft, woodc_pft, dwood_pft,        &
+                                 ht, lai_bal_pft, lai, woodc_pft, dwood_pft,   &
                                  wood_litc_pft )
 
 !-----------------------------------------------------------------------------

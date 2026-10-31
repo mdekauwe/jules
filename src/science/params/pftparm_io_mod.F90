@@ -327,6 +327,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_grow_thresh_io(npft_max) = rmdi,                                         &
   nsc_sink_days_io(npft_max) = rmdi,                                           &
   nsc_sink_beta_min_io(npft_max) = rmdi,                                       &
+  nsc_ring_cond_efold_io(npft_max) = rmdi,                                     &
+  nsc_pipe_gamma_io(npft_max) = rmdi,                                          &
+  nsc_ring_c_old_io(npft_max) = rmdi,                                          &
+  nsc_ring_func_doy_io(npft_max) = rmdi,                                       &
   phen_psi_tlp_io(npft_max) = rmdi,                                            &
   phen_dfbleaf_io(npft_max) = rmdi,                                            &
   phen_ndays_io(npft_max) = rmdi,                                              &
@@ -417,6 +421,8 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_xylem_cond_ratio_io,                                                     &
   nsc_heartwood_rate_io, nsc_grow_thresh_io,                                   &
   nsc_sink_days_io, nsc_sink_beta_min_io,                                      &
+  nsc_ring_cond_efold_io, nsc_pipe_gamma_io,                                   &
+  nsc_ring_c_old_io, nsc_ring_func_doy_io,                                     &
   phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io,                         &
   phen_bb_doy_io, phen_bb_gdd_io, phen_bb_tbase_io, phen_bb_min_days_io
 
@@ -462,7 +468,7 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 179 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 183 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
@@ -652,6 +658,10 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_grow_thresh_io(npft_max)   ! MDK, 29/10/26
   REAL(KIND=real_jlslsm) :: nsc_sink_days_io(npft_max)   ! MDK, 31/10/26
   REAL(KIND=real_jlslsm) :: nsc_sink_beta_min_io(npft_max)   ! MDK, 31/10/26
+  REAL(KIND=real_jlslsm) :: nsc_ring_cond_efold_io(npft_max)   ! MDK, 30/10/26
+  REAL(KIND=real_jlslsm) :: nsc_pipe_gamma_io(npft_max)   ! MDK, 30/10/26
+  REAL(KIND=real_jlslsm) :: nsc_ring_c_old_io(npft_max)   ! MDK, 31/10/26
+  REAL(KIND=real_jlslsm) :: nsc_ring_func_doy_io(npft_max)   ! MDK, 31/10/26
   REAL(KIND=real_jlslsm) :: phen_psi_tlp_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_dfbleaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_ndays_io(npft_max)
@@ -857,6 +867,10 @@ IF (mype == 0) THEN
   my_nml % nsc_grow_thresh_io = nsc_grow_thresh_io   ! MDK, 29/10/26
   my_nml % nsc_sink_days_io = nsc_sink_days_io   ! MDK, 31/10/26
   my_nml % nsc_sink_beta_min_io = nsc_sink_beta_min_io   ! MDK, 31/10/26
+  my_nml % nsc_ring_cond_efold_io = nsc_ring_cond_efold_io   ! MDK, 30/10/26
+  my_nml % nsc_pipe_gamma_io = nsc_pipe_gamma_io   ! MDK, 30/10/26
+  my_nml % nsc_ring_c_old_io = nsc_ring_c_old_io   ! MDK, 31/10/26
+  my_nml % nsc_ring_func_doy_io = nsc_ring_func_doy_io   ! MDK, 31/10/26
   my_nml % phen_psi_tlp_io = phen_psi_tlp_io
   my_nml % phen_dfbleaf_io = phen_dfbleaf_io
   my_nml % phen_ndays_io = phen_ndays_io
@@ -1050,6 +1064,10 @@ IF (mype /= 0) THEN
   nsc_grow_thresh_io = my_nml % nsc_grow_thresh_io   ! MDK, 29/10/26
   nsc_sink_days_io = my_nml % nsc_sink_days_io   ! MDK, 31/10/26
   nsc_sink_beta_min_io = my_nml % nsc_sink_beta_min_io   ! MDK, 31/10/26
+  nsc_ring_cond_efold_io = my_nml % nsc_ring_cond_efold_io   ! MDK, 30/10/26
+  nsc_pipe_gamma_io = my_nml % nsc_pipe_gamma_io   ! MDK, 30/10/26
+  nsc_ring_c_old_io = my_nml % nsc_ring_c_old_io   ! MDK, 31/10/26
+  nsc_ring_func_doy_io = my_nml % nsc_ring_func_doy_io   ! MDK, 31/10/26
   phen_psi_tlp_io = my_nml % phen_psi_tlp_io
   phen_dfbleaf_io = my_nml % phen_dfbleaf_io
   phen_ndays_io = my_nml % phen_ndays_io
@@ -1148,8 +1166,9 @@ USE pftparm, ONLY:                                                             &
   nsc_grow_start_doy, nsc_grow_end_doy, nsc_flush_start_doy, nsc_flush_days,  &
   nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min,          &
   nsc_xylem_cond_ratio,                                                       &
-  nsc_heartwood_rate, nsc_grow_thresh,                                        &
+  nsc_heartwood_rate, nsc_grow_thresh, nsc_ring_cond_efold,                   &
   nsc_sink_days, nsc_sink_beta_min,                                            &
+  nsc_pipe_gamma, nsc_ring_c_old, nsc_ring_func_doy,                           &
   phen_bb_doy, phen_bb_gdd, phen_bb_tbase, phen_bb_min_days
 
 
@@ -1174,6 +1193,8 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 leaf_flux_mod, leaf_flux_stom_opt, l_trif_eq
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_pool   ! MDK, 29/10/26
 USE jules_vegetation_mod, ONLY: l_nsc_sink_feedback   ! MDK, 31/10/26
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
+                                ! MDK, 31/10/26
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1554,6 +1575,14 @@ DO i = 1, npft
     nsc_sink_days(i) = nsc_sink_days_io(i)
   IF (ABS(nsc_sink_beta_min_io(i) - rmdi) > EPSILON(1.0))                      &
     nsc_sink_beta_min(i) = nsc_sink_beta_min_io(i)
+  IF (ABS(nsc_ring_cond_efold_io(i) - rmdi) > EPSILON(1.0))                    &
+    nsc_ring_cond_efold(i) = nsc_ring_cond_efold_io(i)
+  IF (ABS(nsc_pipe_gamma_io(i) - rmdi) > EPSILON(1.0))                         &
+    nsc_pipe_gamma(i) = nsc_pipe_gamma_io(i)
+  IF (ABS(nsc_ring_c_old_io(i) - rmdi) > EPSILON(1.0))                         &
+    nsc_ring_c_old(i) = nsc_ring_c_old_io(i)
+  IF (ABS(nsc_ring_func_doy_io(i) - rmdi) > EPSILON(1.0))                      &
+    nsc_ring_func_doy(i) = nsc_ring_func_doy_io(i)
   IF (ABS(phen_psi_tlp_io(i) - rmdi) > EPSILON(1.0))                           &
     phen_psi_tlp(i) = phen_psi_tlp_io(i)
   IF (ABS(phen_dfbleaf_io(i) - rmdi) > EPSILON(1.0))                           &
@@ -1698,6 +1727,97 @@ IF ( l_nsc_sapwood_pool ) THEN
     CALL ereport(RoutineName, errcode,                                         &
                  'l_nsc_sapwood_pool needs nsc_heartwood_rate_io > 0 '    //   &
                  '(per year) for the memory-model PFTs.')
+  END IF
+END IF
+! Ring cohorts: the conductivity's e-folding (in rings) is > 0 if set. With
+! the cohorts the new ring's conductance ratio does not act on the stem
+! (the radial profile replaces it), so setting it gives a warning.
+!
+! MDK, 30/10/26
+IF ( ANY(is_set(nsc_ring_cond_efold(:)) .AND.                                 &
+         nsc_ring_cond_efold(:) <= 0.0) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                           &
+               'nsc_ring_cond_efold_io must be > 0 (rings) if set.')
+END IF
+IF ( l_nsc_sapwood_rings .AND.                                                 &
+     ANY(ABS(nsc_xylem_cond_ratio_io(1:npft) - rmdi) > EPSILON(1.0)) ) THEN
+  errcode = -101
+  CALL ereport(RoutineName, errcode,                                           &
+               'nsc_xylem_cond_ratio_io does not act on the stem with the ' // &
+               'ring cohorts (l_nsc_sapwood_rings): set the radial '       //  &
+               'profile with nsc_ring_cond_efold_io.')
+END IF
+! Pipe-model target: the heartwood factor's exponent is >= 0.
+!
+! MDK, 30/10/26
+IF ( ANY(nsc_pipe_gamma(1:npft) < 0.0) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                           &
+               'nsc_pipe_gamma_io must be >= 0.')
+END IF
+! Ring cohorts by age and season: the old rings' conductivity is 0-1 and
+! the ring-porous day of year 1-366 if set.
+!
+! MDK, 31/10/26
+IF ( ANY(nsc_ring_c_old(1:npft) < 0.0 .OR. nsc_ring_c_old(1:npft) > 1.0) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                           &
+               'nsc_ring_c_old_io must be 0-1.')
+END IF
+IF ( ANY(is_set(nsc_ring_func_doy(1:npft)) .AND.                              &
+         (nsc_ring_func_doy(1:npft) < 1.0 .OR.                                 &
+          nsc_ring_func_doy(1:npft) > 366.0)) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                           &
+               'nsc_ring_func_doy_io must be 1-366 if set.')
+END IF
+IF ( .NOT. l_nsc_sapwood_rings .AND.                                           &
+     ANY(is_set(nsc_ring_func_doy(1:npft)) .OR.                                &
+         nsc_ring_c_old(1:npft) > 0.0) ) THEN
+  errcode = -101
+  CALL ereport(RoutineName, errcode,                                           &
+               'nsc_ring_c_old_io and nsc_ring_func_doy_io act only with ' //  &
+               'the ring cohorts (l_nsc_sapwood_rings).')
+END IF
+! The ring cohorts' settings that would do nothing or contradict: c_old
+! acts only through nsc_ring_cond_efold; a ring-porous earlywood that
+! keeps its conductivity (no efold, or c_old = 1) is never lost; the
+! earlywood must conduct before its ring year ends; and the rings should
+! outnumber those in the sapwood, 1 / nsc_heartwood_rate.
+!
+! MDK, 31/10/26
+IF ( l_nsc_sapwood_rings ) THEN
+  IF ( ANY(nsc_ring_c_old(1:npft) > 0.0 .AND.                                 &
+           .NOT. is_set(nsc_ring_cond_efold(1:npft))) ) THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_ring_c_old_io acts only with nsc_ring_cond_efold_io '//  &
+                 'set.')
+  END IF
+  IF ( ANY(is_set(nsc_ring_func_doy(1:npft)) .AND.                            &
+           (.NOT. is_set(nsc_ring_cond_efold(1:npft)) .OR.                     &
+            nsc_ring_c_old(1:npft) >= 1.0)) ) THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_ring_func_doy_io set without nsc_ring_cond_efold_io '//  &
+                 'or with nsc_ring_c_old_io = 1: the earlywood is not lost.')
+  END IF
+  IF ( ANY(is_set(nsc_ring_func_doy(1:npft)) .AND.                            &
+           is_set(nsc_grow_end_doy(1:npft)) .AND.                              &
+           nsc_ring_func_doy(1:npft) >= nsc_grow_end_doy(1:npft)) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_ring_func_doy_io must be before nsc_grow_end_doy_io.')
+  END IF
+  IF ( ANY(pft_xylem_impairment_model(1:npft) == xylem_impairment_memory      &
+           .AND. nsc_heartwood_rate(1:npft) > 0.0 .AND.                        &
+           REAL(nsc_n_ring) < 1.0 / MAX(nsc_heartwood_rate(1:npft),            &
+                                        TINY(1.0)) - 0.5) ) THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_n_ring is below 1 / nsc_heartwood_rate_io: the last '//  &
+                 'ring merges much of the sapwood.')
   END IF
 END IF
 ! Stem recovery (l_ximpair_rec_nsc) is ring renewal by TRIFFID wood

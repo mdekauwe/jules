@@ -33,6 +33,10 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt,
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
+USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
 USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft,  &
@@ -153,6 +157,11 @@ REAL, ALLOCATABLE :: global_data_2d(:,:)   ! With one vertical level
 REAL, ALLOCATABLE :: global_data_3d(:,:,:) ! With two "vertical" levels
                                              ! e.g. snow variables
 REAL, ALLOCATABLE :: global_data_4d(:,:,:,:) ! With 3 "vertical" levels
+INTEGER :: n_ring_dump
+    ! Ring dimension of the 3D buffer: nsc_n_ring with the ring cohorts,
+    ! otherwise 1.
+    !
+    ! MDK, 30/10/26
 
 !-----------------------------------------------------------------------------
 
@@ -182,9 +191,14 @@ IF ( is_master_task() ) THEN
   ALLOCATE(global_data_2d(global_land_pts, MAX(npft, dim_cs1, sm_levels,       &
                                                nsurft, ntype, ns_deep,         &
                                                nsoilt, dim_ch4layer)))
+  ! The ring cohorts' dimension only with them.
+  !
+  ! MDK, 30/10/26
+  n_ring_dump = 1
+  IF ( l_nsc_sapwood_rings ) n_ring_dump = nsc_n_ring
   ALLOCATE(global_data_3d(global_land_pts,                                     &
                           MAX(nsurft, dim_cslayer, nsoilt, npft),              &
-                          MAX(nsmax, dim_cs1, sm_levels, nmasst)))
+                          MAX(nsmax, dim_cs1, sm_levels, nmasst, n_ring_dump)))
   ALLOCATE(global_data_4d(global_land_pts, nsoilt,                             &
                           MAX(nsurft, dim_cslayer),                            &
                           MAX(nsmax, dim_cs1)))
@@ -245,6 +259,8 @@ DO i = 1,nvars
            'nsc_turg_acc', 'nsc_t_run',                                        &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
+           'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
+           'ximpair_ring_year',                                                &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
            'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &
@@ -258,6 +274,7 @@ DO i = 1,nvars
         ! MDK, 23/10/26
         SELECT CASE ( identifiers(i) )
         CASE ( 'nsc_store', 'nsc_t_run', 'nsc_ft_mean', 'nsc_sapwood',         &
+               'nsc_lai_peak_prev', 'ximpair_ring_year',                       &
                'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd',                 &
                'cpl_gbw_sun', 'cpl_gbw_shd', 'cpl_ra_ca',                      &
                'phen_bb_day' )
@@ -282,6 +299,21 @@ DO i = 1,nvars
 
     CASE ( 'plantNumDensity' )
       CALL file_read_var(FILE, var_ids(i), global_data_3d(:,1:npft,1:nmasst))
+
+    ! The sapwood's ring cohorts. A dump written without them (no ring
+    ! dimension; read_dump_shared warns) starts them 'not yet set', so
+    ! the first update or TRIFFID step sets them from the stem's loss.
+    !
+    ! MDK, 30/10/26
+    CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss' )
+      IF ( var_ids(i) > 0 ) THEN
+        CALL file_read_var(FILE, var_ids(i),                                   &
+                           global_data_3d(:,1:npft,1:nsc_n_ring))
+      ELSE IF ( identifiers(i) == 'ximpair_ring_frac' ) THEN
+        global_data_3d(:,1:npft,1:nsc_n_ring) = -1.0
+      ELSE
+        global_data_3d(:,1:npft,1:nsc_n_ring) = 0.0
+      END IF
 
     CASE ( 'cropdvi', 'croprootc', 'cropharvc', 'cropreservec',                &
            'croplai', 'cropcanht' )
@@ -815,6 +847,34 @@ DO i = 1,nvars
       CALL scatter_land_field(global_data_2d(:,n), nsc_sapwood(:,n))
     END DO
 
+  ! The pipe-model target: the target sapwood and the peak LAI of this
+  ! and last ring year; the sapwood's ring cohorts' growth year.
+  !
+  ! MDK, 31/10/26
+  CASE ( 'nsc_sapwood_target' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), nsc_sapwood_target(:,n))
+    END DO
+
+  CASE ( 'nsc_lai_peak' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), nsc_lai_peak(:,n))
+    END DO
+
+  CASE ( 'nsc_lai_peak_prev' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), nsc_lai_peak_prev(:,n))
+    END DO
+
+  CASE ( 'ximpair_ring_year' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), ximpair_ring_year(:,n))
+    END DO
+
   CASE ( 'phen_psi_acc' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
@@ -906,6 +966,27 @@ DO i = 1,nvars
       DO m = 1,nmasst
         CALL scatter_land_field(global_data_3d(:,n,m),                         &
                                 progs%plantNumDensity(:,n,m))
+      END DO
+    END DO
+
+  ! The sapwood's ring cohorts.
+  !
+  ! MDK, 30/10/26
+  CASE ( 'ximpair_ring_frac' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      DO m = 1,nsc_n_ring
+        CALL scatter_land_field(global_data_3d(:,n,m),                         &
+                                ximpair_ring_frac(:,n,m))
+      END DO
+    END DO
+
+  CASE ( 'ximpair_ring_loss' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      DO m = 1,nsc_n_ring
+        CALL scatter_land_field(global_data_3d(:,n,m),                         &
+                                ximpair_ring_loss(:,n,m))
       END DO
     END DO
 

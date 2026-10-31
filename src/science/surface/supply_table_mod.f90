@@ -9,6 +9,7 @@ MODULE supply_table_mod
 
 USE um_types, ONLY: real_jlslsm
 USE jules_vegetation_mod, ONLY: k_ground_ratio_max
+USE jules_vegetation_mod, ONLY: l_nsc_k_sapwood
 
 IMPLICIT NONE
 
@@ -16,7 +17,7 @@ IMPLICIT NONE
 ! (som_psi_solver = psi_solver_lut): the whole-plant table of each PFT and
 ! the root, stem and leaf segment tables, and the solvers that read them.
 !
-! MDK, 23/10/26
+! MDK, 31/10/26
 PRIVATE
 
 CHARACTER(LEN=*),PARAMETER,PRIVATE :: ModuleName='SUPPLY_TABLE_MOD'
@@ -62,6 +63,9 @@ INTEGER, PARAMETER, PRIVATE :: n_lut = 4001
 INTEGER, PARAMETER, PRIVATE :: n_lut_max = 16 * (n_lut - 1) + 1
 ! Bottom of the Weibull table (f falls fast).
 REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: lut_f_floor = 1.0e-6
+! Smallest sapwood-area factor on kmax (nsc_k_area in triffid_nsc_mod),
+! for the depth of the segment tables with l_nsc_k_sapwood.
+REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: f_a_min_lut = 0.01
 ! Bottom of the SOX table, as a fraction of kcrit/kmax (f has a power-law tail,
 ! so a fixed tiny floor would spread the table too thin).
 REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: lut_f_floor_kcrit = 0.1
@@ -767,7 +771,7 @@ END FUNCTION seg_lut_s
 ! build_supply_lut for each segment's Weibull, from psi = 0 down to where the
 ! normalised conductance falls to lut_f_floor (or lower, see lut_grid).
 !
-! MDK, 24/10/26
+! MDK, 31/10/26
 ! *****************************************************************************
 SUBROUTINE build_supply_lut_seg( pft )
 
@@ -819,9 +823,13 @@ IF ( .NOT. lut_seg_ready(pft) ) THEN
     ! With kplant_model = 1 a segment's share also moves with LAI
     ! (seg_kscale), so the table is built for the largest share the
     ! LAI_ref / LAI cap allows, k_ground_ratio_max x seg_kfac.
+    ! With the sapwood-area factor (l_nsc_k_sapwood) the stem's share can
+    ! fall to f_a_min and the other segments' shares rise by up to its
+    ! inverse, so the table is built that far too.
     kfac_lut = MAX(seg_kfac(pft,iseg), 1.0_real_jlslsm)
     IF ( kplant_model == kplant_model_ground )                                 &
       kfac_lut = kfac_lut * k_ground_ratio_max
+    IF ( l_nsc_k_sapwood ) kfac_lut = kfac_lut / f_a_min_lut
     CALL table_build( lut_seg_tab(pft,iseg), b, c, .FALSE., lut_f_floor,       &
                       lut_f_crit(1.0 - kcrit_fractional_loss(pft), kfac_lut) )
   END DO

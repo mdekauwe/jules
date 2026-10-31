@@ -1055,6 +1055,25 @@ DO i = 1, nvars_required
     !
     ! MDK, 30/10/26
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
+  CASE ( 'nsc_sapwood_target', 'nsc_lai_peak' )
+    ! Pipe-model target: not yet set (the target at the first ring step;
+    ! no peak LAI yet this ring year).
+    !
+    ! MDK, 31/10/26
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  CASE ( 'nsc_lai_peak_prev', 'ximpair_ring_year' )
+    ! Not yet set: the balanced LAI until a ring year has ended; the
+    ! youngest ring grows in the current year.
+    !
+    ! MDK, 31/10/26
+    CALL dict_set(defaults_dict, identifiers(i), -1.0)
+  CASE ( 'ximpair_ring_frac' )
+    ! Ring cohorts: not yet set, so the first update sets them.
+    !
+    ! MDK, 30/10/26
+    CALL dict_set(defaults_dict, identifiers(i), -1.0)
+  CASE ( 'ximpair_ring_loss' )
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
   ! TRIFFID's timer at the start of a run (as init_time) and empty sums.
   !
   ! MDK, 24/10/26

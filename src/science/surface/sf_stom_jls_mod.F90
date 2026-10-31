@@ -200,6 +200,10 @@ USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kcrit_of_path
 USE plant_hydraulic_path_mod, ONLY: set_ksr_path, ksr, set_k_ground_basis,     &
                                     kplant_scale
                                        ! MDK, 21/10/26
+USE plant_hydraulic_path_mod, ONLY: l_kscale   ! MDK, 31/10/26
+USE jules_vegetation_mod, ONLY: l_nsc_k_sapwood   ! MDK, 31/10/26
+USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_k_area, nsc_k_area_frac
+                           ! MDK, 31/10/26
 USE plant_hydraulic_path_mod, ONLY: set_store_q_path, clear_store_q_path,      &
                                     psi_leaf_segments_jls
                                        ! MDK, 24/10/26
@@ -932,6 +936,11 @@ REAL(KIND=real_jlslsm) :: lai_ref_kg(land_pts)
                             ! balanced LAI from canopy height).
                             !
                             ! MDK, 21/10/26
+REAL(KIND=real_jlslsm) :: k_area(land_pts)
+                            ! l_nsc_k_sapwood: the sapwood-area factor on
+                            ! the plant's kmax (0-1).
+                            !
+                            ! MDK, 31/10/26
 INTEGER, PARAMETER :: n_cut = 20
                             ! Floor fluxes tried, E_floor * i / n_cut, to
                             ! find the largest one the xylem can carry
@@ -1872,7 +1881,26 @@ IF ( kplant_model == kplant_model_ground ) THEN
 ELSE
   lai_ref_kg(:) = lai(:)
 END IF
-CALL set_k_ground_basis( ft, land_pts, veg_pts, veg_index, lai, lai_ref_kg )
+! Conductance from the sapwood area (l_nsc_k_sapwood): the factor f_A on
+! kmax, its intact reference and kcrit (the stem segment's with segments),
+! 1 in spin-up.
+!
+! MDK, 31/10/26
+IF ( l_nsc_k_sapwood ) THEN
+  CALL triffid_nsc_alloc( land_pts )
+  k_area(:) = 1.0
+  IF ( .NOT. is_spinup ) THEN
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      k_area(l) = nsc_k_area(l, ft)
+    END DO
+  END IF
+  nsc_k_area_frac(:,ft) = k_area(:)
+  CALL set_k_ground_basis( ft, land_pts, veg_pts, veg_index, lai, lai_ref_kg, &
+                           k_area )
+ELSE
+  CALL set_k_ground_basis( ft, land_pts, veg_pts, veg_index, lai, lai_ref_kg )
+END IF
 
 ! Plant capacitance: this step's capacitance of the store,
 !
@@ -3364,7 +3392,7 @@ CASE ( 1 )
        ! the impairment update below uses the unscaled leaf-basis values.
        !
        ! MDK, 21/10/26
-       IF ( kplant_model == kplant_model_ground ) THEN
+       IF ( l_kscale ) THEN
          kmax_bigleaf(:)     = kmax_bigleaf(:)     * kplant_scale(:)
          kmax_ref_bigleaf(:) = kmax_ref_bigleaf(:) * kplant_scale(:)
          kcrit_bigleaf(:)    = kcrit_bigleaf(:)    * kplant_scale(:)
@@ -3664,7 +3692,7 @@ CASE ( 7 )
     ! unchanged) and for the impaired, intact and critical conductances
     ! (so the damage fraction is unchanged); the impairment update divides
     ! it back out.
-    IF ( kplant_model == kplant_model_ground ) THEN
+    IF ( l_kscale ) THEN
       kmax_sun_2l(l)     = kmax_sun_2l(l)     * kplant_scale(l)
       kmax_shd_2l(l)     = kmax_shd_2l(l)     * kplant_scale(l)
       kmax_ref_sun_2l(l) = kmax_ref_sun_2l(l) * kplant_scale(l)
@@ -4175,7 +4203,7 @@ IF ( l_som_cuticular_loss .AND. stomata_model == stomata_desica ) THEN
     l = veg_index(m)
     kmax_cut(l)  = MAX(k_max(l) * lai(l), TINY(1.0_real_jlslsm))
     kcrit_cut(l) = kcrit_of_path(ft, kmax_pft(ft) * lai(l))
-    IF ( kplant_model == kplant_model_ground ) THEN
+    IF ( l_kscale ) THEN
       kmax_cut(l)  = kmax_cut(l)  * kplant_scale(l)
       kcrit_cut(l) = kcrit_cut(l) * kplant_scale(l)
     END IF

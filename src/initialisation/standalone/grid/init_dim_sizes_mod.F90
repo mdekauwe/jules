@@ -46,7 +46,8 @@ USE model_interface_mod, ONLY: bl_level_dim_size, bedrock_dim_size,            &
                                 scpool_dim_size, ch4layer_dim_size,            &
                                 sclayer_dim_size, dep_species_dim_size,        &
                                 imogen_drive_dim_size, imogen_clim_dim_size,   &
-                                nmasst_dim_size
+                                nmasst_dim_size, ring_dim_size
+USE jules_vegetation_mod, ONLY: nsc_n_ring   ! MDK, 30/10/26
 
 USE imogen_run, ONLY: l_daily_metdata_climatol
 
@@ -147,6 +148,7 @@ ch4layer_dim_size = dim_ch4layer
 dep_species_dim_size = ndry_dep_species
 bedrock_dim_size  = ns_deep
 nmasst_dim_size    = nmasst
+ring_dim_size      = nsc_n_ring   ! MDK, 30/10/26
 
 RETURN
 

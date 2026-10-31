@@ -12,6 +12,7 @@ USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f, xylem_f_bc, incomplete_gamma_1
 USE supply_table_mod, ONLY: seg_lut_psi, build_supply_lut_seg,                &
                             newton_psi_drop, seg_lut_psi_back, seg_lut_s
 USE jules_vegetation_mod, ONLY: k_ground_ratio_max, l_som_seg_whole
+USE jules_vegetation_mod, ONLY: l_som_plant_segments
 
 IMPLICIT NONE
 
@@ -157,6 +158,11 @@ REAL(KIND=real_jlslsm) :: rs_e, rs_kmax, rs_kcrit, rs_psi0, rs_kcap,           &
 !   seg_kscale   : r_s / g (land_pts, 3).
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: kplant_scale(:),                &
                                                seg_kscale(:,:)
+
+! .TRUE. while kplant_scale and seg_kscale act for the current PFT
+! (kplant_model = 1, or the sapwood-area factor of l_nsc_k_sapwood), set by
+! set_k_ground_basis.
+LOGICAL, PUBLIC :: l_kscale = .FALSE.
 
 ! Floor on the root water potential (Pa) with l_som_rhizo_series when
 ! the soil conductance is (near) zero.
@@ -345,12 +351,15 @@ END SUBROUTINE clear_shared_stem
 ! for PFT pft from the current LAI and the reference LAI lai_ref (both m2
 ! leaf m-2 ground). Root and stem keep the conductance they have at
 ! lai_ref, per unit ground area; the leaf segment scales with LAI. With
-! kplant_model = 0 both are 1 and are not used.
+! the sapwood-area factor k_area (l_nsc_k_sapwood) the stem segment's
+! conductance is also scaled by it, or without segments the whole plant's.
+! With kplant_model = 0 and no k_area both are 1 and are not used
+! (l_kscale = .FALSE.).
 !
-! MDK, 22/10/26
+! MDK, 31/10/26
 ! *****************************************************************************
 SUBROUTINE set_k_ground_basis( pft, land_pts, veg_pts, veg_index, lai,         &
-                               lai_ref )
+                               lai_ref, k_area )
 
 USE pftparm, ONLY: seg_kfac
 USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground
@@ -361,9 +370,13 @@ IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: pft, land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: lai(land_pts), lai_ref(land_pts)
+! Sapwood-area factor on kmax (0-1; l_nsc_k_sapwood).
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: k_area(land_pts)
 
 INTEGER :: l, m, iseg
 REAL(KIND=real_jlslsm) :: r(3), rinv
+! The plant has root, stem and leaf segments.
+LOGICAL :: l_seg
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -378,23 +391,40 @@ IF ( .NOT. ALLOCATED(kplant_scale) ) THEN
 END IF
 kplant_scale(:) = 1.0
 seg_kscale(:,:) = 1.0
-IF ( kplant_model /= kplant_model_ground ) THEN
+l_kscale = kplant_model == kplant_model_ground .OR. PRESENT(k_area)
+IF ( .NOT. l_kscale ) THEN
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
   RETURN
 END IF
+l_seg = l_som_plant_segments .OR. l_som_seg_whole
 
 DO m = 1,veg_pts
   l = veg_index(m)
-  ! Root and stem: LAI_ref / LAI, capped (and the cap as LAI -> 0).
-  IF ( lai(l) * k_ground_ratio_max > lai_ref(l) ) THEN
-    r(1:2) = lai_ref(l) / lai(l)
-  ELSE
-    r(1:2) = k_ground_ratio_max
+  r(:) = 1.0
+  IF ( kplant_model == kplant_model_ground ) THEN
+    ! Root and stem: LAI_ref / LAI, capped (and the cap as LAI -> 0).
+    IF ( lai(l) * k_ground_ratio_max > lai_ref(l) ) THEN
+      r(1:2) = lai_ref(l) / lai(l)
+    ELSE
+      r(1:2) = k_ground_ratio_max
+    END IF
+    ! and floored at 1 / k_ground_ratio_max, so LAI_ref = 0 (no height) or
+    ! LAI >> LAI_ref cannot give a zero segment (NaN shares).
+    r(1:2) = MAX(r(1:2), 1.0 / k_ground_ratio_max)
+    r(3) = 1.0
   END IF
-  ! and floored at 1 / k_ground_ratio_max, so LAI_ref = 0 (no height) or
-  ! LAI >> LAI_ref cannot give a zero segment (NaN shares).
-  r(1:2) = MAX(r(1:2), 1.0 / k_ground_ratio_max)
-  r(3) = 1.0
+
+  ! Sapwood-area factor: on the stem segment, or without segments on the
+  ! whole plant. A full area (1) with kplant_model = 0 leaves the point
+  ! untouched (factors 1).
+  IF ( PRESENT(k_area) ) THEN
+    IF ( kplant_model /= kplant_model_ground .AND. k_area(l) >= 1.0 ) CYCLE
+    IF ( .NOT. l_seg ) THEN
+      kplant_scale(l) = k_area(l)
+      CYCLE
+    END IF
+    r(2) = r(2) * k_area(l)
+  END IF
 
   ! Whole-plant (series) conductance relative to kmax: 1 / sum_s 1/k_s.
   rinv = 0.0
@@ -414,7 +444,8 @@ END SUBROUTINE set_k_ground_basis
 ! *****************************************************************************
 ! Maximum conductance of segment iseg as a multiple of the whole-plant kmax
 ! given to the solvers at point l: seg_kfac, times seg_kscale with
-! kplant_model = 1 (see set_k_ground_basis), and for the root and stem
+! kplant_model = 1 or the sapwood-area factor (l_kscale; see
+! set_k_ground_basis), and for the root and stem
 ! times shared_k_fac while the shared root and stem apply (and the leaf
 ! too while the whole-plant path is solved).
 !
@@ -423,7 +454,6 @@ END SUBROUTINE set_k_ground_basis
 FUNCTION seg_kmax_fac( pft, l, iseg ) RESULT( fac )
 
 USE pftparm, ONLY: seg_kfac
-USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground
 
 IMPLICIT NONE
 
@@ -431,7 +461,7 @@ INTEGER, INTENT(IN) :: pft, l, iseg
 REAL(KIND=real_jlslsm) :: fac
 
 fac = seg_kfac(pft,iseg)
-IF ( kplant_model == kplant_model_ground ) fac = fac * seg_kscale(l,iseg)
+IF ( l_kscale ) fac = fac * seg_kscale(l,iseg)
 ! The shared root and stem (l_som_shared_stem): the whole plant's.
 IF ( l_shared_stem_path .AND. ( iseg <= 2 .OR. l_shared_whole_path ) )        &
   fac = fac * shared_k_fac(l)

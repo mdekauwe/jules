@@ -43,6 +43,13 @@ USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,    &
 USE triffid_nsc_mod, ONLY: nsc_xylem_prod_pft, nsc_xylem_renew_pft
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
+USE triffid_nsc_mod, ONLY: nsc_heartwood, nsc_sapwood_target
+USE triffid_nsc_mod, ONLY: nsc_lai_peak, nsc_lai_peak_prev
+USE triffid_nsc_mod, ONLY: nsc_k_area_frac
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_functional
+USE jules_vegetation_mod, ONLY: nsc_n_ring
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
 USE canopy_diag_mod, ONLY: gc_stomatal_pft, gsoil_pft, t_can_air_pft,          &
                            q_can_air_pft, h_leaf_pft, le_leaf_pft
@@ -191,6 +198,10 @@ REAL :: workspace_levs(land_pts, sm_levels)
 
 REAL :: workspace_pft(land_pts, npft)
                                 ! Used in calculation of PFT variables
+REAL, ALLOCATABLE :: workspace_ring(:,:,:)
+    ! The sapwood's ring cohorts (land, PFT, ring).
+    !
+    ! MDK, 30/10/26
 REAL :: kmax_ref_plc(land_pts), kcrit_plc(land_pts), kx_plc(land_pts)
 REAL :: b_plc(land_pts), c_plc(land_pts)
 REAL :: g_stem, g_leaf, psi_s
@@ -4162,6 +4173,84 @@ CASE ( 'nsc_sapwood' )
   workspace_pft(:,:) = -1.0
   IF ( ALLOCATED(nsc_sapwood) ) workspace_pft(:,:) = nsc_sapwood
   cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! The pipe-model target: the heartwood, the wood less the sapwood (-1 =
+! not yet set), the target sapwood and the peak LAI of this and last ring
+! year; the ring cohorts' growth year (-1 = not yet set, or without them).
+!
+! MDK, 31/10/26
+CASE ( 'nsc_lai_peak' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_lai_peak) ) workspace_pft(:,:) = nsc_lai_peak
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_lai_peak_prev' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(nsc_lai_peak_prev) ) workspace_pft(:,:) = nsc_lai_peak_prev
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_ring_year' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(ximpair_ring_year) ) workspace_pft(:,:) = ximpair_ring_year
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_heartwood' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(nsc_heartwood) ) workspace_pft(:,:) = nsc_heartwood
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! The ring cohorts' functional share of the sapwood, X_f / X_s (-1 = not
+! yet set, or without them).
+!
+! MDK, 31/10/26
+CASE ( 'ximpair_ring_func' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(ximpair_ring_frac) ) THEN
+    DO n = 1,npft
+      DO l = 1,land_pts
+        IF ( ximpair_ring_frac(l,n,1) >= 0.0 )                                 &
+          workspace_pft(l,n) = ximpair_ring_functional(l, n)
+      END DO
+    END DO
+  END IF
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! The sapwood-area factor on kmax (l_nsc_k_sapwood; 1 without it).
+!
+! MDK, 31/10/26
+CASE ( 'nsc_k_area_frac' )
+  workspace_pft(:,:) = 1.0
+  IF ( ALLOCATED(nsc_k_area_frac) ) workspace_pft(:,:) = nsc_k_area_frac
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_sapwood_target' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_sapwood_target) ) workspace_pft(:,:) = nsc_sapwood_target
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! The sapwood's ring cohorts (-1 and 0 = not yet set, or without them).
+!
+! MDK, 30/10/26
+CASE ( 'ximpair_ring_frac' )
+  ALLOCATE(workspace_ring(land_pts, npft, nsc_n_ring))
+  workspace_ring(:,:,:) = -1.0
+  IF ( ALLOCATED(ximpair_ring_frac) ) workspace_ring(:,:,:) = ximpair_ring_frac
+  cube_land = cube_from_array(workspace_ring)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_ring_loss' )
+  ALLOCATE(workspace_ring(land_pts, npft, nsc_n_ring))
+  workspace_ring(:,:,:) = 0.0
+  IF ( ALLOCATED(ximpair_ring_loss) ) workspace_ring(:,:,:) = ximpair_ring_loss
+  cube_land = cube_from_array(workspace_ring)
   cube = map_from_land(cube_land)
 
 ! MDK, 25/10/26

@@ -37,6 +37,10 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt,
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
+USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
 USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft,  &
@@ -139,6 +143,11 @@ REAL, ALLOCATABLE :: global_data_2d(:,:)   ! With one vertical level
 REAL, ALLOCATABLE :: global_data_3d(:,:,:) ! With two "vertical" levels
                                         ! I.E. snow variables or soil C/N
 REAL, ALLOCATABLE :: global_data_4d(:,:,:,:)
+INTEGER :: n_ring_dump
+    ! Ring dimension of the 3D buffer: nsc_n_ring with the ring cohorts,
+    ! otherwise 1.
+    !
+    ! MDK, 30/10/26
 
 LOGICAL, PARAMETER :: l_output_mode = .TRUE.
 
@@ -189,10 +198,15 @@ IF ( is_master_task() ) THEN
   ALLOCATE(global_data_2d(global_land_pts, MAX(npft, sm_levels,                &
                                                nsurft, ntype, ns_deep,         &
                                                nsoilt, dim_ch4layer)))
+  ! The ring cohorts' dimension only with them.
+  !
+  ! MDK, 30/10/26
+  n_ring_dump = 1
+  IF ( l_nsc_sapwood_rings ) n_ring_dump = nsc_n_ring
   ALLOCATE(global_data_3d(global_land_pts,                                     &
                           MAX(nsurft, dim_cslayer, nsoilt, npft),              &
                           MAX(nsmax, dim_cs1, dim_soil_n_pool, sm_levels,      &
-                              nmasst)))
+                              nmasst, n_ring_dump)))
   ALLOCATE(global_data_4d(global_land_pts, nsoilt,                             &
                           MAX(nsurft, dim_cslayer),                            &
                           MAX(nsmax, dim_cs1, dim_soil_n_pool, sm_levels)))
@@ -520,6 +534,34 @@ DO i = 1,nvars
       CALL gather_land_field(nsc_sapwood(:,n), global_data_2d(:,n))
     END DO
 
+  ! The pipe-model target: the target sapwood and the peak LAI of this
+  ! and last ring year; the sapwood's ring cohorts' growth year.
+  !
+  ! MDK, 31/10/26
+  CASE ( 'nsc_sapwood_target' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(nsc_sapwood_target(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'nsc_lai_peak' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(nsc_lai_peak(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'nsc_lai_peak_prev' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(nsc_lai_peak_prev(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'ximpair_ring_year' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(ximpair_ring_year(:,n), global_data_2d(:,n))
+    END DO
+
   CASE ( 'phen_psi_acc' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
@@ -629,6 +671,25 @@ DO i = 1,nvars
       DO m = 1,nmasst
         CALL gather_land_field(progs%plantNumDensity(:,n,m),                   &
                                global_data_3d(:,n,m))
+      END DO
+    END DO
+
+  ! The sapwood's ring cohorts.
+  !
+  ! MDK, 30/10/26
+  CASE ( 'ximpair_ring_frac' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      DO m = 1,nsc_n_ring
+        CALL gather_land_field(ximpair_ring_frac(:,n,m), global_data_3d(:,n,m))
+      END DO
+    END DO
+
+  CASE ( 'ximpair_ring_loss' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      DO m = 1,nsc_n_ring
+        CALL gather_land_field(ximpair_ring_loss(:,n,m), global_data_3d(:,n,m))
       END DO
     END DO
 
@@ -1319,6 +1380,8 @@ DO i = 1,nvars
            'nsc_turg_acc', 'nsc_t_run',                                        &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
+           'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
+           'ximpair_ring_year',                                                &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
            'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &
@@ -1380,6 +1443,13 @@ DO i = 1,nvars
     CASE ( 'plantNumDensity' )
       CALL file_write_var(FILE, var_ids(i),                                    &
                           global_data_3d(:,1:npft,1:nmasst))
+
+    ! The sapwood's ring cohorts.
+    !
+    ! MDK, 30/10/26
+    CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss' )
+      CALL file_write_var(FILE, var_ids(i),                                    &
+                          global_data_3d(:,1:npft,1:nsc_n_ring))
 
       ! Cases for IMOGEN variables
       ! Each task runs its own version of IMOGEN - we just write the master

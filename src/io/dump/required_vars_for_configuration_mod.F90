@@ -50,7 +50,8 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
                                 l_triffid_nsc, l_ximpair_rec_leaf_turn,        &
                                 l_phen_psi, l_nsc_wmax_norm,                   &
-                                l_nsc_sapwood_pool,                            &
+                                l_nsc_sapwood_pool, l_nsc_sapwood_rings,       &
+                                l_nsc_pipe_target,                             &
                                 l_som_vcmax_psi, l_som_coupled_e,              &
                                 l_som_capacitance_on   ! MDK, 24/10/26
 
@@ -417,6 +418,23 @@ IF ( l_triffid_nsc ) THEN
   ! The sapwood pool (the conducting sapwood).
   IF ( l_nsc_sapwood_pool )                                                    &
     CALL add_to_list( 'nsc_sapwood', nvars, identifiers )
+  ! The pipe-model target: the target sapwood and the peak LAI of this
+  ! and last ring year.
+  !
+  ! MDK, 31/10/26
+  IF ( l_nsc_pipe_target ) THEN
+    CALL add_to_list( 'nsc_sapwood_target', nvars, identifiers )
+    CALL add_to_list( 'nsc_lai_peak', nvars, identifiers )
+    CALL add_to_list( 'nsc_lai_peak_prev', nvars, identifiers )
+  END IF
+  ! The sapwood's ring cohorts and the youngest ring's growth year.
+  !
+  ! MDK, 31/10/26
+  IF ( l_nsc_sapwood_rings ) THEN
+    CALL add_to_list( 'ximpair_ring_frac', nvars, identifiers )
+    CALL add_to_list( 'ximpair_ring_loss', nvars, identifiers )
+    CALL add_to_list( 'ximpair_ring_year', nvars, identifiers )
+  END IF
 END IF
 ! Drought leaf shedding: daily water-status memory and the leaf factor.
 !

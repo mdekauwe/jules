@@ -791,10 +791,48 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  240.
                  !
                  !  MDK, 31/10/26
-,nsc_sink_beta_min(:)
+,nsc_sink_beta_min(:)                                                          &
                  ! Sink feedback: the floor beta_min of that factor (0-1),
                  !  the largest cut in capacity being 1 - beta_min. Default
                  !  0.8 (Mahmud et al. 2018 measured a 20-35 % cut).
+                 !
+                 !  MDK, 31/10/26
+,nsc_ring_cond_efold(:)                                                        &
+                 ! Ring cohorts (l_nsc_sapwood_rings): the conductivity of a
+                 !  ring falls by e with each nsc_ring_cond_efold rings of
+                 !  age (> 0; by ring index, so by age in ring years, not
+                 !  by depth), so newer rings conduct more; e.g. from the
+                 !  radial profile of sap flux density (e-folding depth over
+                 !  mean ring width). Unset (< -1e29) = all rings conduct
+                 !  alike.
+                 !
+                 !  MDK, 30/10/26
+,nsc_pipe_gamma(:)                                                             &
+                 ! Pipe-model target (l_nsc_pipe_target): exponent gamma
+                 !  (>= 0) of the heartwood factor g = (X / X_t)^gamma, X
+                 !  the sapwood above the target and the functional sapwood
+                 !  below it. 0: heartwood at nsc_heartwood_rate (the
+                 !  target then sets only the pool's start and the cap
+                 !  at the wood). Default 1.
+                 !
+                 !  MDK, 31/10/26
+,nsc_ring_c_old(:)                                                             &
+                 ! Ring cohorts: the conductivity left in old rings (0-1),
+                 !  c(a) = c_old + (1 - c_old) EXP(-a / nsc_ring_cond_efold)
+                 !  for a ring of age a (ring years). Default 0.
+                 !
+                 !  MDK, 31/10/26
+,nsc_ring_func_doy(:)
+                 ! Ring cohorts, ring-porous stem: the day of year (1-366,
+                 !  calendar) from which the youngest ring (the year's
+                 !  earlywood) conducts; before it the flow goes through the
+                 !  older rings and the youngest ring takes no damage. The
+                 !  year's ring conducts as new until the calendar year end
+                 !  (the earlywood is lost over winter), then by its age.
+                 !  The earlywood is not paid from the store ahead of
+                 !  growth: the youngest ring holds the wood TRIFFID grows
+                 !  from the start of the growing season. Unset (< -1e29) =
+                 !  not ring-porous (the youngest ring always conducts).
                  !
                  !  MDK, 31/10/26
 
@@ -1215,6 +1253,10 @@ ALLOCATE( nsc_heartwood_rate(npft))   ! MDK, 29/10/26
 ALLOCATE( nsc_grow_thresh(npft))   ! MDK, 29/10/26
 ALLOCATE( nsc_sink_days(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_sink_beta_min(npft))   ! MDK, 31/10/26
+ALLOCATE( nsc_ring_cond_efold(npft))   ! MDK, 30/10/26
+ALLOCATE( nsc_pipe_gamma(npft))   ! MDK, 30/10/26
+ALLOCATE( nsc_ring_c_old(npft))   ! MDK, 31/10/26
+ALLOCATE( nsc_ring_func_doy(npft))   ! MDK, 31/10/26
 ALLOCATE( phen_psi_tlp(npft))
 ALLOCATE( phen_dfbleaf(npft))
 ALLOCATE( phen_ndays(npft))
@@ -1294,6 +1336,10 @@ nsc_heartwood_rate(:) = 0.025   ! MDK, 30/10/26
 nsc_grow_thresh(:) = -1.0e30   ! MDK, 29/10/26
 nsc_sink_days(:) = 240.0   ! MDK, 31/10/26
 nsc_sink_beta_min(:) = 0.8   ! MDK, 31/10/26
+nsc_ring_cond_efold(:) = -1.0e30   ! MDK, 30/10/26
+nsc_pipe_gamma(:) = 1.0   ! MDK, 30/10/26
+nsc_ring_c_old(:) = 0.0   ! MDK, 31/10/26
+nsc_ring_func_doy(:) = -1.0e30   ! MDK, 31/10/26
 phen_psi_tlp(:) = -1.0e30
 phen_dfbleaf(:) = 0.05
 phen_ndays(:) = 10.0
@@ -1673,6 +1719,14 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_sink_days = ',nsc_sink_days
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_sink_beta_min = ',nsc_sink_beta_min
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_ring_cond_efold = ',nsc_ring_cond_efold
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_pipe_gamma = ',nsc_pipe_gamma
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_ring_c_old = ',nsc_ring_c_old
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_ring_func_doy = ',nsc_ring_func_doy
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_psi_tlp = ',phen_psi_tlp
 CALL jules_print('pftparm',lineBuffer)

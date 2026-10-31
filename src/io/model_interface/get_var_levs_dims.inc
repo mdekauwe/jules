@@ -79,6 +79,18 @@ CASE ( var_type_nmasst )
   IF ( PRESENT(dim_sizes) )                                                    &
     dim_sizes(1:2) = [ pft_dim_size, nmasst_dim_size ]
 
+CASE ( var_type_pft_ring )
+  ! The sapwood's ring cohorts: PFT and ring.
+  !
+  ! MDK, 30/10/26
+  IF ( PRESENT(ndims) ) ndims = 2
+  IF ( PRESENT(dim_names_in) )                                                 &
+    dim_names_in(1:2) = [ pft_dim_name, ring_dim_name ]
+  IF ( PRESENT(dim_names_out) )                                                &
+    dim_names_out(1:2) = [ pft_dim_name_out, ring_dim_name_out ]
+  IF ( PRESENT(dim_sizes) )                                                    &
+    dim_sizes(1:2) = [ pft_dim_size, ring_dim_size ]
+
 CASE ( var_type_bl_level )
   IF ( PRESENT(ndims) ) ndims = 1
   IF ( PRESENT(dim_names_in) ) dim_names_in(1) = bl_level_dim_name

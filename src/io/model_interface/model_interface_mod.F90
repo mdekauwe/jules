@@ -54,6 +54,7 @@ CHARACTER(LEN=max_sdf_name_len), PARAMETER ::                                  &
   ch4layer_dim_name_out     = 'ch4layer',                                      &
   bedrock_dim_name_out      = 'bedrock',                                       &
   nmasst_dim_name_out       = 'nmasst',                                        &
+  ring_dim_name_out         = 'ring',                                          &
   land_dim_name_out         = 'land',                                          &
   nfarray_dim_name_out      = 'nfarray',                                       &
   nolevs_dim_name_out       = 'olevs',                                         &
@@ -85,7 +86,8 @@ CHARACTER(LEN=max_sdf_name_len) ::                                             &
   dep_species_dim_name  = 'dep_species',                                       &
   ch4layer_dim_name = 'ch4layer',                                              &
   bedrock_dim_name  = 'bedrock',                                               &
-  nmasst_dim_name   = 'nmasst'
+  nmasst_dim_name   = 'nmasst',                                                &
+  ring_dim_name     = 'ring'
 
 ! The size of each possible levels dimension.
 ! Initialising these to something "unphysical" means that in future we can
@@ -110,7 +112,11 @@ INTEGER ::                                                                     &
   dep_species_dim_size = -1,                                                   &
   ch4layer_dim_size    = -1,                                                   &
   bedrock_dim_size     = -1,                                                   &
-  nmasst_dim_size      = -1
+  nmasst_dim_size      = -1,                                                   &
+  ring_dim_size        = -1
+  ! ring: the sapwood's ring cohorts (l_nsc_sapwood_rings), nsc_n_ring.
+  !
+  ! MDK, 30/10/26
 
 ! Due to how CABLE sets variables differently to JULES, these numbers
 ! are currently necessary.
@@ -156,7 +162,11 @@ INTEGER, PARAMETER ::                                                          &
   var_type_cable1L_snow   = var_type_cable_snow + 1,                           &
   var_type_imogen_drive   = var_type_cable1L_snow + 1,                         &
   var_type_nmasst         = var_type_imogen_drive + 1,                         &
-  var_type_imogen_clim    = var_type_nmasst + 1
+  var_type_imogen_clim    = var_type_nmasst + 1,                               &
+  var_type_pft_ring       = var_type_imogen_clim + 1
+  ! pft_ring: the sapwood's ring cohorts.
+  !
+  ! MDK, 30/10/26
 
 ! Derived type to contain metadata about model variables
 TYPE :: var_metadata
@@ -176,7 +186,7 @@ END TYPE var_metadata
 ! Array holding the metadata for all model variables that we can use for input
 ! or output. The CABLE land surface model adds 10 prognostics for tiled
 ! soil/snow prognostics.
-INTEGER, PARAMETER :: n_vars = 827 ! upstream 723 + 104 on this branch
+INTEGER, PARAMETER :: n_vars = 836 ! upstream 723 + 113 on this branch
 TYPE(var_metadata) :: metadata(n_vars)
 
 ! Include the metadata DATA statement
@@ -195,6 +205,7 @@ PUBLIC                                                                         &
     tile_dim_name_out, soilt_dim_name_out, snow_dim_name_out,                  &
     soil_dim_name_out, scpool_dim_name_out, soil_n_pool_dim_name_out,          &
     bedrock_dim_name_out, nmasst_dim_name_out, sclayer_dim_name_out,           &
+    ring_dim_name_out,                                                         &
     dep_species_dim_name_out, ch4layer_dim_name_out,                           &
     imogen_drive_dim_name_out, imogen_clim_dim_name_out,                       &
     land_dim_name_out, nfarray_dim_name_out, nolevs_dim_name_out,              &
@@ -203,11 +214,11 @@ PUBLIC                                                                         &
     bl_level_dim_name, pft_dim_name, quantile_dim_name,                        &
     cpft_dim_name, nvg_dim_name, type_dim_name, tile_dim_name,                 &
     soilt_dim_name, snow_dim_name, soil_dim_name, scpool_dim_name,             &
-    soil_n_pool_dim_name, bedrock_dim_name, nmasst_dim_name,                   &
+    soil_n_pool_dim_name, bedrock_dim_name, nmasst_dim_name, ring_dim_name,    &
     sclayer_dim_name, imogen_drive_dim_name, dep_species_dim_name,             &
     imogen_clim_dim_name, clim_time_dim_name,                                  &
     bl_level_dim_size, pft_dim_size, quantile_dim_size, cpft_dim_size,         &
-    nvg_dim_size, imogen_drive_dim_size, nmasst_dim_size,                      &
+    nvg_dim_size, imogen_drive_dim_size, nmasst_dim_size, ring_dim_size,       &
     imogen_clim_dim_size, monthly_climatology_dim_size,                        &
     type_dim_size, tile_dim_size, soilt_dim_size, snow_dim_size,               &
     soil_dim_size, scpool_dim_size, soil_n_pool_dim_size, bedrock_dim_size,    &

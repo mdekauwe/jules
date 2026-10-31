@@ -33,6 +33,10 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt,
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
+USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
 USE triffid_hydmort_mod, ONLY: hydmort_alloc, hydmort_pref, hydmort_dead_pft,  &
@@ -1558,6 +1562,33 @@ CASE ( 'plantNumDensity' )
     progs%plantNumDensity(:,:,:) = const_val
   END IF
 
+! The sapwood's ring cohorts, which exist only with them.
+!
+! MDK, 30/10/26
+CASE ( 'ximpair_ring_frac' )
+  IF ( .NOT. l_nsc_sapwood_rings )                                             &
+    CALL log_fatal("populate_var",                                             &
+                   "ximpair_ring_frac needs l_nsc_sapwood_rings=T")
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_ring_frac(:,:,:))
+  ELSE
+    ximpair_ring_frac(:,:,:) = const_val
+  END IF
+
+CASE ( 'ximpair_ring_loss' )
+  IF ( .NOT. l_nsc_sapwood_rings )                                             &
+    CALL log_fatal("populate_var",                                             &
+                   "ximpair_ring_loss needs l_nsc_sapwood_rings=T")
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_ring_loss(:,:,:))
+  ELSE
+    ximpair_ring_loss(:,:,:) = const_val
+  END IF
+
 CASE ( 'ns' )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
@@ -2238,6 +2269,52 @@ CASE ( 'nsc_sapwood' )
     CALL cube_get_data(cube_land, nsc_sapwood(:,:))
   ELSE
     nsc_sapwood(:,:) = const_val
+  END IF
+
+! The pipe-model target: the target sapwood and the peak LAI of this and
+! last ring year.
+!
+! MDK, 31/10/26
+CASE ( 'nsc_sapwood_target' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_sapwood_target(:,:))
+  ELSE
+    nsc_sapwood_target(:,:) = const_val
+  END IF
+
+CASE ( 'nsc_lai_peak' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_lai_peak(:,:))
+  ELSE
+    nsc_lai_peak(:,:) = const_val
+  END IF
+
+CASE ( 'nsc_lai_peak_prev' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_lai_peak_prev(:,:))
+  ELSE
+    nsc_lai_peak_prev(:,:) = const_val
+  END IF
+
+! The sapwood's ring cohorts' growth year, which exists only with them.
+!
+! MDK, 31/10/26
+CASE ( 'ximpair_ring_year' )
+  IF ( .NOT. l_nsc_sapwood_rings )                                             &
+    CALL log_fatal("populate_var",                                             &
+                   "ximpair_ring_year needs l_nsc_sapwood_rings=T")
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_ring_year(:,:))
+  ELSE
+    ximpair_ring_year(:,:) = const_val
   END IF
 
 CASE ( 'phen_psi_acc' )

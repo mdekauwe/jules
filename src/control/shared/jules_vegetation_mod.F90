@@ -1071,7 +1071,8 @@ LOGICAL ::                                                                     &
       !
       ! instead of being diluted, L -> L (1 - rho) (.FALSE.: the sapwood
       ! retired to heartwood has the mean loss). On by default; without
-      ! ring renewal check_jules_vegetation switches it off.
+      ! ring renewal or with the ring cohorts (l_nsc_sapwood_rings)
+      ! check_jules_vegetation switches it off.
       !
       ! MDK, 30/10/26
   l_nsc_sink_feedback = .FALSE.,                                               &
@@ -1092,6 +1093,42 @@ LOGICAL ::                                                                     &
       ! drought; or is the factor when that is off), so the feedback is a
       ! further limit when carbon backs up in the store. .FALSE.: no
       ! feedback.
+      !
+      ! MDK, 31/10/26
+  l_nsc_sapwood_rings = .FALSE.,                                               &
+      ! Sapwood pool (l_nsc_sapwood_pool) followed ring by ring: each
+      ! annual ring of the conducting sapwood keeps its share and its
+      ! loss of conductance (in dumps). New wood joins the youngest
+      ! ring intact, heartwood takes the oldest rings first, a drought
+      ! raises every ring's loss to at least the loss it imposes, and the
+      ! stem's loss is the rings' mean weighted by sapwood and conductivity
+      ! (nsc_ring_cond_efold). Recovery then follows from the rings, so
+      ! l_nsc_ring_additive is ignored. At most nsc_n_ring rings. See
+      ! triffid_nsc_mod.
+      !
+      ! MDK, 30/10/26
+  l_nsc_pipe_target = .FALSE.,                                                 &
+      ! Sapwood pool (l_nsc_sapwood_pool) with a pipe-model target: the
+      ! target sapwood X_t is the pipe model on last ring year's peak LAI
+      ! (the balanced LAI until a ring year has ended) and the height
+      ! (nsc_la_sa, nsc_wood_density), at most TRIFFID's wood C_W, and
+      ! heartwood forms at nsc_heartwood_rate times g = (X_s / X_t)^gamma
+      ! above the target or (X_f / X_t)^gamma below it (X_f the functional
+      ! sapwood; gamma = nsc_pipe_gamma; g at most 10). The pool starts at
+      ! the target and is at most C_W; the heartwood is the rest of the
+      ! wood (nsc_heartwood, an output). With or without the ring cohorts.
+      ! See triffid_nsc_mod.
+      !
+      ! MDK, 31/10/26
+  l_nsc_k_sapwood = .FALSE.,                                                   &
+      ! Pipe-model target (l_nsc_pipe_target) with the plant's conductance
+      ! from its conducting sapwood area: kmax is scaled by
+      !   f_A = MIN(1, SUM_i X_i c_i / (X_t c_ref))
+      ! (c_i the rings' conductivity by age and season, c_ref its mean over
+      ! the rings in equilibrium; without the rings f_A = MIN(1, X_s / X_t)),
+      ! on the stem segment with the plant segments, otherwise on the whole
+      ! plant. The damage (the impairment memory) is not in f_A. Output as
+      ! nsc_k_area_frac.
       !
       ! MDK, 31/10/26
   l_som_fast = .FALSE.
@@ -1147,6 +1184,16 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! models use 0.7 (e.g. von Caemmerer 2009, CLM5, FATES, MAESPA). With
       ! photo_johnson it only enters the conversion of Jmax to Vqmax (see
       ! jb_photo_mod), and should match the theta Jmax was derived with.
+
+INTEGER ::                                                                     &
+  nsc_n_ring = 100
+      ! Ring cohorts (l_nsc_sapwood_rings): the most rings followed in the
+      ! conducting sapwood (1-200; the size of the ring dimension of
+      ! the ring outputs and dumps). The oldest two rings merge when a new
+      ! ring starts, so it should exceed the rings in the sapwood,
+      ! 1 / nsc_heartwood_rate.
+      !
+      ! MDK, 30/10/26
 
 INTEGER ::                                                                     &
   ignition_method = 1,                                                         &
@@ -1264,7 +1311,9 @@ NAMELIST  / jules_vegetation/                                                  &
     l_ximpair_leaf_loss, l_ximpair_seg_memory,                                 &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
     l_nsc_wmax_norm, l_trif_hydmort,                                           &
-    l_nsc_sapwood_pool, l_nsc_ring_additive,                                   &
+    l_nsc_sapwood_pool, l_nsc_ring_additive, l_nsc_sapwood_rings,              &
+    l_nsc_pipe_target, l_nsc_k_sapwood,                                        &
+    nsc_n_ring,                                                                &
     l_nsc_sink_feedback,                                                       &
     ximpair_stomatal_response,                                                 &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,    &
@@ -2449,6 +2498,59 @@ IF ( l_nsc_sink_feedback .AND. .NOT. l_triffid_nsc ) THEN
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_nsc_sink_feedback needs the TRIFFID store (l_triffid_nsc=T)')
 END IF
+! The ring cohorts follow the sapwood pool ring by ring, so they need it
+! (and so ring renewal). The stem's recovery then follows from the rings,
+! so the additive recovery (on by default) is switched off.
+!
+! MDK, 30/10/26
+IF ( l_nsc_sapwood_rings .AND. .NOT. l_nsc_sapwood_pool ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_sapwood_rings needs ring renewal '                   //  &
+               '(l_ximpair_rec_nsc=T) and the sapwood pool '               //  &
+               '(l_nsc_sapwood_pool=T)')
+END IF
+IF ( l_nsc_sapwood_rings .AND. l_nsc_ring_additive ) THEN
+  CALL jules_print('check_jules_vegetation',                                   &
+                   'l_nsc_ring_additive is not used with the ring cohorts ' // &
+                   '(l_nsc_sapwood_rings=T): the recovery follows from the '// &
+                   'rings')
+  l_nsc_ring_additive = .FALSE.
+END IF
+! The pipe-model target sets the heartwood formation of the sapwood pool.
+!
+! MDK, 30/10/26
+IF ( l_nsc_pipe_target .AND. .NOT. l_nsc_sapwood_pool ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_pipe_target needs ring renewal '                     //  &
+               '(l_ximpair_rec_nsc=T) and the sapwood pool '               //  &
+               '(l_nsc_sapwood_pool=T)')
+END IF
+! The conductance from the sapwood area needs the pipe-model target, and
+! the profit-max plant paths that kplant_model 1 scales (not the
+! multilayer canopy).
+!
+! MDK, 31/10/26
+IF ( l_nsc_k_sapwood .AND. .NOT. l_nsc_pipe_target ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_k_sapwood needs the pipe-model target '              //  &
+               '(l_nsc_pipe_target=T)')
+END IF
+IF ( l_nsc_k_sapwood .AND.                                                     &
+     ( leaf_flux_mod /= leaf_flux_stom_opt .OR. can_rad_mod == 5 .OR.          &
+       can_rad_mod == 6 ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_k_sapwood needs the stomatal optimisation, not '     //  &
+               'can_rad_mod=5 or 6')
+END IF
+IF ( nsc_n_ring < 1 .OR. nsc_n_ring > 200 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'nsc_n_ring (number of ring cohorts) must be 1 to 200')
+END IF
 IF ( l_phen_psi .AND. .NOT. l_phenol ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2675,6 +2777,14 @@ WRITE(lineBuffer,*) ' l_nsc_ring_additive = ', l_nsc_ring_additive
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_sink_feedback = ', l_nsc_sink_feedback
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_sapwood_rings = ', l_nsc_sapwood_rings
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' nsc_n_ring = ', nsc_n_ring
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_pipe_target = ', l_nsc_pipe_target
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_k_sapwood = ', l_nsc_k_sapwood
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' ximpair_stomatal_response = ', ximpair_stomatal_response
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2817,13 +2927,13 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 24
+INTEGER, PARAMETER :: n_int = 25
                                   ! The INTEGER items of my_namelist.
 INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! The REAL items: 20 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 60 + npft_max
-                                  ! The LOGICAL items: 60 scalars and
+INTEGER, PARAMETER :: n_log = 63 + npft_max
+                                  ! The LOGICAL items: 63 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
                                   ! MDK, 31/10/26
@@ -2837,6 +2947,7 @@ TYPE :: my_namelist
   INTEGER :: leaf_aero_model
   INTEGER :: ml_leaf_temp_model
   INTEGER :: kplant_model
+  INTEGER :: nsc_n_ring   ! MDK, 30/10/26
   INTEGER :: ilayers
   INTEGER :: leaf_flux_mod !JBaguley
   INTEGER :: som_base_parm !JBaguley
@@ -2908,6 +3019,9 @@ TYPE :: my_namelist
   LOGICAL :: l_nsc_sapwood_pool   ! MDK, 29/10/26
   LOGICAL :: l_nsc_ring_additive   ! MDK, 29/10/26
   LOGICAL :: l_nsc_sink_feedback   ! MDK, 30/10/26
+  LOGICAL :: l_nsc_sapwood_rings   ! MDK, 30/10/26
+  LOGICAL :: l_nsc_pipe_target   ! MDK, 30/10/26
+  LOGICAL :: l_nsc_k_sapwood   ! MDK, 31/10/26
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_rhizo_mfp
   LOGICAL :: l_nrun_mid_trif
@@ -3035,6 +3149,10 @@ IF (mype == 0) THEN
   my_nml % l_nsc_sapwood_pool = l_nsc_sapwood_pool   ! MDK, 29/10/26
   my_nml % l_nsc_ring_additive = l_nsc_ring_additive   ! MDK, 29/10/26
   my_nml % l_nsc_sink_feedback = l_nsc_sink_feedback   ! MDK, 30/10/26
+  my_nml % l_nsc_sapwood_rings = l_nsc_sapwood_rings   ! MDK, 30/10/26
+  my_nml % l_nsc_pipe_target = l_nsc_pipe_target   ! MDK, 30/10/26
+  my_nml % l_nsc_k_sapwood = l_nsc_k_sapwood   ! MDK, 31/10/26
+  my_nml % nsc_n_ring = nsc_n_ring   ! MDK, 30/10/26
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
   my_nml % l_nrun_mid_trif = l_nrun_mid_trif
@@ -3151,6 +3269,10 @@ IF (mype /= 0) THEN
   l_nsc_sapwood_pool = my_nml % l_nsc_sapwood_pool   ! MDK, 29/10/26
   l_nsc_ring_additive = my_nml % l_nsc_ring_additive   ! MDK, 29/10/26
   l_nsc_sink_feedback = my_nml % l_nsc_sink_feedback   ! MDK, 30/10/26
+  l_nsc_sapwood_rings = my_nml % l_nsc_sapwood_rings   ! MDK, 30/10/26
+  l_nsc_pipe_target = my_nml % l_nsc_pipe_target   ! MDK, 30/10/26
+  l_nsc_k_sapwood = my_nml % l_nsc_k_sapwood   ! MDK, 31/10/26
+  nsc_n_ring = my_nml % nsc_n_ring   ! MDK, 30/10/26
   l_som_gravity = my_nml % l_som_gravity
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp
   l_nrun_mid_trif = my_nml % l_nrun_mid_trif
