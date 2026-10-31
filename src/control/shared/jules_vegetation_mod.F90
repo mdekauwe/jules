@@ -1056,10 +1056,11 @@ LOGICAL ::                                                                     &
       ! renew is a pool of its own (nsc_sapwood, in dumps), as in MEDFATE,
       ! instead of the pipe model on the current leaf area. It gains
       ! TRIFFID's new wood, loses nsc_heartwood_rate of itself a (360-day)
-      ! year to heartwood, and loses the wood lost in a ring year with a
-      ! net loss. In equilibrium the ring renews nsc_heartwood_rate of the
-      ! sapwood a year. On by default; without ring renewal
-      ! check_jules_vegetation switches it off. .FALSE.: the pipe model.
+      ! year to heartwood and its share of TRIFFID's wood turnover, and
+      ! loses the wood lost in a ring year with a net loss. It starts at
+      ! its steady state for the current wood. On by default; without ring
+      ! renewal check_jules_vegetation switches it off. .FALSE.: the pipe
+      ! model.
       !
       ! MDK, 31/10/26
   l_nsc_ring_additive = .TRUE.,                                                &

@@ -763,10 +763,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Sapwood pool (l_nsc_sapwood_pool): the share of the
                  !  conducting sapwood that becomes heartwood each year (per
                  !  360-day TRIFFID year, > 0), about 1 / the number of rings
-                 !  in the sapwood. In equilibrium the sapwood is G / this
-                 !  rate (G TRIFFID's gross wood production) and the ring
-                 !  renews this share of it a year. Default 0.025 (40
-                 !  rings).
+                 !  in the sapwood. With TRIFFID's wood turnover g_t the
+                 !  sapwood's steady state is C_W g_t / (this rate + g_t).
+                 !  Default 0.025 (40 rings).
                  !
                  !  MDK, 31/10/26
 ,nsc_grow_thresh(:)                                                            &

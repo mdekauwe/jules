@@ -94,13 +94,20 @@ MODULE triffid_nsc_mod
 ! conducting sapwood X_s of TRIFFID's wood is a prognostic pool, as in
 ! MEDFATE (De Caceres et al. 2023), instead of the pipe model:
 !
-!   dX_s/dt = G - k_h X_s,
+!   dX_s/dt = G - (k_h + g_t) X_s,
 !
 ! with k_h = nsc_heartwood_rate the share of the sapwood that becomes
-! heartwood a year. In equilibrium X_s = G / k_h and the ring renews k_h of
-! the sapwood a year, so a measurable sapwood turnover, not the allometry,
-! sets the recovery rate. A ring year with a net loss of wood also takes
-! |S| from X_s.
+! heartwood a year and g_t the wood turnover TRIFFID applies (its wood
+! litter over its wood, g_wood), which takes the same share of the
+! sapwood as of the wood. The pool starts, where the dump has none, at
+! its steady state for the current wood C_W (G = g_t C_W in balance),
+!
+!   X_s = C_W g_t / (k_h + g_t),
+!
+! so it does not drift through the run. The ring renews about
+! k_h + g_t of the sapwood a year, so a measurable sapwood turnover, not
+! the allometry, sets the recovery rate. A ring year with a net loss of
+! wood also takes |S| from X_s.
 !
 ! Growth threshold (nsc_grow_thresh set): growth draws only on the store
 ! above nsc_grow_thresh C_max, so after a deep drawdown the store refills
@@ -1005,7 +1012,8 @@ END SUBROUTINE triffid_nsc_daily
 ! with X the conducting sapwood before the step's growth, is queued in
 ! ximpair_repair_pend for the next impairment update, which takes it off
 ! the stem's loss (l_nsc_ring_additive, the default) or dilutes the loss
-! by it. With the sapwood pool X is the pool, which gains G.
+! by it. With the sapwood pool X is the pool, which gains G and loses
+! heartwood and its share of TRIFFID's wood turnover.
 ! Not in spin-up, where the impairment is frozen. No carbon moves here.
 !
 ! MDK, 31/10/26
@@ -1059,6 +1067,9 @@ REAL(KIND=real_jlslsm) :: g_wood_prod, x_s
 ! TRIFFID timestep (360-day years) and the step's gross wood
 ! production (kg C m-2, < 0 when wood is lost).
 REAL(KIND=real_jlslsm) :: dt, g_step
+! Sapwood pool: the wood before the step (kg C m-2) and TRIFFID's wood
+! turnover rate (per 360 days).
+REAL(KIND=real_jlslsm) :: wood_old, g_turn
 ! Day of year now, days in this year, days of this step, day counter,
 ! a day of the step and the ring year's end day.
 INTEGER :: doy_now, n_days, nd, k, d, doy_end
@@ -1110,11 +1121,18 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       nsc_xylem_renew_pft(l,n) = 0.0
 
       ! The conducting sapwood X from the allometry, or with the sapwood
-      ! state the prognostic X_s, which starts from it at the first step of
-      ! the main run.
+      ! pool the prognostic X_s, which starts (where it is not yet set) at
+      ! its steady state for the wood before the step,
+      !
+      !   X_s = C_W g_t / (k_h + g_t),   g_t = wood_litc / C_W.
       x_s = sapwood_c(n, ht(l,n), lai_bal(l,n), woodc(l,n) - dwood(l,n))
       IF (l_nsc_sapwood_pool) THEN
-        IF (nsc_sapwood(l,n) < 0.0) nsc_sapwood(l,n) = x_s
+        wood_old = woodc(l,n) - dwood(l,n)
+        g_turn   = 0.0
+        IF (wood_old > 0.0) g_turn = wood_litc(l,n) / wood_old
+        IF (nsc_sapwood(l,n) < 0.0)                                            &
+          nsc_sapwood(l,n) = MAX(wood_old, 0.0) * g_turn                       &
+                             / (nsc_heartwood_rate(n) + g_turn)
         x_s = nsc_sapwood(l,n)
       END IF
 
@@ -1144,16 +1162,15 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
                                    + nsc_xylem_renew_pft(l,n) / r_gamma
       END IF
 
-      ! Sapwood pool: the oldest sapwood becomes heartwood and the new
-      ! ring is added,
+      ! Sapwood pool: the oldest sapwood becomes heartwood, TRIFFID's
+      ! wood turnover takes its share and the new ring is added,
       !
-      !   dX_s/dt = G - k_h X_s,   k_h = nsc_heartwood_rate,
+      !   dX_s/dt = G - (k_h + g_t) X_s,   k_h = nsc_heartwood_rate,
       !
-      ! so in equilibrium X_s = G / k_h and the ring renews k_h of the
-      ! sapwood a year.
+      ! so in equilibrium X_s = G / (k_h + g_t).
       IF (l_nsc_sapwood_pool)                                                  &
         nsc_sapwood(l,n) = nsc_sapwood(l,n)                                    &
-                           * EXP(-nsc_heartwood_rate(n) / r_gamma)             &
+                           * EXP(-(nsc_heartwood_rate(n) + g_turn) / r_gamma)  &
                            + g_wood_prod / r_gamma
 
       ! End of the ring year: its net production S settles the count,
