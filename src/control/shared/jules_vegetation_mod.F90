@@ -1052,17 +1052,16 @@ LOGICAL ::                                                                     &
       !
       ! MDK, 18/10/26
   l_nsc_sapwood_pool = .TRUE.,                                                 &
-      ! Ring renewal (l_ximpair_rec_nsc): the conducting stem sapwood the
-      ! rings renew is a pool of its own (nsc_sapwood, in dumps), as in
-      ! MEDFATE, instead of the pipe model on the current leaf area. It
-      ! gains the stem's share of the new wood (nsc_stem_frac), loses
-      ! nsc_heartwood_rate of itself a (360-day) year to heartwood, and
-      ! loses the stem's share of the wood lost in a ring year with a net
-      ! loss. In equilibrium the ring renews nsc_heartwood_rate of the stem
-      ! a year. On by default; without ring renewal check_jules_vegetation
-      ! switches it off. .FALSE.: the pipe model.
+      ! Ring renewal (l_ximpair_rec_nsc): the conducting sapwood the rings
+      ! renew is a pool of its own (nsc_sapwood, in dumps), as in MEDFATE,
+      ! instead of the pipe model on the current leaf area. It gains
+      ! TRIFFID's new wood, loses nsc_heartwood_rate of itself a (360-day)
+      ! year to heartwood, and loses the wood lost in a ring year with a
+      ! net loss. In equilibrium the ring renews nsc_heartwood_rate of the
+      ! sapwood a year. On by default; without ring renewal
+      ! check_jules_vegetation switches it off. .FALSE.: the pipe model.
       !
-      ! MDK, 30/10/26
+      ! MDK, 31/10/26
   l_nsc_ring_additive = .TRUE.,                                                &
       ! Ring renewal (l_ximpair_rec_nsc) replaces damaged xylem first, as in
       ! MEDFATE: the stem's loss of conductance falls by the ring's share,

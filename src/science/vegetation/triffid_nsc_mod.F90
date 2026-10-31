@@ -91,16 +91,16 @@ MODULE triffid_nsc_mod
 ! so the count over the years is the sum of MAX(S, 0).
 !
 ! Sapwood pool (l_nsc_sapwood_pool, on by default with ring renewal). The
-! conducting stem sapwood X_s is a prognostic pool, as in MEDFATE (De
-! Caceres et al. 2023), instead of the pipe model:
+! conducting sapwood X_s of TRIFFID's wood is a prognostic pool, as in
+! MEDFATE (De Caceres et al. 2023), instead of the pipe model:
 !
-!   dX_s/dt = f_s G - k_h X_s,
+!   dX_s/dt = G - k_h X_s,
 !
-! with f_s = nsc_stem_frac the stem's share of the wood production and
-! k_h = nsc_heartwood_rate the share of the sapwood that becomes heartwood
-! a year. In equilibrium the ring renews k_h of the stem a year, so a
-! measurable sapwood turnover, not the allometry, sets the recovery rate. A
-! ring year with a net loss of wood also takes f_s |S| from X_s.
+! with k_h = nsc_heartwood_rate the share of the sapwood that becomes
+! heartwood a year. In equilibrium X_s = G / k_h and the ring renews k_h of
+! the sapwood a year, so a measurable sapwood turnover, not the allometry,
+! sets the recovery rate. A ring year with a net loss of wood also takes
+! |S| from X_s.
 !
 ! Growth threshold (nsc_grow_thresh set): growth draws only on the store
 ! above nsc_grow_thresh C_max, so after a deep drawdown the store refills
@@ -111,7 +111,7 @@ MODULE triffid_nsc_mod
 ! (triffid_nsc_daily), with leaf, root and wood carbon from the prescribed
 ! height; the release leaves the store and there is no stem recovery.
 !
-! MDK, 30/10/26
+! MDK, 31/10/26
 !
 !-----------------------------------------------------------------------------
 
@@ -169,8 +169,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_wood_lost(:,:)
 ! PFT; < 0 when the year has lost wood), which settles the count at the end
 ! of the ring year. In dumps with ring renewal.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_net_wood_growth(:,:)
-! Sapwood pool (l_nsc_sapwood_pool): the conducting stem sapwood X_s (kg C
-! m-2 of the PFT; < 0 = not yet set: the pipe model at the first step). In
+! Sapwood pool (l_nsc_sapwood_pool): the conducting sapwood X_s (kg C m-2
+! of the PFT; < 0 = not yet set: the pipe model at the first step). In
 ! dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_sapwood(:,:)
 ! Carbon-starvation mortality of the last TRIFFID step (per 360 days), used
@@ -1005,10 +1005,10 @@ END SUBROUTINE triffid_nsc_daily
 ! with X the conducting sapwood before the step's growth, is queued in
 ! ximpair_repair_pend for the next impairment update, which takes it off
 ! the stem's loss (l_nsc_ring_additive, the default) or dilutes the loss
-! by it.
+! by it. With the sapwood pool X is the pool, which gains G.
 ! Not in spin-up, where the impairment is frozen. No carbon moves here.
 !
-! MDK, 30/10/26
+! MDK, 31/10/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
                                      r_gamma, ht, lai_bal, woodc, dwood,       &
@@ -1018,8 +1018,7 @@ USE jules_surface_types_mod, ONLY: npft, nnpft
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_pool
 USE pftparm, ONLY: pft_xylem_impairment_model, nsc_xylem_cond_ratio
-USE pftparm, ONLY: is_set, nsc_grow_end_doy, nsc_heartwood_rate,               &
-                   nsc_stem_frac
+USE pftparm, ONLY: is_set, nsc_grow_end_doy, nsc_heartwood_rate
 USE calc_c_comps_triffid_mod, ONLY: sapwood_c
 USE model_time_mod, ONLY: is_spinup
 USE model_time_mod, ONLY: current_time
@@ -1060,9 +1059,6 @@ REAL(KIND=real_jlslsm) :: g_wood_prod, x_s
 ! TRIFFID timestep (360-day years) and the step's gross wood
 ! production (kg C m-2, < 0 when wood is lost).
 REAL(KIND=real_jlslsm) :: dt, g_step
-! The new conducting xylem of the step: G, or with the sapwood pool
-! the stem's share of it (kg C m-2 per 360 days).
-REAL(KIND=real_jlslsm) :: g_ring
 ! Day of year now, days in this year, days of this step, day counter,
 ! a day of the step and the ring year's end day.
 INTEGER :: doy_now, n_days, nd, k, d, doy_end
@@ -1139,13 +1135,11 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       nsc_xylem_prod_pft(l,n) = g_wood_prod
 
       ! The ring's share of the stem conductance, queued for the next
-      ! impairment update. With the sapwood pool only the stem's share of
-      ! the new wood renews the stem, G_ring = nsc_stem_frac G. A sapwood
-      ! at or below x_min renews nothing, but its count and state go on.
-      g_ring = g_wood_prod
-      IF (l_nsc_sapwood_pool) g_ring = nsc_stem_frac(n) * g_wood_prod
+      ! impairment update. A sapwood at or below x_min renews nothing, but
+      ! its count and state go on.
       IF (x_s > x_min) THEN
-        nsc_xylem_renew_pft(l,n) = nsc_xylem_cond_ratio(n) * g_ring / x_s
+        nsc_xylem_renew_pft(l,n) = nsc_xylem_cond_ratio(n) * g_wood_prod      &
+                                   / x_s
         ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                    &
                                    + nsc_xylem_renew_pft(l,n) / r_gamma
       END IF
@@ -1153,13 +1147,14 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! Sapwood pool: the oldest sapwood becomes heartwood and the new
       ! ring is added,
       !
-      !   dX_s/dt = G_ring - k_h X_s,   k_h = nsc_heartwood_rate,
+      !   dX_s/dt = G - k_h X_s,   k_h = nsc_heartwood_rate,
       !
-      ! so in equilibrium the ring renews k_h of the stem a year.
+      ! so in equilibrium X_s = G / k_h and the ring renews k_h of the
+      ! sapwood a year.
       IF (l_nsc_sapwood_pool)                                                  &
         nsc_sapwood(l,n) = nsc_sapwood(l,n)                                    &
                            * EXP(-nsc_heartwood_rate(n) / r_gamma)             &
-                           + g_ring / r_gamma
+                           + g_wood_prod / r_gamma
 
       ! End of the ring year: its net production S settles the count,
       !
@@ -1168,14 +1163,14 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! so D keeps only the over-count (growth counted before a loss that
       ! was not regrown) for next year's growth to repay, and a lasting
       ! loss of wood does not hold back later rings. With the sapwood
-      ! state a net loss of wood also leaves the sapwood, nsc_stem_frac |S|
-      ! (stems and branches lost, all rings alike).
+      ! pool a net loss of wood also leaves the sapwood, |S| (all rings
+      ! alike).
       IF (l_ring_end) THEN
         nsc_wood_lost(l,n) = MAX(nsc_wood_lost(l,n)                            &
                                     + MIN(nsc_net_wood_growth(l,n), 0.0), 0.0)
         IF (l_nsc_sapwood_pool)                                                &
-          nsc_sapwood(l,n) = MAX(nsc_sapwood(l,n) + nsc_stem_frac(n)           &
-                                 * MIN(nsc_net_wood_growth(l,n), 0.0), 0.0)
+          nsc_sapwood(l,n) = MAX(nsc_sapwood(l,n)                              &
+                                 + MIN(nsc_net_wood_growth(l,n), 0.0), 0.0)
         nsc_net_wood_growth(l,n) = 0.0
       END IF
 

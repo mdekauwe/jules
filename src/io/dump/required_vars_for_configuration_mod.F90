@@ -414,7 +414,7 @@ IF ( l_triffid_nsc ) THEN
   ! The ring year's net wood growth.
   IF ( l_ximpair_rec_nsc )                                                     &
     CALL add_to_list( 'nsc_net_wood_growth', nvars, identifiers )
-  ! The sapwood pool (the conducting stem sapwood).
+  ! The sapwood pool (the conducting sapwood).
   IF ( l_nsc_sapwood_pool )                                                    &
     CALL add_to_list( 'nsc_sapwood', nvars, identifiers )
 END IF

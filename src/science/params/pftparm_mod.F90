@@ -761,20 +761,14 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  MDK, 26/10/26
 ,nsc_heartwood_rate(:)                                                         &
                  ! Sapwood pool (l_nsc_sapwood_pool): the share of the
-                 !  conducting stem sapwood that becomes heartwood each year
-                 !  (per 360-day TRIFFID year, > 0), about 1 / the number of
-                 !  rings in the sapwood. In equilibrium the ring renews this
-                 !  share of the stem a year. Default 0.025 (40 rings).
+                 !  conducting sapwood that becomes heartwood each year (per
+                 !  360-day TRIFFID year, > 0), about 1 / the number of rings
+                 !  in the sapwood. In equilibrium the sapwood is G / this
+                 !  rate (G TRIFFID's gross wood production) and the ring
+                 !  renews this share of it a year. Default 0.025 (40
+                 !  rings).
                  !
-                 !  MDK, 30/10/26
-,nsc_stem_frac(:)                                                              &
-                 ! Sapwood pool: the stem's share of TRIFFID's gross wood
-                 !  production (0-1; the rest is branches and coarse roots),
-                 !  e.g. stem ANPP over total woody production. With
-                 !  nsc_heartwood_rate it sets the equilibrium sapwood,
-                 !  nsc_stem_frac G / nsc_heartwood_rate. Default 0.5.
-                 !
-                 !  MDK, 30/10/26
+                 !  MDK, 31/10/26
 ,nsc_grow_thresh(:)                                                            &
                  ! Growth threshold of the TRIFFID store (fraction of C_max,
                  !  0-1): the release for growth draws only on the store
@@ -1219,7 +1213,6 @@ ALLOCATE( nsc_overflow_resp(npft))
 ALLOCATE( nsc_cmax(npft))
 ALLOCATE( nsc_xylem_cond_ratio(npft))   ! MDK, 25/10/26
 ALLOCATE( nsc_heartwood_rate(npft))   ! MDK, 29/10/26
-ALLOCATE( nsc_stem_frac(npft))   ! MDK, 29/10/26
 ALLOCATE( nsc_grow_thresh(npft))   ! MDK, 29/10/26
 ALLOCATE( nsc_sink_days(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_sink_beta_min(npft))   ! MDK, 31/10/26
@@ -1299,7 +1292,6 @@ nsc_overflow_resp(:) = 0.0
 nsc_cmax(:) = 0.0
 nsc_xylem_cond_ratio(:) = 1.0   ! MDK, 25/10/26
 nsc_heartwood_rate(:) = 0.025   ! MDK, 30/10/26
-nsc_stem_frac(:) = 0.5   ! MDK, 30/10/26
 nsc_grow_thresh(:) = -1.0e30   ! MDK, 29/10/26
 nsc_sink_days(:) = 240.0   ! MDK, 31/10/26
 nsc_sink_beta_min(:) = 0.8   ! MDK, 31/10/26
@@ -1676,8 +1668,6 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_xylem_cond_ratio = ',nsc_xylem_cond_ratio
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_heartwood_rate = ',nsc_heartwood_rate
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_stem_frac = ',nsc_stem_frac
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_grow_thresh = ',nsc_grow_thresh
 CALL jules_print('pftparm',lineBuffer)

@@ -10628,7 +10628,7 @@ DATA metadata(819) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Ring renewal: sapwood pool, the conducting stem sapwood of the PFT",      &
+    "Ring renewal: sapwood pool, the conducting sapwood of the PFT",           &
 ! Units
     "kg m-2"                                                                   &
   ) /
