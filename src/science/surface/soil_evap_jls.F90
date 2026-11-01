@@ -122,12 +122,18 @@ END DO
 !$OMP END DO NOWAIT
 
 ! Adjustments to wt_ext from soil layers 2 to nshyd
+! Where the stomatal and soil conductances are both 0 (the stomata shut
+! with min_gl_pft = 0 and no soil evaporation) there is no flux, and the
+! root weights are kept, here and in layer 1 below.
+!
+! MDK, 01/11/26
 DO k = 2,nshyd
   IF (irrig_tile /= 1) THEN
 !$OMP DO SCHEDULE(STATIC)
     DO j = 1,surft_pts
       l = surft_index(j)
-      wt_ext(l,k) = gs(l) * wt_ext(l,k) / (gs(l) + fsoil_gs(l) * gsoil(l))
+      IF ( gs(l) + fsoil_gs(l) * gsoil(l) > 0.0 )                              &
+        wt_ext(l,k) = gs(l) * wt_ext(l,k) / (gs(l) + fsoil_gs(l) * gsoil(l))
     END DO
 !$OMP END DO NOWAIT
   END IF
@@ -135,8 +141,9 @@ DO k = 2,nshyd
 !$OMP DO SCHEDULE(STATIC)
     DO j = 1,surft_pts
       l = surft_index(j)
-      wt_ext_irr(l,k) = gs_irr(l) * wt_ext_irr(l,k)                            &
-             / (gs_irr(l) + fsoil_gs(l) * gsoil_irr(l))
+      IF ( gs_irr(l) + fsoil_gs(l) * gsoil_irr(l) > 0.0 )                      &
+        wt_ext_irr(l,k) = gs_irr(l) * wt_ext_irr(l,k)                          &
+               / (gs_irr(l) + fsoil_gs(l) * gsoil_irr(l))
     END DO
 !$OMP END DO NOWAIT
   END IF
@@ -148,8 +155,9 @@ IF (irrig_tile /= 1) THEN
   !CDIR NODEP
   DO j = 1,surft_pts
     l = surft_index(j)
-    wt_ext(l,1) = (gs(l) * wt_ext(l,1) + fsoil_gs(l) * gsoil(l))               &
-                   / (gs(l) + fsoil_gs(l) * gsoil(l))
+    IF ( gs(l) + fsoil_gs(l) * gsoil(l) > 0.0 )                                &
+      wt_ext(l,1) = (gs(l) * wt_ext(l,1) + fsoil_gs(l) * gsoil(l))             &
+                     / (gs(l) + fsoil_gs(l) * gsoil(l))
   END DO
 !$OMP END DO NOWAIT
 END IF
@@ -167,9 +175,10 @@ IF (l_irrig_dmd) THEN
   !CDIR NODEP
   DO j = 1,surft_pts
     l = surft_index(j)
-    wt_ext_irr(l,1) = (gs_irr(l) * wt_ext_irr(l,1)                             &
-                        + fsoil_gs(l) * gsoil_irr(l))                          &
-                        / (gs_irr(l) + fsoil_gs(l) * gsoil_irr(l))
+    IF ( gs_irr(l) + fsoil_gs(l) * gsoil_irr(l) > 0.0 )                        &
+      wt_ext_irr(l,1) = (gs_irr(l) * wt_ext_irr(l,1)                           &
+                          + fsoil_gs(l) * gsoil_irr(l))                        &
+                          / (gs_irr(l) + fsoil_gs(l) * gsoil_irr(l))
 
     ! Transpiration and soil conductances over irrigated fraction of tile
     ! relative to tile mean conductance (scaled by relative area later).
