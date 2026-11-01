@@ -4861,11 +4861,26 @@ RETURN
 CONTAINS
 
 !-----------------------------------------------------------------------------
-! Plant capacitance: the store at land point l_c ends the step at psi_x1
-! from psi_x0, so its flow out over the step and its water are
+! Plant capacitance: save the store's flow and water at the end of the step.
 !
-!   cut_q_store = C (psi_x0 - psi_x1) / dt M_w      (kg H2O m-2 s-1),
-!   cut_w_store = C psi_x1                           (mol H2O m-2).
+! The store is water held in the stem. It provides the water for transpiration
+! as the stem dries and refills from the soil as the stem wets. Over the step
+! the store's water potential goes from psi_x0 to psi_x1, and C is the water
+! it gives up per unit fall in psi.
+!
+! cut_q_store is the rate at which the store gives water over the step
+! (> 0: it gave water to the transpiration; < 0: it refilled from the soil):
+!
+!   cut_q_store = C (psi_x0 - psi_x1) M_w / dt      (kg H2O m-2 s-1)
+!
+! cut_w_store is the store's water at the end of the step, counted from a
+! full store at psi = 0, so it is 0 when full and negative as the stem dries:
+!
+!   cut_w_store = C psi_x1                           (mol H2O m-2)
+!
+! M_w is the molar mass of water and dt the timestep. Both are per m2 of
+! ground. The "cut_" prefix is from the module that holds the store,
+! cuticular_leak_state_mod.
 !
 ! MDK, 23/10/26
 !-----------------------------------------------------------------------------
