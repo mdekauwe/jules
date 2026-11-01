@@ -6,19 +6,22 @@
 ! Code Owner: Please refer to ModuleLeaders.txt
 ! This file belongs in SURFACE
 MODULE sf_stom_state_mod
-! State that sf_stom carries from one timestep to the next, kept here (not
-! private to sf_stom) so it can go in the dump and a restart reproduces a
-! continuous run:
-!   f_vcmax_state : soil-water capacity factor of l_som_vcmax_psi after the
-!                   recovery lag (dump: fvcmax_psi_state);
-!   cpl_state     : coupled transpiration (l_som_coupled_e), two-leaf: the
-!                   last sunlit and shaded stomatal conductances and leaf
-!                   boundary layer conductances (m/s) and canopy air
-!                   resistance (s/m), the first guess of a timestep's first
-!                   pass (dump: cpl_gl_sun, cpl_gl_shd, cpl_gbw_sun,
-!                   cpl_gbw_shd, cpl_ra_ca).
-! Both are < 0 until first set ("not yet set"), which is also what a dump
-! without them gives.
+! Values that sf_stom keeps from one timestep to the next. They live here,
+! outside sf_stom, so they can be written to the dump and a run restarted
+! from a dump gives the same answers as one that ran on.
+!
+!   - f_vcmax_state: the factor that lowers Vcmax as the soil dries
+!     (l_som_vcmax_psi), as it was after its lag in recovering when the soil
+!     wets up again (0 to 1; dump name fvcmax_psi_state).
+!   - cpl_state: with coupled transpiration (l_som_coupled_e) and the
+!     two-leaf canopy, the last stomatal and leaf boundary layer
+!     conductances of the sunlit and shaded leaves (m/s) and the canopy
+!     air resistance (s/m). They are the first guess on the first pass of
+!     the next timestep (dump names cpl_gl_sun, cpl_gl_shd, cpl_gbw_sun,
+!     cpl_gbw_shd, cpl_ra_ca).
+!
+! Both are negative until first set, meaning "not yet set". A dump without
+! them gives the same.
 !
 ! MDK, 30/10/26
 
@@ -53,7 +56,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: shared_amax_shd_prev(:,:)
 CONTAINS
 
 ! ---------------------------------------------------------------------
-! Allocate both, "not yet set" (-1), if not done.
+! Allocate f_vcmax_state and cpl_state, filled with -1 ("not yet set"),
+! unless they are already allocated.
 ! ---------------------------------------------------------------------
 SUBROUTINE sf_stom_state_alloc( n_land_pts )
 

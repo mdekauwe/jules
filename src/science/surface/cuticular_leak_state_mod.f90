@@ -7,33 +7,41 @@
 ! This file belongs in SURFACE
 
 MODULE cuticular_leak_state_mod
-! State of the stomatal optimisation's plant capacitance (l_som_capacitance,
-! or l_som_cuticular_loss): a plant water store at the stem node.
+! Values kept between timesteps for the plant's stem water store, used by
+! the stomatal optimisation with plant capacitance (l_som_capacitance) or
+! with water loss through the leaf cuticle (l_som_cuticular_loss).
 !
-! The store's water, relative to the full store (psi = 0),
+! The store holds water in the stem. Its water content is counted from the
+! full store (water potential 0), so it is 0 or negative:
 !
-!   W = C psi_x      (mol H2O m-2 ground, <= 0),
+!   W = C psi_x      (mol H2O m-2 ground)
 !
-! is carried between timesteps and dumped, with its capacitance
+! where psi_x is the stem's water potential (Pa, <= 0) and C the store's
+! capacitance, the water it gives per unit fall in psi_x:
 !
-!   C = cap_stem L_ref      (mol H2O m-2 ground Pa-1),
+!   C = cap_stem L_ref      (mol H2O m-2 ground Pa-1)
 !
-! (L_ref: LAI, or the reference LAI with kplant_model = 1, so that the
-! store's time constant C / k does not change with phenology) and psi_stem.
+! cap_stem is the capacitance per unit leaf area and L_ref the leaf area
+! index, or the reference leaf area index with kplant_model = 1, so the
+! time the store takes to drain through the plant's conductance (C / k)
+! does not change as leaves grow and fall. W, C and the stem's water
+! potential are carried between timesteps and written to the dump.
 !
-! Each step (sf_stom) the store sets the transpiration, and the leak drains
-! it where it binds; it refills from the soil through the root side. Its
-! flow out, cut_q_store, is taken off the soil extraction in sf_evap, so
-! soil + plant + atmosphere water is conserved. Because W, not psi, is
-! carried, a change of C moves psi, not the water:
+! Each timestep sf_stom works out how much of the transpiration the store
+! gives. Water lost through the cuticle when the stomata are shut also
+! drains it. The store refills from the soil through the roots. Its flow
+! out, cut_q_store, is taken off the water drawn from the soil in sf_evap,
+! so the water in soil, plant and air adds up.
 !
-!   C rises (growth):    the new tissue is born full (W kept);
-!   C falls (leaf loss): psi is kept and the shed tissue takes its share of
-!                        the deficit (cut_w_shed), so shedding does not dry
-!                        the plant.
+! Because W is carried and psi_x is worked out from it, a change in C moves
+! psi_x and leaves the water unchanged:
 !
-! (The "cut" in the module and dump names is from the cuticular loss,
-! l_som_cuticular_loss.)
+!   - when C rises (growth), the new tissue starts full, W is kept;
+!   - when C falls (leaves are lost), psi_x is kept, and the lost tissue
+!     takes its share of the store's shortfall from full (cut_w_shed), so
+!     shedding leaves does not dry the plant.
+!
+! The "cut" in the module and dump names comes from cuticular.
 !
 ! MDK, 25/10/26
 
@@ -99,7 +107,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_e_leak(:,:)
 CONTAINS
 
 ! ---------------------------------------------------------------------
-! Allocate the state (n_land_pts, npft), not yet set, if not done.
+! Allocate the store's arrays (n_land_pts, npft) unless they are already
+! allocated. The water and stem water potential start as "not yet set"
+! (cut_psi_unset); the flows and capacitance start at 0.
 !
 ! MDK, 23/10/26
 ! ---------------------------------------------------------------------
@@ -137,18 +147,24 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE cut_state_alloc
 
 ! ---------------------------------------------------------------------
-! sf_evap: the store's flow out at point l, PFT ft, could not all be
-! applied, by dq (kg H2O m-2 s-1):
+! Put back into the plant capacitance store the part of its flow that
+! could not be used this timestep, so the store's water stays in balance.
+! sf_evap calls it at land point l and PFT ft. dq (kg H2O m-2 s-1) is the
+! part not used:
 !
-!   dq > 0  the store gave less (the transpiration was smaller than its
-!           flow out);
-!   dq < 0  the soil could not supply the refill.
+!   dq > 0: the transpiration was smaller than the store's flow out, so
+!           the store gave less;
+!   dq < 0: the soil could not supply all of the store's refill.
 !
-! The store keeps that water,
+! The store keeps that water:
 !
-!   dW = dq dt / M_w      (mol m-2; no more than fills it to psi = 0),
+!   dW = dq dt / M_w      (mol H2O m-2 ground)
 !
-! its stem psi moves by dW / C, and its flow out is reduced by dq.
+! where dt is the timestep (s) and M_w the molar mass of water
+! (kg mol-1). The store's water, and the stem's water potential, which
+! moves by dW / C, are kept no wetter than full (0). The flow out
+! (cut_q_store) is reduced by dq. Nothing is done where the store is not
+! yet set.
 !
 ! MDK, 23/10/26
 ! ---------------------------------------------------------------------

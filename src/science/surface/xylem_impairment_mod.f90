@@ -23,30 +23,44 @@ PUBLIC :: leaf_conductance_impaired_jls,                                       &
 CONTAINS
 
 ! *********************************************************************
-! Contains routines used to switch between different xylem conductance
-! models.
+! Xylem impairment: drought damage to the plant's water-conducting tissue
+! (xylem) that lasts beyond the drought. These routines pick the
+! impairment model chosen for each PFT (pft_xylem_impairment_model) and
+! pass the work to it:
 !
-! NOTE on the curve parameter arguments passed to the routines below:
-!   kmax_ref      : unimpaired maximum xylem conductance for each land
-!                   point, i.e. kmax_pft(pft) with whatever canopy
-!                   scaling the caller applies (e.g. * LAI for the
-!                   big-leaf stomatal optimisation). Used, together with
-!                   conductance_b_pft/conductance_c_pft, whenever no
-!                   impairment is applied (spinup, xylem_impairment_none).
-!   kmax          : the (possibly impaired) per-point kmax, with the same
-!                   scaling as kmax_ref.
-!   conductance_b, conductance_c
-!                 : the PFT's vulnerability curve on each point. Neither
-!                   impairment model changes it.
-!   kcrit         : critical xylem conductance, with the same scaling as
-!                   kmax_ref.
+!   0  none: the plant always uses its undamaged vulnerability curve;
+!   2  whole trunk: each part of the xylem keeps the conductance of the
+!      driest water potential it has met;
+!   3  memory: the conductance lost in drought is held as a cap on the
+!      curve and recovers through new wood and new leaves.
+!
+! During spin-up no damage is applied or recorded.
+!
+! The vulnerability curve gives the xylem conductance k (mol m-2 s-1
+! Pa-1) at water potential psi (Pa, below 0, more negative when drier).
+! It falls from kmax in wet soil, with the shape set by conductance_b (Pa,
+! below 0) and conductance_c (no units). kcrit is the lowest conductance
+! the model allows. The arguments are:
+!
+!   kmax_ref: the undamaged kmax at each land point, the PFT value with
+!     any canopy scaling the caller applies (for example times LAI);
+!   kmax: the kmax after damage, with the same scaling;
+!   kcrit: on the same scaling as kmax_ref.
+!
+! Neither impairment model changes conductance_b or conductance_c.
 !
 ! MDK, 24/10/26
 ! *********************************************************************
 
 ! ---------------------------------------------------------------------
-! Function to manage leaf conductance calculations for different
-! impairment models.
+! Work out the conductance (mol m-2 s-1 Pa-1) at a given leaf water
+! potential of a plant whose xylem may have been damaged by drought, using
+! the PFT's impairment model. The stomatal optimiser uses it as the
+! reference for the hydraulic cost.
+!
+! With no impairment model, or during spin-up, this is the undamaged
+! curve with kmax_ref. Otherwise the whole trunk or memory model gives
+! the damaged value.
 ! ---------------------------------------------------------------------
 SUBROUTINE leaf_conductance_impaired_jls( pft,                                 &
                                           land_pnts,                           &
@@ -186,11 +200,31 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE leaf_conductance_impaired_jls
 
 ! ---------------------------------------------------------------------
-! Subroutine to manage leaf water potential calculations for different
-! conductance models.
-! NOTE: This function is designed for the stomatal optimisation model.
-!       It returns an output array that only contain values for points
-!       with open stomata.
+! For each candidate transpiration rate E of the stomatal optimiser, work out
+! the leaf water potential (Pa) and the xylem conductance at the leaf
+! (mol m-2 s-1 Pa-1) of a plant whose xylem may have been damaged by
+! drought, at points where the stomata are open. The optimiser tries
+! several values of E per point.
+!
+! With no impairment model, or during spin-up, the undamaged plant is
+! solved (psi_leaf_jls). Otherwise the whole trunk or memory model solves
+! the path from the root zone to the leaf.
+!
+! With l_som_rhizo_series, a soil-to-root conductance K_s (mol m-2 s-1
+! Pa-1) lies in series ahead of the damaged plant. Water first crosses
+! the soil, so the water potential where it enters the roots is
+!
+!   psi_in = psi_soil - E / K_s,
+!
+! where psi_soil is the root-zone water potential (Pa), and the damaged
+! plant is solved from psi_in up to the leaf. The soil is not damaged.
+! The conductance returned is the change in E for a change in leaf water
+! potential along the whole path,
+!
+!   k_path = k_leaf / (1 + k_in / K_s),
+!
+! where k_leaf is the damaged plant's conductance at the leaf and k_in is
+! its conductance where water enters the roots.
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_impaired_jls( pft,                                         &
                                   n_e_leaf,                                    &
@@ -412,7 +446,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 CONTAINS
 
-! The impaired plant path (root to leaf), whole_trunk or memory model.
+! Xylem impairment: solve the damaged plant from the given root water
+! potential psi_root (Pa) to the leaf with the whole trunk or memory
+! model, giving the leaf water potential and conductance for each E.
 SUBROUTINE impaired_path( n_e, e_in, psi_root, psi_out, k_out )
 
 INTEGER, INTENT(IN) :: n_e
@@ -468,8 +504,13 @@ END SUBROUTINE impaired_path
 END SUBROUTINE psi_leaf_impaired_jls
 
 ! ---------------------------------------------------------------------
-! Subroutine to manage which xylem impairment model is applied.
-! Note the different types of conductance models are not handled here.
+! Xylem impairment: record this step's drought damage with the PFT's
+! impairment model, once the step's water potentials are known.
+!
+! The whole trunk model updates the driest leaf and root water potentials
+! met so far. The memory model updates its conductance cap (recovery, then
+! new damage). Nothing is recorded during spin-up or with no impairment
+! model. The shape of the vulnerability curve is chosen elsewhere.
 !
 ! MDK, 24/10/26
 ! ---------------------------------------------------------------------

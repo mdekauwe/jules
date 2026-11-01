@@ -9,11 +9,17 @@
 MODULE leaf_energy_balance_mod
 
 !-----------------------------------------------------------------------------
-! Leaf energy balance of the sunlit and shaded leaf classes (l_leaf_temp):
-! the canopy aerodynamics (leaf_aero_geom), the terms fixed over the passes
-! of the stomatal optimisation (leaf_temp_setup) and the leaf and canopy air
-! temperature update (leaf_temp_update, leaf_temp_update_n). Called by
-! sf_stom.
+! Leaf energy balance (l_leaf_temp): the temperature of the sunlit and
+! shaded leaves, and of the air inside the canopy, from the light they
+! absorb, the heat they lose and the water they transpire. sf_stom calls
+! these routines:
+!
+!   - leaf_aero_geom: the canopy's shape as it affects the wind and the
+!     exchange of heat between the canopy air and the air above;
+!   - leaf_temp_setup: the radiation and wind terms of each set of leaves
+!     that stay the same on every pass of the stomatal optimisation;
+!   - leaf_temp_update and leaf_temp_update_n: the leaf and canopy air
+!     temperatures for the stomatal conductances of the last pass.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -30,22 +36,39 @@ PUBLIC :: leaf_aero_geom, leaf_temp_setup, leaf_temp_update,                  &
 
 CONTAINS
 
-SUBROUTINE leaf_aero_geom( land_pts, veg_pts, veg_index, lai, canht, z1,       &
-                           z0m, zref, rt1ab, zrd, usc, usuh, coexp )
-
-! CABLE canopy geometry (cable_roughness; Raupach, 1994, BLM 71: 211-216;
-! Raupach et al., 1997, CSIRO SCAM) for the leaf energy balance
-! (l_leaf_temp, leaf_aero_model = 1): displacement d and roughness z0m from
-! the leaf area, the reference height zref above d, u*/u_h (usuh), the wind
-! extinction coefficient coexp, the roughness-sublayer terms of rt1 (rt1ab =
-! rt1usa + rt1usb, times 1/u*), and zrd = zruffs - d and usc (1 if zref is
-! above the roughness sublayer) for rt1usc. z1 is taken as height above the
-! ground. Points without a canopy get zref = 0 (and are skipped).
-! coexp is returned per unit cumulative leaf area: as CABLE's gbhu uses it,
-! or with l_leaf_coexp_lai as derived, per normalised height (divided by
-! the leaf area).
+! Work out how the canopy's shape affects the wind inside it and the
+! exchange of heat between the canopy air and the air above, as in CABLE
+! (cable_roughness; Raupach, 1994, BLM 71: 211-216; Raupach et al., 1997,
+! CSIRO SCAM). The leaf energy balance uses these terms with CABLE's
+! canopy aerodynamics (l_leaf_temp, leaf_aero_model = 1).
+!
+! From the leaf area and canopy height it gives:
+!
+!   - the roughness length z0m (m), and the reference height zref (m),
+!     measured above the displacement height d (the height at which the
+!     canopy appears to absorb momentum). z1, the height of the first
+!     atmospheric level, is taken as height above the ground;
+!   - usuh, the ratio of the friction velocity to the wind speed at the
+!     canopy top;
+!   - coexp, the rate at which the wind falls into the canopy;
+!   - the parts of the resistance between the canopy air and zref (rt1)
+!     that do not depend on stability: rt1ab, inside the canopy and the
+!     roughness sublayer just above it (times 1/u*, s m-1 after division
+!     by the friction velocity u*), and zrd, the top of that sublayer
+!     above d (m), with usc = 1 if zref lies above the sublayer and 0
+!     otherwise. leaf_temp_update_n adds the stability-dependent part.
+!
+! coexp is used per unit of leaf area above. By default it is CABLE's
+! value, used per unit leaf area as CABLE's gbhu does. With
+! l_leaf_coexp_lai it is divided by the leaf area, which gives the wind
+! profile as it is derived, per unit of normalised height.
+!
+! Points with less than 0.01 m2 m-2 of leaf or no height get zref = 0 and
+! are skipped by the energy balance.
 !
 ! MDK, 24/10/26
+SUBROUTINE leaf_aero_geom( land_pts, veg_pts, veg_index, lai, canht, z1,       &
+                           z0m, zref, rt1ab, zrd, usc, usuh, coexp )
 
 USE jules_vegetation_mod, ONLY: l_leaf_coexp_lai
 
@@ -119,6 +142,37 @@ END SUBROUTINE leaf_aero_geom
 !#############################################################################
 !#############################################################################
 
+! Work out the radiation and wind terms of the leaf energy balance
+! (l_leaf_temp) once per timestep, before the stomatal optimisation, since
+! they stay the same on every pass of it. They are for the sunlit and the
+! shaded leaves (two-leaf canopy, and the multilayer canopy taken as one
+! set of sunlit and one of shaded leaves). Each is summed
+! over the canopy layers using the sunlit fraction of each layer, as the
+! absorbed PAR is. xi is the leaf area above a point in the canopy, lai
+! the canopy's leaf area and kd the extinction coefficient for diffuse light
+! (1 for horizontal leaves, 0.78 otherwise).
+!
+!   - sw: absorbed short-wave, PAR plus near-infrared (W m-2 ground). The
+!     incident near-infrared is taken as equal to the incident PAR, as
+!     standalone JULES sets PAR to half the incoming short-wave.
+!   - wlw, wlws: weights for the long-wave radiation the leaves absorb
+!     (Wang and Leuning, 1998, eqs B18 and B19): from the sky, kd
+!     exp(-kd xi), and from the soil, kd exp(-kd (lai - xi)), each
+!     integrated over the layer.
+!   - frad: the sum of the two, which scales the leaves' long-wave loss
+!     (about 2 kd times the leaf area for a thin canopy).
+!   - ff: leaf area weighted by the relative wind speed, exp(-wind_ext
+!     xi / 2), for heat loss to the wind (Wang and Leuning, 1998; CABLE).
+!     It is the leaf area when wind_ext = 0.
+!
+! With the optional arguments (multilayer canopy with ml_leaf_temp_model
+! = 2), the same terms are also given for the sunlit and shaded leaves of
+! every layer: the sunlit leaves of layer n in position 2n-1, the shaded
+! in 2n. Their PAR comes from each layer's own absorbed PAR
+! (fapar_*_vis), and lai_c gives their leaf area. The layer terms add up
+! to the canopy ones.
+!
+! MDK, 24/10/26
 SUBROUTINE leaf_temp_setup( ft, land_pts, veg_pts, veg_index, ilayers, lai,    &
                             dlai, fsun, fapar_sun_nir, fapar_shd_nir, ipar,    &
                             wind_ext,                                          &
@@ -127,30 +181,6 @@ SUBROUTINE leaf_temp_setup( ft, land_pts, veg_pts, veg_index, ilayers, lai,    &
                             wlws_shd, frad_sun, frad_shd, ff_sun, ff_shd,      &
                             fapar_sun_vis, fapar_shd_vis, lai_c, sw_c, wlw_c,  &
                             wlws_c, frad_c, ff_c )
-
-! Leaf energy balance (l_leaf_temp; two-leaf, and the multilayer canopy's
-! classes): the terms that are fixed over
-! the passes of the stomatal optimisation, summed over the canopy layers
-! with the sunlit fraction of each layer (as the absorbed PAR is):
-! - sw: absorbed PAR + near-IR (W m-2 ground). The incident near-IR is
-!   taken as equal to the incident PAR (standalone sets PAR = sw_down/2).
-! - wlw, wlws: layer weights of the isothermal long-wave (Wang & Leuning,
-!   1998, B18/B19): the sky deficit absorbed from above, kd exp(-kd xi), and
-!   the part reflected by the soil, kd exp(-kd (L - xi)), integrated over
-!   each layer.
-! - frad: the radiative conductance scalar, kd [exp(-kd xi) +
-!   exp(-kd (L - xi))] integrated over the class (2 x leaf area for a thin
-!   canopy).
-! - ff: leaf area weighted by the relative wind speed for forced
-!   convection, exp(-wind_ext xi / 2) (Wang & Leuning, 1998; CABLE);
-!   the class leaf area when wind_ext = 0.
-! With the optional arguments (the multilayer canopy with ml_leaf_temp_model
-! = 2), also the same terms of every layer's sunlit and shaded leaf, as
-! classes 2n-1 (sunlit) and 2n (shaded) of layer n, the PAR part from the
-! layer's own absorbed PAR (fapar_*_vis); the class leaf area too. The
-! layer terms sum to the canopy ones.
-!
-! MDK, 24/10/26
 
 USE pftparm, ONLY: orient
 
@@ -271,6 +301,14 @@ END SUBROUTINE leaf_temp_setup
 !#############################################################################
 !#############################################################################
 
+! Work out the sunlit and shaded leaf temperatures of the two-leaf
+! canopy, and the canopy air temperature and humidity, from the leaf
+! energy balance (l_leaf_temp) for the stomatal conductances of the last
+! pass. It packs the
+! sunlit and shaded leaves into arrays of two and calls
+! leaf_temp_update_n.
+!
+! MDK, 24/10/26
 SUBROUTINE leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
                              ra, lw_down, u_wind, lai_sun, lai_shd,            &
                              sw_sun, sw_shd, wlw_sun, wlw_shd, wlws_sun,       &
@@ -279,13 +317,6 @@ SUBROUTINE leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
                              gl_sun, gl_shd, g_soil, qs_soil, zeta_a, t_sun,   &
                              t_shd, t_c, q_c, gbw_sun, gbw_shd, ra_out,        &
                              n_clamp, lt_a, lt_b )
-
-! Two-leaf leaf energy balance (l_leaf_temp): sunlit and shaded leaf
-! temperatures, and canopy air temperature and humidity, for the stomatal
-! conductances of the last pass. The balance of leaf_temp_update_n for
-! the two classes (sunlit, shaded).
-!
-! MDK, 24/10/26
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -361,49 +392,64 @@ END SUBROUTINE leaf_temp_update
 !#############################################################################
 !#############################################################################
 
+! Work out the leaf temperatures, and the canopy air temperature and
+! humidity, of nc sets of leaves that share one canopy air space, by
+! solving the leaf energy balance (l_leaf_temp) for the stomatal
+! conductances of the last pass. The sets
+! are the sunlit and shaded leaves (nc = 2) of the two-leaf canopy or of
+! the multilayer canopy taken as a whole, or the sunlit and shaded leaves
+! of every layer of the multilayer canopy (nc = 2 x ilayers;
+! ml_leaf_temp_model = 2, as in MAESPA).
+!
+! Each set of leaves exchanges heat and water with the canopy air (at
+! temperature t_c and humidity q_c) through its leaf boundary layer, as
+! one big leaf. Its latent heat follows Penman-Monteith with the net
+! radiation it would have at the canopy air temperature, linearised about
+! t_c (Leuning et al., 1995, App. E; Wang and Leuning, 1998), as in De
+! Kauwe's two-leaf model (two_leaf_at_WTC):
+!
+!   LE = (s Rn + D gh cp) / (s + gamma gh / gw)
+!   T  = t_c + (Rn - LE) / (cp gh)
+!   gh = 2 gbH + grn
+!
+! where LE is the latent heat (W m-2), Rn the net radiation, s the slope
+! of saturation humidity with temperature, D the humidity deficit of the
+! canopy air, gamma the psychrometric constant, cp the heat capacity of
+! air, gw the conductance for water (stomata and boundary layer in
+! series) and T the leaf temperature. gh is the conductance for heat:
+! twice the boundary layer conductance gbH (both sides of the leaf) plus
+! the radiative conductance grn. gbH has a part from the wind (per unit
+! leaf area at the canopy-top wind, divided by leaf_shelter, times the
+! wind-weighted leaf area ff) and a part from rising warm air (times the
+! leaf area).
+!
+! The canopy air is coupled to the first atmospheric level through a
+! resistance ra (s m-1), set by leaf_aero_model: 0, no resistance, so
+! t_c = tair and q_c = q1; 1, CABLE's rt1; 2, JULES's ra. Then
+!
+!   q_c = q1 + ra (sum of the leaves' LE + LE_soil) / (rho L)
+!   t_c = tair + ra (sum of the leaves' H) / (rho cp)
+!
+! where rho is the air density, L the latent heat of vaporisation at t_c,
+! H the sensible heat and LE_soil = rho L g_soil (qs_soil - q_c) the soil
+! evaporation into the canopy air, as in CABLE. The soil's sensible heat
+! is left out, since vegetated tiles have no soil surface temperature
+! apart from tstar.
+!
+! LE is linear in q_c, so q_c follows directly for a given t_c. t_c is
+! found by a bracketed search (regula falsi) within dt_can of tair, at
+! once when ra = 0. Each leaf temperature is kept within dt_leaf of t_c.
+! With CABLE's aerodynamics, the resistance and the canopy-top wind
+! depend on the stability of the air, and the solution is repeated with
+! the stability from the leaves' heat fluxes.
+!
+! MDK, 24/10/26
 SUBROUTINE leaf_temp_update_n( land_pts, veg_pts, veg_index, nc, tair, q1,     &
                                pstar, ra, lw_down, u_wind, lai_c, sw_c, wlw_c, &
                                wlws_c, frad_c, ff_c, z0m_a, zref_a, rt1ab_a,   &
                                zrd_a, usc_a, usuh_a, gl_c, g_soil, qs_soil,    &
                                zeta_a, t_cls, t_c, q_c, gbw_c, ra_out,         &
                                n_clamp, lt_a_c, lt_b_c )
-
-! Leaf energy balance (l_leaf_temp) of nc leaf classes sharing one canopy
-! air: two-leaf (nc = 2, sunlit and shaded), the aggregate multilayer canopy
-! (the same) or the multilayer canopy layer by layer (nc = 2 x ilayers, the
-! sunlit and shaded leaf of every layer; ml_leaf_temp_model = 2, as
-! MAESPA). Leaf temperatures, and canopy air temperature and humidity, for
-! the stomatal conductances of the last pass.
-!
-! Each leaf class exchanges with the canopy air (t_c, q_c) through its
-! boundary layer, as a big leaf: Penman-Monteith with the isothermal net
-! radiation, linearised about t_c (Leuning et al., 1995, App. E; Wang &
-! Leuning, 1998), as in the two-leaf model of De Kauwe (two_leaf_at_WTC):
-!
-!   LE = (s Rn + D gh cp) / (s + gamma gh / gw),
-!   T  = t_c + (Rn - LE) / (cp gh),   gh = 2 gbH + grn,
-!
-! with forced convection for gbH (per unit leaf area at the canopy-top wind
-! u_wind, divided by leaf_shelter, times the class leaf area weighted by
-! the wind profile in the canopy, ff) and free convection (times the class
-! leaf area), and the radiative conductance grn.
-!
-! The canopy air is coupled to level 1 through ra (from leaf_aero_model:
-! 0, so t_c = tair and q_c = q1; 1, CABLE's rt1; 2, JULES's ra):
-!
-!   q_c = q1 + ra (LE_sun + LE_shd + LE_soil) / (rho L),
-!   t_c = tair + ra (H_sun + H_shd) / (rho cp),
-!
-! with L the latent heat at t_c and LE_soil = rho L g_soil (qs_soil - q_c)
-! the soil evaporation into the canopy air, as in CABLE (soil sensible heat
-! is not included: there is no soil surface temperature separate from tstar
-! on vegetated tiles).
-! The balance is solved for these conductances: LE is linear in q_c, so q_c
-! is explicit for a given t_c, and t_c is found by regula falsi within
-! dt_can of tair (at once when ra = 0). Leaf temperatures are kept
-! within dt_leaf of t_c.
-!
-! MDK, 24/10/26
 
 USE conversions_mod, ONLY: zerodegc
 USE c_rmol, ONLY: rmol
@@ -658,8 +704,10 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 CONTAINS
 
+! Store the solution at point l: the canopy air temperature and humidity,
+! and the leaf temperatures, boundary layer conductances and fluxes from
+! the canopy_balance call just made for this point.
 SUBROUTINE set_out( l, m, tc, qc )
-! The outputs at point l (the class temperatures from tx_v).
 INTEGER, INTENT(IN) :: l, m
 REAL(KIND=real_jlslsm), INTENT(IN) :: tc, qc
 t_c(l)   = tc
@@ -683,8 +731,12 @@ IF ( PRESENT(lt_a_c) ) lt_a_c(l,:) = lta_last(:)
 IF ( PRESENT(lt_b_c) ) lt_b_c(l,:) = ltb_last(:)
 END SUBROUTINE set_out
 
+! Return CABLE's stability correction to the wind profile (psim,
+! cable_canopy), which adjusts the friction velocity above the canopy
+! for the stability of the air. zeta = zref / L_ob,
+! where L_ob is the Obukhov length (zeta < 0 for unstable air, > 0 for
+! stable air).
 ELEMENTAL FUNCTION psim( zeta_in ) RESULT( r_psi )
-! CABLE psim (cable_canopy): stability function for momentum.
 REAL(KIND=real_jlslsm), INTENT(IN) :: zeta_in
 REAL(KIND=real_jlslsm) :: r_psi, x
 REAL(KIND=real_jlslsm), PARAMETER :: gu = 16.0, a = 1.0, b = 0.667, xc = 5.0,  &
@@ -697,8 +749,11 @@ ELSE
 END IF
 END FUNCTION psim
 
+! Return CABLE's stability correction to the profiles of heat and water
+! vapour (psis, cable_canopy), which adjusts the resistance between the
+! canopy air and the air above for the stability of the air, as a
+! function of zeta = zref / L_ob.
 ELEMENTAL FUNCTION psis( zeta_in ) RESULT( r_psi )
-! CABLE psis (cable_canopy): stability function for scalars.
 REAL(KIND=real_jlslsm), INTENT(IN) :: zeta_in
 REAL(KIND=real_jlslsm) :: r_psi, y
 REAL(KIND=real_jlslsm), PARAMETER :: gu = 16.0, a = 1.0, b = 0.667, c = 5.0,   &
@@ -712,13 +767,21 @@ ELSE
 END IF
 END FUNCTION psis
 
+! Test a guessed canopy air temperature tc at point l, for the search that
+! finds the temperature at which the canopy air's heat budget balances.
+! It gives the temperature of each set of leaves, the canopy humidity,
+! the leaves' total sensible and latent heat (W m-2 ground), and how far
+! tc is from balancing the canopy air's heat budget:
+!
+!   res = tc - tair - ra (sum of the leaves' H) / (rho cp)      (K)
+!
+! res rises with tc and is 0 at the solution. qs0 and qs1 are the
+! saturation humidity (kg kg-1) at tc and tc + 0.1 K, which give the
+! slope s.
+!
+! Sets of leaves whose latent heat would be negative (dew, at night) are
+! left out of the canopy humidity and their latent heat is set to 0.
 SUBROUTINE canopy_balance( l, tc, qs0, qs1, res, t_new, qc_new, h_out, le_out )
-
-! Leaf temperatures (of the nc classes) and canopy humidity for canopy air
-! temperature tc, and the residual of the canopy air sensible heat balance,
-!
-!   res = tc - tair - ra (sum of the classes' H) / (rho cp).
-!
 
 INTEGER, INTENT(IN) :: l
 REAL(KIND=real_jlslsm), INTENT(IN) :: tc, qs0, qs1

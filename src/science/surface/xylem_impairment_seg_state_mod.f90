@@ -8,12 +8,17 @@
 
 MODULE xylem_impairment_seg_state_mod
 
-! Per-segment memory (l_ximpair_seg_memory) for the memory impairment model
-! with root / stem / leaf segments. The stem segment's cap is the impaired
-! kmax state (k_max / kmax_impaired, leaf basis), as for the single cap;
-! the leaf segment's cap is held here as a fraction of the intact segment
-! maximum. Kept apart from xylem_impairment_memory_mod so the segment
-! solvers can read it without a circular module dependency.
+! Xylem impairment, memory model: the damage state of each part of the
+! plant when the plant is split into root, stem and leaf segments
+! (l_ximpair_seg_memory). Each segment can lose conductance on its own.
+!
+! The stem's damage is the plant's damaged kmax (kmax_impaired, leaf area
+! basis), the same state the memory model uses without segments. The
+! leaf's damage is held here as a cap on its conductance, a fraction of
+! the undamaged leaf segment's maximum (1 = undamaged).
+!
+! This module is separate from xylem_impairment_memory_mod so the segment
+! solvers can read it without the two modules using each other.
 
 USE um_types, ONLY: real_jlslsm
 
@@ -39,7 +44,9 @@ CHARACTER(LEN=*), PARAMETER :: ModuleName='XYLEM_IMPAIRMENT_SEG_STATE_MOD'
 CONTAINS
 
 ! ---------------------------------------------------------------------
-! Allocate the leaf-segment cap (n_land_pts, npft), intact, if not done.
+! Xylem impairment, memory model: create the leaf segment's cap (set to
+! 1, undamaged) and the stored stem water potential (set to 0) for every
+! land point and PFT, if they do not exist yet.
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_seg_state_alloc( n_land_pts )
 
@@ -72,12 +79,19 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE ximpair_seg_state_alloc
 
 ! ---------------------------------------------------------------------
-! Cap fraction of segment iseg (1 root, 2 stem, 3 leaf) at land point l:
-! the root is never capped; the stem takes kcap_frac (the impaired kmax
-! state over the intact kmax); the leaf takes kcap_frac too, or its own
-! cap with l_ximpair_seg_memory. With l_som_seg_whole (segments on the
-! PFT curve for the plant capacitance) the root takes kcap_frac as well:
-! the whole-plant damage on all three segments.
+! Return how much of its undamaged maximum conductance segment iseg
+! (1 root, 2 stem, 3 leaf) can still carry at land point l after drought
+! damage (0-1, memory model of xylem impairment), which the segment
+! solvers use to cap each segment.
+!
+! kcap_frac is the plant's damaged kmax over its undamaged kmax.
+!
+!   - The root is undamaged (1), except with l_som_seg_whole (segments on
+!     the PFT's whole-plant curve, used with plant capacitance), where it
+!     takes kcap_frac.
+!   - The stem takes kcap_frac.
+!   - The leaf takes kcap_frac, or its own cap with l_ximpair_seg_memory
+!     (1 until the cap exists).
 !
 ! MDK, 26/10/26
 ! ---------------------------------------------------------------------

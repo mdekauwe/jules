@@ -69,20 +69,36 @@ REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: r_bl_co2_fac = 1.37
 CONTAINS
 
 !-----------------------------------------------------------------------------
-! Stomatal conductance to water vapour gl (m s-1) that gives net
-! photosynthesis a (mol CO2 m-2 s-1) at internal CO2 ci, with the CO2
-! crossing the leaf boundary layer and then the stomata in series, as the
-! water vapour does with coupled transpiration (l_som_coupled_e):
+! Return the stomatal conductance to water vapour, gl (m s-1), that lets net
+! photosynthesis a (mol CO2 m-2 s-1) run at internal CO2 ci, when the CO2
+! crosses the leaf boundary layer and then the stomata, one after the other.
+! The Ci searches use it to turn each candidate Ci into a stomatal
+! conductance with coupled transpiration (l_som_coupled_e), where water
+! vapour takes the same route out of the leaf.
 !
-!   A = (ca - ci) / (R T (1.6 / gl + 1.37 r_bl)),
+! The CO2 supply through the two resistances in series is
 !
-! so 1.6 / gl = (ca - ci) / (R T A) - 1.37 r_bl (Leuning et al., 1995, as
-! CABLE: photosynthesis at the leaf-surface CO2). Without the boundary layer
-! this is gl = 1.6 A R T / (ca - ci). dc = ca - ci (Pa, floored by the
-! caller), rt = R T (J mol-1), r_bl the leaf boundary-layer resistance to
-! water vapour (s m-1). If the boundary layer alone allows less than a,
-! gl_unreach is returned. a <= 0 (closed): gl from the formula without the
-! boundary layer (<= 0).
+!   A = (ca - ci) / (R T (1.6 / gl + 1.37 r_bl))
+!
+! where ca and ci are the CO2 partial pressures of the air and inside the
+! leaf (Pa), R T is the gas constant times leaf temperature (J mol-1),
+! r_bl is the boundary-layer resistance to water vapour (s m-1), 1.6 is the
+! ratio of the diffusivities of water vapour and CO2 in air, and 1.37 turns
+! r_bl into the boundary-layer resistance to CO2. Solving for gl,
+!
+!   1.6 / gl = (ca - ci) / (R T A) - 1.37 r_bl
+!
+! (Leuning et al. 1995, as in CABLE). The argument dc is ca - ci, which the
+! caller keeps above a small floor, and rt is R T.
+!
+! If the boundary layer alone lets through less CO2 than a needs, no
+! stomatal opening can supply it, and gl_unreach is returned, which the
+! searches treat as infeasible. When a <= 0, or there is no boundary layer,
+! the formula without the boundary layer is used,
+!
+!   gl = 1.6 a R T / (ca - ci)
+!
+! which gives gl <= 0 for a <= 0.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -109,9 +125,22 @@ END IF
 END FUNCTION gl_co2_bl
 
 !-----------------------------------------------------------------------------
-! l_leaf_temp_ci: the leaf temperature of each candidate for the next call
-! of the bounded search (see ltc_a above). dl: d ln(p) / dT (K-1) of the
-! photosynthesis parameters in the order vcmax, je, kc, ko, ccp, km, rd.
+! Turn on a leaf temperature for each candidate Ci (l_leaf_temp_ci) for the
+! next call of the bounded search, and store the coefficients sf_stom has
+! worked out for each vegetated point:
+!
+!   T_leaf(E) = a - b E
+!   dq(T)     = dq(T0) + s (T - T0)
+!   p(T)      = p(T0) exp(dl (T - T0))
+!
+! The first is the leaf energy balance: the leaf temperature (K) falls as
+! the leaf transpires E (mol H2O m-2 s-1). The second is the humidity
+! deficit (kg kg-1) at leaf temperature T, with T0 the leaf temperature the
+! call is given. The third scales each photosynthesis parameter p, with dl
+! (K-1) in the order vcmax, je, kc, ko, ccp, km, rd.
+!
+! A negative b is set to 0, which keeps the point at T0. clear_leaf_temp_ci
+! turns this off again after the call.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -143,18 +172,28 @@ l_ltc = .TRUE.
 
 END SUBROUTINE set_leaf_temp_ci
 
+!-----------------------------------------------------------------------------
+! Turn off the leaf temperature of each candidate Ci (see set_leaf_temp_ci),
+! so later calls of the bounded search use the leaf temperature they are
+! given.
+!-----------------------------------------------------------------------------
 SUBROUTINE clear_leaf_temp_ci()
 IMPLICIT NONE
 l_ltc = .FALSE.
 END SUBROUTINE clear_leaf_temp_ci
 
 !-----------------------------------------------------------------------------
-! Coupled transpiration (l_som_coupled_e): the effective conductance for
-! water vapour from the leaf to the level-1 air, so that E = D g_eff, with D
-! the deficit from the leaf to the level-1 air.
+! Return the effective conductance for water vapour, g_eff (m s-1), from
+! inside the leaf to the air at the first model level, so that the
+! transpiration is E = D g_eff, with D the humidity deficit from the leaf
+! to that air. Coupled transpiration (l_som_coupled_e) uses it to work out
+! the transpiration of each stomatal conductance the search tries.
 !
-! Water vapour crosses the stomata and the leaf boundary layer in series,
-! then the canopy air, which this leaf class shares with the other class:
+! Water vapour leaves through the stomata (conductance g) and then the leaf
+! boundary layer (resistance r_bl), one after the other, with combined
+! conductance g'. It then crosses the canopy air to the first model level
+! (resistance r_ca). The sunlit and shaded leaves share the canopy air, so
+! the other group's conductance into it, g_o, also loads that resistance:
 !
 !   g'    = g / (1 + g r_bl)
 !   g_eff = g' / (1 + r_ca (g' + g_o))
@@ -181,12 +220,20 @@ g_eff = gp / ( 1.0 + r_ca * ( gp + g_o ) )
 END FUNCTION g_eff_e
 
 !-----------------------------------------------------------------------------
-! The inverse of g_eff_e: the stomatal conductance g whose effective
-! conductance is x. Returns HUGE when no finite g reaches x, because the
-! resistances in series cap g_eff below it.
+! Return the stomatal conductance g (m s-1) whose effective conductance from
+! the leaf to the first-level air is x (m s-1), the inverse of g_eff_e. It
+! turns a cap on transpiration into a cap on the stomatal conductance. Undoing
+! the two steps of g_eff_e in turn,
 !
-! Used to turn a cap on transpiration into a cap on g: the hydraulic limit
-! in the bounded search, and the soil supply limit in sf_stom.
+!   g' = x (1 + r_ca g_o) / (1 - r_ca x)
+!   g  = g' / (1 - g' r_bl)
+!
+! If either denominator is 0 or less, the resistances in series keep the
+! effective conductance below x however wide the stomata open, and HUGE is
+! returned.
+!
+! Used to turn a limit on transpiration into a limit on g: the hydraulic
+! limit in the bounded search, and the soil supply limit in sf_stom.
 !
 ! MDK, 21/10/26
 !-----------------------------------------------------------------------------
@@ -215,29 +262,50 @@ g   = gp / den
 END FUNCTION g_of_geff
 
 ! *********************************************************************
-! Contains routines to calculate the optimal stomatal conductance and
-! net carbon uptake.
+! Stomatal optimisation: for each group of open leaves (the whole canopy,
+! the sunlit or the shaded leaves, or the leaves of one canopy layer),
+! choose how far the stomata open by weighing the carbon they let in
+! against the harm the water they let out does to the plant's water
+! transport.
 !
-! Profit maximisation in six steps (stomata_model = 4; Sperry et al. 2017).
-! For each open leaf (or sunlit/shaded class, or canopy layer) the stomata
-! choose the internal CO2, Ci, that maximises carbon gain minus hydraulic
-! cost:
+! The search runs over the internal CO2 partial pressure, Ci (Pa), because
+! photosynthesis and stomatal conductance both follow directly from it. For
+! each candidate Ci:
 !
-!   1. A(Ci)        net photosynthesis at Ci (Collatz or Farquhar)
-!   2. gl(Ci)       = ratio A R T / (ca - Ci), the leaf conductance that
-!                     supplies that CO2 (ratio = 1.6, water vs CO2)
-!   3. E(Ci)        = gl x the leaf-to-air humidity deficit, the
-!                     transpiration that follows
-!   4. psi_leaf(E)  from the plant's supply function: the integral of its
-!                     vulnerability curve from the soil to the leaf
-!   5. k(E)         = -dE/dpsi_leaf, the plant conductance left at that E
-!   6. profit       = A / A_max - (k_max - k) / (k_max - k_crit)
+!   1. A(Ci): net photosynthesis (mol CO2 m-2 s-1), from the Collatz or
+!      Farquhar model.
+!   2. gl(Ci) = 1.6 A R T / (ca - Ci): the stomatal conductance to water
+!      vapour (m s-1) that lets that CO2 in, with ca the CO2 partial
+!      pressure of the air (Pa), R T the gas constant times leaf
+!      temperature, and 1.6 the ratio of the diffusivities of water vapour
+!      and CO2 in air.
+!   3. E(Ci): the transpiration that follows (mol H2O m-2 s-1), gl times
+!      the humidity deficit from the leaf to the air.
+!   4. psi_leaf(E): the leaf water potential (Pa, negative) needed to pull
+!      E from the soil, from the plant's supply function (the integral of
+!      its vulnerability curve from the soil to the leaf).
+!   5. k(E) = -dE/dpsi_leaf: the conductance of the soil-to-leaf path left
+!      at that E (mol m-2 s-1 Pa-1).
+!   6. Profit max (stomata_model = 4; Sperry et al. 2017) scores the Ci as
 !
-! States with k <= k_crit (hydraulic failure) or gl > gl_max are not
-! allowed. Ci rather than gl is the search variable because A and gl are
-! both explicit in Ci. The other stomatal models (CMax, CGain, SOX, CAP,
-! ProfitMax2) keep steps 1-5 and change step 6 (see profit in
-! stom_opt_bounded_search).
+!        profit = A / A_max - (k_max - k) / (k_max - k_crit)
+!
+!      the carbon gain as a fraction of the largest A on offer, minus the
+!      fraction of the usable conductance lost. k_max is the conductance
+!      of the path with no flow and k_crit the conductance at which the
+!      path is taken to fail.
+!
+! A Ci is ruled out if k <= k_crit (hydraulic failure) or gl is above the
+! cap gl_max (when set). The other stomatal models (CMax, CGain, SOX_opt,
+! CAP and ProfitMax2) use steps 1 to 5 and replace the score in step 6
+! (see the function profit in stom_opt_bounded_search). Supply-loss
+! stomata (stomata_model = 9) use steps 1 to 5 and a fixed rule in place of
+! a score (stom_opt_supply_loss).
+!
+! stom_opt_mod first sets every point to the closed-stomata state, then
+! runs the chosen model on the points with open stomata. For profit max,
+! points where even the widest opening costs almost no conductance skip
+! the search (fast_path).
 !
 ! References:
 ! - Sperry, J. S., Venturas, M. D., Anderegg, W. R. L., Mencuccini, M., Mackay,
@@ -943,10 +1011,12 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 CONTAINS
 
 !-----------------------------------------------------------------------------
-! The bounded Ci search (stom_opt_bounded_search) on n points, idx in the
-! open_index convention. lai_cost is read only by CMax, CGain and CAP, and
-! psi_stem_g is set only with impairment and segments, so SOX_opt can take
-! the same call.
+! Run the bounded Ci search (stom_opt_bounded_search) on n open points and
+! put its results in the *_bnd arrays. idx holds, like open_index, the
+! points' positions in the list of vegetated points (veg_index). Every
+! model that uses the bounded search shares this one call: only CMax and
+! CGain read lai_cost, and the stem water potential (psi_stem_bnd) is set
+! only with xylem impairment on the segmented path.
 !-----------------------------------------------------------------------------
 SUBROUTINE bounded_search( n, idx )
 INTEGER, INTENT(IN) :: n, idx(:)
@@ -972,9 +1042,11 @@ CALL stom_opt_bounded_search(                                                  &
 END SUBROUTINE bounded_search
 
 !-----------------------------------------------------------------------------
-! Copy the *_bnd results of n points (idx in the open_index convention) to
-! the land-point outputs; l_stem: also psi_stem (not set by
-! stom_opt_supply_loss, nor used by SOX_opt).
+! Copy the bounded search's results (*_bnd) for n open points (idx as in
+! bounded_search) to the outputs on the land-point grid. l_stem: also copy
+! the stem water potential, which stom_opt_supply_loss does not set and
+! SOX_opt does not use. The marginal water price (lambda_eff) is copied
+! for every model except supply-loss stomata.
 !-----------------------------------------------------------------------------
 SUBROUTINE scatter_bnd( n, idx, l_stem )
 INTEGER, INTENT(IN) :: n, idx(:)
@@ -1001,8 +1073,24 @@ END DO
 END SUBROUTINE scatter_bnd
 
 !-----------------------------------------------------------------------------
-! Profit max: the negligible-hydraulic-cost fast path, and the list of the
-! points it does not resolve (open_index_search), which go to the search.
+! Profit max: skip the search at points where water costs the plant almost
+! nothing.
+!
+! The hydraulic cost only grows as Ci rises (wider stomata, more
+! transpiration, lower leaf water potential, less conductance), so it is
+! largest at the top of the Ci range, just below ca. With
+! l_som_skip_search_wellwatered, one Ci just below ca is evaluated at each
+! open point. If that state is feasible and its cost,
+!
+!   (k_ref - k) / (k_ref - k_crit)
+!
+! is below som_hc_negligible_tol, the profit is in effect the carbon gain
+! alone, which rises with Ci, so the search would end at this same Ci and
+! the point takes this state directly. k_ref is the conductance of the
+! path with no flow (of the intact path with xylem impairment). The
+! shortcut is not used with the nonstomatal limitation (l_som_nsl), which
+! can put the best Ci lower. The other open points are listed in
+! open_index_search for the full search.
 !-----------------------------------------------------------------------------
 SUBROUTINE fast_path()
 
@@ -1097,7 +1185,11 @@ END DO
 END SUBROUTINE fast_path
 
 !-----------------------------------------------------------------------------
-! Profit max on the flat Ci grid, for the open_index_flat points.
+! Choose the stomatal opening by profit max on an even grid of som_n_sample Ci
+! values from ccp (the CO2 compensation point without dark respiration, Pa) to
+! ca, for the points in open_index_flat: evaluate every Ci (stom_opt_mod_ci),
+! pick the feasible one with the largest profit (stom_opt_profit_max_select)
+! and copy it to the outputs.
 !-----------------------------------------------------------------------------
 SUBROUTINE profit_max_flat()
 
@@ -1145,7 +1237,8 @@ END DO
 END SUBROUTINE profit_max_flat
 
 !-----------------------------------------------------------------------------
-! Allocate the flat-search sample arrays (once per call of stom_opt_mod).
+! Allocate the arrays of the grid (flat) searches, once per call of
+! stom_opt_mod. The bounded search does not need them.
 !-----------------------------------------------------------------------------
 SUBROUTINE alloc_flat()
 IF ( ALLOCATED(ci_sample) ) RETURN
@@ -1168,10 +1261,11 @@ ALLOCATE( ci_sample(0:som_n_sample, open_pts),                                 &
 END SUBROUTINE alloc_flat
 
 !-----------------------------------------------------------------------------
-! Set the outputs at land point l from Ci sample k of open point j of a
-! flat search (k = 0: closed), for both flat searches. Closed (k = 0, or
-! gl = 0): al = -rd, as in set_closed, and gain and cost 0, as documented
-! for carbon_gain_out and hydraulic_cost_out.
+! Copy Ci sample k of open point j of a grid search to the outputs at land
+! point l. Sample 0 is the closed state. A closed result (k = 0, or a
+! stomatal conductance of 0) has net photosynthesis -rd, the dark
+! respiration, and a carbon gain and hydraulic cost of 0. An open result
+! has net photosynthesis no lower than -rd.
 !-----------------------------------------------------------------------------
 SUBROUTINE take_sample( j, l, k )
 INTEGER, INTENT(IN) :: j, l, k
@@ -1206,8 +1300,17 @@ END IF
 END SUBROUTINE take_sample
 
 !-----------------------------------------------------------------------------
-! SOX_opt on the flat Ci grid (without the bounded search). SOX_opt has no
-! xylem impairment (rejected at start-up).
+! Choose the stomatal opening by SOX_opt (Eller et al. 2018) on an even grid of
+! Ci from ccp to ca, when the bounded search is off. Each feasible sample is
+! scored
+!
+!   profit = A (k(psi_bar) - kcrit) / (k_top - kcrit)
+!
+! where A is net photosynthesis, psi_bar the mean of the leaf and root-zone
+! water potentials, k(psi_bar) the conductance of the whole soil-to-leaf
+! path with every part at psi_bar, and k_top the largest such k over the
+! feasible samples. The sample with the largest profit is taken. SOX_opt
+! cannot be run with xylem impairment (it is rejected at start-up).
 !-----------------------------------------------------------------------------
 SUBROUTINE sox_flat_search()
 
@@ -1296,14 +1399,18 @@ END SUBROUTINE sox_flat_search
 END SUBROUTINE stom_opt_mod
 
 !-----------------------------------------------------------------------------
-! Transpiration E (mol H2O m-2 s-1) through conductance g (m s-1) at
-! specific-humidity deficit dq (kg kg-1), surface pressure pstar (Pa) and
-! temperature t (K): the molar density of air times the mole-fraction
-! deficit,
+! Return the transpiration E (mol H2O m-2 s-1) through a conductance to water
+! vapour g (m s-1), at specific-humidity deficit dq (kg kg-1), surface pressure
+! P = pstar (Pa) and temperature T = t (K), so a stomatal conductance can be
+! turned into the water the leaf loses. It is g times the molar density of air,
+! P / (R T), times the deficit as a mole fraction, vpd / P:
 !
-!   E = g (P / (R T)) (vpd / P) = g vpd / (R T),   vpd = dq P / repsilon
+!   E   = g (P / (R T)) (vpd / P) = g vpd / (R T)
+!   vpd = dq P / repsilon
 !
-! The one copy used by the Ci searches and sf_stom.
+! with vpd the vapour pressure deficit (Pa), R the gas constant and
+! repsilon the ratio of the molar masses of water and dry air. The Ci
+! searches and sf_stom all use this one function.
 !
 ! MDK, 23/10/26
 !-----------------------------------------------------------------------------
@@ -1330,25 +1437,29 @@ e = dq * pstar / repsilon * g / (rmol * t)
 END FUNCTION e_of_g
 
 !-----------------------------------------------------------------------------
-! Net photosynthesis A_n = W - rd (mol CO2 m-2 s-1) of one leaf state at
-! internal CO2 ci (Pa): the one copy used by every Ci search
-! (stom_opt_mod_ci, stom_opt_bounded_search, stom_opt_supply_loss). Based
-! on leaf_limits_mod.F90 and leaf.F90.
+! Return the net photosynthesis A = W - rd (mol CO2 m-2 s-1) of a leaf at
+! internal CO2 partial pressure ci (Pa): the gross rate W minus the dark
+! respiration rd. Every Ci search in this module uses this one function to
+! find the carbon gain of a candidate Ci. It follows leaf_limits_mod.F90 and
+! leaf.F90.
 !
-!   Collatz (C3 or C4): the Rubisco (wcarb), light (wlite) and export
-!     (wexpt) limited rates co-limited by two quadratics, the smaller roots
-!     of
+! Collatz (C3 or C4): three limiting rates, set by Rubisco (wcarb), by
+! light (wlite) and by the export of products (wexpt), are blended in two
+! steps, each taking the smaller root of a quadratic:
 !
-!       beta1 W^2 - (wcarb + wlite) W + wcarb wlite = 0,   then
-!       beta2 A^2 - (W + wexpt) A + W wexpt = 0
+!   beta1 W1^2 - (wcarb + wlite) W1 + wcarb wlite = 0
+!   beta2 W^2  - (W1 + wexpt) W     + W1 wexpt    = 0
 !
-!     (Cox, HCTN 24, equations 54 and 55).
-!   Farquhar (C3): W = MIN(wcarb, wlite); with Johnson-Berry (photo_model)
-!     the light-limited rate is scaled by jb_eta_scale(ccp, ci).
+! (Cox, HCTN 24, equations 54 and 55). beta1 and beta2 set how sharply one
+! limit gives way to the next.
 !
-! Multilayer calls (l_multilayer) rescale the light-limited rate to this
-! layer's sunlit or shaded leaves: by fapar_lf * ipar / apar (Collatz), or
-! je_ratio (Farquhar).
+! Farquhar (C3): W is the smaller of the Rubisco and light limited rates.
+! With Johnson-Berry photosynthesis (photo_model) the light-limited rate is
+! scaled by jb_eta_scale(ccp, ci).
+!
+! In a layer of the multilayer canopy (l_multilayer) the light-limited rate
+! is rescaled to that layer's sunlit or shaded leaves: by
+! fapar_lf ipar / apar (Collatz) or by je_ratio (Farquhar).
 !
 ! MDK, 23/10/26
 !-----------------------------------------------------------------------------
@@ -1430,12 +1541,21 @@ al = wl - rd
 END FUNCTION leaf_net_photo
 
 !-----------------------------------------------------------------------------
-! The leaf states on a grid of Ci, for the flat searches and the fast path.
-! n_sample Ci values are spaced evenly on [ci_lo, ci_hi)
-! at each open point. Entry 0 is the closed state (see below). For each
-! sample it returns A, gl, E, psi_leaf, the path conductance k and the
-! conductance for the hydraulic cost (k_cost; kl_hc_sample). With
-! l_photo_only only A, gl and E are set.
+! Work out the leaf states on an even grid of Ci, which the grid searches and
+! the fast path then choose from. At each open point n_sample values of Ci are
+! spaced evenly from ci_lo up to, but not including, ci_hi, so the top sample
+! stays below ca when ci_hi = ca (where gl would be infinite). For each sample
+! it returns net photosynthesis A, the stomatal conductance gl that supplies
+! the CO2, the transpiration E, and from the plant's water path (som_path_psi)
+! the leaf water potential, the path conductance k and the conductance the
+! hydraulic cost uses (the intact path's with xylem impairment). With
+! l_som_coupled_e the CO2 and the water vapour also cross the leaf boundary
+! layer (gl_co2_bl, g_eff_e).
+!
+! Entry 0 of each output is the closed-stomata state: Ci = ca, A = -rd, no
+! conductance or transpiration, the leaf at the root-zone water potential,
+! and k that of the path with no flow. With l_photo_only only Ci, A, gl and
+! E are set, and the hydraulic outputs are 0.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -1815,23 +1935,27 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE stom_opt_mod_ci
 
 !-----------------------------------------------------------------------------
-! Leaf water potential and whole-path conductance for a given transpiration
-! e_leaf,
+! Work out the leaf water potential psi_leaf (Pa) and the conductance of the
+! soil-to-leaf path, k = -dE/dpsi_leaf (mol m-2 s-1 Pa-1), which give the
+! hydraulic cost of a candidate Ci, for given transpiration rates e_leaf
+! (mol H2O m-2 s-1), on the same path the optimiser uses:
 !
-!   psi_leaf = psi_leaf(e_leaf)
-!   k        = -dE / dpsi_leaf
+!   - xylem impairment with plant segments: root, stem and leaf in series,
+!     with the stem and leaf capped at kmax / kmax_ref of their intact
+!     conductance (the damage remembered from earlier droughts). This also
+!     gives the stem water potential, psi_stem.
+!   - xylem impairment alone: the impaired whole-plant vulnerability curve.
+!   - otherwise: the whole-plant vulnerability curve (conductance_b and
+!     conductance_c).
 !
-! solved on the same path the optimiser uses:
-!   - xylem impairment with segments: the root, stem and leaf segments, with
-!     the stem and leaf capped by the memory model (kmax / kmax_ref); this
-!     also gives psi_stem
-!   - xylem impairment alone: the impaired whole-plant curve
-!   - otherwise: the whole-plant vulnerability curve (b, c)
+! leaf_k_intact, when asked for, is the conductance the hydraulic cost
+! uses: that of the intact (undamaged) path at the same water potentials,
+! with the soil-to-root link where the path has one. It equals leaf_k
+! without impairment.
 !
-! Used for the Ci samples and the closed-stomata state (stom_opt_mod_ci)
-! and for the single-sample solves of the bounded search, so all of them
-! solve on the same path. (sf_stom's cuticular loss calls the segment
-! solver directly.)
+! The Ci samples, the closed state and the one-Ci evaluations of the
+! bounded search all call this routine, so they all solve the same path.
+! (The cuticular loss in sf_stom calls the segment solver directly.)
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -2020,18 +2144,26 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE som_path_psi
 
 !-----------------------------------------------------------------------------
-! Given a Ci sample grid already evaluated by stom_opt_mod_ci (al_sample,
-! kl_sample, psi_sample), builds the psi/k physical-feasibility mask,
-! computes profit under the profit_max_profit_model formulation, and
-! returns the index of the maximum-profit sample per open point.
+! Choose the stomatal opening by profit max from a grid of Ci samples already
+! evaluated by stom_opt_mod_ci: mark the feasible samples, score each one, and
+! return the best sample of each open point.
 !
-! Returns optimal_index(j) = 0 when no sample for open point j is feasible;
-! callers should then use sample index 0 (the closed-stomata state) rather
-! than treat this as an error - see the closed state, entry 0, in
-! stom_opt_mod_ci.
+! A sample is feasible if the leaf is no wetter than the root zone, the
+! path conductance is above kcrit, and gl is within gl_max (when set). The
+! score is
 !
-! Used by the flat search's single pass to select the profit-maximising
-! sample, keeping the mask/profit/MAXLOC logic out of stom_opt_mod itself.
+!   profit = (A + g_off) / A_max - (k_max - k) / (k_max - kcrit)
+!
+! with A the net photosynthesis, g_off = rd for the gross gain
+! (l_som_gain_gross) and 0 otherwise, A_max the largest A + g_off over the
+! samples the hydraulics allow (leaving out the gl cap), k the conductance
+! the cost uses, and k_max the largest such k over the feasible samples
+! (with xylem impairment, kl_hc_max: the intact path with no flow). Both
+! terms run from 0 to 1, so no exchange rate between carbon and water is
+! needed.
+!
+! optimal_index(j) is 0 when no sample is feasible or A_max <= 0. The
+! caller then takes sample 0, the closed state (see stom_opt_mod_ci).
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -2219,31 +2351,42 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE stom_opt_profit_max_select
 
 !-----------------------------------------------------------------------------
-! Bounded Ci search (som_ci_search = 2), one open point at a time. It serves
-! all six optimisation models: profit max, SOX_opt, CMax, CGain, CAP and
-! ProfitMax2 (the profit function is chosen by l_cmax, l_cgain, l_sox,
-! l_cap and l_pm2).
+! Choose the stomatal opening of each open point, one point at a time, by
+! searching for the Ci with the largest score inside the feasible Ci range (the
+! bounded Ci search, som_ci_search = 2). Profit max, SOX_opt, CMax, CGain, CAP
+! and ProfitMax2 use it. The score each model maximises is chosen by l_cmax,
+! l_cgain, l_sox, l_cap and l_pm2 (see the function profit).
 !
-! gl rises with Ci (A rises and ca - Ci falls), so E rises and k(psi_leaf)
-! falls: the feasible samples of the flat grid form a single range
-! [ccp, ci_b]. For each point:
-!   1. ccp gives max k (E = 0); if it is infeasible every Ci is. A is
-!      monotone in Ci, so if A <= 0 at the top of the range every feasible
-!      A is too and the stomata are closed, as for the flat search.
-!   2. ci_b by an Illinois (bracketed regula falsi) root find: with
-!      psi_solver_lut on the cap that gl_max and k > kcrit put on gl, which
-!      needs only photosynthesis (edge_by_gl_cap); otherwise on the
-!      feasibility margin of full evaluations (edge_by_margin). Max A is
-!      A(ci_b): the normalisation the flat grid gets from its feasible
-!      samples in the limit of a fine grid.
-!   3. golden-section maximisation of profit on [ccp, ci_b], where every Ci
-!      is feasible (no cliff), to (ci_b - ccp)/opt_resol or n_iter
-!      iterations.
-!   4. hold leaf psi (ximpair_hold_psi, xylem impairment): the search above
-!      runs on the intact path, then Ci is moved so that the impaired path
-!      reaches the same leaf water potential (hold_leaf_psi).
-! The best point seen (including ccp and ci_b) is returned. Each evaluation
-! is scalar (eval_ci), so points stop as soon as they have converged.
+! As Ci rises, A rises and ca - Ci falls, so gl and E rise and the path
+! conductance k falls. The feasible Ci therefore form one range, from ccp
+! up to an upper edge ci_b. For each point:
+!
+!   1. Evaluate both ends of the full range (range_ends). ccp has the
+!      largest k (no transpiration); if it is infeasible, every Ci is, and
+!      the stomata close. They also close if A <= 0 at the top of the
+!      range, since A only rises with Ci.
+!   2. Find the edge ci_b (find_edge) by a bracketed search that keeps one
+!      feasible and one infeasible end and places each new guess where the
+!      straight line between them crosses the limit (the Illinois form of
+!      regula falsi). With the supply table it works on the limit that
+!      gl_max and k > kcrit put on gl, which needs only photosynthesis
+!      (edge_by_gl_cap); otherwise on how far full evaluations are from the
+!      limits (edge_by_margin).
+!   3. Set the gain scale A_max (scale_and_ends): A at the edge set by the
+!      hydraulics, found beyond the gl cap when the cap binds first
+!      (hydraulic_edge), as in Sperry et al. (2017).
+!   4. Find the Ci of largest profit between ccp and ci_b (golden_max) by a
+!      golden-section search, which shrinks the bracket by the same
+!      fraction, 0.618, at each step, until it is narrower than
+!      (ci_b - ccp) / opt_resol or after n_iter steps. Every Ci in this
+!      range is feasible, so the score has no sudden drop.
+!   5. With xylem impairment and ximpair_hold_psi, steps 1 to 4 run on the
+!      intact path, and Ci is then lowered until the impaired path gives
+!      the same leaf water potential (hold_leaf_psi).
+!
+! The best Ci seen at any step, both ends included, is returned, with the
+! marginal water price dA/dE there (lambda_diag). Each evaluation is for one
+! point (eval_ci), so each point stops as soon as it has converged.
 !
 ! MDK, 30/10/26
 !-----------------------------------------------------------------------------
@@ -2549,8 +2692,13 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 CONTAINS
 
   !---------------------------------------------------------------------------
-  ! Per-point set-up: the leaf area of the call, the reference conductances
-  ! of SOX and CGain, and the Ci range [ci_lo, ci_top].
+  ! Set up one point: the leaf area of the call (lai_call, for the CMax and
+  ! CGain costs, which are given per unit leaf area), the reference
+  ! conductances of SOX_opt (the path with no flow) and CGain (the plant
+  ! with no flow at zero water potential), the kcrit of the hydraulic cost,
+  ! and the Ci range [ci_lo, ci_top]. ci_lo is ccp. With a gl cap, ci_top is
+  ! 0.01 Pa below ca; without one, it is the top sample of the grid search,
+  ! ca - (ca - ccp) / n_top.
   !---------------------------------------------------------------------------
   SUBROUTINE point_setup()
   IF ( PRESENT(psi_stem_g) ) psi_stem_g(j) = psi_root_zone(l)
@@ -2602,8 +2750,14 @@ CONTAINS
   END SUBROUTINE point_setup
 
   !---------------------------------------------------------------------------
-  ! Section 1: evaluate both ends of the Ci range. l_shut: the point is
-  ! closed (set_closed done).
+  ! Step 1: evaluate the bottom (ccp) and top (ci_top) of the Ci range. The
+  ! bottom gives the largest path conductance, which is the k_max of the
+  ! hydraulic cost unless the cost uses the intact path with no flow
+  ! (kl_hc_max: impairment with ximpair_hold_gs, the store's flow held
+  ! fixed, or the shared root and stem). l_shut is .TRUE. when the point is
+  ! closed: the bottom is infeasible, or A is 0 or less at the top. (That
+  ! test uses A without the nonstomatal limitation, which could otherwise
+  ! hide an open optimum.)
   !---------------------------------------------------------------------------
   SUBROUTINE range_ends( l_shut )
   LOGICAL, INTENT(OUT) :: l_shut
@@ -2659,7 +2813,12 @@ CONTAINS
   END SUBROUTINE range_ends
 
   !---------------------------------------------------------------------------
-  ! Section 2: the upper edge of the feasible range (e_*).
+  ! Step 2: find the upper edge of the feasible Ci range, which bounds the
+  ! search for the best Ci, and hold it in e_*. If the top of the range is
+  ! feasible, the edge is the top. Otherwise it is found from the gl cap
+  ! (edge_by_gl_cap) when the supply table is used and A does not depend on the
+  ! leaf's water potential or on a temperature of its own, and from full
+  ! evaluations (edge_by_margin) in all other cases.
   !---------------------------------------------------------------------------
   SUBROUTINE find_edge()
   !---------------------------------------------------------------------------
@@ -2690,9 +2849,18 @@ CONTAINS
   END SUBROUTINE find_edge
 
   !---------------------------------------------------------------------------
-  ! The gain normalisation max_al, E_crit (ProfitMax2), and both ends of the
-  ! feasible range as candidates. l_shut: the point is closed (no carbon
-  ! benefit from opening).
+  ! Step 3: work out the gain scale A_max (max_al), which the scores use to
+  ! scale A, and try both ends of the feasible range as candidates for the best
+  ! Ci.
+  !
+  ! A_max is A at the hydraulic edge (k = kcrit, or ci_top), the largest A
+  ! along the supply curve up to failure (Sperry et al. 2017). If the gl
+  ! cap set the edge, the hydraulic edge is found beyond it
+  ! (hydraulic_edge). With the nonstomatal limitation, A_max is A without
+  ! the limitation. With the shared root and stem and the whole-plant gain
+  ! (l_shared_gain_path), the other group of leaves' A_max is added.
+  ! ProfitMax2 also needs E_crit (find_e_crit). l_shut is .TRUE. when
+  ! A_max <= 0: opening gains no carbon, so the point is closed.
   !---------------------------------------------------------------------------
   SUBROUTINE scale_and_ends( l_shut )
   LOGICAL, INTENT(OUT) :: l_shut
@@ -2757,10 +2925,11 @@ CONTAINS
   END SUBROUTINE scale_and_ends
 
   !---------------------------------------------------------------------------
-  ! The hydraulic edge beyond a gl cap, for the gain normalisation (hy_ci,
-  ! hy_al): the edge search with the cap left out of the feasibility test,
-  ! from the capped edge e_* to ci_top. The edge state e_* is restored
-  ! afterwards, so the search range is unchanged.
+  ! Find the edge of the Ci range set by the hydraulics alone (hy_ci, hy_al),
+  ! beyond a gl cap that binds first, for the gain scale only. The edge search
+  ! runs again from the capped edge to ci_top with the cap left out of the test
+  ! (l_no_glcap). The capped edge e_* is put back afterwards, so the Ci range
+  ! of the search does not change.
   !---------------------------------------------------------------------------
   SUBROUTINE hydraulic_edge()
   REAL(KIND=real_jlslsm) :: s_ci, s_al, s_gl, s_el, s_psi, s_kl, s_khc, s_g
@@ -2800,7 +2969,13 @@ CONTAINS
   END SUBROUTINE hydraulic_edge
 
   !---------------------------------------------------------------------------
-  ! Section 3: golden-section search for the maximum profit.
+  ! Step 4: find the Ci of largest profit between ccp and the edge by
+  ! golden-section search. Two candidate points sit at 0.382 and 0.618 of the
+  ! bracket. Each step drops the part beyond the worse one, and the kept point
+  ! falls on a golden-ratio position of the new bracket, so each step costs one
+  ! evaluation. Where profit may have more than one peak (l_multi_peak), a
+  ! coarse scan of n_scan points first narrows the bracket to the two
+  ! neighbours of the best one.
   !---------------------------------------------------------------------------
   SUBROUTINE golden_max()
   !---------------------------------------------------------------------------
@@ -2887,7 +3062,11 @@ CONTAINS
   END IF
   END SUBROUTINE golden_max
 
-  ! Profit may have more than one peak in Ci at this point (see golden_max).
+  ! Say whether profit may have more than one peak in Ci at this point, so that
+  ! golden_max scans the range coarsely first. It is .TRUE. with the
+  ! nonstomatal limitation, with Johnson-Berry photosynthesis, or with a
+  ! vulnerability curve of shape parameter c < 1 (the whole plant's, or any
+  ! segment's with plant segments).
   LOGICAL FUNCTION l_multi_peak()
   l_multi_peak = l_som_nsl .OR. pft_photo_model == photo_johnson .OR.          &
                  conductance_c(l) < 1.0
@@ -2896,7 +3075,10 @@ CONTAINS
   END FUNCTION l_multi_peak
 
   !---------------------------------------------------------------------------
-  ! Diagnostic dA/dE at the optimum (lambda_g).
+  ! Work out, for output, the marginal water price at the chosen Ci,
+  ! lambda_g = dA/dE (mol CO2 per mol H2O), from A and E at two Ci a small
+  ! step (0.1 % of the feasible range) either side of it, kept inside the
+  ! range. Diagnostic only: the chosen state is not changed.
   !---------------------------------------------------------------------------
   SUBROUTINE lambda_diag()
   ! Diagnostic dA/dE at the optimum: central difference over
@@ -2915,7 +3097,11 @@ CONTAINS
   END SUBROUTINE lambda_diag
 
   !---------------------------------------------------------------------------
-  ! Copy the chosen state to the outputs, with its gain and cost.
+  ! Copy the best state found to the outputs, with its carbon gain and
+  ! hydraulic cost as fractions. For CMax, CGain and ProfitMax2 the cost is
+  ! the carbon taken off A, over A_max; for SOX_opt it is 1 minus the factor
+  ! on A; for CAP it is the loss of A to the nonstomatal limitation, over
+  ! A_max. A stomatal conductance of 0 counts as closed (A = -rd).
   !---------------------------------------------------------------------------
   SUBROUTINE chosen_state()
   ci_g(j) = MAX(0.0, best_ci)
@@ -2948,7 +3134,15 @@ CONTAINS
   END SUBROUTINE chosen_state
 
   !---------------------------------------------------------------------------
-  ! Section 4: hold leaf psi with xylem impairment (see below).
+  ! Step 5, with xylem impairment and ximpair_hold_psi: narrow the stomata until
+  ! the leaf water potential on the damaged path is back at psi_star, that of
+  ! the optimum found on the intact path. The damaged path carries less water
+  ! at psi_star. Ci is lowered from that optimum towards ccp until the impaired
+  ! path gives psi_leaf = psi_star, by halving the bracket each step
+  ! (bisection; psi_leaf falls as Ci rises). If even ccp leaves the leaf below
+  ! psi_star, ccp is taken. If the result is infeasible on the impaired path,
+  ! the feasible guess with the largest Ci is used, and with none the point is
+  ! closed. The reported gain and cost are those of the intact-path optimum.
   !---------------------------------------------------------------------------
   SUBROUTINE hold_leaf_psi()
   !---------------------------------------------------------------------------
@@ -3042,7 +3236,10 @@ CONTAINS
   END SUBROUTINE hold_leaf_psi
 
   !---------------------------------------------------------------------------
-  ! Stem water potential of the chosen state (psi_stem_g).
+  ! Work out the stem water potential at the chosen transpiration (psi_stem_g),
+  ! on the impaired segmented path, for the record of stem damage. Only with
+  ! xylem impairment, plant segments and open stomata; the state itself is
+  ! already chosen.
   !---------------------------------------------------------------------------
   SUBROUTINE stem_psi_of_choice()
   ! Stem leaf-side psi at the chosen transpiration on the (impaired) segment
@@ -3061,9 +3258,14 @@ CONTAINS
   END SUBROUTINE stem_psi_of_choice
 
   !---------------------------------------------------------------------------
-  ! Leaf state at internal CO2 ci for land point l: the same photosynthesis,
-  ! conductance, transpiration and leaf-psi calculations as stom_opt_mod_ci
-  ! for one sample, and its feasibility (ok_u) as stom_opt_profit_max_select.
+  ! Work out the leaf state at one candidate Ci for point l, for the search to
+  ! score: A, gl, E, the leaf water potential and the path conductances, worked
+  ! out as stom_opt_mod_ci does for one sample, and whether the Ci is feasible
+  ! (ok_u). With l_leaf_temp_ci the candidate has its own leaf temperature
+  ! (state_at_leaf_temp). With the nonstomatal limitation (l_som_nsl), A is
+  ! scaled by a factor of the leaf water potential, and that factor has to
+  ! agree with the water potential the scaled A gives; it is found by a
+  ! bracketed straight-line search (Illinois), set out in the body.
   !---------------------------------------------------------------------------
   SUBROUTINE eval_ci(ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci
@@ -3200,10 +3402,12 @@ CONTAINS
          .AND. gl_u < gl_unreach
   END SUBROUTINE eval_ci
 
-  ! Conductance, transpiration, leaf psi and xylem k at internal CO2 ci for
-  ! net photosynthesis al. Sets al_u, gl_u, el_u, psi_u, kl_u and khc_u, the
-  ! conductance for the hydraulic cost (kl_u, or with impairment and
-  ! ximpair_hold_gs the intact path's, khc1).
+  ! Work out how much water a candidate Ci costs: for net photosynthesis al at
+  ! internal CO2 ci, the stomatal conductance that supplies it,
+  ! gl = 1.6 al R T / (ca - ci) (through the leaf boundary layer too with
+  ! l_som_coupled_e), the transpiration E it gives, and then the leaf water
+  ! potential and conductances at that E (psi_k_at_e). E is floored at 0
+  ! only without l_som_coupled_e.
   SUBROUTINE hydraulic_state(ci, al)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci, al
 
@@ -3221,24 +3425,27 @@ CONTAINS
   END SUBROUTINE hydraulic_state
 
   !-------------------------------------------------------------------------
-  ! l_leaf_temp_ci: A, gl and E at internal CO2 ci at the candidate's own
-  ! leaf temperature (sets al0_u, al_u, gl_u, el_u). The leaf temperature
-  ! T is where the leaf energy balance, T = ltc_a - ltc_b E, meets the
-  ! transpiration at T, E = c_e dq(T), with
+  ! Work out A, gl and E at internal CO2 ci with the leaf at its own
+  ! temperature for this candidate (l_leaf_temp_ci), as a candidate that
+  ! transpires more has a cooler leaf. The leaf temperature T has to satisfy
+  ! both the leaf energy balance and the transpiration at T:
   !
-  !   c_e   = E per unit deficit through gl (g_eff with l_som_coupled_e),
-  !   dq(T) = dq0 + ltc_s (T - T0),
+  !   T     = ltc_a - ltc_b E            (K; more transpiration cools)
+  !   E     = c_e dq(T)                  (mol H2O m-2 s-1)
+  !   dq(T) = dq0 + ltc_s (T - T0)       (kg kg-1)
   !
-  ! so for a given gl
+  ! where c_e is the transpiration per unit humidity deficit through gl
+  ! (through g_eff with l_som_coupled_e), and dq0 and T0 are the deficit
+  ! and leaf temperature the call is given. For a given gl this gives
   !
-  !   T = (ltc_a - ltc_b c_e (dq0 - ltc_s T0)) / (1 + ltc_b c_e ltc_s).
+  !   T = (ltc_a - ltc_b c_e (dq0 - ltc_s T0)) / (1 + ltc_b c_e ltc_s)
   !
-  ! A, and so gl, depend on T through the photosynthesis parameters, which
-  ! are scaled from T0 as exp(ltc_dl (T - T0)). This fixed point is
-  ! iterated from T0 a fixed n_ltc_iter times (a tolerance test would make
-  ! the count, and so profit(Ci), jump between neighbouring Ci, which can
-  ! move the golden section by 1-3 % of its range); T stays within dt_ltc
-  ! of T0.
+  ! A, and so gl, depend on T through the photosynthesis parameters, each
+  ! scaled from T0 by exp(ltc_dl (T - T0)). The loop updates T from T0 a
+  ! fixed n_ltc_iter times, with no tolerance test, so that the number of
+  ! updates, and so the profit, does not jump from one Ci to the next. T
+  ! stays within dt_ltc of T0. E is floored at 0, so a leaf cooled below
+  ! the dew point does not count as taking up water.
   !-------------------------------------------------------------------------
   SUBROUTINE state_at_leaf_temp(ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci
@@ -3284,9 +3491,14 @@ CONTAINS
   el_u = MAX(0.0, c_e * (dq(l) + ltc_s(l) * (tl - t_leaf(l))))
   END SUBROUTINE state_at_leaf_temp
 
-  ! Leaf psi, conductance and the hydraulic-cost conductance (psi_u, kl_u,
-  ! khc_u) at transpiration el_u, on the path the search runs on (separate
-  ! from hydraulic_state for ProfitMax2's E_crit).
+  ! Work out the leaf water potential psi_u, path conductance kl_u and
+  ! conductance for the hydraulic cost khc_u at transpiration el_u, on the path
+  ! the search runs on: the supply table, the impaired path, the intact path
+  ! (during a hold-psi search) or the point's own vulnerability curve. khc_u is
+  ! kl_u, except with impairment and ximpair_hold_gs, where it is the intact
+  ! path's at the same water potentials. With the shared root and stem it is
+  ! the whole plant's conductance at the whole canopy's flow. Kept apart from
+  ! hydraulic_state so that find_e_crit can call it with E alone.
   SUBROUTINE psi_k_at_e()
   REAL(KIND=real_jlslsm) :: el1(1,1), psi1(1,1), kl1(1,1), khc1(1,1)
 
@@ -3357,21 +3569,22 @@ CONTAINS
   END SUBROUTINE psi_k_at_e
 
   !---------------------------------------------------------------------------
-  ! ProfitMax2: find E_crit, the transpiration at which the conductance of
-  ! the path the search runs on (psi_k_at_e) falls to kcrit,
+  ! Find E_crit (mol H2O m-2 s-1) for ProfitMax2: the transpiration at which
+  ! the conductance of the path the search runs on (psi_k_at_e) falls to kcrit,
   !
   !   kl(E_crit) = kcrit
   !
-  ! Method:
-  !   1. start from the edge transpiration e_el (feasible, kl > kcrit) and
-  !      double E until kl <= kcrit, which brackets E_crit (the first upper
-  !      guess is at least kmax x 0.1 MPa, in case e_el is ~0);
-  !   2. bisect the bracket to a relative tolerance ecrit_rtol.
+  !   1. Start from the transpiration at the edge of the Ci range, e_el,
+  !      where kl > kcrit, and double E until kl <= kcrit, so that E_crit
+  !      lies between the last two values. The first upper value is at
+  !      least kmax times 0.1 MPa, in case e_el is near 0.
+  !   2. Halve that bracket (bisection) until its width is within
+  !      ecrit_rtol of its upper end.
   !
-  ! The upper edge of the Ci range is set by kcrit only when gl_max and
-  ! ci_top do not bind, so e_el is a lower bound on E_crit, not E_crit
-  ! itself. E_crit >= e_el > 0 is used. With no transpiration at the edge
-  ! (no demand), a floor keeps E / E_crit finite (the cost is then ~0).
+  ! e_el is a lower limit on E_crit, since the edge is set by kcrit only
+  ! when gl_max and ci_top do not bind first. E_crit is never below e_el,
+  ! and is kept above 0 so that E / E_crit stays finite when there is no
+  ! transpiration at the edge (the cost is then near 0).
   !---------------------------------------------------------------------------
   SUBROUTINE find_e_crit()
   REAL(KIND=real_jlslsm) :: e_lo, e_hi
@@ -3411,14 +3624,19 @@ CONTAINS
   END SUBROUTINE find_e_crit
 
   !---------------------------------------------------------------------------
-  ! Xylem impairment, one transpiration el1 at point l (as stom_opt_mod_ci):
-  ! leaf psi and conductance on the impaired path, and the conductance for
-  ! the hydraulic cost, the intact path (kmax_ref, PFT curve) at the same
-  ! water potentials in series with the soil,
+  ! Work out, with xylem impairment, the leaf water potential psi1 and
+  ! conductance kl1 on the impaired path at one transpiration el1 at point l,
+  ! and the conductance for the hydraulic cost, khc1. khc1 is that of the
+  ! intact path (kmax_ref and the PFT's curve) at the same water potentials,
+  ! with the soil-to-root link in series when l_som_rhizo_series is on:
   !
-  !   k_int(psi_leaf) / (1 + k_int(psi_in) / K_s),   psi_in = psi_src - E / K_s
+  !   khc1   = k_int(psi_leaf) / (1 + k_int(psi_in) / K_s)
+  !   psi_in = psi_src - E / K_s
   !
-  ! (segments: the intact chain, leaf_k_intact).
+  ! where k_int is the intact curve, K_s the soil-to-root conductance,
+  ! psi_src the root-zone water potential and psi_in the root's. With plant
+  ! segments the intact segments give khc1. The same path solve as
+  ! stom_opt_mod_ci (som_path_psi), with each segment solved exactly.
   !---------------------------------------------------------------------------
   SUBROUTINE impaired_state( el1, psi1, kl1, khc1 )
   REAL(KIND=real_jlslsm), INTENT(IN)  :: el1(1,1)
@@ -3431,12 +3649,15 @@ CONTAINS
                      .TRUE., psi1, kl1, leaf_k_intact = khc1 )
   END SUBROUTINE impaired_state
 
-  ! Nonstomatal limitation factor at leaf psi (Pa): Dewar et al. (2022)
-  ! Eqn 3(b) generalised to an onset,
+  ! Return the factor f that lowers gross photosynthesis as the leaf dries, at
+  ! leaf water potential psi (Pa), for the nonstomatal limitation (l_som_nsl).
+  ! It is Dewar et al. (2022) Eqn 3(b) with an onset,
   !
-  !   f = 1 - (psi - psi_on)/(psi0 - psi_on),
+  !   f = 1 - (psi - psi_on) / (psi0 - psi_on)
   !
-  ! clipped to [0, 1] (see l_som_nsl).
+  ! clipped to [0, 1]. psi_on (psi_nsl_onset) is the water potential at
+  ! which the limitation starts and psi0 (psi_nsl0) the one at which
+  ! photosynthesis stops.
   !
   ! Reference:
   ! - Dewar, R., Holtta, T. and Salmon, Y. (2022), Exploring optimal
@@ -3452,7 +3673,8 @@ CONTAINS
   nsl_factor = MIN(MAX(nsl_factor, 0.0_real_jlslsm), 1.0_real_jlslsm)
   END FUNCTION nsl_factor
 
-  ! Net photosynthesis at internal CO2 ci of point l (leaf_net_photo).
+  ! Return the net photosynthesis (mol CO2 m-2 s-1) at internal CO2 ci (Pa) for
+  ! point l, at the leaf temperature the call is given (leaf_net_photo).
   REAL(KIND=real_jlslsm) FUNCTION photo_al(ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci
   photo_al = leaf_net_photo( pft, pft_photo_model, l_multilayer, ci,           &
@@ -3462,16 +3684,25 @@ CONTAINS
   END FUNCTION photo_al
 
   !---------------------------------------------------------------------------
-  ! Edge of the feasible range from the cap it puts on gl. With the supply
-  ! table, k > kcrit <=> E < kmax * supply_lut_e_crit, and E = gl * vpd/(R T),
-  ! so feasibility is gl <= g_cap = MIN(gl_max, E_crit * R T / vpd), i.e.
+  ! Step 2 with the supply table: find the upper edge of the feasible Ci
+  ! range from the limit it puts on gl, without solving the hydraulics at
+  ! each guess.
   !
-  !   f(Ci) = g_cap * (ca - Ci) - ratio * R T * A(Ci) >= 0,
+  ! On the supply table, k > kcrit holds while E is below kmax times the
+  ! table's critical flow, and E = gl vpd / (R T). So a Ci is feasible when
+  ! gl <= g_cap, the smaller of gl_max and the gl that gives that largest E
+  ! (through g_of_geff with l_som_coupled_e). Since
+  ! gl = 1.6 R T A(Ci) / (ca - Ci), this is
   !
-  ! which is decreasing and close to linear in Ci and needs only A, not the
-  ! hydraulics. Illinois root find for f = 0 between the feasible e_* end and
-  ! ci_top, then one full evaluation at the edge. Leaves l_edge = .FALSE. (for
-  ! edge_by_margin) if the table and the full evaluation disagree.
+  !   f(Ci) = g_cap (ca - Ci) - 1.6 R T A(Ci) >= 0
+  !
+  ! which falls with Ci, close to a straight line, and needs only A. With
+  ! l_som_coupled_e the CO2 also crosses the leaf boundary layer, and
+  ! 1.6 R T becomes R T (1.6 + 1.37 r_bl g_cap). The root of f is found by
+  ! a bracketed straight-line search (Illinois) between the feasible edge
+  ! so far and ci_top, and the state there is then evaluated in full. If the
+  ! table and the full evaluation still disagree after three small steps
+  ! back, l_edge stays .FALSE. and edge_by_margin is used.
   !---------------------------------------------------------------------------
   SUBROUTINE edge_by_gl_cap()
   REAL(KIND=real_jlslsm) :: conv_e, g_cap, rk, fa, fb, fc_e, ea, eb, ec
@@ -3569,16 +3800,20 @@ CONTAINS
   END SUBROUTINE edge_by_gl_cap
 
   !---------------------------------------------------------------------------
-  ! Edge of the feasible range by an Illinois root find on the feasibility
-  ! margin of full evaluations (any hydraulics).
+  ! Step 2 from full evaluations (any hydraulics): find where the
+  ! feasibility margin (the function margin) crosses 0, between the
+  ! feasible edge so far, e_ci, and the infeasible top of the range, ci_top.
+  ! The margin is the smaller of the scaled distances to the two limits,
   !
-  ! The margin (see margin()) is the smaller of the scaled distances to the
-  ! two limits,
+  !   (kl - kcrit) / kmax   and   (gl_max - gl) / gl_max  (when gl_max set)
   !
-  !   (kl - kcrit) / kmax   and   (gl_max - gl) / gl_max  (if gl_max set)
-  !
-  ! positive when the Ci is feasible, negative when not. The edge is where
-  ! it crosses zero, between the feasible e_ci and the infeasible ci_top.
+  ! above 0 for a feasible Ci and below 0 for an infeasible one. The search
+  ! keeps one end of each kind and places each guess where the straight
+  ! line between the ends crosses 0 (regula falsi). If the same end moves
+  ! twice in a row, the margin at the other end is halved so both ends keep
+  ! moving (the Illinois form). It stops when the bracket is within
+  ! edge_rtol of the distance to ca, or the feasible end is within
+  ! edge_margin of a limit.
   !---------------------------------------------------------------------------
   SUBROUTINE edge_by_margin()
   INTEGER :: it
@@ -3628,8 +3863,12 @@ CONTAINS
   END DO
   END SUBROUTINE edge_by_margin
 
-  ! Feasibility margin of the latest evaluation: > 0 where feasible,
-  ! decreasing in Ci, for the Illinois edge search.
+  ! Return the feasibility margin of the latest evaluation, which
+  ! edge_by_margin uses to find the edge of the feasible Ci range: the smaller
+  ! of (kl - kcrit) / kmax and, when the gl cap applies,
+  ! (gl_max - gl) / gl_max. It falls as Ci rises. It is forced above 0 for a
+  ! feasible Ci and below 0 for an infeasible one, so its sign always agrees
+  ! with ok_u.
   REAL(KIND=real_jlslsm) FUNCTION margin()
   margin = (kl_u - kcrit(l)) / kmax(l)
   IF ( gl_max(l) > 0.0 .AND. .NOT. l_no_glcap )                                &
@@ -3641,31 +3880,28 @@ CONTAINS
   END IF
   END FUNCTION margin
 
-  ! Profit of a state with net photosynthesis al_in, hydraulic-cost
-  ! conductance kl_in, leaf water potential psi_in and transpiration el_in.
-  ! The search maximises it over Ci.
+  ! Return the score the search maximises over Ci, for a state with net
+  ! photosynthesis al_in (A), conductance for the hydraulic cost kl_in (k),
+  ! leaf water potential psi_in and transpiration el_in (E):
   !
-  !   profit max   CG - HC = (A_n + g_off) / A_max
-  !                          - (k_max - k) / (k_max - k_crit)
-  !                (Sperry et al. 2017; as stom_opt_profit_max_select,
-  !                dimensionless)
+  !   profit max   (A + g_off) / A_max - (k_max - k) / (k_max - k_crit)
+  !                (Sperry et al. 2017; dimensionless)
+  !   CMax         A - Theta(psi_leaf)            (Wolf et al. 2016, Eq. 8)
+  !   CGain        A - varpi (k_max - k) / k_max  (Lu et al. 2020)
+  !   SOX_opt      A f_SOX(psi_leaf)              (Eller et al. 2018)
+  !   CAP          A, which carries the nonstomatal limitation
+  !   ProfitMax2   A (1 - E / E_crit)             (Wang et al. 2020, Eqn 11)
   !
-  !   CMax         A_n - Theta(psi_leaf)
-  !                (Wolf et al. 2016, Eq. 8)
-  !
-  !   CGain        A_n - varpi (k_max - k) / k_max
-  !                (Lu et al. 2020)
-  !
-  !   SOX          A_n f_SOX(psi_leaf)
-  !                (Eller et al. 2018)
-  !
-  !   CAP          A_n, which carries the nonstomatal limitation
-  !
-  !   ProfitMax2   A_n (1 - E / E_crit)
-  !                (Wang et al. 2020, Eqn 11)
-  !
-  ! The last five are in mol CO2 m-2 s-1, on the basis of the call (whole
-  ! canopy, the sunlit or shaded leaves, or a layer's leaves).
+  ! For profit max, g_off is rd for the gross gain (l_som_gain_gross) and 0
+  ! otherwise, A_max is the gain scale, k_max the reference conductance and
+  ! k_crit the kcrit of the cost (the whole plant's with the shared root and
+  ! stem). Theta is the CMax carbon cost (theta_cmax). For CGain, varpi
+  ! (cgain_varpi) is the carbon cost of losing all the plant's conductance
+  ! and k_max the plant's conductance at zero water potential. f_SOX is the
+  ! SOX_opt factor (sox_factor), and E_crit the transpiration at which the
+  ! path conductance falls to kcrit (find_e_crit). The last five scores are
+  ! in mol CO2 m-2 s-1, on the basis of the call (whole canopy, the sunlit
+  ! or shaded leaves, or a layer's leaves).
   REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in, psi_in, el_in)
   REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in, psi_in, el_in
   IF ( l_pm2 ) THEN
@@ -3700,8 +3936,15 @@ CONTAINS
   END IF
   END FUNCTION profit
 
-  ! SOX factor (k(psi_bar) - kcrit)/(k_ref - kcrit), psi_bar the mean of
-  ! the root zone and leaf water potentials, k of the whole path.
+  ! Return the SOX_opt factor on A at leaf water potential psi (Pa), which
+  ! lowers A as the path loses conductance,
+  !
+  !   f_SOX = (k(psi_bar) - kcrit) / (k_ref - kcrit),   no lower than 0
+  !
+  ! where psi_bar is the mean of psi and the root-zone water potential,
+  ! k(psi_bar) the conductance of the whole soil-to-leaf path with every
+  ! part at psi_bar, and k_ref that conductance with no flow (psi_bar at the
+  ! root-zone water potential).
   REAL(KIND=real_jlslsm) FUNCTION sox_factor(psi)
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
   sox_factor = ( k_path_zero_flow(pft, l, kmax(l),                             &
@@ -3710,14 +3953,14 @@ CONTAINS
   sox_factor = MAX(sox_factor, 0.0_real_jlslsm)
   END FUNCTION sox_factor
 
-  ! CMax carbon cost of leaf water potential psi (Pa), Anderegg et al.
-  ! (2018) / Sabot et al. (2022, Eq. 12),
+  ! Return the CMax carbon cost of leaf water potential psi (Pa), from Anderegg
+  ! et al. (2018) and Sabot et al. (2022, Eq. 12),
   !
-  !   Theta = a/2 psi^2 + b |psi|,
+  !   Theta = a/2 psi^2 + b |psi|
   !
-  ! with psi in MPa and a, b per unit leaf area in umol m-2 s-1 MPa-2 and
-  ! MPa-1; returned in mol CO2 m-2 s-1 on the basis of this call
-  ! (x lai_call).
+  ! with psi in MPa (taken as 0 when above 0) and a and b (cmax_a, cmax_b)
+  ! per unit leaf area, in umol m-2 s-1 MPa-2 and umol m-2 s-1 MPa-1.
+  ! Returned in mol CO2 m-2 s-1 on the basis of this call (times lai_call).
   REAL(KIND=real_jlslsm) FUNCTION theta_cmax(psi)
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
   REAL(KIND=real_jlslsm) :: p_mpa
@@ -3727,7 +3970,8 @@ CONTAINS
                    + cmax_b(pft) * p_mpa )
   END FUNCTION theta_cmax
 
-  ! Profit of the latest evaluation (-HUGE if infeasible), kept if best.
+  ! Return the profit of the latest evaluation, or -HUGE if it is infeasible.
+  ! If it is the best so far, the state is kept (store_best).
   REAL(KIND=real_jlslsm) FUNCTION profit_u()
   IF ( ok_u ) THEN
     profit_u = profit(al_u, khc_u, psi_u, el_u)
@@ -3739,9 +3983,9 @@ CONTAINS
   END FUNCTION profit_u
 
   ! Keep the latest evaluation as the best so far, with profit f at Ci ci:
-  ! copy the state the last eval_ci call left (al_u, gl_u, el_u, psi_u,
-  ! kl_u, khc_u: net photosynthesis, leaf conductance, transpiration, leaf
-  ! psi and the path conductances) into the best_* variables.
+  ! copy the state the last eval_ci call left (net photosynthesis, stomatal
+  ! conductance, transpiration, leaf water potential and the two path
+  ! conductances) into the best_* variables.
   SUBROUTINE store_best(f, ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: f, ci
   best_f = f
@@ -3755,8 +3999,9 @@ CONTAINS
   END SUBROUTINE store_best
 
   !---------------------------------------------------------------------------
-  ! Hold leaf psi (section 4): keep the latest evaluation if it is feasible
-  ! and has the largest Ci so far.
+  ! Step 5 (hold_leaf_psi): keep the latest evaluation if it is feasible
+  ! and has the largest Ci so far, as the fallback when the last guess is
+  ! infeasible.
   !---------------------------------------------------------------------------
   SUBROUTINE keep_feasible()
   IF ( ok_u .AND. last_ci >= h_ci ) THEN
@@ -3770,6 +4015,11 @@ CONTAINS
   END IF
   END SUBROUTINE keep_feasible
 
+  !---------------------------------------------------------------------------
+  ! Close the stomata at this point: Ci = ca, A = -rd, no conductance or
+  ! transpiration, the leaf at the root-zone water potential, and a carbon
+  ! gain and hydraulic cost of 0.
+  !---------------------------------------------------------------------------
   SUBROUTINE set_closed()
 
   ! Closed stomata: zero flow, so the conductance is K(psi_root_zone) on the
@@ -3804,43 +4054,53 @@ CONTAINS
 END SUBROUTINE stom_opt_bounded_search
 
 !-----------------------------------------------------------------------------
-! Supply-loss stomata (stomata_model = 9), one open point at a time: the
-! regulation of Sperry et al. (2016, Eqn 5, with its saturation rule) on the
-! profit-max hydraulics, with a carbon-coupled demand in place of their fixed
-! G_max.
+! Set the stomatal opening of supply-loss stomata (stomata_model = 9), one open
+! point at a time. The stomata follow the rule of Sperry et al. (2016, Eqn 5),
+! and there is no optimisation. The leaf water potential may fall below the
+! root zone's by the drop the unregulated demand would cause, scaled by the
+! fraction of the path's conductance that demand would leave. The rule runs on
+! the same plant hydraulics as profit max, and the demand comes from
+! photosynthesis where Sperry et al. use a fixed maximum conductance.
 !
-!   1. Demand. A fixed ci/ca (Medlyn et al. 2011 with the water price fixed,
-!      so VPD acts only through the hydraulics):
+!   1. Demand. A fixed ratio of internal to air CO2 (as Medlyn et al. 2011
+!      with a fixed water price, so the humidity deficit acts only through
+!      the hydraulics):
 !
 !        ci_d = sl_cica_well_watered ca
 !        A_d  = A(ci_d)
-!        gl_d = ratio A_d R T / (ca - ci_d)
-!        E'   = gl_d D                     (unregulated transpiration)
+!        gl_d = 1.6 A_d R T / (ca - ci_d)
+!        E'   = gl_d D
 !
-!      A_d <= 0 => closed.
+!      E' is the transpiration with no regulation (mol H2O m-2 s-1) and D
+!      the humidity deficit in mol m-3 (vpd / (R T), see e_of_g). A_d <= 0
+!      closes the stomata.
 !
-!   2. Loss rule. On the supply function of the path (psi_leaf_jls: single
-!      curve or segments, soil-to-root link, gravity in psi_root_zone),
+!   2. Allowed drop in water potential. On the supply function of the path
+!      (leaf water potential psi(E) and conductance k = -dE/dpsi_leaf),
 !
 !        P' = psi(E')
-!        dP = (P0 - P') k(P') / k(P0),   k = -dE / dpsi_leaf
+!        dP = (P0 - P') k(P') / k(P0)
 !
-!      with P0 = psi_root_zone (zero flow). dP rises with E' to a maximum
-!      and then falls; past the maximum it is held there (Sperry et al.
-!      2016). A demand beyond E_crit (k(P') <= k_fail) is past the maximum.
+!      with P0 = psi_root_zone, the leaf water potential with no flow. dP
+!      first rises with E' and then falls. Past its maximum, or when E' is
+!      beyond the flow at which k falls to k_fail, dP is held at that
+!      maximum (Sperry et al. 2016), found by a coarse scan and then a
+!      golden-section search.
 !
-!   3. Regulated state. The regulated E, gl and ci solve
+!   3. Regulated transpiration E, the root of psi(E) = P0 - dP, by a
+!      bracketed straight-line search (Illinois). Then gl = E / D, no more
+!      than gl_d and no more than gl_max.
 !
-!        psi(E) = P0 - dP
-!        gl     = E / D  <= gl_d
-!        A(ci) R T ratio = gl (ca - ci),   ci in [ccp, ci_d]
+!   4. Ci for that gl, the root of
 !
-! k_fail is kcrit, or sl_kfail_frac * kmax. No som_gl_max: gl_max carries
-! only the soil supply limit (l_som_supply_limit), applied to the regulated
-! gl. Every search here is bracketed (bisection, Illinois or golden section
-! after a coarse scan), so nothing can diverge near E_crit; the supply
-! function itself comes from psi_leaf_jls (table, or Newton with
-! som_psi_solver = 2).
+!        gl (ca - Ci) - 1.6 R T A(Ci) = 0,   Ci between ccp and ci_d
+!
+!      by the same kind of search.
+!
+! k_fail is kcrit, or sl_kfail_frac kmax when that is set. som_gl_max is
+! not used: gl_max carries only the soil supply limit (l_som_supply_limit).
+! Every search here keeps a bracket, so none can diverge near the failure
+! point.
 !
 ! References:
 ! - Sperry, J.S. and Love, D.M. (2015), What plant hydraulics can tell us
@@ -4229,8 +4489,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 CONTAINS
 
-  ! Leaf psi and whole-path k = -dE/dpsi_leaf at transpiration e (the units
-  ! of kmax times Pa), as stom_opt_bounded_search's hydraulic_state.
+  ! Return the supply function at transpiration e (mol H2O m-2 s-1): the leaf
+  ! water potential psi (Pa) and the path conductance k = -dE/dpsi_leaf, from
+  ! the supply table or from psi_leaf_jls on the PFT's vulnerability curve.
   SUBROUTINE supply(e, psi, k)
   REAL(KIND=real_jlslsm), INTENT(IN) :: e
   REAL(KIND=real_jlslsm), INTENT(OUT) :: psi, k
@@ -4249,13 +4510,21 @@ CONTAINS
   END IF
   END SUBROUTINE supply
 
-  ! Regulated drop dP = (P0 - psi) k/k0 (Sperry et al. 2016, Eqn 5).
+  ! Return the allowed drop in leaf water potential (Pa) for a state with leaf
+  ! water potential psi and path conductance k (Sperry et al. 2016, Eqn 5):
+  !
+  !   dP = (P0 - psi) k / k0
+  !
+  ! with P0 the root-zone water potential and k0 the conductance with no
+  ! flow.
   REAL(KIND=real_jlslsm) FUNCTION dp_of(psi, k)
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi, k
   dp_of = MAX(p0 - psi, 0.0) * k / k0
   END FUNCTION dp_of
 
-  ! dP at e, or -1 beyond E_crit (k <= k_fail).
+  ! Return the allowed drop dP at transpiration e, or -1 beyond the failure
+  ! point (k <= k_fail), so the search for the largest dP never picks such a
+  ! state.
   REAL(KIND=real_jlslsm) FUNCTION dp_scored(e)
   REAL(KIND=real_jlslsm), INTENT(IN) :: e
   REAL(KIND=real_jlslsm) :: psi, k
@@ -4267,6 +4536,8 @@ CONTAINS
   END IF
   END FUNCTION dp_scored
 
+  ! Copy a regulated state to the outputs of open point j, with Ci and gl
+  ! no lower than 0 and net photosynthesis no lower than -rd.
   SUBROUTINE set_state(ci, al, gl, e, psi, k)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci, al, gl, e, psi, k
   ci_g(j) = MAX(0.0, ci)
@@ -4277,6 +4548,9 @@ CONTAINS
   kl_g(j) = k
   END SUBROUTINE set_state
 
+  ! Close the stomata at this point: Ci = ca, A = -rd, no conductance or
+  ! transpiration, the leaf at the root-zone water potential, and a carbon
+  ! gain and hydraulic cost of 0.
   SUBROUTINE set_closed()
 
   ! Closed stomata: zero flow, so the conductance is k at P0 (see
@@ -4294,7 +4568,8 @@ CONTAINS
   hydraulic_cost_g(j) = 0.0
   END SUBROUTINE set_closed
 
-  ! Net photosynthesis at internal CO2 ci of point l (leaf_net_photo).
+  ! Return the net photosynthesis (mol CO2 m-2 s-1) at internal CO2 ci (Pa) for
+  ! point l (leaf_net_photo).
   REAL(KIND=real_jlslsm) FUNCTION photo_al(ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci
   photo_al = leaf_net_photo( pft, pft_photo_model, l_multilayer, ci,           &
@@ -4306,9 +4581,11 @@ CONTAINS
 END SUBROUTINE stom_opt_supply_loss
 
 !-----------------------------------------------------------------------------
-! Physically reasonable Ci samples of one point (the flat searches and
-! stom_opt_profit_max_select): psi <= psi_root_zone (if l_psi_test),
-! k > kcrit and gl <= gl_max (when the cap is on, gl_max > 0).
+! Mark which Ci samples of one point are feasible, for the grid searches and
+! stom_opt_profit_max_select to choose from: the path conductance is above
+! kcrit, the leaf is no wetter than the root zone (when l_psi_test), gl is
+! within gl_max (when gl_max > 0), and the leaf boundary layer can supply the
+! CO2 (gl below gl_unreach, see gl_co2_bl).
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------

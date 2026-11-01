@@ -73,30 +73,36 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_year(:,:)
 CONTAINS
 
 ! ---------------------------------------------------------------------
-! The memory model's damage after TRIFFID's change of PFT area (lotka,
-! with l_veg_compete). Area gained is new growth with intact xylem, so the
-! damage of the PFT is spread over its new area: each loss of conductance
-! is multiplied by w = frac_old / frac_new (0 for a PFT that had no area),
-! as triffid_nsc_area spreads the store. Area lost keeps the damage of the
-! area that is left. Diluted:
-! - the stem's locked loss (ximpair_lock; the impaired kmax at the next
-!   update, through ximpair_area_w);
-! - the leaf segment's loss (1 - ximpair_kcap_leaf).
-! The queued ring share (ximpair_repair_pend) is a multiplicative factor
-! on the loss, L -> L (1 - rho), the same for old and new cover, so it is
-! not diluted: scaling it too would give L w (1 - rho w) instead of the
-! area-weighted L w (1 - rho). With additive recovery
-! (l_nsc_ring_additive, L -> MAX(L - rho, 0)) the share renews only the
-! cover that grew it, so it is scaled by w too:
-! MAX(w L - w rho, 0) = w MAX(L - rho, 0).
-! With hydraulic mortality (m_kill, the fraction of the old cover killed in
-! the step) the trees killed carry the mean damage and the area regrown in
-! their place is intact too, so w = frac_old (1 - m) / frac_new wherever
-! the cover is above the survivors', even if the net change is 0 or less.
+! Xylem impairment, memory model: spread each PFT's drought damage over
+! its new area after TRIFFID (the vegetation dynamics scheme) changes how
+! much of the grid box the PFT covers (with l_veg_compete).
 !
-! (The survivors' cover frac_old (1 - m) is approximate where lotka does not
-! remove exactly m frac_old: the old lotka without l_ht_compete, and the
-! frac_seed floor.)
+! New cover is new growth with undamaged xylem, so each loss of
+! conductance L (0-1) is scaled by the share of the cover that was there
+! before,
+!
+!   w = frac_old (1 - m) / frac_new,
+!
+! where frac_old and frac_new are the PFT's cover before and after the
+! step and m is the fraction of the old cover killed in the step by
+! hydraulic mortality (0 without it). Trees that die carry the mean
+! damage, and the cover that grows in their place is undamaged, so with
+! mortality w is applied wherever the cover is above that of the
+! survivors, even if the net change in cover is 0 or less. Without
+! mortality, only cover gained is diluted: a PFT that loses cover keeps
+! the damage of what is left.
+!
+! The scaling applies to the stem's loss (ximpair_lock, and the damaged
+! kmax through ximpair_area_w at the next update) and to the leaf
+! segment's loss. The stem's share renewed by new rings and waiting to be
+! applied, rho, multiplies the loss, L (1 - rho), and is the same for old
+! and new cover, so it is not scaled. With additive recovery
+! (l_nsc_ring_additive), MAX(L - rho, 0), the share renews only the cover
+! that grew it, so it is scaled by w as well.
+!
+! The survivors' cover frac_old (1 - m) is approximate where TRIFFID does
+! not remove exactly m frac_old (without l_ht_compete, or at the minimum
+! cover frac_seed).
 !
 ! MDK, 30/10/26
 ! ---------------------------------------------------------------------
@@ -166,9 +172,12 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE ximpair_dilute_area
 
 ! ---------------------------------------------------------------------
-! Allocate the impairment memory (n_land_pts, npft) with its start values,
-! if not done yet (first update, or a dump / initial-condition read). The
-! ring cohorts (n_land_pts, npft, nsc_n_ring) only with them.
+! Xylem impairment, memory model: create the stored damage state for every
+! land point and PFT if it does not exist yet (at the first update, or
+! when a dump or initial condition is read). The stem's loss starts at 0,
+! nothing is waiting to be renewed and the area dilution factor is 1. The
+! sapwood's annual rings are created only with l_nsc_sapwood_rings, and
+! are marked as not yet set.
 !
 ! MDK, 30/10/26
 ! ---------------------------------------------------------------------
@@ -217,10 +226,13 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE ximpair_memory_alloc
 
 ! ---------------------------------------------------------------------
-! Ring cohorts at their first use (l_nsc_sapwood_rings): the sapwood in
-! 1 / nsc_heartwood_rate equal rings (at most nsc_n_ring), all with the
-! stem's loss of conductance loss0, the youngest growing in the current
-! calendar year (or the next, if started in the second half of the year).
+! Xylem impairment, memory model: set up the sapwood's annual rings at a
+! point the first time they are used (l_nsc_sapwood_rings).
+!
+! The sapwood is split into equal rings, as many as ring_n0 gives, and
+! every ring starts with the stem's loss of conductance loss0 (0-1). The
+! youngest ring grows in the current calendar year, or in the next one
+! if the set-up falls in the second half of the year.
 !
 ! MDK, 31/10/26
 ! ---------------------------------------------------------------------
@@ -251,8 +263,15 @@ IF (2 * doy > days_in_year(current_time%year, l_360, l_leap))                  &
 END SUBROUTINE ximpair_ring_init
 
 ! ---------------------------------------------------------------------
-! The number of rings of equal carbon in equilibrium, 1 / k_h
-! (nsc_heartwood_rate), between 1 and nsc_n_ring.
+! Return the number of annual rings in the sapwood of a stand in steady
+! state, used to set up a point's rings and the reference stand of the
+! memory model of xylem impairment. With rings of equal carbon,
+!
+!   n0 = 1 / k_h,
+!
+! where k_h is the rate at which sapwood turns to heartwood
+! (nsc_heartwood_rate, per year), rounded and kept between 1 and
+! nsc_n_ring.
 !
 ! MDK, 31/10/26
 ! ---------------------------------------------------------------------
@@ -273,11 +292,15 @@ n0 = MAX(NINT(MIN(1.0 / MAX(nsc_heartwood_rate(pft),                           &
 END FUNCTION ring_n0
 
 ! ---------------------------------------------------------------------
-! The age of ring i in winters: the years since the calendar year in which
-! the youngest ring grows (ximpair_ring_year) plus i - 1. After the end of
-! the ring year (a new, empty youngest ring that grows next year) the
-! youngest ring's age is -1 and the year's ring (ring 2) keeps age 0 until
-! the calendar year ends: the rings age over winter, for every stem.
+! Return the age of sapwood ring i (1 = youngest), which sets how well
+! the ring conducts (ring_cond), as the number of winters it has passed,
+!
+!   age = (current year - year the youngest ring grows) + i - 1.
+!
+! When the ring year ends, a new empty youngest ring starts that grows
+! next year, so its age is -1 (not grown yet), and this year's ring, now
+! ring 2, keeps age 0 until the calendar year ends. Rings get older over
+! winter, whatever the tree's growth calendar.
 !
 ! MDK, 31/10/26
 ! ---------------------------------------------------------------------
@@ -295,15 +318,25 @@ age = current_time%year - NINT(ximpair_ring_year(l,pft)) + i - 1
 END FUNCTION ring_age
 
 ! ---------------------------------------------------------------------
-! The conductivity of a ring of age a (winters) relative to a new ring,
+! Return how well a sapwood ring of age a (winters) conducts water
+! compared with a new ring (0-1), used to weight each ring in the stem's
+! conductance. Older rings conduct less,
 !
 !   c(a) = c_old + (1 - c_old) EXP(-a / e),
 !
-! with c_old = nsc_ring_c_old and e = nsc_ring_cond_efold (unset: c = 1),
-! taken relative to age a0 (EXP(-(a - a0) / e)) for the loss's weights;
-! 0 for a ring not grown yet (a < 0) and, in a ring-porous stem
-! (nsc_ring_func_doy set), for the year's ring (a = 0) before day
-! nsc_ring_func_doy of the calendar year (as the budburst day).
+! where c_old (nsc_ring_c_old) is the value the oldest rings tend to and
+! e (nsc_ring_cond_efold, winters) is how fast it falls. If e is not set,
+! every ring conducts alike, c = 1. With c_old = 0 and a reference age a0
+! above 0, c is taken relative to the ring of age a0,
+!
+!   c(a) = EXP(-(a - a0) / e),
+!
+! which gives the same ratios between rings without underflow.
+!
+! c = 0 for a ring not grown yet (a < 0). In a ring-porous tree
+! (nsc_ring_func_doy set), this year's ring (a = 0) also has c = 0 before
+! day nsc_ring_func_doy of the calendar year, the day its new vessels
+! start to conduct.
 !
 ! MDK, 31/10/26
 ! ---------------------------------------------------------------------
@@ -344,15 +377,20 @@ END IF
 END FUNCTION ring_cond
 
 ! ---------------------------------------------------------------------
-! The rings' sums at point l, PFT pft, over the rings with sapwood, with
-! the conductivity c_i (ring_cond):
+! Work out three sums over the sapwood rings at point l that the ring
+! functions below share, each ring i weighted by its share of the sapwood
+! f_i and how well it conducts c_i (ring_cond),
+!
 !   sw  = SUM_i f_i c_i,
 !   swl = SUM_i f_i c_i L_i,
-!   swf = SUM_i f_i c_i (1 - L_i).
-! With l_rel and c_old = 0 the conductivity is taken relative to the
-! youngest conducting ring, which leaves the ratios unchanged but keeps
-! that ring's weight at f_i for any e, so a very small e cannot underflow
-! every weight.
+!   swf = SUM_i f_i c_i (1 - L_i),
+!
+! where L_i is the ring's loss of conductance (0-1).
+!
+! With l_rel, c_i is taken relative to the youngest ring that conducts
+! (this matters only when c_old = 0). The ratios between the sums do not
+! change, and that ring keeps the weight f_i, so a very small e in
+! ring_cond cannot make every weight 0.
 !
 ! MDK, 31/10/26
 ! ---------------------------------------------------------------------
@@ -400,14 +438,16 @@ END DO
 END SUBROUTINE ring_sums
 
 ! ---------------------------------------------------------------------
-! The stem's loss of conductance from its ring cohorts: the rings' losses
-! weighted by their share of the sapwood f_i and their conductivity c_i
-! (ring_cond; newer rings conduct more, unset = all alike),
+! Return the stem's loss of conductance (0-1) from drought damage to its
+! annual rings, which sets the stem's conductance cap in the memory model
+! of xylem impairment. Each ring's loss L_i is weighted by its share of
+! the sapwood f_i and by how well it conducts c_i (ring_cond),
 !
 !   L = SUM_i f_i c_i L_i / SUM_i f_i c_i.
 !
-! If no ring conducts (only a ring-porous earlywood not yet conducting has
-! sapwood), the plain mean of the other rings, or 0.
+! If no ring conducts (only a ring-porous tree's new ring, before its
+! vessels conduct, holds sapwood), L is the mean of the older rings'
+! losses weighted by f_i alone, or 0 if they hold no sapwood.
 !
 ! MDK, 31/10/26
 ! ---------------------------------------------------------------------
@@ -443,8 +483,15 @@ END IF
 END FUNCTION ximpair_ring_mean
 
 ! ---------------------------------------------------------------------
-! The rings' conductivity-weighted share of the sapwood, SUM_i f_i c_i
-! (ring_cond, with the season), so that SUM_i X_i c_i is X_s times it.
+! Return the sapwood's mean ability to conduct water compared with new
+! wood (0-1), which scales the plant's conductance with its sapwood
+! (nsc_k_area),
+!
+!   SUM_i f_i c_i,
+!
+! where f_i is ring i's share of the sapwood and c_i how well it conducts
+! on this day (ring_cond). With X_s the sapwood carbon and X_i = f_i X_s
+! that of ring i, SUM_i X_i c_i is X_s times this value.
 !
 ! MDK, 31/10/26
 ! ---------------------------------------------------------------------
@@ -463,11 +510,14 @@ CALL ring_sums(l, pft, .FALSE., share, swl, swf)
 END FUNCTION ximpair_ring_cweight
 
 ! ---------------------------------------------------------------------
-! The functional share of the sapwood from its ring cohorts (an output):
-! each ring's share f_i, still conducting (1 - L_i), weighted by its
-! conductivity c_i relative to a new ring (ring_cond),
+! Return the share of the sapwood that still conducts water (0-1), for
+! output. Each ring's share f_i counts by the part that is undamaged,
+! 1 - L_i, and by how well it conducts compared with a new ring, c_i
+! (ring_cond),
 !
-!   X_f / X_s = SUM_i f_i (1 - L_i) c_i.
+!   X_f / X_s = SUM_i f_i (1 - L_i) c_i,
+!
+! where X_f is the conducting sapwood and X_s all the sapwood.
 !
 ! MDK, 31/10/26
 ! ---------------------------------------------------------------------
@@ -486,16 +536,22 @@ CALL ring_sums(l, pft, .FALSE., sw, swl, share)
 END FUNCTION ximpair_ring_functional
 
 ! ---------------------------------------------------------------------
-! The conductivity-weighted mean of the rings of a stand in equilibrium on
-! the same day: n0 = 1 / nsc_heartwood_rate rings (at most nsc_n_ring) of
-! equal carbon at the ages of the point's rings (ring_age), the youngest
-! holding the share q of a ring grown so far this year (q the fraction of
-! the growing season nsc_grow_start_doy to nsc_grow_end_doy, or of the
-! calendar year, gone; 0 for a ring not grown yet, 1 for an older one),
+! Return the mean ability to conduct water (0-1) of the sapwood of a
+! stand in steady state on the same day, which nsc_k_area compares with
+! the point's own rings to scale the plant's conductance.
+!
+! The steady stand has n0 rings of equal carbon (ring_n0) at the ages of
+! the point's rings (ring_age). Its youngest ring holds only the part
+! grown so far this year, q: the fraction of the growing season
+! (nsc_grow_start_doy to nsc_grow_end_doy), or of the calendar year if
+! those are not set, that has passed. q = 0 for a ring not grown yet and
+! 1 for an older ring. With s_j the share of ring j (q for the youngest,
+! 1 for the others) and c(a_j) how well a ring of its age conducts
+! (ring_cond),
 !
 !   c_ref = SUM_j s_j c(a_j) / SUM_j s_j,
 !
-! so a stand at its target with that ring structure has
+! so a stand at its target sapwood X_t with this ring structure has
 ! SUM_i X_i c_i = X_t c_ref on any date.
 !
 ! MDK, 31/10/26
@@ -551,14 +607,22 @@ IF (sum_s > 0.0) c_ref = c_ref / sum_s
 END FUNCTION ximpair_ring_cref
 
 ! ---------------------------------------------------------------------
-! One TRIFFID step of the ring cohorts (l_nsc_sapwood_rings): the step's
-! new wood dg joins the youngest ring, intact; heartwood takes
-! x_old (1 - EXP(-f_heart)) from the oldest rings first, as the sapwood
-! pool loses it in total; at the end of the ring year (l_shift) a new
-! ring starts, to grow in the calendar year g_year, and the oldest two
-! rings merge (with one ring, the ring goes on). x_old: the sapwood
-! before the step, after TRIFFID's turnover (all rings alike; kg C m-2);
-! dg (kg C m-2); f_heart = the heartwood rate times the step.
+! Xylem impairment, memory model: update the sapwood's annual rings over
+! one TRIFFID step (l_nsc_sapwood_rings).
+!
+! 1. The step's new wood dg (kg C m-2) joins the youngest ring
+!    undamaged, which dilutes that ring's loss of conductance.
+! 2. Sapwood turns to heartwood, oldest rings first. The amount is
+!
+!      x_old (1 - EXP(-f_heart)),
+!
+!    where x_old (kg C m-2) is the sapwood before the step, after
+!    TRIFFID's turnover (taken from all rings alike), and f_heart is the
+!    heartwood rate times the step length. The sapwood pool loses the
+!    same amount in total.
+! 3. At the end of the ring year (l_shift), the two oldest rings merge
+!    and a new, empty youngest ring starts, to grow in calendar year
+!    g_year. With only one ring, that ring carries on.
 !
 ! MDK, 31/10/26
 ! ---------------------------------------------------------------------
@@ -627,43 +691,49 @@ END IF
 END SUBROUTINE ximpair_ring_grow
 
 ! *********************************************************************
-! Embolism memory xylem impairment model (pft_xylem_impairment_model = 3).
+! Xylem impairment, memory model (pft_xylem_impairment_model = 3).
 !
-! Embolism is irreversible over short timescales (no refilling while the
-! xylem is under tension), so the conductance lost at the most negative
-! water potential experienced is "remembered": the vulnerability curve is
-! capped at
+! In drought, air enters xylem vessels (embolism) and they stop carrying
+! water. The vessels do not refill while the xylem is under tension, so
+! the model keeps the conductance lost at the driest water potential met
+! as a cap on the vulnerability curve,
 !
-!   k(psi) = MIN( k_intact(psi), k_cap ),  k_cap = kmax * (1 - PLC_mem)
+!   k(psi) = MIN(k_intact(psi), k_cap),   k_cap = kmax (1 - L),
 !
-! i.e. the dry end of the intact curve is unchanged and only the wet end is
-! lowered (the no-refilling hysteresis of e.g. Sperry et al. 2017, Venturas
-! et al. 2018). The state is k_cap, held in the impaired kmax state array
-! (k_max / kmax_impaired_pft, leaf basis); conductance_b/c are not changed.
+! where k_intact is the undamaged curve (mol m-2 s-1 Pa-1), psi the water
+! potential (Pa, below 0) and L the loss of conductance (0-1). The dry end
+! of the curve is unchanged and only the wet end is lowered, as in Sperry
+! et al. (2017) and Venturas et al. (2018). k_cap is held in the damaged
+! kmax array (kmax_impaired_pft, leaf area basis). conductance_b and
+! conductance_c are not changed.
 !
-! Each timestep (see update_xylem_impairment_memory):
-!   - damage:   k_cap = MIN(k_cap, k_intact(psi_x)), psi_x the damage driver
-!               (leaf, mean of leaf and root zone, or root zone water
-!               potential)
-!   - recovery: optional, ring renewal of the stem by TRIFFID wood
-!               growth (l_ximpair_rec_nsc), leaf turnover of the leaf
-!               segment (ximpair_tau_leaf), and an annual reset
-!               (ximpair_reset_mmdd).
+! Each step, update_xylem_impairment_memory first lets the cap recover
+! (new wood renewing the stem, new leaves renewing the leaf segment, or
+! a reset once a year, each optional) and then lowers it to the undamaged
+! curve's conductance at the water potential that drives the damage.
 !
-! This is the target curve of Mackay et al. (2015, WRR, eqs 11-12; TREES):
-! Kcav = Ksat f(psi_min) with the intact curve followed below psi_min. TREES
-! then fits a new Weibull (b, c) to it, whereas this model uses the capped
-! curve exactly.
+! The capped curve is the target curve of Mackay et al. (2015, Water
+! Resources Research, eqs 11-12) in the TREES model, Kcav = Ksat
+! f(psi_min) with the undamaged curve below psi_min. TREES fits a new
+! Weibull curve to it, while this model uses the capped curve as it is.
 !
-! With the cap, transpiration from psi_r to psi_l is
-!   E = k_cap * (psi_r - MAX(psi_l, psi_s))               [capped part]
-!     + A(psi_l) - A(MIN(psi_r, psi_s))  if psi_l < psi_s [intact part]
-! where psi_s is the water potential at which k_intact = k_cap and
-! A(psi_1) - A(psi_2) is the intact-curve integral from psi_1 to psi_2.
+! With the cap, the transpiration E (mol H2O m-2 s-1) carried from the
+! root-zone water potential psi_r to the leaf water potential psi_l is
+!
+!   E = k_cap (psi_r - MAX(psi_l, psi_s))
+!       + A(psi_l) - A(MIN(psi_r, psi_s)),
+!
+! where the second line counts only if psi_l < psi_s. psi_s is the water
+! potential at which k_intact = k_cap: wetter than psi_s the cap holds,
+! drier than psi_s the undamaged curve does. A(psi_1) - A(psi_2) is the
+! integral of k_intact from psi_1 to psi_2.
 ! *********************************************************************
 
 ! ---------------------------------------------------------------------
-! Intact curve conductance for a vector of water potentials at one point.
+! Return the conductance of the undamaged xylem (mol m-2 s-1 Pa-1) at n
+! water potentials psi (Pa) at one point, which the memory model caps to
+! represent drought damage. It uses the cumulative Weibull curve,
+! kmax EXP(-(psi / b)^c), or the SOX curve, kmax / (1 + (psi / b)^c).
 ! ---------------------------------------------------------------------
 FUNCTION k_intact( pft, n, psi, kmax, b, c ) RESULT( k )
 
@@ -683,9 +753,16 @@ END IF
 END FUNCTION k_intact
 
 ! ---------------------------------------------------------------------
-! A(psi) such that the intact-curve integral of k from psi_1 to psi_2 is
-! A(psi_1) - A(psi_2) (see the Newton-Raphson branches, psi_solver_newton,
-! of psi_leaf_CW_jls / psi_leaf_SOX_jls).
+! Return A(psi), a function of water potential (Pa) that the memory
+! model's solver uses to find the flow the undamaged xylem carries between
+! two water potentials,
+!
+!   A(psi_1) - A(psi_2) = integral of k_intact from psi_1 to psi_2
+!                         (mol m-2 s-1),
+!
+! so dA/dpsi = -k_intact. It uses the incomplete gamma function for the
+! cumulative Weibull curve and the 2F1 function for the SOX curve, as the
+! Newton solvers in psi_leaf_CW_jls and psi_leaf_SOX_jls do.
 !
 ! MDK, 24/10/26
 ! ---------------------------------------------------------------------
@@ -710,7 +787,9 @@ END IF
 END FUNCTION antideriv
 
 ! ---------------------------------------------------------------------
-! Water potential at which the intact curve falls to r * kmax (0 < r < 1).
+! Return the water potential (Pa) at which the undamaged curve falls to
+! r kmax (0 < r < 1), the inverse of k_intact, which the memory model's
+! solver uses to find where the damaged and undamaged curves meet.
 ! ---------------------------------------------------------------------
 FUNCTION psi_at_k( pft, r, b, c ) RESULT( psi )
 
@@ -730,7 +809,13 @@ END IF
 END FUNCTION psi_at_k
 
 ! ---------------------------------------------------------------------
-! Leaf conductance on the capped curve for all land points.
+! Work out the xylem conductance (mol m-2 s-1 Pa-1) of a plant damaged by
+! drought at a given water potential at every land point, under the
+! memory model of xylem impairment. It is the capped curve,
+!
+!   k = MIN(k_intact(psi), MAX(k_cap, kcrit)),
+!
+! where kcrit is the lowest conductance the model allows.
 ! ---------------------------------------------------------------------
 SUBROUTINE leaf_conductance_impaired_memory_jls( pft,                          &
                                                  land_pnts,                    &
@@ -794,11 +879,25 @@ END SUBROUTINE leaf_conductance_impaired_memory_jls
 
 
 ! ---------------------------------------------------------------------
-! Leaf water potential from transpiration on the capped curve, for open
-! points (stomatal optimisation layout). The transpiration integral is
-! evaluated exactly (see the module header) and solved by Newton-Raphson
-! (som_psi_solver = 2). With som_psi_solver = 3 the capped curve is
-! inverted from the PFT's supply table instead.
+! For each candidate transpiration rate E of the stomatal optimiser, work out
+! the leaf water potential (Pa) and the leaf's conductance
+! (mol m-2 s-1 Pa-1) of a plant damaged by drought, under the memory
+! model of xylem impairment, at points where the stomata are open.
+!
+! The flow on the capped curve is written out exactly (see the equation
+! for E above). From the root-zone water potential psi_r down to psi_s
+! the conductance is the cap, so where E is small enough the leaf water
+! potential is
+!
+!   psi_l = psi_r - E / k_cap.
+!
+! For larger E the rest of the path is on the undamaged curve, and psi_l
+! is found by Newton's method, each E on its own. With
+! som_psi_solver = 3 the capped curve is inverted from the PFT's supply
+! table (a precomputed table of flow against water potential) instead.
+!
+! The conductance returned is MIN(k_intact(psi_l), k_cap), no lower than
+! kcrit.
 !
 ! MDK, 25/10/26
 ! ---------------------------------------------------------------------
@@ -964,40 +1063,53 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE psi_leaf_impaired_memory
 
 ! ---------------------------------------------------------------------
-! Update the conductance cap (leaf basis): recovery, then damage.
+! Xylem impairment, memory model: update the conductance cap k_cap (mol
+! m-2 s-1 Pa-1, leaf area basis) at the end of a step, recovery first and
+! then damage.
 !
-! Damage: k_cap = MIN(k_cap, k_intact(psi_x)) at points with open stomata,
-! where psi_x is the damage-driving water potential (ximpair_psi_driver):
-!   1: leaf, 2: mean of leaf and root zone, 3: root zone (~predawn, as used
-!   for Kcav by Mackay et al. 2015), 4: stem (leaf-side end of the stem
-!   segment).
+! 1. Cover gained since the last update is undamaged, so the stem's loss
+!    of conductance is diluted by the factor ximpair_dilute_area found.
+! 2. Recovery of the stem by new wood (l_ximpair_rec_nsc). TRIFFID
+!    renews a share rho of the stem's conductance with new rings and
+!    leaves it waiting for this update. New wood replaces old xylem at
+!    random, so the stem's loss L (0-1) becomes
 !
-! Recovery:
-!   l_ximpair_rec_nsc - ring renewal: the stem's loss is diluted by the
-!                       share of the stem renewed by TRIFFID's wood
-!                       growth, queued at the TRIFFID step in
-!                       ximpair_repair_pend (triffid_nsc_ring_renewal);
-!                       with l_nsc_ring_additive the share is taken off
-!                       the loss instead. With the ring cohorts
-!                       (l_nsc_sapwood_rings) nothing is queued: the
-!                       stem's loss is the rings' weighted mean
-!                       (ximpair_ring_mean), and damage raises every
-!                       ring's loss to at least the loss it imposes.
-!   ximpair_tau_leaf  - with per-segment memory, the leaf segment recovers
-!                       with leaf turnover (e-folding time in calendar
-!                       years), or by new leaves with l_ximpair_rec_leaf_turn.
-!   ximpair_reset_mmdd - an annual reset (off by default).
+!      L (1 - rho),
 !
-! Per-segment memory (l_ximpair_seg_memory, with l_som_plant_segments):
-! kcap is the stem segment's cap and ximpair_kcap_leaf the leaf segment's
-! (as a fraction of the intact leaf segment). Each is damaged by its own
-! leaf-side water potential on its own curve (conductance_b/c_seg): the stem
-! by psi_stem, the leaf by psi_leaf (ximpair_psi_driver is not used). The
-! leaf's loss falls with leaf turnover, g years after the damage,
-!   PLC_leaf' = PLC_leaf EXP(-g / ximpair_tau_leaf),
-! so a drought's damage to the distal, fast-renewed tissue fades within a
-! few years while the stem keeps its damage until the rings renew it.
-! The reset restores both.
+!    or with l_nsc_ring_additive the new wood replaces damaged xylem
+!    first, as in the MEDFATE model, and L becomes MAX(L - rho, 0). With
+!    the annual rings (l_nsc_sapwood_rings) nothing waits: the stem's
+!    loss is the rings' weighted mean (ximpair_ring_mean).
+! 3. Recovery of the leaf segment (l_ximpair_seg_memory). The leaf's
+!    loss falls as leaves are replaced,
+!
+!      L_leaf -> L_leaf EXP(-dt / tau),
+!
+!    with dt the step length and tau = ximpair_tau_leaf (years). With
+!    l_ximpair_rec_leaf_turn the leaf recovers through new leaves in
+!    TRIFFID and phenology instead.
+! 4. A reset to undamaged once a year on day ximpair_reset_mmdd, if set.
+! 5. Damage, only where the stomata are open (the xylem is under
+!    tension). The cap is lowered to the undamaged conductance at the
+!    water potential psi_x that drives the damage,
+!
+!      k_cap = MIN(k_cap, k_intact(psi_x)),
+!
+!    where psi_x is chosen by ximpair_psi_driver: 1 leaf, 2 mean of leaf
+!    and root zone, 3 root zone (close to predawn, as Mackay et al. 2015
+!    use), 4 stem (the leaf end of the stem segment). With the annual
+!    rings, every ring that conducts takes at least the loss this gives.
+!
+! With l_ximpair_seg_memory (with l_som_plant_segments), k_cap is the
+! stem segment's cap and the leaf segment has its own cap. Each is
+! damaged by the water potential at its leaf end on its own curve: the
+! stem by psi_stem and the leaf by psi_leaf (ximpair_psi_driver is not
+! used). The leaf's damage then fades within a few years, while the stem
+! keeps its damage until new rings renew it.
+!
+! k_cap is kept between kcrit and kmax. The stem's loss, 1 - k_cap / kmax,
+! is stored for TRIFFID and, with l_trif_hydmort, for hydraulic
+! mortality.
 !
 ! MDK, 30/10/26
 ! ---------------------------------------------------------------------
@@ -1270,10 +1382,16 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 CONTAINS
 
 ! ---------------------------------------------------------------------
-! The conducting rings at point l take at least the loss loss_imp, at most
-! the loss at kcrit (the floor of the cap): every ring but a youngest ring
-! that does not conduct (not grown yet, or a ring-porous earlywood before
-! its day).
+! Xylem impairment, memory model: apply this step's damage to the annual
+! rings at point l. Each ring's loss of conductance is raised to at least
+!
+!   MIN(loss_imp, 1 - kcrit / kmax),
+!
+! where loss_imp (0-1) is the loss this step's water potential gives and
+! the second term is the loss at the lowest conductance allowed.
+!
+! A youngest ring that does not conduct yet (not grown, or a ring-porous
+! tree's new ring before its vessels conduct) is not damaged.
 !
 ! MDK, 31/10/26
 ! ---------------------------------------------------------------------

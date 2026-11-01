@@ -7,39 +7,46 @@
 MODULE canopy_diag_mod
 
 !-----------------------------------------------------------------------------
-! Diagnostics of the canopy that no prognostic or output field holds:
+! Canopy diagnostics that no other model or output variable holds. Values
+! marked "ground" are per square metre of ground; "leaf" per square metre
+! of leaf.
 !
-! - gc_stomatal_pft: the stomatal conductance the optimiser chose (sum of
-!   the leaf classes), before the transpiration-equivalent gc
-!   (l_leaf_temp_gc_eq) replaces gc, and before the cuticular leak or the
-!   store change it (m s-1, ground).
-! - gsoil_pft: the soil evaporation conductance beneath the PFT's canopy as
-!   added to the tile's surface conductance (Or or trunk; m s-1).
+! - gc_stomatal_pft: the canopy stomatal conductance the optimisation chose
+!   (summed over sunlit and shaded leaves or canopy layers), before it is
+!   replaced by the conductance that gives the same transpiration at the
+!   leaf temperature (l_leaf_temp_gc_eq), and before the cuticular leak or
+!   the stem store change it (m s-1, ground).
+! - gsoil_pft: the soil evaporation conductance under the PFT's canopy, as
+!   added to the tile's surface conductance (m s-1), from the Or et al.
+!   scheme (l_soil_evap_or) or the standard JULES one.
 ! - t_can_air_pft, q_can_air_pft: the canopy air temperature (K) and
-!   specific humidity (kg kg-1) of the leaf energy balance (l_leaf_temp).
-! - h_leaf_pft, le_leaf_pft: the leaves' sensible and latent heat in that
-!   balance (W m-2, ground).
-! - gs_sun_pft, gs_shd_pft: the stomatal conductance the optimiser chose for
-!   the sunlit and the shaded leaves, per unit leaf area of each class (m
-!   s-1), and lai_sun_pft, the sunlit leaf area (m2 m-2); two-leaf canopy
-!   (can_rad_mod = 7) only. Comparable with leaf gas exchange.
+!   specific humidity (kg kg-1) from the leaf energy balance (l_leaf_temp).
+! - h_leaf_pft, le_leaf_pft: the sensible and latent heat from the leaves
+!   in that energy balance (W m-2, ground).
+! - gs_sun_pft, gs_shd_pft: the stomatal conductance the optimisation chose
+!   for the sunlit and the shaded leaves, per unit area of those leaves
+!   (m s-1), and lai_sun_pft, the sunlit leaf area (m2 m-2). Two-leaf
+!   canopy (can_rad_mod = 7) only. These compare with leaf gas exchange
+!   measurements.
 ! - vcmax_pft, jmax_pft: Vcmax and Jmax of a leaf at the top of the canopy
 !   at the canopy temperature tstar (mol m-2 s-1, leaf), with any thermal
-!   acclimation and the soil-water factor (l_som_vcmax_psi); with
-!   Johnson-Berry jmax_pft is Vqmax. Not the values at the sunlit or shaded
-!   leaf temperatures (l_leaf_temp).
+!   acclimation and the soil-water factor (l_som_vcmax_psi). With
+!   Johnson-Berry photosynthesis, jmax_pft holds Vqmax. They are at tstar,
+!   not at the sunlit or shaded leaf temperatures (l_leaf_temp).
 ! - anetc_pft: net canopy photosynthesis (mol CO2 m-2 s-1, ground).
-! - anetl_top_pft, anetl_bot_pft: net leaf photosynthesis of the top and the
-!   bottom canopy layer (mol CO2 m-2 s-1, leaf); layered canopies
+! - anetl_top_pft, anetl_bot_pft: net leaf photosynthesis of the top and
+!   the bottom canopy layer (mol CO2 m-2 s-1, leaf). Layered canopies
 !   (can_rad_mod = 4, 5, 6) only.
-!   These five are computed only when one of them is output (l_photo_diag).
-! - psi_leaf_sun_pft, psi_leaf_shd_pft: the leaf water potential of the
-!   sunlit and the shaded leaves at the conductance the optimiser chose
-!   (Pa), before any cuticular leak or store balance; two-leaf canopy
+!   The five above, from vcmax_pft on, are worked out only when one of
+!   them is output (l_photo_diag).
+! - psi_leaf_sun_pft, psi_leaf_shd_pft: the water potential of the sunlit
+!   and the shaded leaves at the conductance the optimisation chose (Pa),
+!   before any cuticular leak or stem store balance. Two-leaf canopy
 !   (can_rad_mod = 7) only.
 !
-! Allocated on first use; 0 where not set. Written by sf_stom (and physiol
-! for gsoil_pft), read by extract_var.
+! The arrays are allocated on first use and are 0 where not set. sf_stom
+! writes them (physiol writes gsoil_pft) and extract_var reads them for
+! output.
 !
 ! MDK, 30/10/26
 !-----------------------------------------------------------------------------
@@ -70,6 +77,7 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='CANOPY_DIAG_MOD'
 
 CONTAINS
 
+! Allocate the canopy diagnostics, filled with 0, on first use.
 SUBROUTINE canopy_diag_alloc( n_land_pts )
 
 USE jules_surface_types_mod, ONLY: npft

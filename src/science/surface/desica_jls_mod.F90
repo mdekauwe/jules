@@ -9,70 +9,94 @@
 MODULE desica_jls_mod
 
 ! *********************************************************************
-! DESICA plant hydraulics (stomata_model = stomata_desica).
+! DESICA plant hydraulics (stomata_model = stomata_desica): the plant has
+! a water store in its leaves and one in its stem, and the stomata close
+! as the leaf dries.
 !
-! Stomata follow the Tuzet et al. (2003) closure on leaf water potential,
+! Stomata. The stomatal conductance gs follows Tuzet et al. (2003), with a
+! factor fw (0 to 1) that falls as the leaf water potential psi_leaf
+! falls:
 !
-!   fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf))),
-!   gs = g1 fw An / ca   (set in leaf_limits as ci = ca (1 - 1.6/(g1 fw))).
+!   fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf)))
+!   gs = g1 fw An / ca
 !
-! DESICA and CABLE take psi_leaf from the previous timestep. At 30 min that
-! oscillates (the leaf pool equilibrates in ~minutes, so a step at high gs
-! drives psi_leaf down, the next step shuts, and so on), so sf_stom instead
-! solves
+! where sf (MPa-1) sets how steeply the stomata close, psi_f (MPa) is the
+! leaf water potential at which fw is about a half, g1 is a slope, An the
+! net photosynthesis and ca the CO2 at the leaf. In the code this enters
+! leaf_limits as ci = ca (1 - 1.6 / (g1 fw)).
 !
-!   fw = Tuzet(psi_leaf at the end of the step, for the E that fw gives)
+! DESICA and CABLE take psi_leaf from the previous timestep. At JULES
+! timesteps this swings from step to step: the leaf store fills or empties
+! within minutes, so a step with open stomata drives psi_leaf down, the
+! stomata shut in the next step, and so on. sf_stom instead finds the fw
+! that agrees with the psi_leaf it produces by the end of the step,
 !
-! by bisection, in the big-leaf block of sf_stom: the right-hand side falls
-! as fw rises, so the root is unique. This is the limit of DESICA's
-! (Python) repeated solves within a step.
+!   fw = Tuzet factor at the psi_leaf reached with the transpiration E
+!        that fw gives,
 !
-! psi_leaf and psi_stem are prognostic and follow Xu et al. (2016) Notes S1:
+! by bisection in its big-leaf code. The right-hand side falls as fw
+! rises, so there is one answer. This is what DESICA's repeated solves
+! within a step tend to.
 !
-!   C_stem dpsi_stem/dt = Q - J                     (Eqn S4a)
-!   C_leaf dpsi_leaf/dt = J - E                     (Eqn S4b)
-!   J = k_stem2leaf (psi_stem - psi_leaf - psi_h)   (Eqn S2a)
-!   Q = k_root2stem (psi_soil - psi_stem), Q = 0 if psi_soil < psi_stem (S1a)
+! Plant water. psi_leaf and the stem water potential psi_stem (Pa) are
+! carried from step to step and follow Xu et al. (2016, Notes S1):
 !
-! Each equation is solved analytically with the other pool held fixed
-! (Eqn S4c): psi_leaf first with psi_stem fixed, J from mass conservation,
-! then psi_stem with psi_soil fixed. Xu et al. use 600 s steps, so the
-! JULES timestep is sub-stepped to <= 600 s, with E held fixed.
-! The lower bounds on psi (2 P50 for the stem, -20 MPa for the leaf, as
-! CABLE-DESICA) are enforced by capping J and E so that each store stays
-! in balance; DESICA and CABLE clamp psi after the solve, which creates
-! water once a bound is reached. The deliverable E is returned, and
-! sf_stom cuts gc to it.
+!   C_stem dpsi_stem/dt = Q - J                        (Eqn S4a)
+!   C_leaf dpsi_leaf/dt = J - E                        (Eqn S4b)
+!   J = k_leaf (psi_stem - psi_leaf - psi_h)           (Eqn S2a)
+!   Q = k_root (psi_soil - psi_stem), and Q = 0 if
+!       the soil is drier than the stem                (Eqn S1a)
 !
-! Differences from Xu et al. (as in DESICA): the gs model is Tuzet, not
-! the Cowan-Farquhar optimisation (Eqn S3c, S6), and there is no
-! non-stomatal Vcmax/Jmax down-regulation (Eqn S5). Shared with the JULES
-! stomatal optimisation (profit max): the plant conductance is
-! kmax_pft * LAI, on the PFT's P50/P88 vulnerability curve evaluated at
-! psi_stem (Eqn S2b uses psi_stem too), and the soil water potential is
-! psi_root_zone, the conductance-weighted root-zone value, and the
-! soil-to-root conductance ksr (l_som_rhizo_series, as the profit max) is in
-! series ahead of the root. DESICA's placement of the stem store halfway
-! along the plant is som_leaf_resist_frac (0.5 = DESICA): the leaf-side
-! conductance is k_xylem / som_leaf_resist_frac and the root-side one
-! k_xylem / (1 - som_leaf_resist_frac), in series with ksr. The
-! vulnerability curve acts on the xylem only. Conductances are held fixed
-! over a sub-step, so the series sums are exact.
+! where C_stem and C_leaf are the stores' capacitances (mol m-2 Pa-1), Q
+! the water taken up by the roots, J the sap flow from stem to leaf and E
+! the transpiration (all mol m-2 s-1), k_leaf and k_root the conductances
+! on the leaf and root side of the stem store (mol m-2 s-1 Pa-1), psi_h
+! the fall in water potential from lifting water to the canopy height,
+! and psi_soil the soil water potential (Pa).
 !
-! Water accounting: sf_stom solves gs with a projected E and stores the
-! step's inputs (desica_store_inputs). Once the surface fluxes are final,
-! sf_evap advances psi_leaf and psi_stem with the actual transpiration T
-! (desica_commit) and extracts the root uptake Q from the soil instead of
-! T; the plant store takes up the difference,
+! Each equation is solved exactly with the other store held fixed (Eqn
+! S4c): psi_leaf first with psi_stem fixed, then J from the leaf store's
+! water balance, then psi_stem with psi_soil fixed. Xu et al. use 600 s
+! steps, so the JULES timestep is split into steps of 600 s or less, with
+! E held fixed. psi_stem is kept above 2 P50 and psi_leaf above -20 MPa,
+! as in CABLE-DESICA. Where a limit would be passed, J and E are cut so
+! each store keeps its water balance. (DESICA and CABLE instead reset psi
+! to the limit after the solve, which creates water.) The routine returns
+! the transpiration the plant can deliver, and sf_stom lowers the canopy
+! conductance gc to give it.
 !
-!   dW/dt = Q - T.
+! Differences from Xu et al. (2016), as in DESICA: the stomata follow
+! Tuzet, with no Cowan-Farquhar optimisation (their Eqns S3c and S6), and
+! there is no drop in Vcmax and Jmax as the leaf dries (their Eqn S5).
 !
-! Where the plant cannot deliver T (a psi bound), the shortfall is added to
-! Q, and where the soil cannot supply Q, Q is cut and the stem store pays
-! (desica_cut_uptake), so soil + plant + atmosphere water is conserved.
-! psi_leaf and psi_stem are dumped ('psi_leaf_desica', 'psi_stem_desica',
-! Pa). A value >= 0 (e.g. an initial condition of 0) means "not set": the
-! state then starts at psi_root_zone.
+! Shared with the stomatal optimisation (profit max): the plant's
+! conductance is kmax_pft times LAI on the PFT's vulnerability curve
+! (P50, P88), here at psi_stem as in Xu et al. Eqn S2b. psi_soil is
+! psi_root_zone, the root-zone water potential weighted by conductance.
+! The conductance from the soil to the root surface, ksr
+! (l_som_rhizo_series), is in series before the root. The stem store sits
+! part way along the plant, at som_leaf_resist_frac (0.5 in DESICA): the
+! leaf-side conductance is k_xylem / som_leaf_resist_frac and the
+! root-side one k_xylem / (1 - som_leaf_resist_frac), in series with ksr.
+! The vulnerability curve acts on the xylem only. Conductances are held
+! fixed over each short step.
+!
+! Water budget. sf_stom finds gs with an expected E and stores the step's
+! inputs (desica_store_inputs). Once the surface fluxes are final, sf_evap
+! moves psi_leaf and psi_stem on with the actual transpiration T
+! (desica_commit) and takes the root uptake Q from the soil in place of
+! T. The plant's stores take up the difference:
+!
+!   dW/dt = Q - T      (kg m-2 s-1)
+!
+! where W is the water in the plant. Where the plant cannot deliver T
+! (a psi limit), the shortfall is added to Q. Where the soil cannot supply
+! Q, Q is cut and the stem store gives the water (desica_cut_uptake). So
+! the water in soil, plant and air adds up.
+!
+! psi_leaf and psi_stem are written to the dump ('psi_leaf_desica',
+! 'psi_stem_desica', Pa). A value of 0 or above, such as an initial value
+! of 0, means "not set", and the stores then start at psi_root_zone.
 !
 ! References:
 ! Tuzet et al. (2003) Plant Cell Environ. 26: 1097-1116.
@@ -124,7 +148,8 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='DESICA_JLS_MOD'
 CONTAINS
 
 !-----------------------------------------------------------------------------
-! Allocate the state (land_pts, npft), zero = not set, if not done yet.
+! Allocate the module's arrays (land_pts, npft) unless they are already
+! allocated. The water potentials start at 0, meaning "not set".
 !-----------------------------------------------------------------------------
 SUBROUTINE desica_alloc( land_pts )
 
@@ -164,8 +189,11 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE desica_alloc
 
 !-----------------------------------------------------------------------------
-! Tuzet factor from the psi_leaf of the previous timestep. Initialises the
-! state to psi_root_zone at points not seen before.
+! Work out how much the stomata close because the leaf is dry, as the
+! Tuzet factor fw (0 to 1) at the leaf water potential of the end of the
+! previous timestep, for the stomatal conductance of this timestep (DESICA
+! stomata). Where the leaf and stem water potentials are not yet set, they
+! first start at the root-zone water potential (no wetter than -1 Pa).
 !-----------------------------------------------------------------------------
 SUBROUTINE desica_fw( ft, land_pts, veg_pts, veg_index, psi_root_zone, fw )
 
@@ -205,7 +233,14 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE desica_fw
 
 !-----------------------------------------------------------------------------
-! Tuzet et al. (2003) factor for a leaf water potential psi (Pa).
+! Return the Tuzet et al. (2003) factor fw (0 to 1), which scales the
+! stomatal conductance down as the leaf dries, for a leaf water potential
+! psi (Pa):
+!
+!   fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi)))
+!
+! with sf = sf_tuzet (MPa-1) and psi_f = psi_f_tuzet, both potentials in
+! MPa.
 !-----------------------------------------------------------------------------
 REAL(KIND=real_jlslsm) FUNCTION tuzet_fw( ft, psi ) RESULT( fw )
 
@@ -224,8 +259,24 @@ fw = MAX(0.0, MIN(1.0, fw))
 END FUNCTION tuzet_fw
 
 !-----------------------------------------------------------------------------
-! Advance psi_leaf and psi_stem over the timestep for the canopy
-! transpiration el (Xu et al. 2016, Eqns S1, S2, S4).
+! Move the leaf and stem water potentials on over the timestep for the
+! canopy transpiration el (mol m-2 s-1), following Xu et al. (2016, Eqns
+! S1, S2 and S4); see the module header for the equations.
+!
+! The timestep is split into steps of 600 s or less. In each, the xylem
+! conductance is taken from the vulnerability curve at the stem's water
+! potential, then the leaf store is solved with the stem held fixed, and
+! the stem store with the soil held fixed. Where the leaf would pass
+! -20 MPa or the stem 2 P50, the flows are cut to keep it at the limit.
+! With almost no leaves (LAI < lai_min) the stem takes the soil's water
+! potential and the leaf the stem's less the lift to the canopy top.
+!
+! It returns the leaf water potential at the end of the step, the
+! plant's conductance from soil to leaf (kplant, mol m-2 s-1 Pa-1) and
+! the transpiration the plant can deliver (el_hyd, mol m-2 s-1). With
+! l_commit the new water potentials and the step's mean root uptake and
+! sap flow are stored; otherwise the call only looks ahead and stores
+! nothing.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -429,7 +480,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE desica_hydraulics
 
 !-----------------------------------------------------------------------------
-! Store this step's plant inputs for desica_commit (called from sf_stom).
+! Keep this step's leaf area, canopy height, root-zone water potential and
+! soil-to-root conductance, so desica_commit can use them later in the
+! step. Called from sf_stom.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -467,9 +520,12 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE desica_store_inputs
 
 !-----------------------------------------------------------------------------
-! Advance psi_leaf/psi_stem with the actual transpiration t_stom of PFT ft
-! (kg m-2 s-1) and return the root uptake to take from the soil, q_soil
-! (kg m-2 s-1). Called from sf_evap once the surface fluxes are final.
+! Move the leaf and stem water potentials on with the actual
+! transpiration of PFT ft, t_stom (kg m-2 s-1), and return q_soil, the
+! water the roots take from the soil (kg m-2 s-1). Transpiration the plant
+! could not deliver, because a water potential reached its limit, is
+! added to q_soil, so it comes straight from the soil. Called from
+! sf_evap once the surface fluxes are final.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -524,8 +580,16 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE desica_commit
 
 !-----------------------------------------------------------------------------
-! The soil could not supply the uptake: cut it by dq (kg m-2 s-1) at point l
-! of PFT ft and let the stem store pay for it.
+! Take water from the stem store when the soil cannot supply all of the
+! root uptake, so the plant still transpires what the stomata allowed.
+! sf_evap calls it at point l of PFT ft. The uptake is cut by dq
+! (kg m-2 s-1) and the stem store gives that water instead, so its water
+! potential falls by
+!
+!   dq dt / (M_w C_stem)      (Pa)
+!
+! where dt is the timestep (s), M_w the molar mass of water (kg mol-1)
+! and C_stem the stem store's capacitance (mol m-2 Pa-1).
 !-----------------------------------------------------------------------------
 SUBROUTINE desica_cut_uptake( ft, l, timestep, dq )
 

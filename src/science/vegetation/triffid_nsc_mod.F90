@@ -6,182 +6,227 @@
 
 MODULE triffid_nsc_mod
 !-----------------------------------------------------------------------------
-! TRIFFID storage pool (l_triffid_nsc), after Trugman et al. (2018, Ecol.
-! Lett. 21: 1552-1560, Eqns 1a-c and 5, Table S2).
+! Non-structural carbon store for TRIFFID (l_triffid_nsc), after Trugman et
+! al. (2018, Ecol. Lett. 21: 1552-1560, Eqns 1a-c and 5, Table S2), and the
+! stem recovery, sapwood and heartwood that depend on it.
 !
-! NPP goes into a non-structural carbon store C (kg C m-2 of the PFT), and
-! TRIFFID grows from the carbon the store releases (phloem loading), W, not
-! from the NPP of the step:
+! 1. The store
+!
+! NPP goes into a store of non-structural carbon (sugars and starch), C
+! (kg C m-2 of the PFT's area), and TRIFFID grows from the carbon the store
+! releases, W, instead of from the NPP of the step:
 !
 !   dC/dt = NPP - W,
-!   W     = W_max C_a / (k_c C_max + C_a)          (Michaelis-Menten),
+!   W     = W_max C_a / (k_c C_max + C_a),
 !
-! with
-!   C_max = nsc_flush (leaf + root carbon at the balanced LAI), enough for
-!           two flushes of leaves and fine roots, or nsc_cmax if set,
-!   C_a   = C - nsc_reserve_frac C_max, the accessible store,
-!   k_c   = nsc_kc C_max,
-!   W_max = nsc_wmax_fac <NPP>, the running mean of NPP (e-folding
-!           nsc_tau_load years): the sink the plant is adapted to (Trugman
-!           et al. set it by tree size, which TRIFFID does not have).
+! with NPP and W in kg C m-2 per 360 days. The release saturates as the
+! store fills (a Michaelis-Menten form), and
+!   C_max is the store's capacity: nsc_flush times the leaf plus root
+!         carbon at the balanced LAI (enough for nsc_flush flushes of
+!         leaves and fine roots), or nsc_cmax if that is set;
+!   C_a   is the accessible store, C - nsc_reserve_frac C_max. The reserve
+!         below it is never released for growth;
+!   k_c   is nsc_kc (no units): the release is half of W_max when
+!         C_a = k_c C_max;
+!   W_max is nsc_wmax_fac times the running mean of NPP (e-folding time
+!         nsc_tau_load years), the growth the plant is adapted to.
+!         Trugman et al. set it by tree size, which TRIFFID does not have.
 !
-! Carbon above C_max goes to growth, less the share nsc_overflow_resp
-! respired. When the accessible store is used up the deficit passes to
-! TRIFFID as negative growth (the vegetation shrinks), the JULES form of
-! carbon starvation; with nsc_g_starv > 0 (and l_veg_compete) it also
-! drives an area loss in lotka.
+! The store starts full. Carbon above C_max goes to growth, less the share
+! nsc_overflow_resp, which is respired. When NPP is negative and the
+! accessible store is used up, the deficit passes to TRIFFID as negative
+! growth and the vegetation shrinks: this is carbon starvation. With
+! nsc_g_starv > 0 and competition on (l_veg_compete), starvation also
+! removes area in lotka, at the rate nsc_g_starv (per 360 days) when the
+! accessible store is empty, falling linearly to 0 at C_a = k_c C_max.
 !
-! Growth limits (triffid_nsc_turgor). The release is scaled by a growth
-! factor f (0-1), the product of a turgor limit (nsc_psi_turg_zero set:
-! growth needs turgor, so in drought the sink, not the supply, limits
-! growth),
+! 2. Growth limits (triffid_nsc_turgor)
 !
-!   f_psi = (psi_rz - psi_0) / (psi_1 - psi_0),
+! Growth can stop while photosynthesis goes on. The release is scaled by a
+! growth factor f (0-1), the mean over the store step of
 !
-! with psi_rz the root-zone (~predawn) water potential, psi_0 =
-! nsc_psi_turg_zero and psi_1 = nsc_psi_turg_full; a cold limit
-! (nsc_t_grow_zero set),
+!   f = f_psi f_T f_season.
 !
-!   f_T = (T_d - T_0) / (T_1 - T_0),
+! f_psi is the turgor limit, used when nsc_psi_turg_zero is set. Cells need
+! turgor to expand, so in drought growth stops before photosynthesis does:
 !
-! with T_d the daily mean air temperature, T_0 = nsc_t_grow_zero and T_1 =
-! nsc_t_grow_full; and the growing season (0 outside nsc_grow_start_doy to
-! nsc_grow_end_doy). With any limit on, the release is normalised so a
-! full store still releases W_max,
+!   f_psi = (psi_rz - psi_0) / (psi_1 - psi_0),   kept within 0-1,
+!
+! with psi_rz the root-zone water potential (MPa, close to predawn), psi_0
+! = nsc_psi_turg_zero, where growth stops, and psi_1 = nsc_psi_turg_full,
+! where it is unlimited. f_T is the cold limit, used when nsc_t_grow_zero
+! is set:
+!
+!   f_T = (T_d - T_0) / (T_1 - T_0),   kept within 0-1,
+!
+! with T_d a running mean of the air temperature over about a day (degC),
+! T_0 = nsc_t_grow_zero and T_1 = nsc_t_grow_full. f_season is 1 from
+! nsc_grow_start_doy (or the leaf flush start, if set) to nsc_grow_end_doy
+! and 0 outside it. With any limit on, the release is scaled so that a
+! full store with f = 1 still releases W_max:
 !
 !   W = W_max f [C_a / (k_c C_max + C_a)] / [C_m / (k_c C_max + C_m)],
 !
-! with f the mean over the store period and C_m the accessible store when
-! full. With l_nsc_wmax_norm, W_max is also divided by the running annual
-! mean of f, so the store releases faster while growth is allowed.
+! with C_m the accessible store when the store is full. With
+! l_nsc_wmax_norm, W_max is also divided by the running annual mean of f,
+! so the store releases faster while growth is allowed and the yearly
+! release still matches the mean NPP.
 !
-! Leaves. The leaf flush (nsc_flush_start_doy set) draws the year's new
-! leaf carbon from the store over nsc_flush_days, before stem growth
-! starts. Drought leaf shedding (l_phen_psi, Xu et al. 2016;
-! phen_psi_update) sheds and regrows the canopy on the root-zone psi, and
-! the store pays for the regrowth. Leaf renewal (l_ximpair_rec_leaf_turn)
-! renews the leaf segment's conductance by the canopy's new fraction.
+! 3. Growth threshold (nsc_grow_thresh set)
 !
-! Stem recovery by ring renewal (l_ximpair_rec_nsc, with the memory
-! impairment model and dynamic TRIFFID; triffid_nsc_ring_renewal). The new
+! The release for growth draws only on the store above nsc_grow_thresh
+! C_max, which takes the place of the reserve in C_a. After a deep
+! drawdown the store then refills before growth and ring renewal start
+! again. The store down to the reserve still pays the deficits and the
+! leaves.
+!
+! 4. Leaves
+!
+! With a leaf flush (nsc_flush_start_doy set), the year's new leaf carbon
+! is drawn from the store over nsc_flush_days, before stem growth starts.
+! Drought leaf shedding (l_phen_psi, Xu et al. 2016; phen_psi_update) sheds
+! the canopy when the root zone stays dry and regrows it when it is wet
+! again, and the store pays for the regrowth. With leaf renewal
+! (l_ximpair_rec_leaf_turn), new leaves arrive with intact xylem, so the
+! leaf's loss of conductance falls by the share of the canopy that is new.
+!
+! 5. Stem recovery by ring renewal (l_ximpair_rec_nsc)
+!
+! Used with the memory impairment model and dynamic TRIFFID
+! (triffid_nsc_ring_renewal). Drought damage to the stem xylem is lasting,
+! and the stem recovers as new wood with intact xylem is laid down. The new
 ! ring is TRIFFID's gross wood production from the release,
 !
-!   G = dC_W/dt + g_wood C_W,
+!   G = dC_W/dt + g_wood C_W   (kg C m-2 per 360 days),
 !
-! and its share of the stem conductance comes off the stem's loss L,
+! the change in the wood carbon C_W plus the wood turnover it replaces
+! (g_wood, per 360 days). Its share of the stem conductance comes off the
+! stem's loss of conductance L (0-1),
 !
 !   rho = nsc_xylem_cond_ratio G dt / X,    L -> MAX(L - rho, 0),
 !
-! with X the conducting sapwood (nsc_sapwood_frac of the wood, or the pipe
-! model on the balanced leaf area with nsc_la_sa > 0, as in FATES). No
-! carbon is drawn from the store for it: the store paces the renewal
-! through W. The ring replaces damaged xylem first (l_nsc_ring_additive,
-! the default, as in MEDFATE); with it off the ring dilutes the loss,
-! L -> L (1 - rho).
+! with dt the TRIFFID step (360-day years) and X the conducting sapwood
+! (kg C m-2). X is the sapwood pool (section 6) or, without it, sapwood_c:
+! nsc_sapwood_frac of the wood, or with nsc_la_sa > 0 the pipe model, in
+! which the sapwood area is proportional to the leaf area it supplies (as
+! in FATES). No carbon is drawn from the store for the ring: the store
+! sets its pace through W. The ring replaces damaged xylem first
+! (l_nsc_ring_additive, as in MEDFATE); with that off the ring dilutes the
+! loss, L -> L (1 - rho).
 !
-! Net wood growth. While the release is shut TRIFFID still charges the
-! turnover, so the wood shrinks (G < 0) and regrows when the release opens.
-! A deficit D carries the wood lost, which the regrowth repays before any
-! new ring counts. At the end of the ring year (the step that holds
-! nsc_grow_end_doy, or the last day of the year) its net production S
-! settles the count,
+! While the release is shut TRIFFID still removes the wood turnover, so the
+! wood shrinks (G < 0) and regrows when the release opens again. A deficit
+! D (kg C m-2) records the wood lost, and the regrowth repays D before any
+! new ring counts. S is the ring year's net wood production so far. The
+! ring year ends at the TRIFFID step that holds nsc_grow_end_doy or,
+! without it, the last day of the year, and then
 !
 !   D <- MAX(D + MIN(S, 0), 0),    S <- 0,
 !
-! so the count over the years is the sum of MAX(S, 0).
+! so over the years the wood counted as new rings adds up to the sum of
+! MAX(S, 0).
 !
-! Sapwood pool (l_nsc_sapwood_pool, on by default with ring renewal). The
-! conducting sapwood X_s of TRIFFID's wood is a prognostic pool, as in
-! MEDFATE (De Caceres et al. 2023), instead of the pipe model:
+! 6. Sapwood pool (l_nsc_sapwood_pool, on by default)
+!
+! The conducting sapwood X_s (kg C m-2) inside TRIFFID's wood is its own
+! pool, as in MEDFATE (De Caceres et al. 2023):
 !
 !   dX_s/dt = G - (k_h + g_t) X_s,
 !
 ! with k_h = nsc_heartwood_rate the share of the sapwood that becomes
-! heartwood a year and g_t the wood turnover TRIFFID applies (its wood
-! litter over its wood, g_wood), which takes the same share of the
-! sapwood as of the wood. The pool starts, where the dump has none, at
-! its steady state for the current wood C_W (G = g_t C_W in balance),
+! heartwood (wood that no longer conducts) each year, and g_t the wood
+! turnover rate TRIFFID applies (its wood litter over its wood), which
+! takes the same share of the sapwood as of the wood. Where the dump has
+! no pool, the pool starts at its steady state for the current wood C_W,
 !
 !   X_s = C_W g_t / (k_h + g_t),
 !
-! so it does not drift through the run. The ring renews about
-! k_h + g_t of the sapwood a year, so a measurable sapwood turnover, not
-! the allometry, sets the recovery rate. A ring year with a net loss of
-! wood also takes |S| from X_s.
+! so it does not drift through the run. The new ring renews about
+! k_h + g_t of the sapwood each year, so the sapwood turnover, which can be
+! measured, sets the recovery rate. A ring year with a net loss of wood
+! (S < 0) also takes |S| from X_s.
 !
-! Ring cohorts (l_nsc_sapwood_rings, with the sapwood pool). The pool is
-! followed ring by ring (ximpair_ring_frac, ximpair_ring_loss and the
-! youngest ring's growth year ximpair_ring_year, in dumps; at most
-! nsc_n_ring rings, the oldest two merged when a new one starts). Each
-! TRIFFID step TRIFFID's wood turnover takes all rings alike, the new wood
-! G dt joins the youngest ring, intact, and heartwood takes the oldest
-! rings first; at the end of the ring year a new ring starts. A drought
-! raises every conducting ring's loss to at least the loss it imposes, and
-! the stem's loss is the rings' losses weighted by their share of the
-! sapwood and their conductivity by age a (in winters, so the year's ring
-! stays new until the calendar year ends, for every stem),
+! 7. Ring cohorts (l_nsc_sapwood_rings, with the sapwood pool)
 !
-!   c(a) = c_old + (1 - c_old) EXP(-a / e)
+! The sapwood pool is followed ring by ring. Each ring's share of the
+! sapwood and its loss of conductance, and the growth year of the youngest
+! ring, are kept in dumps (ximpair_ring_frac, ximpair_ring_loss,
+! ximpair_ring_year). There are at most nsc_n_ring rings, and the oldest
+! two merge when a new one starts. At each TRIFFID step TRIFFID's wood
+! turnover takes from all rings alike, the new wood G dt joins the youngest
+! ring with intact xylem, and heartwood forms from the oldest rings first.
+! At the end of the ring year a new ring starts. A drought raises each
+! conducting ring's loss to at least the loss it causes. The stem's loss
+! is the mean of the rings' losses, weighted by their share of the sapwood
+! and by their conductivity, which falls with ring age a (in winters
+! passed, so a ring stays new until its calendar year ends):
 !
-! (c_old = nsc_ring_c_old, e = nsc_ring_cond_efold; unset = alike). A
-! ring-porous stem (nsc_ring_func_doy set) has a conducting youngest ring
-! (the earlywood) only from that day; before it the flow goes through the
-! older rings, last year's earlywood at c_old after the winter. The
-! earlywood is not paid from the store ahead of growth: the youngest ring
-! holds the wood grown so far. Recovery then follows from the rings: new
-! rings dilute the stem's loss and a drought's damage leaves with the
-! rings it hit, so nothing is queued and l_nsc_ring_additive is ignored.
-! The rings start at the first update of the main run (or from a dump
-! without them) as 1 / k_h equal rings with the stem's loss.
+!   c(a) = c_old + (1 - c_old) EXP(-a / e),
 !
-! Pipe-model target (l_nsc_pipe_target, with the sapwood pool). The
-! conducting sapwood has a target, the pipe model on the leaf area it
-! served, last ring year's peak LAI L_pk (nsc_lai_peak_prev; the balanced
-! LAI until the first ring year has ended), and the height,
+! with c_old = nsc_ring_c_old and e = nsc_ring_cond_efold (years). With
+! these unset, all rings conduct alike. In a ring-porous stem
+! (nsc_ring_func_doy set), the youngest ring's early wood conducts only
+! from that day of the year; before it the flow goes through the older
+! rings, with last year's early wood at c_old after the winter. The
+! youngest ring holds only the wood grown so far, so the early wood is not
+! paid for from the store ahead of growth. With the rings, recovery comes
+! from the rings themselves: new rings dilute the stem's loss, and a
+! drought's damage leaves with the rings it hit when they become
+! heartwood. Nothing is queued, and l_nsc_ring_additive is ignored. The
+! rings start, at the first update of the main run or from a dump without
+! them, as 1 / k_h equal rings, each with the stem's current loss.
 !
-!   X_t = L_pk / nsc_la_sa h nsc_wood_density cmass
+! 8. Pipe-model target (l_nsc_pipe_target, with the sapwood pool)
 !
-! (sapwood_c; nsc_sapwood_frac C_W without nsc_la_sa), at most TRIFFID's
-! wood C_W (a warning once per point when it binds). Heartwood forms at
-! k_h scaled by how far the sapwood is from it,
+! The conducting sapwood has a target size from the pipe model, on the
+! leaf area it supplied, last ring year's peak LAI L_pk (the balanced LAI
+! until the first ring year has ended), and on the canopy height h (m):
+!
+!   X_t = (L_pk / nsc_la_sa) h nsc_wood_density cmass   (kg C m-2),
+!
+! with nsc_la_sa the leaf area per unit sapwood area, nsc_wood_density the
+! wood density and cmass the carbon fraction of dry mass (sapwood_c; or
+! nsc_sapwood_frac C_W without nsc_la_sa). X_t is at most the wood C_W,
+! with a warning once per point when this cap applies. Heartwood forms at
+! k_h scaled by how far the sapwood is from its target:
 !
 !   dX_hw/dt = g k_h X_s,   g = MIN(r^gamma, g_max),
 !
-! with r = X_s / X_t above the target and r = X_f / X_t below it, X_f the
-! functional sapwood, X_s (1 - L) with L the stem's loss (the rings'
-! conductivity-weighted mean with the rings), and gamma = nsc_pipe_gamma
-! (0: g = 1). Sapwood above the target is retired faster; a damaged or
-! small sapwood keeps its old rings longer. The pool starts at the target.
-! The sapwood is at most the wood, and the heartwood is the rest,
+! with gamma = nsc_pipe_gamma (gamma = 0 gives g = 1). Above the target
+! r = X_s / X_t; below it r = X_f / X_t, with X_f = X_s (1 - L) the
+! sapwood that still conducts and L the stem's loss (with the rings, their
+! conductivity-weighted mean loss). Sapwood above the target becomes
+! heartwood faster, and a damaged or small sapwood keeps its old rings
+! longer. The pool starts at the target. The sapwood is at most the wood,
+! and the heartwood is the rest,
 !
-!   H = C_W - X_s
+!   H = C_W - X_s   (nsc_heartwood, an output).
 !
-! (nsc_heartwood, an output). TRIFFID's wood is unchanged.
+! TRIFFID's wood carbon is not changed.
 !
-! Conductance from the sapwood area (l_nsc_k_sapwood, with the pipe-model
-! target; nsc_k_area). The plant's kmax is scaled by the conducting
-! sapwood area against the target,
+! 9. Conductance from the sapwood area (l_nsc_k_sapwood, with the
+!    pipe-model target; nsc_k_area)
+!
+! The plant's maximum hydraulic conductance, kmax, is scaled by the
+! conducting sapwood area against its target,
 !
 !   f_A = MIN(1, SUM_i X_i c_i / (X_t c_ref)),
 !
-! c_i the rings' conductivity by age and season and c_ref that of a stand
-! in equilibrium on the same day (1 / k_h rings of equal carbon, the
-! youngest grown as far as the season has gone), so a stand at its target
-! has f_A = 1 on any date; without the rings f_A = MIN(1, X_s / X_t). f_A
-! measures capacity only: the rings' damage lowers the conductance through
-! the impairment memory.
+! with X_i the sapwood carbon in ring i, c_i its conductivity by age and
+! season, and c_ref the mean conductivity of a stand in equilibrium on the
+! same day (1 / k_h rings of equal carbon, the youngest grown as far as
+! the season has gone), so a stand at its target has f_A = 1 on any date.
+! Without the rings f_A = MIN(1, X_s / X_t). f_A counts the sapwood's
+! capacity only: drought damage in the rings lowers the conductance
+! through the impairment memory.
 !
-! Growth threshold (nsc_grow_thresh set): growth draws only on the store
-! above nsc_grow_thresh C_max, so after a deep drawdown the store refills
-! before growth and ring renewal resume; the reserve still pays the
-! deficits and the leaves.
+! 10. Without TRIFFID (l_triffid off)
 !
-! Without TRIFFID (l_triffid off) the store runs once a day
-! (triffid_nsc_daily), with leaf, root and wood carbon from the prescribed
-! height; the release leaves the store and there is no stem recovery.
+! The store runs once a day (triffid_nsc_daily), with the leaf, root and
+! wood carbon from the prescribed canopy height. The release leaves the
+! store, as there is no growth to feed, and there is no stem recovery.
 !
 ! MDK, 31/10/26
-!
 !-----------------------------------------------------------------------------
 
 USE um_types, ONLY: real_jlslsm
@@ -291,7 +336,10 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='TRIFFID_NSC_MOD'
 CONTAINS
 
 ! ---------------------------------------------------------------------
-! Allocate the store and its diagnostics (n_land_pts, npft), if not done.
+! Allocates the store's state and diagnostics for all land points and
+! PFTs, if not already allocated, at their values for a fresh start.
+! Several start below 0, which marks them as not yet set; each is filled
+! at its first use.
 !
 ! MDK, 30/10/26
 ! ---------------------------------------------------------------------
@@ -421,9 +469,33 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE triffid_nsc_alloc
 
 ! ---------------------------------------------------------------------
-! One TRIFFID step of the store. On return npp holds W, the carbon released
-! from the store (kg C m-2 per 360 days), which TRIFFID grows from. The
-! ring renewal (stem recovery) is triffid_nsc_ring_renewal, after vegcarb.
+! Pass the PFT's carbon through its non-structural carbon store, so that
+! growth uses stored carbon and does not follow each step's NPP directly.
+! It runs one store step for each natural PFT (or only pft_only), at each
+! TRIFFID step or, without TRIFFID, once a day. On entry npp is the NPP of
+! the step; on return it is W, the carbon released from the store, which
+! TRIFFID grows from (both kg C m-2 per 360 days). In order:
+!
+!   1. Sets the capacity C_max (the store starts full) and updates the
+!      running mean of NPP that sets W_max.
+!   2. Pays, from the accessible store, the leaf regrowth queued after
+!      drought shedding and then this step's share of the leaf flush.
+!      Regrowth in the flush window counts towards the flush, so the
+!      leaves are not paid for twice.
+!   3. Works out the release for growth on the store above its floor (the
+!      reserve or the growth threshold), scaled by the mean growth factor
+!      when growth limits are on. The release with the limits open is kept
+!      in nsc_wpot_pft for the sink feedback on photosynthesis.
+!   4. Takes W - NPP from the store, never below the reserve: a deficit
+!      beyond the accessible store passes to TRIFFID as negative growth.
+!      With a growth threshold, the release for growth is first capped so
+!      it cannot take the store below the threshold.
+!   5. Sends carbon above C_max to growth, less the share
+!      nsc_overflow_resp, which is respired, and sets the starvation
+!      disturbance for lotka.
+!
+! The equations are in the module header. Ring renewal (stem recovery)
+! runs later, in triffid_nsc_ring_renewal after vegcarb.
 !
 ! MDK, 30/10/26
 ! ---------------------------------------------------------------------
@@ -677,11 +749,15 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE triffid_nsc_store
 
 ! ---------------------------------------------------------------------
-! The store after TRIFFID's change of PFT area (lotka). Area lost takes its
-! store with it, to litter (lit_store); area gained shares the store, which
-! is spread over the new area. The wood lost (nsc_wood_lost) and the ring
-! year's net wood growth (nsc_net_wood_growth) are spread over area gained
-! too: the new cover has lost no wood and grown none this ring year.
+! Adjusts the store after TRIFFID changes a PFT's area (lotka). The store
+! is per unit area of the PFT. Area lost takes its store with it, to
+! litter (lit_store, kg C m-2 of land per 360 days). Area gained shares
+! the existing store, so the store per unit area is multiplied by
+! frac_old / frac, the PFT's fraction before the step over its fraction
+! after. The wood lost and not yet regrown (nsc_wood_lost) and the ring
+! year's net wood growth (nsc_net_wood_growth) are diluted the same way
+! when area is gained, as the new cover has lost no wood and grown none
+! this ring year.
 !
 ! MDK, 30/10/26
 ! ---------------------------------------------------------------------
@@ -759,30 +835,38 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE triffid_nsc_area
 
 ! ---------------------------------------------------------------------
-! Growth limits on the store's release, called from sf_stom every time
-! step for PFT ft. The growth factor of the time step,
+! Slow the store's release of carbon for growth when the plant is too dry
+! or too cold to grow, or out of its growing season. Called from sf_stom
+! every time step for PFT ft, it works out the step's growth factor
 !
-!   f = f_psi f_T f_season,
+!   f = f_psi f_T f_season   (0-1; see the module header)
 !
-! is added to nsc_turg_acc as a fraction of the store period (the TRIFFID
-! period, or a day without TRIFFID), so the store step uses its mean.
+! and adds f times the step's share of the store period (the TRIFFID
+! period, or one day without TRIFFID) to nsc_turg_acc, so the store step
+! uses the mean of f over its period.
 !
-! f_psi: growth needs turgor, so in drought the sink, not the supply,
-! limits growth (Lempereur et al. 2015: stem growth stops at a predawn psi
-! near -1.1 MPa while assimilation goes on). f_T: wood formation needs
-! daily mean temperatures above ~5-8 degC (Rossi et al. 2008), so it uses
-! a daily running mean of the air temperature and a sunny winter midday
-! does not switch growth on. f_season: trees can be dormant in winter even
-! when it is mild, so the store refills from winter NPP.
+! f_psi: growth needs turgor, and in drought it stops before
+! photosynthesis does (Lempereur et al. 2015: stem growth stops at a
+! predawn water potential near -1.1 MPa while assimilation goes on).
+! f_T: wood formation needs daily mean temperatures above about 5-8 degC
+! (Rossi et al. 2008), so f_T uses a running mean of the air temperature
+! with an e-folding time of one day, and a sunny winter midday does not
+! start growth. f_season: trees can stay dormant through a mild winter, so
+! the store refills from winter NPP. With a leaf flush the season starts
+! on the flush start day.
 !
-! Leaf renewal (l_ximpair_rec_leaf_turn) also runs here: new leaves arrive
-! intact, so the leaf segment's loss falls by the new fraction of the
-! canopy,
+! The routine also keeps <f>, the running annual mean of f (e-folding 360
+! days), used by leaf renewal and l_nsc_wmax_norm. With leaf renewal
+! (l_ximpair_rec_leaf_turn), new leaves arrive with intact xylem, so the
+! leaf's remaining loss of conductance is multiplied each step by
+! (1 - dR), with dR the share of the canopy that is new,
 !
 !   dR = g_leaf_0 f / <f> dt,
 !
-! with <f> the running annual mean of f (nsc_ft_mean): leaves are made only
-! while growth is allowed, and a year's production matches g_leaf_0.
+! g_leaf_0 the leaf turnover rate (per 360 days) and dt the time step
+! (360-day years). Leaves are made only while growth is allowed, and a
+! year's production still matches g_leaf_0. Leaf renewal does not run in
+! spin-up, where the stem damage is held fixed.
 !
 ! MDK, 30/10/26
 ! ---------------------------------------------------------------------
@@ -915,14 +999,22 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE triffid_nsc_turgor
 
 ! ---------------------------------------------------------------------
-! Drought leaf shedding (l_phen_psi; Xu et al. 2016, New Phytol, Notes S1
-! Eqn S7), called from sf_stom every time step for PFT ft. The daily mean
-! root-zone psi (a predawn proxy) counts consecutive days below the turgor
-! loss point phen_psi_tlp and above half of it; once either count reaches
-! phen_ndays the leaf biomass factor phen_fbleaf falls or rises by
-! phen_dfbleaf a day (between phen_fbleaf_min and 1). phenol caps the
-! canopy at it and queues the regrowth's leaf carbon for the store
-! (nsc_regrow_acc), so the store, not NPP, pays for the regrowth.
+! Shed leaves when the soil stays dry (l_phen_psi; Xu et al. 2016, New
+! Phytol, Notes S1 Eqn S7), so a droughted plant loses water through less
+! leaf area. It is called from sf_stom every time step for PFT ft, and does
+! nothing unless phen_psi_tlp is set.
+!
+! Each step adds the root-zone water potential to a daily sum. At the last
+! time step of the day the daily mean (MPa, a stand-in for predawn) is
+! compared with the turgor loss point phen_psi_tlp (MPa, negative). A day
+! below phen_psi_tlp is dry, and a day above 0.5 phen_psi_tlp is wet; each
+! count of days in a row goes back to 0 when the run breaks. After
+! phen_ndays dry days in a row, the leaf biomass factor phen_fbleaf (0-1,
+! the share of the full canopy allowed) falls by phen_dfbleaf a day; after
+! phen_ndays wet days in a row it rises by phen_dfbleaf a day. It stays
+! between phen_fbleaf_min and 1. phenol caps the canopy at this factor and
+! queues the leaf carbon of the regrowth (nsc_regrow_acc), which the store
+! pays for.
 !
 ! MDK, 30/10/26
 ! ---------------------------------------------------------------------
@@ -1009,13 +1101,15 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE phen_psi_update
 
 ! ---------------------------------------------------------------------
-! The store without TRIFFID (l_triffid off), called from sf_stom every time
-! step for PFT ft after NPP: sums the day's NPP, and at the last time step of
-! the day runs the store step for ft with a one-day step, with leaf and
-! root carbon from the prescribed height (TRIFFID allometry). The release
-! leaves the store (there is no growth to feed), there is no stem recovery
-! (it needs TRIFFID wood growth), and nsc_starv is a diagnostic only (the
-! PFT fractions are fixed).
+! Run the non-structural carbon store when TRIFFID is off (l_triffid off).
+! It is called from sf_stom every time step for PFT ft after NPP, adds the
+! step's NPP to a daily sum, and at the last time step of the day runs
+! the store step (triffid_nsc_store) for ft with a one-day step. The leaf
+! and root carbon come from the prescribed canopy height through
+! TRIFFID's allometry. The released
+! carbon leaves the store, as there is no growth to feed. Stem recovery
+! needs TRIFFID's wood growth, so it does not run, and the starvation term
+! is only a diagnostic, as the PFT fractions are fixed.
 !
 ! MDK, 30/10/26
 ! ---------------------------------------------------------------------
@@ -1100,14 +1194,18 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE triffid_nsc_daily
 
 ! ---------------------------------------------------------------------
-! Conductance from the sapwood area (l_nsc_k_sapwood): the factor f_A on
-! the plant's kmax at point l, PFT n,
+! Return the factor f_A (0-1) that scales the plant's kmax at land point
+! l for PFT n with how much conducting sapwood it has (l_nsc_k_sapwood),
 !
 !   f_A = MIN(1, X_s SUM_i f_i c_i / (X_t c_ref)),
 !
-! with the rings (ximpair_ring_cweight, ximpair_ring_cref), or
-! MIN(1, X_s / X_t) without them. 1 until the sapwood and its target are
-! set (spin-up, before the first ring step); at least f_a_min.
+! with X_s the sapwood and X_t its pipe-model target (both kg C m-2), f_i
+! each ring's share of the sapwood, c_i its conductivity by age and season
+! (ximpair_ring_cweight gives the sum), and c_ref the mean conductivity of
+! a stand in equilibrium on the same day (ximpair_ring_cref). Without the
+! rings f_A = MIN(1, X_s / X_t). f_A is 1 until the sapwood and its target
+! are set (in spin-up and before the first ring step), and at least
+! f_a_min, so the plant keeps a conducting path.
 !
 ! MDK, 31/10/26
 ! ---------------------------------------------------------------------
@@ -1151,28 +1249,39 @@ f_a = MAX(MIN(1.0, x_s / x_t), f_a_min)
 END FUNCTION nsc_k_area
 
 ! ---------------------------------------------------------------------
-! Stem recovery by ring renewal (l_ximpair_rec_nsc), called by triffid
-! after vegcarb. The new ring is TRIFFID's gross wood production of the
-! step (per 360 days),
+! Let the stem recover from drought damage as new sapwood rings take over
+! from damaged ones (l_ximpair_rec_nsc). It is called by triffid after
+! vegcarb at each TRIFFID step. It does not run in spin-up, where
+! the impairment is held fixed, and it moves no carbon. For each natural
+! PFT that uses the memory impairment model:
 !
-!   G = dwood / dt + g_wood C_W,old,
+!   1. The new ring is TRIFFID's gross wood production of the step,
 !
-! the wood increment plus the turnover replaced (wood_litc), counted net
-! (below). The ring's share of the stem conductance,
+!        G = dwood / dt + g_wood C_W,old   (kg C m-2 per 360 days),
 !
-!   rho = nsc_xylem_cond_ratio G dt / X,
+!      the wood increment plus the wood turnover it replaced (wood_litc),
+!      with dt the TRIFFID step (360-day years) and C_W,old the wood
+!      before the step. G counts only after the deficit D of wood lost
+!      and not yet regrown is repaid (see the module header).
+!   2. Without the ring cohorts, the ring's share of the stem conductance,
 !
-! with X the conducting sapwood before the step's growth, is queued in
-! ximpair_repair_pend for the next impairment update, which takes it off
-! the stem's loss (l_nsc_ring_additive, the default) or dilutes the loss
-! by it. With the sapwood pool X is the pool, which gains G and loses
-! heartwood and its share of TRIFFID's wood turnover. With the ring
-! cohorts nothing is queued: the new wood joins the youngest ring, the
-! turnover takes all rings alike and heartwood the oldest. With the
-! pipe-model target heartwood forms at g k_h X_s, g from the sapwood
-! against its target (on last ring year's peak leaf area), and the
-! heartwood is the rest of the wood.
-! Not in spin-up, where the impairment is frozen. No carbon moves here.
+!        rho = nsc_xylem_cond_ratio G dt / X,
+!
+!      with X the conducting sapwood before the step's growth, is queued
+!      in ximpair_repair_pend. The next impairment update takes it off
+!      the stem's loss (l_nsc_ring_additive) or dilutes the loss by it.
+!   3. With the sapwood pool, X is the pool X_s, which gains G and loses
+!      heartwood and its share of TRIFFID's wood turnover.
+!   4. With the ring cohorts nothing is queued: the new wood joins the
+!      youngest ring, the turnover takes from all rings alike and
+!      heartwood takes the oldest rings first.
+!   5. With the pipe-model target, heartwood forms at g k_h X_s, with g
+!      from the sapwood against its target on last ring year's peak leaf
+!      area, and the heartwood is the rest of the wood.
+!   6. At the end of the ring year, the year's net wood growth S settles
+!      the deficit D, a net loss of wood also comes off the sapwood, and
+!      with the pipe-model target this ring year's peak LAI becomes last
+!      year's.
 !
 ! MDK, 31/10/26
 ! ---------------------------------------------------------------------

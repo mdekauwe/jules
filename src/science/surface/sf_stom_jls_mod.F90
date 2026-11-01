@@ -830,7 +830,7 @@ REAL(KIND=real_jlslsm) :: ksr_ds(land_pts)
 REAL(KIND=real_jlslsm) :: fw_lo(land_pts), fw_hi(land_pts),                    &
                           el_try(land_pts), psi_try(land_pts), k_try(land_pts),&
                           el_hyd(land_pts)
-                            ! DESICA bisection bracket on fw, and the trial
+                            ! DESICA bisection bracket on fw, and the guessed
                             ! transpiration (mol m-2 s-1), end-of-step
                             ! psi_leaf (Pa) and plant conductance, and the
                             ! transpiration the plant can deliver.
@@ -3177,7 +3177,7 @@ CASE ( 1 )
   !---------------------------------------------------------------------------
   ! DESICA: solve fw = Tuzet(psi_leaf at the end of the step, for the E that
   ! fw gives) by bisection on fw in [0, 1], re-running the big-leaf fluxes
-  ! below for each trial fw (see desica_jls_mod). Other models: one pass.
+  ! below for each guessed fw (see desica_jls_mod). Other models: one pass.
   !---------------------------------------------------------------------------
   n_pass = 1
   IF ( stomata_model == stomata_desica ) THEN
@@ -3558,7 +3558,7 @@ CASE ( 1 )
   IF ( stomata_model == stomata_desica .AND. i_pass < n_pass ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
-      ! Trial E for this fw, with the cuticular floor if it is on (here
+      ! Guessed E for this fw, with the cuticular floor if it is on (here
       ! without its supply/xylem bounds, which only act near closure).
       gl_cut_ds = 0.0
       IF ( l_som_cuticular_loss ) gl_cut_ds = gcuticular(ft) * 1.0e-3 * rmol   &
@@ -5188,7 +5188,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   q_lo(land_pts), q_hi(land_pts), f_lo(land_pts), f_hi(land_pts),              &
       ! The bracket on q and R at its ends (mol m-2 s-1).
   q_try(land_pts), f_try(land_pts), w_tol(land_pts), w_old(land_pts),          &
-      ! Trial q and R there; the converged width and the last width.
+      ! Guessed q and the mismatch there; the converged width and the last
+      ! width.
   kref_c(land_pts), kmx_c(land_pts), kcr_c(land_pts), kcap_c(land_pts)
       ! The canopy's intact and impaired kmax, kcrit and their ratio.
 REAL(KIND=real_jlslsm) :: psi1(1,land_pts), st1(1,land_pts), k1(1,land_pts)
@@ -5219,7 +5220,7 @@ ELSE
   l_fl_hit(:)  = .FALSE.
 END IF
 
-! The trial store flow at every point. q_try is passed whole to
+! The guessed store flow at every point. q_try is passed whole to
 ! set_store_q_path, so the points not solved must hold 0, not junk.
 q_try(:)     = 0.0
 
@@ -5289,7 +5290,7 @@ DO m = 1,veg_pts
 END DO
 IF ( n_be == 0 ) RETURN
 
-! The mismatch at both ends of the search: the trial q less the flow the
+! The mismatch at both ends of the search: the guessed q less the flow the
 ! store would give at the stem's resulting water potential. It is below 0
 ! at q_lo and above 0 at q_hi, so the answer lies between.
 DO j = 1,n_be
@@ -5439,7 +5440,7 @@ END IF
 END SUBROUTINE store_cpl_q
 
 !-----------------------------------------------------------------------------
-! Plant capacitance: one trial of the search in store_cpl_q. For a guessed
+! Plant capacitance: one guess of the search in store_cpl_q. For a guessed
 ! store flow q_try, solve the plant's water potentials and say how far the
 ! guess is from what the store would really give.
 !
@@ -5469,7 +5470,7 @@ LOGICAL, INTENT(IN) :: l_imp_be, l_ex
                             ! Xylem impairment active; exact segment solves.
 REAL(KIND=real_jlslsm), INTENT(IN) :: e_c(land_pts), q_try(land_pts),          &
                                       c_p(land_pts), psi_x0(land_pts)
-                            ! Canopy E and trial q (mol m-2 s-1), C / dt
+                            ! Canopy E and guessed q (mol m-2 s-1), C / dt
                             ! (mol m-2 s-1 Pa-1), the store's psi (Pa).
 REAL(KIND=real_jlslsm), INTENT(IN) :: kref_c(land_pts), kmx_c(land_pts),       &
                                       kcr_c(land_pts), kcap_c(land_pts)
@@ -5534,12 +5535,19 @@ END SUBROUTINE store_cpl_eval
 
 
 !-----------------------------------------------------------------------------
-! Multilayer canopy, one leaf class (sunlit or shaded) of the current layer:
-! the supply cap and soil-to-root share for the class's deficit dq_x and
-! temperature t_x, then the optimisation with the class's photosynthesis
-! inputs (_x: at the leaf temperature with l_leaf_temp, else the canopy
-! values at tstar). (Without l_leaf_temp both classes see dqc and tstar, so
-! the cap is the same for both.)
+! Multilayer canopy: run the stomatal optimisation for the sunlit or the
+! shaded leaves of the current layer.
+!
+! First the soil's water supply is turned into a cap on the leaves'
+! stomatal conductance, at their humidity deficit dq_x and temperature
+! t_x, and the leaves are given their share of the soil-to-root
+! conductance. With the stem store, the supply is the leaves' share of the
+! soil's supply plus their own part of the store's flow out (q_c), and
+! that flow is held fixed during the leaves' search. Then the optimisation
+! runs with the leaves' photosynthesis inputs (arguments ending _x). With
+! l_leaf_temp these are at the leaves' own temperature; otherwise they are
+! the canopy values at tstar, and the sunlit and shaded leaves get the
+! same cap, as both see the canopy deficit dqc and tstar.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -5861,12 +5869,29 @@ END DO
 END SUBROUTINE two_leaf_class
 
 !-----------------------------------------------------------------------------
-! l_leaf_temp_ci: set the bounded search's leaf temperature of each
-! candidate Ci for leaf class ic (1 sunlit, 2 shaded), from the last pass's
-! leaf balance (ltc_a_2l, ltc_b_2l) and the class's photosynthesis
-! parameters and saturated humidity at t_cls (from leaf_class_at_temp) and
-! at t_cls + 1 K: their slopes, d ln(p) / dT for the parameters (0 where a
-! parameter is not positive at both) and dqs / dT for the deficit.
+! Prepare the stomatal search to correct photosynthesis for leaf
+! temperature (l_leaf_temp_ci), for the sunlit (ic = 1) or shaded
+! (ic = 2) leaves.
+!
+! Opening the stomata more cools the leaf, because it transpires more, and
+! a cooler leaf photosynthesises differently and has a smaller humidity
+! deficit. So each stomatal opening the search tries should be scored at
+! its own leaf temperature. This routine gives the search what it needs
+! to do that cheaply, without solving the leaf energy balance for every
+! candidate.
+!
+! The leaf temperature is a straight line in the transpiration E, from
+! the last pass's leaf energy balance (ltc_a_2l, ltc_b_2l):
+!
+!   T_leaf = a - b E      (K)
+!
+! The routine works out the leaves' photosynthesis parameters and
+! saturation humidity at their temperature t_cls (from
+! leaf_class_at_temp) and at t_cls + 1 K. From these it takes how each
+! parameter changes per kelvin, as d ln(p) / dT (0 where a parameter is
+! not positive at both temperatures), and how the saturation humidity
+! changes per kelvin, dqs / dT (kg kg-1 K-1). It passes these to the
+! search (set_leaf_temp_ci).
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -5911,18 +5936,23 @@ CALL set_leaf_temp_ci( land_pts, veg_pts, veg_index, ltc_a_2l(:,ic),          &
 END SUBROUTINE ltc_set
 
 !-----------------------------------------------------------------------------
-! Leaf energy balance (l_leaf_temp), two-leaf and multilayer: set-up before
-! the passes.
+! Get the leaf energy balance (l_leaf_temp) ready before the passes of the
+! stomatal optimisation, in the two-leaf and multilayer canopies. Each
+! pass solves the leaves' temperatures, so the terms that stay the same
+! on every pass are worked out once here, with first guesses for the rest.
 !
-! 1. The radiation and conductance terms that do not change between
-!    passes, from the class leaf areas and absorbed PAR (lai_sun_2l,
-!    lai_shd_2l, apar_sun_2l, apar_shd_2l), for each layer as well with
-!    ml_leaf_temp_model = 2.
-! 2. First guesses: the leaf temperatures (last timestep's, or tstar on
-!    the first timestep), the canopy air temperature (tair) and humidity,
-!    and the canopy air resistances.
-! 3. The photosynthesis temperature parameters of each class start from the
-!    tile's.
+!   1. Work out the radiation and wind terms that stay the same on every
+!      pass, from the leaf area and absorbed PAR of the sunlit and shaded
+!      leaves, and for every layer as well with ml_leaf_temp_model = 2.
+!      With CABLE's canopy aerodynamics (leaf_aero_model = 1), first work
+!      out the canopy's shape (leaf_aero_geom).
+!   2. Make first guesses: the leaf temperatures (the last timestep's, or
+!      tstar on the first timestep), the canopy air temperature (tair) and
+!      humidity, and the resistance from the canopy air to the first
+!      atmospheric level.
+!   3. Start the photosynthesis temperature terms of the sunlit and shaded
+!      leaves (CO2 compensation point and Michaelis-Menten constants) from
+!      the tile's.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -6047,11 +6077,31 @@ INTEGER :: l, m
 END SUBROUTINE lt_init
 
 !-----------------------------------------------------------------------------
-! Leaf energy balance (l_leaf_temp), two-leaf and multilayer, at point lp
-! after the passes: the leaf temperatures used (t_leaf_sun, t_leaf_shd,
-! t_can, with f_sun the sunlit fraction of the leaf area), the fraction of
-! the classes held at the dt_leaf limit, and with l_leaf_temp_gc_eq the
-! transpiration-equivalent gc, capped at gc_cap (set by the caller).
+! Finish the leaf energy balance (l_leaf_temp) at point lp after the
+! passes of the stomatal optimisation, in the two-leaf and multilayer
+! canopies: keep the leaf temperatures the passes ended with and hand the
+! results to the rest of JULES.
+!
+!   1. Keep the leaf temperatures used (t_leaf_sun, t_leaf_shd) and their
+!      mean t_can, weighted by the sunlit fraction of the leaf area f_sun.
+!      Leaves with no leaf area take the other leaves' temperature.
+!   2. Fill the canopy diagnostics (canopy_diag_mod).
+!   3. With l_leaf_temp_gc_eq, replace the canopy conductance gc with the
+!      one that gives the transpiration the optimisation chose when JULES
+!      applies gc at the surface temperature tstar:
+!
+!        rho (qs(tstar) - q1) gc / (1 + ra (gc + g_s)) = E M_w
+!
+!      where rho is the air density, qs(tstar) - q1 the humidity deficit
+!      from the surface to the first atmospheric level (kg kg-1), ra the
+!      aerodynamic resistance (s m-1), g_s the soil's evaporation
+!      conductance, E the transpiration (mol m-2 s-1) and M_w the molar
+!      mass of water. gc is no more than gc_cap, set by the caller, or
+!      som_gl_max times LAI where the caller sets none. The optimised gc
+!      is kept when the deficit is below 1e-4 kg kg-1.
+!   4. Record the fraction of the leaves (sunlit and shaded, or those of
+!      every layer, n_cls_in) whose temperature was held at dt_leaf from
+!      the canopy air, and warn the first few times it happens.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -6157,9 +6207,10 @@ SUBROUTINE sun_shade_totals( land_pts, veg_pts, veg_index, ilayers, dlai,     &
                              fsun, fapar_sun, fapar_shd, ipar, lai_sun,        &
                              lai_shd, apar_sun, apar_shd )
 
-! Sunlit and shaded leaf area and absorbed PAR of the canopy, summed over
-! the layers with each layer's sunlit fraction (two-leaf canopy, and the
-! multilayer canopy's leaf energy balance).
+! Add up, over the canopy layers, the leaf area of the sunlit and of the
+! shaded leaves (m2 m-2) and the PAR each set absorbs (W m-2 ground),
+! using each layer's sunlit fraction. The two-leaf canopy runs on these
+! totals, and the multilayer canopy's leaf energy balance uses them too.
 !
 ! MDK, 24/10/26
 
@@ -6223,11 +6274,17 @@ SUBROUTINE leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
                                dq_min, ccp, kc, ko, km, vcmax_c, je_c, rd_c,   &
                                qs_c, dq_c, f_vc )
 
-! Leaf energy balance (l_leaf_temp; two-leaf and multilayer): the
-! photosynthesis parameters of one leaf class at its temperature t_leaf -
-! the temperature responses, the class totals of Vcmax and Rd (N-weighted
-! leaf area nw), the electron flux - and its humidity deficit to the canopy
-! air, qs(t_leaf) - q_c.
+! Work out the photosynthesis inputs of one set of leaves (sunlit or
+! shaded) at their own temperature t_leaf, for the leaf energy balance
+! (l_leaf_temp) in the two-leaf and multilayer canopies. Leaves warmer or
+! cooler than the canopy photosynthesise differently, so the stomatal
+! optimisation needs these inputs at the leaves' own temperature.
+!
+! It applies the temperature responses, then gives Vcmax and dark
+! respiration (Rd) summed over the leaves, by multiplying the top leaf's
+! values by the leaves' nitrogen-weighted leaf area nw, and the electron
+! flux. It also gives the leaves' humidity deficit to the canopy air,
+! qs(t_leaf) - q_c (kg kg-1), no lower than dq_min.
 !
 ! MDK, 24/10/26
 
@@ -6324,10 +6381,11 @@ SUBROUTINE leaf_temp_responses( ft, land_pts, veg_pts, veg_index,              &
                                 dsj, dsv, ccp, kc, ko, km, denom, qtenf_term,  &
                                 vcmax_temp, jmax_temp, i2 )
 
-! Temperature responses of the photosynthesis parameters at leaf
-! temperature t_leaf: denom, qtenf_term, ccp, kc, ko (Collatz; C3 only for
-! ccp, kc, ko) or ccp, km, i2, vcmax_temp, jmax_temp (Farquhar). Called with
-! tstar for the canopy, and with each leaf's temperature when l_leaf_temp.
+! Adjust the photosynthesis parameters for the leaf temperature t_leaf.
+! It is called with tstar for the canopy, and with each leaf's
+! temperature when l_leaf_temp. It sets denom, qtenf_term, ccp, kc, ko
+! (Collatz; C3 only for ccp, kc, ko) or ccp, km, i2, vcmax_temp,
+! jmax_temp (Farquhar).
 
 USE conversions_mod, ONLY: zerodegc
 USE c_rmol, ONLY: rmol
@@ -6462,36 +6520,38 @@ END SUBROUTINE leaf_temp_responses
 
 SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
 
-! Soil-water down-regulation factor of photosynthetic capacity
-! (l_som_vcmax_psi): the Zhou et al. (2013) form on the root-zone (predawn)
-! water potential, as used by De Kauwe et al. (2015, Biogeosciences 12:
-! 7503-7518, Eq. 4),
+! Lower photosynthetic capacity (Vcmax and Jmax) as the soil dries
+! (l_som_vcmax_psi), by returning a factor f (0 to 1) that multiplies
+! them. It uses the form of Zhou et al. (2013) on the root-zone (predawn)
+! water potential psi, as in De Kauwe et al. (2015, Biogeosciences 12:
+! 7503-7518, Eq. 4):
 !
-!   f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi))),   psi in MPa,
+!   f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi)))
 !
-! f = 1 in wet soil and about 0.5 at psi = psi_f. Two adjustments to De
-! Kauwe et al. (2015), which had neither: without them f -> 0 drives
-! drought GPP to ~0, and capacity recovers within the timestep of the first
-! rain.
+! with psi and psi_f (psi_vcmax_f) in MPa and sf (sf_vcmax) in MPa-1. f is
+! 1 in wet soil and about 0.5 at psi = psi_f.
 !
-! (1) An optional floor,
+! Two changes to De Kauwe et al. (2015). Without them f falls towards 0 in
+! drought, which takes GPP to about 0, and capacity comes back in the
+! timestep of the first rain.
 !
-!       f_vc = fmin + (1 - fmin) f   (psi_vcmax_fmin, default 0),
+!   1. A floor, fmin (psi_vcmax_fmin, 0 by default):
 !
-!     so the stomatal (hydraulic) limitation, not capacity, sets
-!     photosynthesis in the driest soil.
+!        f_vc = fmin + (1 - fmin) f
 !
-! (2) A recovery lag: the factor follows f at once as the soil dries
-!     (psi_rz itself changes slowly) but relaxes back towards it with a
-!     fixed 5-day e-folding time (90 % back in about 11 days) as the soil
-!     rewets, so capacity recovers over days rather than within the
-!     timestep of the rain. 5 days sits between fast reversible
-!     downregulation (Rubisco activation, mesophyll conductance: hours to
-!     days) and protein resynthesis (a week or more), weighted towards the
-!     slow end for long, severe droughts. A 3-day lag changes little, so
-!     this is a fixed choice, not a parameter. The state is dumped
-!     (fvcmax_psi_state), so a restart continues it; a run without it
-!     starts at the instant value.
+!      so in the driest soil photosynthesis is limited by the stomata
+!      closing as the plant's water supply fails.
+!
+!   2. A lag in recovery. As the soil dries, the factor follows f at once
+!      (psi itself changes slowly). As the soil wets, it moves towards f
+!      with an e-folding time of 5 days: 63 % of the way back after 5 days
+!      and 90 % after about 11 days. The 5 days is a choice between two
+!      known speeds of repair: fast reversible changes (Rubisco
+!      activation, mesophyll conductance) take hours to days, and making
+!      new protein takes a week or more. The lagged
+!      factor is kept in sf_stom_state_mod and written to the dump
+!      (fvcmax_psi_state), so a restart carries on from it. A run started
+!      without it starts at f_vc.
 !
 ! MDK, 24/10/26
 
@@ -6552,24 +6612,33 @@ END SUBROUTINE vcmax_psi_factor
 
 SUBROUTINE nsc_sink_factor( ft, land_pts, veg_pts, veg_index, psi_rz, beta )
 
-! Sink feedback on photosynthetic capacity (l_nsc_sink_feedback), in the
-! form of QUINCY (Thum et al. 2019, GMD 12: 4781, eqs S43-S44) but set
-! against the room left in the TRIFFID store. When drought shuts growth
-! (the turgor factor f_turg, 0-1, from the root-zone psi between
-! nsc_psi_turg_zero and nsc_psi_turg_full) the release the store would
-! give growth, W_pot, stays in the store. With R = C_max - store the room
-! left and t = nsc_sink_days,
+! Lower photosynthetic capacity when drought stops growth and the plant's
+! carbon store (the TRIFFID non-structural carbon store) has little room
+! for the sugars that growth would have used (l_nsc_sink_feedback). It
+! returns a factor beta (beta_min to 1) that multiplies the capacity.
+! It has the form of QUINCY (Thum et al., 2019, GMD 12: 4781, eqs
+! S43-S44), set against the room left in the store.
 !
-!   B    = W_pot (1 - f_turg),
-!   X    = B t / R,
-!   beta = beta_min + (1 - beta_min) EXP(-X^2),
+! Growth falls with the turgor factor f_turg (0 to 1), which goes from 0
+! at the root-zone water potential nsc_psi_turg_zero to 1 at
+! nsc_psi_turg_full. The carbon the store would have released to growth
+! over t = nsc_sink_days days then stays in the store:
 !
-! X being the share of the room the carbon kept from growth would fill in
-! t days, so the feedback is 63 % on at X = 1. Wet soil (f_turg = 1) costs
-! nothing whatever the store holds (the cold and the season are not
-! counted), and the feedback strengthens as a drought goes on and the room
-! shrinks. The largest cut in capacity is 1 - beta_min. No feedback
-! without the turgor limit or before the first store step.
+!   B    = W_pot (1 - f_turg) t / 360      (kg C m-2)
+!   X    = B / R
+!   beta = beta_min + (1 - beta_min) exp(-X^2)
+!
+! where W_pot is the store's release to growth (kg C m-2 per 360 days) and
+! R = C_max - store is the room left in the store (kg C m-2). X is the
+! share of that room the held-back carbon would fill in t days, so the
+! feedback is 63 % of its full size at X = 1. In wet soil (f_turg = 1)
+! there is no feedback however full the store is (cold and season are not
+! counted). In a long drought the room shrinks and the feedback grows.
+! Capacity falls by at most 1 - beta_min.
+!
+! beta is 1 where the store's maximum or content is not yet set, and the
+! routine leaves beta unchanged without the turgor limit
+! (nsc_psi_turg_zero not set) or before the store first exists.
 !
 ! MDK, 31/10/26
 
@@ -6983,7 +7052,9 @@ RETURN
 END SUBROUTINE calc_electron_flux
 
 !-----------------------------------------------------------------------------
-! Soil supply limit on transpiration (l_som_supply_limit).
+! Stop the stomatal optimisation choosing more transpiration than the
+! soil can supply (l_som_supply_limit), by turning the supply into a cap
+! on the stomatal conductance.
 !
 ! stom_opt_mod costs
 !
@@ -7077,24 +7148,36 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE apply_supply_limit
 
 !#############################################################################
-! Coupled transpiration (l_som_coupled_e), two-leaf: the inputs of one leaf
-! class's stom_opt_mod call. Without it, dq_opt is dq_lt with l_leaf_temp,
-! else dqc, and the resistances are 0. With it, the deficit is from the leaf
-! to the level-1 air (qs(T_leaf) - q1 with l_leaf_temp, else dq), r_bl the
-! class's leaf boundary layer (l_leaf_temp only), r_ca the canopy air
-! resistance and g_oth the other class's stomatal conductance in series
-! with its boundary layer.
+! Set up the inputs the stomatal optimisation (stom_opt_mod) of the sunlit
+! or the shaded leaves in the two-leaf canopy needs to work out the
+! transpiration of each stomatal conductance it tries: the humidity
+! deficit the leaves see (dq_opt, kg kg-1), their boundary layer
+! resistance (r_bl, s m-1), the canopy air resistance (r_ca, s m-1) and
+! the conductance of the other paths into the canopy air (g_oth, m s-1).
 !
-! The soil evaporation beneath the canopy (conductance g_s, at
-! qs_soil = qs(tstar)) is a further path into the canopy air. Solving the
-! canopy air humidity with the leaf, the other class (taken at this leaf's
-! qs) and the soil gives
+! Without coupled transpiration (l_som_coupled_e), the deficit is the one
+! from the leaves to the canopy air (dq_lt with l_leaf_temp, dqc
+! otherwise) and the resistances and g_oth are 0.
 !
-!   E = g' (D + r_ca g_s (qs_lt - qs_soil)) / (1 + r_ca (g' + g'_other + g_s)),
+! With it, the leaves lose water through the canopy air to the first
+! atmospheric level. The deficit is from the leaf to the first level's
+! air (qs(T_leaf) - q1 with l_leaf_temp, dq otherwise). r_bl is the
+! leaves' boundary layer (l_leaf_temp only), r_ca the canopy air
+! resistance, and g_oth the other leaves' stomatal conductance in series
+! with their boundary layer, plus the soil's evaporation conductance g_s.
+! The soil evaporates into the same canopy air at qs_soil = qs(tstar).
+! Solving the canopy air humidity with these leaves, the other leaves
+! (taken at these leaves' saturation humidity) and the soil gives
 !
-! so g_s is added to g_oth and r_ca g_s (qs_lt - qs_soil) to the deficit,
-! which does not depend on g' (0 without l_leaf_temp, where the leaf is at
-! tstar).
+!   E = g' (D + r_ca g_s (qs_lt - qs_soil))
+!       / (1 + r_ca (g' + g_other + g_s))
+!
+! where g' is these leaves' stomatal conductance in series with their
+! boundary layer, D the deficit above, qs_lt the saturation humidity at
+! these leaves' temperature and g_other the other leaves' conductance. So
+! g_s is added to g_oth, and r_ca g_s (qs_lt - qs_soil) is added to the
+! deficit. That term is 0 without l_leaf_temp, where the leaves are at
+! tstar.
 !
 ! MDK, 24/10/26
 !#############################################################################
@@ -7166,10 +7249,13 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE coupled_inputs
 
 !#############################################################################
-! First guesses for coupled transpiration in a timestep's first two-leaf
-! pass: the last timestep's class conductances, boundary layers and canopy
-! air resistance, or, before the first, the canopy conductance shared by
-! leaf area, no boundary layer and a canopy air resistance of -1 (unknown).
+! Give the coupled transpiration (l_som_coupled_e) of the two-leaf canopy
+! its first guesses for the first pass of a timestep. Where there is a
+! last timestep, they are its stomatal and boundary layer conductances of
+! the sunlit and shaded leaves and its canopy air resistance. Before
+! that, the canopy conductance gc is shared between sunlit and shaded
+! leaves by leaf area, the boundary layer conductances are 0 and the
+! canopy air resistance is -1 (unknown).
 !
 ! MDK, 24/10/26
 !#############################################################################
@@ -7226,8 +7312,10 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE cpl_state_load
 
 !#############################################################################
-! Keep this timestep's class conductances, boundary layers and canopy air
-! resistance for the next timestep's first guesses (cpl_state_load).
+! Keep this timestep's stomatal and boundary layer conductances of the
+! sunlit and shaded leaves and the canopy air resistance (no lower than
+! 0), so the coupled transpiration (l_som_coupled_e) of the two-leaf
+! canopy can start from them next timestep (cpl_state_load).
 !
 ! MDK, 24/10/26
 !#############################################################################

@@ -19,13 +19,17 @@ PUBLIC :: leaf_conductance_jls, xylem_conductance_jls, psi_leaf_jls
 CONTAINS
 
 ! *********************************************************************
-! Contains routines used to switch between different xylem conductance
-! models.
+! Routines that pick the PFT's xylem conductance model
+! (pft_conductance_model: cumulative Weibull or SOX) and pass the call on
+! to that model's routine.
 ! *********************************************************************
 
 ! ---------------------------------------------------------------------
-! Subroutine to manage leaf conductance calculations for different
-! conductance models, for all land points. JBaguley
+! Work out the plant's xylem conductance at each land point's water
+! potential, which the stomatal optimiser uses as the reference for the
+! hydraulic cost. It passes the call to the PFT's conductance model
+! (cumulative Weibull or SOX), and the result is floored at the critical
+! conductance kcrit. JBaguley
 ! ---------------------------------------------------------------------
 SUBROUTINE leaf_conductance_jls( pft,                                          &
                                  land_pnts,                                    &
@@ -108,11 +112,11 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE leaf_conductance_jls
 
 ! ---------------------------------------------------------------------
-! Subroutine to manage xylem conductance calculations for different
-! conductance models.
-! NOTE: This subroutine is designed for the stomatal optimisation model.
-!       It assumes that the input and output arrays are only large
-!       enough to contain values for points with open stomata.
+! Work out the plant's xylem conductance at several water potentials per
+! point, for the hydraulic cost of each candidate stomatal opening in the
+! stomatal optimiser. It passes the call to the PFT's conductance model
+! (cumulative Weibull or SOX), and the result is floored at the critical
+! conductance kcrit. The arrays hold only the points with open stomata.
 ! ---------------------------------------------------------------------
 SUBROUTINE xylem_conductance_jls( pft,                                         &
                                   n_water_potentials,                          &
@@ -213,11 +217,30 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE xylem_conductance_jls
 
 ! ---------------------------------------------------------------------
-! Subroutine to manage leaf water potential calculations for different
-! conductance models.
-! NOTE: This subroutine is designed for the stomatal optimisation model.
-!       It returns an output array that only contains values for points
-!       with open stomata.
+! For each candidate transpiration rate E of the stomatal optimiser, work out
+! how far the leaf water potential (Pa) falls and the conductance of the
+! whole path, -dE/dpsi_leaf (mol m-2 s-1 Pa-1), at the points with open
+! stomata. The optimiser uses these for the hydraulic cost and to reject
+! openings the plant cannot supply. The internal
+! routine plant_path picks the solver: the segment solvers
+! (l_som_plant_segments), the supply table (psi_solver_lut, when every
+! point uses the PFT's curve), or the Newton solver of the PFT's
+! conductance model.
+!
+! With a soil-to-root link in series (l_som_rhizo_series) and no
+! segments, each sample has its own root water potential,
+!
+!   psi_in = psi_src - E / K_s
+!
+! where psi_src is the root zone water potential (Pa) and K_s the
+! soil-to-root conductance, and the plant path is solved from psi_in to
+! the leaf. The conductance of the whole path is then
+!
+!   -dE / dpsi_l = k_p / (1 + k(psi_in) / K_s)
+!
+! with k_p the plant path's conductance at the leaf and k(psi_in) the
+! plant conductance at the root. With segments the segment solvers add
+! the soil link themselves.
 !
 ! MDK, 25/10/26
 ! ---------------------------------------------------------------------
@@ -388,7 +411,10 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 CONTAINS
 
-! The plant path (root to leaf) for n_e samples per open point.
+! Solve the plant path from the root to the leaf for n_e candidate flows per
+! open point, giving the leaf water potential and conductance. It picks
+! the solver for the PFT's conductance model (see psi_leaf_jls) and calls
+! it.
 SUBROUTINE plant_path( n_e, e_in, psi_root, psi_out, k_out )
 
 INTEGER, INTENT(IN) :: n_e

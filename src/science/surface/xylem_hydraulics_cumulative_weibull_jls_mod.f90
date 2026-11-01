@@ -12,12 +12,13 @@ USE um_types, ONLY: real_jlslsm
 
 IMPLICIT NONE
 
-! The cumulative Weibull vulnerability curve: conductance, the leaf water
-! potential solvers on the single curve (Newton; the table
-! solver is called from here), the curve fractions xylem_f and xylem_f_bc,
-! and the incomplete gamma function. The supply tables are in
-! supply_table_mod and the segments, the soil-to-root link and the
-! zero-flow conductance of the path in plant_hydraulic_path_mod.
+! The cumulative Weibull vulnerability curve, k(psi) = kmax exp(-(psi/b)^c):
+! the conductance at a water potential, the leaf water potential solver
+! for a plant with one conductance curve, the fraction of kmax left on a
+! curve (xylem_f, xylem_f_bc, for Weibull or SOX), and the incomplete
+! gamma function the solver needs. The supply tables are in
+! supply_table_mod; the segments, the soil-to-root link and the zero-flow
+! conductance of the path are in plant_hydraulic_path_mod.
 !
 ! MDK, 23/10/26
 PRIVATE
@@ -35,8 +36,11 @@ PUBLIC :: leaf_conductance_CW_jls                                              &
 CONTAINS
 
 ! *****************************************************************************
-! Fraction of kmax left on the PFT's whole-plant vulnerability curve at psi
-! (Pa), as pft_conductance_model. psi >= 0 gives 1. Xylem only (no soil).
+! Return how much of its maximum conductance the plant's xylem keeps at
+! water potential psi (Pa), as a fraction of kmax, on the PFT's
+! whole-plant vulnerability curve (Weibull or SOX, as
+! pft_conductance_model). psi >= 0 gives 1. It covers the xylem only; the
+! soil-to-root link is not included.
 ! *****************************************************************************
 FUNCTION xylem_f( pft, psi ) RESULT( f )
 
@@ -53,10 +57,15 @@ f = xylem_f_bc( pft, psi, conductance_b_pft(pft), conductance_c_pft(pft) )
 END FUNCTION xylem_f
 
 ! *****************************************************************************
-! As xylem_f, on the curve with parameters b (Pa, negative) and c
-! (dimensionless), e.g. a point's impaired curve: cumulative Weibull
-! exp(-(psi/b)^c), or SOX 1 / (1 + (psi/b)^c), as pft_conductance_model.
-! psi >= 0 gives 1.
+! Return how much of its maximum conductance the xylem keeps at water
+! potential psi (Pa), as a fraction of kmax, on a curve with given
+! parameters b (Pa, negative) and c (dimensionless), for example a point's
+! impaired curve:
+!
+!   cumulative Weibull: f = exp(-(psi/b)^c)
+!   SOX:                f = 1 / (1 + (psi/b)^c)
+!
+! chosen by the PFT's pft_conductance_model. psi >= 0 gives 1.
 !
 ! MDK, 21/10/26
 ! *****************************************************************************
@@ -81,17 +90,20 @@ END IF
 END FUNCTION xylem_f_bc
 
 ! *********************************************************************
-! Contains routines used to calculate conductance and leaf water
-! potential for a cumulative Weibull conductance model.
+! Conductance and leaf water potential for the cumulative Weibull
+! conductance model,
 !
 !                  k(psi) = kmax * e^(-(psi / b) ^ c)
 !
+! with psi the water potential (Pa), kmax the maximum conductance, and b
+! (Pa, negative) and c (dimensionless) the curve's parameters.
 ! *********************************************************************
 
 ! ---------------------------------------------------------------------
-! Subroutine to calculate the leaf conductance from the leaf water
-! potential for all land points, floored at kcrit: it returns
-! MAX(k(psi), kcrit), not k(psi). JBaguley
+! Work out the plant's xylem conductance at each land point's water
+! potential on the cumulative Weibull curve, for the hydraulic cost of
+! the stomatal optimiser. It is floored at the critical conductance: it
+! returns MAX(k(psi), kcrit). JBaguley
 !
 ! MDK, 21/10/26
 ! ---------------------------------------------------------------------
@@ -155,12 +167,11 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE leaf_conductance_CW_jls
 
 ! ---------------------------------------------------------------------
-! Subroutine to calculate xylem conductance using a cumulative Weibull
-! distribution, floored at kcrit: it returns MAX(k(psi), kcrit), not
-! k(psi).
-! NOTE: This subroutine is designed for the stomatal optimisation model.
-!       It assumes that the input and output arrays are only large
-!       enough to contain values for points with open stomata.
+! Work out the plant's xylem conductance at several water potentials per
+! point on the cumulative Weibull curve, for the hydraulic cost of each
+! candidate stomatal opening in the stomatal optimiser. It is floored at the
+! critical conductance: it returns MAX(k(psi), kcrit). The arrays hold
+! only the points with open stomata.
 !
 ! MDK, 23/10/26
 ! ---------------------------------------------------------------------
@@ -237,36 +248,33 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE xylem_conductance_CW_jls
 
 ! ---------------------------------------------------------------------
-! Subroutine to calculate the leaf water potential from the transpiration
-! rate and root zone water potential. Uses a cumulative Weibull
-! distribution to model conductance.
+! For each candidate transpiration rate of the stomatal optimiser, work out
+! how far the leaf water potential (Pa) falls below the root zone water
+! potential when the plant follows the cumulative Weibull curve
 !
 !                  k(psi) = kmax * e^(-(psi / b) ^ c)
 !
-! The code below uses one of two methods to estimate the leaf water
-! potential from the transpiration rate (som_psi_solver):
-!   2: Uses a Newton-Raphson solve of the integrated conductance
-!      equation (psi_solver_newton).
-!   3: Inverts the tabulated supply function (psi_solver_lut; see
-!      psi_leaf_lut_jls).
-! With l_som_plant_segments, methods 2 and 3 are not done here: plant_path
-! (xylem_hydraulics_jls_mod) calls the segment solvers
-! (psi_leaf_segments_jls, psi_leaf_segments_lut_jls) instead.
-! (There is no method 1: a zeroth-order Taylor expansion about the mid-path
-! psi overstates k near E_crit.)
+! for the points with open stomata (for the stomatal optimisation model).
+! som_psi_solver picks the method:
+!   2 (psi_solver_newton): find the leaf water potential where the
+!      integral of k from the leaf to the root zone equals the
+!      transpiration, by repeatedly improving a guess using the slope
+!      (Newton's method);
+!   3 (psi_solver_lut): look it up in the PFT's supply table
+!      (psi_leaf_lut_jls). Points with their own curve (b, c) use
+!      method 2.
+! With segments (l_som_plant_segments) this routine is not used: plant_path
+! in xylem_hydraulics_jls_mod calls the segment solvers instead.
 !
-! The conductance returned, leaf_k, is the curve at the leaf, k(psi_leaf).
-! That is also the plant's marginal conductance, the one the hydraulic
-! cost needs: E(psi_leaf) = integral( k(psi) dpsi, psi_leaf, psi_root ), so
+! The conductance returned, leaf_k, is the curve at the leaf,
+! k(psi_leaf). For one conductance curve it is also the conductance the
+! hydraulic cost needs: the flow is E = integral of k(psi) from psi_leaf
+! to psi_root, so
 !
 !   -dE / dpsi_leaf = k(psi_leaf)
 !
-! for one conductance curve. With segments or a soil link in series it is
-! not, and those solvers carry dpsi_leaf/dE down the path instead.
-!
-! NOTE: This subroutine is designed for the stomatal optimisation model.
-!       It returns an output array that only contains values for points
-!       with open stomata.
+! With segments or a soil link in series this no longer holds, and those
+! solvers carry dpsi_leaf/dE down the path.
 !
 ! MDK, 25/10/26
 ! ---------------------------------------------------------------------
@@ -562,40 +570,40 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE psi_leaf_CW_jls
 
 ! ---------------------------------------------------------------------
-! Function to calculate the lower incomplete gamma function, with its own
-! shape parameter a for each x (incomplete_gamma below is the same with
-! one a for all x). The lower incomplete gamma function is defined as;
+! Return the lower incomplete gamma function, which gives the water a
+! path on the cumulative Weibull curve can carry (see below), with its own
+! shape parameter a for each x, for points whose curves differ
+! (incomplete_gamma is the same with one a for all x):
 !
 ! gamma(a, x) = integral( t^(a-1) * e^(-t) dt, 0, x)
 !
-! The code here is based on the implementation in Numerical Recipes
-! in FORTRAN 90, page 211, and makes use of the series representation
-! of the lower incomplete gamma function. JBaguley
+! It is based on Numerical Recipes in FORTRAN 90, page 211, and uses the
+! series form of the function. JBaguley
 !
 ! The series (Numerical Recipes, section 6.2) is
 !
 !   gamma(a, x) = x^a e^-x  SUM_n=0..inf  x^n / ( a (a+1) ... (a+n) )
 !
-! Each term is the previous one times x / (a + n), which is what the loop
-! below accumulates (step), before multiplying by x^a e^-x at the end.
+! where each term is the previous one times x / (a + n). The sum is
+! worked out in incomplete_gamma_1.
 !
-! What it is for, in plain terms. The water a plant path can move is the
-! area under its vulnerability curve: conductance k(psi) summed over the
-! drop in water potential from the soil to the leaf (Sperry et al. 2017),
+! What it is for. The water a plant path can move is the area under its
+! vulnerability curve: conductance k(psi) summed over the drop in water
+! potential from the soil to the leaf (Sperry et al. 2017),
 !
 !   E = integral( k(psi) dpsi, psi_leaf, psi_soil )
 !
 ! With the cumulative Weibull curve k(psi) = kmax exp(-(psi/b)^c) this area
 ! has no simple formula, but the change of variable t = (psi/b)^c turns it
-! into the standard integral above, with a = 1/c and x = (psi/b)^c:
+! into the integral above, with a = 1/c and x = (psi/b)^c:
 !
 !   integral( exp(-(psi'/b)^c) dpsi', psi, 0 ) = (-b/c) gamma(1/c, x)
 !
-! So kmax (-b/c) gamma(1/c, (psi/b)^c) is the water the path can carry from
-! psi = 0 down to psi (the "supply integral"), and E between two water
-! potentials is the difference of two such values. The leaf water
-! potential is then found by asking which psi_leaf gives the required E.
-! gamma rises from 0 (psi = 0) towards Gamma(1/c) as psi falls, so the
+! So kmax (-b/c) gamma(1/c, (psi/b)^c) is the water the path can carry
+! from psi = 0 down to psi (the supply integral; b < 0, so -b/c > 0), and
+! E between two water potentials is the difference of two such values.
+! The leaf water potential is the psi_leaf that gives the required E.
+! gamma rises from 0 at psi = 0 towards Gamma(1/c) as psi falls, so the
 ! supply integral levels off: past a point the path cannot carry more
 ! water however far psi_leaf falls.
 !
@@ -634,8 +642,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END FUNCTION incomplete_gamma_different_a
 
 ! ---------------------------------------------------------------------
-! The lower incomplete gamma function with one shape parameter a for all
-! x (incomplete_gamma_1 with the same a for every x).
+! Return the lower incomplete gamma function gamma(a, x), which gives the
+! water a path on the cumulative Weibull curve can carry, for an array of
+! x with one shape parameter a (incomplete_gamma_1 for each x).
 !
 ! MDK, 30/10/26
 ! ---------------------------------------------------------------------
@@ -669,25 +678,26 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END FUNCTION incomplete_gamma
 
 ! ---------------------------------------------------------------------
-! The lower incomplete gamma function of one value,
+! Return the lower incomplete gamma function of one value, which gives the
+! water a path on the cumulative Weibull curve can carry,
 !
 !   gamma(a, x) = integral( t^(a-1) exp(-t) dt, 0, x )
 !               = x^a exp(-x) sum_{n>=0} x^n / (a (a+1) ... (a+n))
 !
-! by its series (Numerical Recipes in Fortran 90, section 6.2), adding
-! terms until the next is below series_tol of the sum or max_terms is
-! reached. ELEMENTAL, so it can be called with arrays as well, without
-! array temporaries; incomplete_gamma and incomplete_gamma_different_a call
-! it. The series is only well conditioned for x < a+1 or so; deep into the
-! vulnerability curve it converges slowly and its terms grow large. If that
-! becomes a problem, pair it with a continued-fraction evaluation for
-! x >= a+1 (NR's gcf) rather than raising max_terms.
+! summed from its series (Numerical Recipes in Fortran 90, section 6.2)
+! until the next term is below series_tol of the sum, or for at most
+! max_terms terms. ELEMENTAL, so it can also be called on arrays without
+! temporary copies; incomplete_gamma and incomplete_gamma_different_a call
+! it. The series is accurate for x up to about a + 1. Deeper into the
+! vulnerability curve it converges slowly and its terms grow large; if
+! that becomes a problem, the remedy is a continued-fraction form for
+! x >= a + 1 (NR's gcf).
 !
-! max_terms = 40 is enough for the feasible range of any PFT. The terms
-! shrink once n > x, and at the critical conductance
-! x = (psi/b)^c = -ln(k_crit/k_max) whatever b and c are (about 3 for a
-! 95 % loss), so a few tens of terms converge there. Only samples far below
-! kcrit need more, and those are rejected by the k > kcrit test anyway.
+! max_terms = 40 is enough wherever the conductance is above kcrit. The
+! terms shrink once n > x, and at the critical conductance
+! x = (psi/b)^c = -ln(kcrit / kmax) for any b and c (about 3 for a 95 %
+! loss), so a few tens of terms converge there. Only samples far below
+! kcrit need more, and those are rejected by the k > kcrit test.
 !
 ! MDK, 30/10/26
 ! ---------------------------------------------------------------------

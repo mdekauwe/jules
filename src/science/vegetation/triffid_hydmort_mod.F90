@@ -6,54 +6,59 @@
 
 MODULE triffid_hydmort_mod
 !-----------------------------------------------------------------------------
-! Hydraulic (drought) mortality in TRIFFID (l_trif_hydmort).
+! Hydraulic (drought) mortality in TRIFFID (l_trif_hydmort): the share of a
+! PFT's cover that dies when drought damage to its xylem passes what its
+! trees can survive.
 !
-! A grid box (or a site's footprint) is a stand of trees, but the model
-! simulates one average tree. Its lasting loss of xylem conductance,
-! p = ximpair_lock (memory impairment model: held until new xylem is built),
-! is read as the damage of the stand. The trees differ in the damage they
-! can survive, and these lethal thresholds are spread logistically about
-! hydmort_mu with width hydmort_width, so the fraction of the stand that has
-! passed its own threshold at damage p is
+! A grid box, or a site's footprint, holds a stand of trees, but the model
+! simulates one average tree. Its lasting loss of xylem conductance, p
+! (0-1; ximpair_lock from the memory impairment model, which holds the
+! loss until new xylem is built), is taken as the damage of the whole
+! stand. Trees differ in the damage they survive: their lethal thresholds
+! follow a logistic spread with centre mu = hydmort_mu and width
+! w = hydmort_width (both as fractions of conductance lost). The fraction
+! of the stand that has passed its own threshold at damage p is
 !
 !   S(p) = [s((p - mu)/w) - s((b - mu)/w)] / [1 - s((b - mu)/w)],  p > b,
-!   S(p) = 0,  p <= b,          s(z) = 1/(1+e^-z),
+!   S(p) = 0,                                                      p <= b,
 !
-! with b = hydmort_plc_bg the background loss of a normal year (native
-! embolism), which kills no tree: without it the logistic tail of a wide
-! spread kills a little every year. This is an expected value; there are no
-! random draws. 88 % loss is then not "all dead": with mu = 0.88 half the
-! stand is.
+! with s(z) = 1 / (1 + EXP(-z)) the logistic function and b =
+! hydmort_plc_bg the background loss of a normal year (native embolism),
+! which kills no tree. Without b the tail of a wide spread would kill a
+! few trees every year. S is an expected fraction; there are no random
+! draws. A loss of mu kills a little under half the stand, so a large loss
+! does not mean the whole stand is dead.
 !
-! Each tree dies once, so mortality is a ratchet. At each TRIFFID step,
-! with p_peak the worst damage of the period and p_ref the damage the
-! surviving stand has already withstood,
+! Each tree dies once, so the dead fraction can only grow. At each TRIFFID
+! step, with p_peak the worst damage since the last step and p_ref the
+! worst damage the stand had survived before it, the fraction of the
+! surviving cover that dies in the step is
 !
-!   m = max(0, S(p_peak) - S(p_ref)) / (1 - S(p_ref))
+!   m = MAX(0, S(p_peak) - S(p_ref)) / (1 - S(p_ref)),
 !
-! is the fraction of the surviving cover that dies in the step, and
+! and the matching area disturbance is
 !
-!   g = r_gamma m   (per 360 days)
+!   g = r_gamma m   (per 360 days),
 !
-! is the matching area disturbance. p_ref is the worst damage the stand has
-! been through, a running maximum: each tree has a fixed threshold, so the
-! trees whose thresholds lie below p_ref are already dead, and a later
-! drought kills only if it takes the damage past p_ref (it does not fall
-! back when the xylem is repaired, which would kill the same threshold band
-! twice). A lasting damage that does not rise kills no more. Kills below
-! hydmort_m_min are ignored, so the logistic tail at trivial damage does not
-! move a run away from one with the switch off.
+! with r_gamma the inverse TRIFFID step (per 360 days). p_ref is a running
+! maximum. The trees whose thresholds lie below it are already dead, so a
+! later drought kills only if it takes the damage past p_ref, and p_ref
+! does not fall when the xylem is repaired, which would kill the same
+! trees twice. A lasting damage that does not rise kills no more trees.
+! m below hydmort_m_min is set to 0, so the logistic tail at small damage
+! does not make a run differ from one with mortality off.
 !
-! The killed cover goes to litter through TRIFFID's mass-balance litter:
-! - with l_veg_compete, g is added to the disturbance in lotka (alongside
-!   g_area and the store's starvation term), and the space is refilled by
-!   competition;
-! - with fixed fractions (l_veg_compete = F, e.g. monoculture runs), the
-!   killed fraction is moved to bare soil here, and is not refilled.
+! The dead cover goes to litter through TRIFFID's litter calculation,
+! which turns the carbon of a shrinking area into litter:
+!   - with competition (l_veg_compete), g is added to the area disturbance
+!     in lotka, with the standard disturbance g_area and the store's
+!     starvation term, and competition refills the space;
+!   - with fixed fractions (l_veg_compete = F), the dead fraction becomes
+!     bare soil (triffid_hydmort_cover) and is not refilled.
 !
-! p_ref, the stand killed so far and the period's peak damage are in dumps.
-! A dump written without them starts p_ref at the current damage (the stand
-! is taken to have withstood it).
+! p_ref, the fraction of the stand dead so far and the worst damage since
+! the last TRIFFID step are kept in dumps. A dump without them starts
+! p_ref at the current damage, as if the stand has already survived it.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -89,7 +94,9 @@ CHARACTER(LEN=*), PARAMETER :: ModuleName='TRIFFID_HYDMORT_MOD'
 CONTAINS
 
 ! ---------------------------------------------------------------------
-! Allocate the state and diagnostics (n_land_pts, npft), if not done.
+! Allocates the mortality state and diagnostics for all land points and
+! PFTs, if not already allocated. The worst damage and p_ref start at -1,
+! which marks them as not yet set.
 ! ---------------------------------------------------------------------
 SUBROUTINE hydmort_alloc( n_land_pts )
 
@@ -137,8 +144,10 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE hydmort_alloc
 
 ! ---------------------------------------------------------------------
-! Fraction of the stand dead at damage p: the logistic S(p), from 0 at the
-! background loss b.
+! Return the fraction of the stand that has died from hydraulic damage p
+! (0-1), S(p) in the module header, which triffid_hydmort uses to set
+! the mortality: 0 at or below the background loss b, and above it rising
+! along the logistic curve with centre mu and width w, towards 1 as p grows.
 ! ---------------------------------------------------------------------
 FUNCTION hydmort_s( p, mu, w, b ) RESULT( s )
 
@@ -153,8 +162,10 @@ s  = MAX(0.0, (s - s0) / (1.0 - s0))
 END FUNCTION hydmort_s
 
 ! ---------------------------------------------------------------------
-! Keep the worst damage of the TRIFFID period (called from the memory
-! impairment update, every timestep, after ximpair_lock is set).
+! Keeps the worst damage since the last TRIFFID step for PFT pft: the
+! running maximum of the lasting loss of conductance (ximpair_lock, 0-1).
+! Called every time step from the memory impairment update, after
+! ximpair_lock is set.
 !
 ! MDK, 24/10/26
 ! ---------------------------------------------------------------------
@@ -184,8 +195,17 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE hydmort_accumulate
 
 ! ---------------------------------------------------------------------
-! At a TRIFFID step: the fraction of each PFT's cover killed (m) and the
-! matching disturbance (g = r_gamma m), from the period's peak damage.
+! Kill the part of each natural PFT's stand that drought damage to its
+! xylem has made unable to survive. At each TRIFFID step it works out the
+! fraction m of the surviving cover that dies, and the matching area
+! disturbance g = r_gamma m (per 360 days), from the worst damage since
+! the last step (equations in the module header). The worst damage is
+! the larger of the running peak and the current lasting loss. Where
+! p_ref is not yet set it starts at the current loss. After the step
+! p_ref rises to the worst damage if that is higher, the running peak
+! restarts from the current loss, and the fraction of the stand dead
+! since the start of the run becomes 1 - (1 - dead)(1 - m). Crop PFTs
+! take no hydraulic mortality.
 !
 ! MDK, 25/10/26
 ! ---------------------------------------------------------------------
@@ -249,9 +269,14 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE triffid_hydmort
 
 ! ---------------------------------------------------------------------
-! Fixed fractions (l_veg_compete = F): the killed cover becomes bare soil.
-! dfrac (< 0) carries the loss, so TRIFFID's mass-balance litter sends the
-! killed area's vegetation carbon and N to the soil.
+! Turn the cover killed by drought into bare soil when the vegetation
+! fractions are fixed (l_veg_compete = F), where TRIFFID competition
+! cannot do it. It moves the cover killed in this TRIFFID step, m times
+! the PFT's fraction, from each natural PFT to bare soil, where it is not
+! refilled. The loss is also taken off the PFT's
+! change in fraction over the step (dfrac, which becomes more negative),
+! so TRIFFID's litter calculation sends the dead area's vegetation carbon
+! and nitrogen to the soil.
 !
 ! MDK, 25/10/26
 ! ---------------------------------------------------------------------

@@ -16,10 +16,14 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments
 
 IMPLICIT NONE
 
-! The plant's water path from the soil to the leaf, around the
-! vulnerability curves: the soil-to-root link (ksr, ksr_path), the root,
-! stem and leaf segments in series and their solvers, the zero-flow
-! conductance of the path, and the kplant_model = 1 scaling.
+! The plant's water path from the soil to the leaf: the soil-to-root link
+! (ksr, ksr_path), the root, stem and leaf segments in series and the
+! solvers that give the leaf water potential along them, the conductance
+! of the whole path when there is no flow, and the scaling of root and
+! stem conductance with leaf area (kplant_model = 1). It also holds what
+! the plant capacitance store and the shared root and stem of the sunlit
+! and shaded leaves set on the path while the stomatal optimiser
+! searches.
 !
 ! MDK, 30/10/26
 PRIVATE
@@ -171,11 +175,14 @@ REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: som_psi_in_min = -1.0e9
 CONTAINS
 
 ! *****************************************************************************
-! l_som_rhizo_series: set ksr_path, the soil-to-root conductance of the next
-! leaf path, as share * ksr. share is the path's share of the plant (its
-! kmax over kmax_pft * LAI, in the units of that kmax). It must come from
-! the undamaged plant conductance, so that xylem impairment, which lowers
-! the kmax given to the solver, does not lower the soil term.
+! Give the next leaf path its share of the soil-to-root conductance, so
+! that the stomatal optimiser counts the soil as part of the path water
+! takes to the leaf (l_som_rhizo_series). It sets ksr_path = share * ksr,
+! where share is the path's fraction of
+! the whole plant: its kmax over kmax_pft * LAI, in the units of that
+! kmax. It must come from the undamaged plant conductance, so that xylem
+! impairment, which lowers the kmax given to the solver, leaves the soil
+! link as it is. ksr_path < 0 means the path has no soil link.
 ! *****************************************************************************
 SUBROUTINE set_ksr_path( land_pts, veg_pts, veg_index, share )
 
@@ -213,9 +220,13 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE set_ksr_path
 
 ! *****************************************************************************
-! the capacitance store: set store_q_path, the store's flow out held fixed
-! for the next leaf path, as share * q (q per m2 ground, share as in
-! set_ksr_path), and switch it on for the segment solver.
+! Tell the segment solvers how much water the plant capacitance store
+! gives the next leaf path, so the stomatal optimiser counts the store's
+! water as part of the supply. It sets store_q_path, the store's flow out
+! held fixed for the path (mol H2O m-2 s-1; positive when the store gives
+! water, negative when it refills), as share * q, with q per m2 ground and
+! share as in set_ksr_path, and switches it on, so the soil link, root and
+! stem carry E - q while the leaf carries E.
 !
 ! MDK, 24/10/26
 ! *****************************************************************************
@@ -251,8 +262,8 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE set_store_q_path
 
 ! *****************************************************************************
-! the capacitance store: switch store_q_path off again after the call it
-! was set for.
+! Stop the segment solvers using the plant capacitance store's flow
+! (store_q_path) once the optimiser call it was set for has finished.
 !
 ! MDK, 24/10/26
 ! *****************************************************************************
@@ -265,14 +276,20 @@ l_store_q_path = .FALSE.
 END SUBROUTINE clear_store_q_path
 
 ! *****************************************************************************
-! l_som_shared_stem: set the shared root and stem for the next leaf path
-! (one class of the two-leaf canopy). share is the class's share of the
-! undamaged plant conductance (as in set_ksr_path), so its root and stem
-! segments are 1 / share times its own; e_other is the other class's
-! transpiration (same units as the class's). A class with no share keeps
-! its own root and stem. kcrit_plant is the whole plant's kcrit (units of
-! the class's kmax), amax_other the other class's A at its hydraulic edge
-! and l_gain the whole-plant gain (l_som_shared_gain).
+! Make the sunlit and shaded leaves of the two-leaf canopy draw their
+! water through one root and stem (l_som_shared_stem), as the leaves of a
+! real plant do. This sets up the next leaf path, the sunlit or the shaded
+! leaves (a leaf group), so that its root and stem are the whole plant's.
+! share is this leaf group's
+! fraction of the undamaged plant conductance (as in set_ksr_path), so its
+! root and stem conductance is multiplied by 1 / share. e_other is the
+! other leaf group's transpiration (same units as this group's), which the
+! shared root and stem carry as well. kcrit_plant is the whole plant's
+! critical conductance (in the units of this group's kmax), amax_other is
+! the other group's photosynthesis at the largest transpiration its
+! hydraulics allow, and l_gain measures the gain on the whole plant
+! (l_som_shared_gain). A leaf group with no share keeps its own root and
+! stem.
 !
 ! MDK, 30/10/26
 ! *****************************************************************************
@@ -330,8 +347,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE set_shared_stem
 
 ! *****************************************************************************
-! l_som_shared_stem: switch the shared root and stem off again after the
-! call they were set for.
+! Give each leaf group its own root and stem again once the optimiser
+! call that shared them has finished, and drop the stem state kept
+! between solves (l_rs_cache).
 !
 ! MDK, 30/10/26
 ! *****************************************************************************
@@ -347,14 +365,30 @@ l_rs_cache          = .FALSE.
 END SUBROUTINE clear_shared_stem
 
 ! *****************************************************************************
-! kplant_model = 1: set kplant_scale and seg_kscale (see their declaration)
-! for PFT pft from the current LAI and the reference LAI lai_ref (both m2
-! leaf m-2 ground). Root and stem keep the conductance they have at
-! lai_ref, per unit ground area; the leaf segment scales with LAI. With
-! the sapwood-area factor k_area (l_nsc_k_sapwood) the stem segment's
-! conductance is also scaled by it, or without segments the whole plant's.
-! With kplant_model = 0 and no k_area both are 1 and are not used
-! (l_kscale = .FALSE.).
+! Scale the conductance of PFT pft's plant to the plant actually present:
+! the root and stem keep their conductance when the leaf area changes
+! (kplant_model = 1), and the stem conducts through the sapwood it has
+! (l_nsc_k_sapwood). It sets the factors kplant_scale and seg_kscale,
+! which sf_stom and the segment solvers apply to kmax.
+!
+! With kplant_model = 1 the root and stem keep the conductance per unit
+! ground area they have at the reference LAI lai_ref, while the leaf
+! segment scales with the current LAI (both m2 leaf m-2 ground). So the
+! root and stem conductance is multiplied by
+!
+!   r = lai_ref / lai,  held between 1 / k_ground_ratio_max and
+!                       k_ground_ratio_max
+!
+! With the sapwood-area factor k_area (0-1, l_nsc_k_sapwood) the stem's
+! conductance is also multiplied by k_area, or, for a plant without
+! segments, the whole plant's (kplant_scale = k_area). Otherwise the
+! whole-plant conductance relative to kmax is the series sum
+!
+!   g = 1 / sum over s of 1 / (seg_kfac_s r_s)
+!
+! (kplant_scale), and each segment gets r_s / g of the kmax it is given
+! (seg_kscale). With kplant_model = 0 and no k_area both stay 1 and are
+! not used (l_kscale = .FALSE.).
 !
 ! MDK, 31/10/26
 ! *****************************************************************************
@@ -442,12 +476,13 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE set_k_ground_basis
 
 ! *****************************************************************************
-! Maximum conductance of segment iseg as a multiple of the whole-plant kmax
-! given to the solvers at point l: seg_kfac, times seg_kscale with
-! kplant_model = 1 or the sapwood-area factor (l_kscale; see
-! set_k_ground_basis), and for the root and stem
-! times shared_k_fac while the shared root and stem apply (and the leaf
-! too while the whole-plant path is solved).
+! Return the maximum conductance of segment iseg (1 root, 2 stem, 3 leaf)
+! at point l as a multiple of the whole-plant kmax given to the solvers,
+! which use it to size each segment. It is seg_kfac,
+! times seg_kscale when l_kscale is set (kplant_model = 1 or the
+! sapwood-area factor; see set_k_ground_basis), times shared_k_fac for the
+! root and stem while the shared root and stem apply, and for the leaf too
+! while the whole-plant path is solved.
 !
 ! MDK, 30/10/26
 ! *****************************************************************************
@@ -469,32 +504,35 @@ IF ( l_shared_stem_path .AND. ( iseg <= 2 .OR. l_shared_whole_path ) )        &
 END FUNCTION seg_kmax_fac
 
 ! *****************************************************************************
-! Whole-path conductance -dE/dpsi_leaf (in the units of kmax) when the
-! plant is not transpiring. With no flow there is no drop in water
-! potential along the path, so every element sits at psi_root and the
-! elements add in series:
+! Return the conductance of the whole path from soil to leaf when the
+! plant is not transpiring, K = -dE/dpsi_leaf (units of kmax), which the
+! stomatal optimiser uses when no water flows. With no flow there is no
+! drop in water
+! potential along the path, so every part sits at the root zone water
+! potential psi_root (Pa) and the parts add as resistances in series:
 !
-!   1 / K = 1 / ksr_path + sum over segments of 1 / k_s(psi_root).
+!   1 / K = 1 / ksr_path + sum over segments of 1 / k_s(psi_root)
 !
-! This is what the solvers give at E = 0. It is used for points the
-! optimiser does not visit (closed stomata), for the zero-flow reference
-! of the hydraulic cost, for SOX's k(psi_bar) and for CGain's k_max
-! (all in stom_opt_mod).
+! This is what the solvers give at E = 0. stom_opt_mod uses it for points
+! where the stomata are closed, for the zero-flow reference of the
+! hydraulic cost, for SOX's k(psi_bar) and for CGain's k_max.
 !
-! The elements:
-! - Segments (l_som_plant_segments): root, stem and leaf, each with maximum
-!   conductance kmax * seg_kmax_fac (seg_kfac, times the LAI scaling
-!   seg_kscale with kplant_model = 1) and its own curve. Without segments,
-!   one element on the PFT curve, or on the curve b, c if given (a point's
-!   impaired curve).
-! - kcap_frac (xylem impairment, memory model with segments): caps the stem
-!   and leaf segments, as psi_leaf_segments_jls; kmax is then the intact
-!   value. With l_ximpair_seg_memory the leaf segment has its own cap.
-! - kx: the plant (xylem) conductance at psi_root, if already known (e.g.
-!   from an impairment model); replaces the curve.
-! - The soil-to-root link ksr_path (l_som_rhizo_series, ksr_path >= 0),
-!   which must be set by set_ksr_path for this path. Left out when
-!   l_plant_only is .TRUE. (e.g. CGain's k_max).
+! The parts:
+!   - with segments (l_som_plant_segments), the root, stem and leaf, each
+!     with maximum conductance kmax * seg_kmax_fac and its own curve.
+!     Without segments, one part on the PFT's curve, or on the curve b, c
+!     if given (a point's impaired curve);
+!   - kcap_frac (memory model of xylem impairment, with segments) caps the
+!     stem and leaf segments, and the root too with l_som_seg_whole, each
+!     at its own fraction (ximpair_seg_frac), as in psi_leaf_segments_jls.
+!     kmax is then the intact value;
+!   - kx, the plant conductance at psi_root if it is already known (for
+!     example from an impairment model), used in place of the curve;
+!   - the soil-to-root link ksr_path (l_som_rhizo_series, ksr_path >= 0),
+!     which set_ksr_path must have set for this path. It is left out when
+!     l_plant_only is .TRUE. (for example for CGain's k_max).
+!
+! The result is 0 if any part has no conductance.
 !
 ! MDK, 26/10/26
 ! *****************************************************************************
@@ -566,43 +604,49 @@ k0 = 1.0 / r
 END FUNCTION k_path_zero_flow
 
 ! *****************************************************************************
-! Leaf water potential and whole-plant conductance for the plant as root,
-! stem and leaf segments in series (l_som_plant_segments), as in GDAY
-! gs_opt.c (setup_plant / plant_supply).
+! For each candidate transpiration rate of the stomatal optimiser, work out
+! the leaf water potential and the whole-plant conductance of a plant
+! made of root, stem and leaf segments in series (l_som_plant_segments),
+! as in GDAY gs_opt.c (setup_plant, plant_supply). The optimiser uses
+! them to weigh the hydraulic cost of each stomatal opening.
 !
 ! Segment s has maximum conductance
 !
-!     kmax_s = kmax * seg_kfac(pft,s)
+!     kmax_s = kmax * seg_kmax_fac
 !
-! (the segments share the whole-plant resistance, so in series they give
-! kmax when well watered) and its own cumulative Weibull curve
-! (conductance_b_seg, conductance_c_seg).
-!
-! For each sampled transpiration the leaf-side water potential of each
-! segment is solved downstream from psi_root_zone with the same
-! Newton-Raphson as the single segment (psi_solver_newton), and becomes the
-! next segment's root-side end. The last leaf-side end is the leaf water
-! potential.
-!
-! The conductance the hydraulic cost uses is the whole-plant conductance
-! (Sperry et al. 2017)
-!
-!     k = -dE / dpsi_leaf
-!
-! Each segment carries the same flow
+! (its share of the whole-plant value, so that in series the segments
+! give kmax when well watered) and its own cumulative Weibull curve
+! (conductance_b_seg, conductance_c_seg). It carries the flow
 !
 !     E = integral from psi_out to psi_in of k_s(psi) dpsi
 !
-! so differentiating with respect to E gives, segment by segment,
+! where psi_in is the water potential at its root-side end and psi_out at
+! its leaf-side end (Pa), and E is in the units of kmax * psi. For each
+! sampled transpiration, starting from the root zone, each segment's
+! psi_out is found by repeatedly improving a guess using the slope
+! dE/dpsi_out = -k_s(psi_out) (Newton's method, at most four steps), and
+! becomes the next segment's psi_in. The leaf segment's psi_out is the
+! leaf water potential.
+!
+! The conductance the hydraulic cost uses (Sperry et al. 2017) is
+!
+!     k = -dE / dpsi_leaf
+!
+! Differentiating each segment's flow with respect to E gives
 !
 !     dpsi_out/dE = ( k_s(psi_in) * dpsi_in/dE - 1 ) / k_s(psi_out)
 !
-! starting from dpsi_root_zone/dE = 0 at the root end. With no flow the
-! segments add as resistances in series:
+! carried from the root end, where dpsi/dE is 0 at the root zone, or
+! -1 / ksr_path after the soil-to-root link. With no flow this is the sum
+! of resistances in series, 1/k = sum over s of 1/k_s(psi).
 !
-!     1/k = sum over s of 1/k_s(psi)
-!
-! A single segment gives k = k(psi_leaf) (the default model).
+! The soil link, root and stem can carry a different flow from the leaf:
+! with the plant capacitance store it is E - q_f, where q_f is the store's
+! flow out, held fixed, and with the shared root and stem it also has the
+! other leaf group's transpiration. With l_exact each psi_out is then
+! refined by bisection (repeatedly halving the range that holds the
+! answer), so it is exact also near the most the segment can carry; a
+! larger flow is infeasible (leaf_psi = som_psi_in_min, leaf_k = 0).
 !
 ! MDK, 30/10/26
 ! *****************************************************************************
@@ -980,10 +1024,13 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 CONTAINS
 
-  ! Segment conductance (capped where l_cap). psi is held at <= 0 here and in
-  ! seg_a: a root-zone psi a hair above 0 (rounding) would give a negative
-  ! base to a non-integer power (NaN) and close a wet point. ELEMENTAL (one
-  ! psi at a time), so the calls make no array temporaries.
+  ! Return the conductance of the current segment at water potential psi
+  ! (Pa) for the segment solver, capped at fr * kmx under xylem
+  ! impairment (l_cap). psi is held at <= 0 here
+  ! and in seg_a: a root-zone psi just above 0 from rounding would give a
+  ! negative base to a non-integer power (NaN) and close a wet point.
+  ! ELEMENTAL (one psi at a time), so calls on arrays make no temporary
+  ! copies.
   ELEMENTAL FUNCTION seg_k( psi ) RESULT( k )
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
   REAL(KIND=real_jlslsm) :: k
@@ -991,12 +1038,15 @@ CONTAINS
   IF ( l_cap ) k = MIN(k, fr * kmx)
   END FUNCTION seg_k
 
-  ! l_exact: the leaf-side psi of sample i by bisection, seg_a(psi_out) =
-  ! a_in + E (seg_a rises as psi falls), between the root-side psi and the psi
-  ! where (psi/b)**c = 12 (f = 6e-6: the curve has carried all it can, and
-  ! the series in incomplete_gamma is still converged there; deeper, its
-  ! 40 terms are not enough and seg_a is no longer monotone). A flow above
-  ! that is infeasible.
+  ! Find the leaf-side water potential of sample i exactly (l_exact), for
+  ! flows near the most the segment can carry, where Newton's method is
+  ! not accurate enough. It solves seg_a(psi_out) = a_in + E (seg_a rises
+  ! as psi falls) by bisection: the range that holds it is halved 60
+  ! times. The range runs from the root-side psi down to where
+  ! (psi/b)^c = 12, f = 6e-6. There the curve has carried nearly all it
+  ! can, and the incomplete gamma series is still accurate; deeper, its 40
+  ! terms are not enough and seg_a no longer rises steadily. A flow above
+  ! seg_a there is infeasible.
   SUBROUTINE seg_bisect( i )
   INTEGER, INTENT(IN) :: i
   INTEGER :: ib
@@ -1026,8 +1076,12 @@ CONTAINS
   psi_out(i) = 0.5 * (lo + hi)
   END SUBROUTINE seg_bisect
 
-  ! Integral of the segment conductance from psi to 0 (so that the flow
-  ! from psi_in to psi_out is seg_a(psi_out) - seg_a(psi_in)).
+  ! Return the flow the current segment carries with water potential psi
+  ! (Pa) at one end and 0 at the other: its conductance integrated from
+  ! psi up to 0. The segment solver uses it to find psi_out, since the
+  ! flow from psi_in to psi_out is seg_a(psi_out) - seg_a(psi_in). Under
+  ! xylem impairment it is the integral of the capped curve: fr kmx (-psi)
+  ! above psi_cap, and below it the intact integral, joined at psi_cap.
   ! ELEMENTAL, as seg_k.
   ELEMENTAL FUNCTION seg_a( psi ) RESULT( a )
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
@@ -1047,46 +1101,59 @@ CONTAINS
 END SUBROUTINE psi_leaf_segments_jls
 
 ! *****************************************************************************
-! As psi_leaf_segments_jls, with each segment solved from its supply-function
-! table instead of Newton-Raphson (psi_solver_lut): segment s carries
+! For each candidate transpiration rate of the stomatal optimiser, work out
+! the leaf water potential and whole-plant conductance of a plant made of
+! root, stem and leaf segments, by looking each segment up in its supply
+! table (psi_solver_lut). It does the same job as psi_leaf_segments_jls,
+! with table look-ups in place of Newton's method. Segment s carries
 !
-!   E = kmax_s ( S_s(psi_out) - S_s(psi_in) ),   kmax_s = kmax seg_kfac,
+!   E = kmax_s (S_s(psi_out) - S_s(psi_in)),   kmax_s = kmax seg_kmax_fac
 !
-! so psi_out = S_s^-1( S_s(psi_in) + E / kmax_s ), downstream from
-! psi_root_zone. The whole-plant conductance -dE/dpsi_leaf comes from the
-! same recursion,
+! with S_s the segment's supply table (supply_table_mod), so psi_out is
+! the psi where S_s(psi_out) = S_s(psi_in) + E / kmax_s: one table
+! look-up per segment, from the root zone to the leaf. The whole-plant
+! conductance -dE/dpsi_leaf comes from the same segment-by-segment
+! formula as there,
 !
-!   dpsi_out/dE = (k_s(psi_in) dpsi_in/dE - 1) / k_s(psi_out),
+!   dpsi_out/dE = (k_s(psi_in) dpsi_in/dE - 1) / k_s(psi_out)
 !
-! with the same floor on segment conductances. A demand beyond what a
-! segment can supply puts its leaf-side end at the bottom of its table, where k
-! is ~0, so the state is rejected as infeasible (k <= kcrit).
+! with the same floor on segment conductances. A flow more than a segment
+! can carry puts its leaf-side end at the bottom of its table, where k is
+! near 0, so the sample is rejected as infeasible (k <= kcrit).
 !
-! Xylem impairment (memory model with segments; kcap_frac present): as
-! psi_leaf_segments_jls, the stem and leaf segments are capped at a fraction
-! fr of their kmax_s (ximpair_seg_frac), the root is intact. The capped
+! Under the memory model of xylem impairment (kcap_frac present) the stem
+! and leaf segments are capped at a fraction fr of kmax_s
+! (ximpair_seg_frac), and the root too with l_som_seg_whole. Let psi_cap
+! be where the intact curve meets the cap, f_s(psi_cap) = fr. The capped
 ! integral is
 !
-!   A_s(psi) = fr kmax_s (-psi)                                psi >= psi_cap
-!            = fr kmax_s (-psi_cap) + kmax_s (S_s(psi) - S_s(psi_cap))  below,
+!   A_s(psi) = fr kmax_s (-psi)                          psi >= psi_cap
+!   A_s(psi) = fr kmax_s (-psi_cap)
+!              + kmax_s (S_s(psi) - S_s(psi_cap))        psi <  psi_cap
 !
-! psi_cap where the intact curve meets the cap, f_s(psi_cap) = fr. So for an
-! root-side psi above psi_cap the flow down to psi_cap, e_cap = fr kmax_s
-! (psi_in - psi_cap), is carried at the constant conductance fr kmax_s: an E <=
-! e_cap gives psi_out = psi_in - E / (fr kmax_s) exactly, and a larger E
-! continues on the intact curve from psi_cap, S_s(psi_out) = S_s(psi_cap) + (E -
-! e_cap) / kmax_s, one inversion of the unchanged table. A root-side psi below
-! psi_cap is on the intact curve throughout. The caps are per-point numbers, so
-! the tables need no rebuilding. leaf_k uses the capped segment conductances in
-! the recursion; leaf_k_intact (if present) the intact ones at the same water
-! potentials (the hydraulic cost), and stem_psi the stem's leaf-side psi.
+! So when psi_in is above psi_cap, the flow down to psi_cap,
+! e_cap = fr kmax_s (psi_in - psi_cap), is carried at the constant
+! conductance fr kmax_s: E <= e_cap gives psi_out = psi_in - E / (fr
+! kmax_s), and a larger E continues down the intact table from psi_cap,
 !
-! The plant capacitance store (l_store_q_path) and the shared root and stem
-! (l_shared_stem_path) as psi_leaf_segments_jls: the soil link, the root
-! and the stem carry E_r = E - q_f + E_o, the leaf E (plus E_o on the
-! whole-plant path). E_r < 0 (the store giving more than E) is a flow back
-! towards the soil, found upwards in the table (seg_lut_psi_back) and capped
-! at psi = 0, as the Newton solver's cap.
+!   S_s(psi_out) = S_s(psi_cap) + (E - e_cap) / kmax_s
+!
+! When psi_in is below psi_cap the intact table holds throughout. The caps
+! are numbers per point, so the tables are not rebuilt. leaf_k uses the
+! capped segment conductances; leaf_k_intact, if present, uses the intact
+! ones at the same water potentials (for the hydraulic cost). stem_psi is
+! the water potential at the leaf-side end of the stem.
+!
+! With the plant capacitance store (l_store_q_path) and the shared root
+! and stem (l_shared_stem_path), the soil link, root and stem carry
+!
+!   E_r = E - q_f + E_o
+!
+! where q_f is the store's flow out and E_o the other leaf group's
+! transpiration, and the leaf carries E (plus E_o when the whole-plant
+! path is solved). E_r < 0, the store giving more than E, is a flow back
+! towards the soil: it is found upwards in the table (seg_lut_psi_back)
+! and stops at psi = 0, as in the Newton solver.
 !
 ! MDK, 31/10/26
 ! *****************************************************************************
@@ -1304,12 +1371,16 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE psi_leaf_segments_lut_jls
 
 ! *****************************************************************************
-! Critical conductance of a leaf path (mol m-2 s-1 Pa-1, the units of
-! kmax_ref): the PFT's critical fraction kcrit/kmax_pft of the path's
-! intact maximum conductance kmax_ref. One rule for every canopy (big leaf,
-! two-leaf, multilayer and the cuticular floor), which wrote it as
-! kcrit * LAI or kmax_ref * (kcrit / kmax_pft): equal, but not to the last
-! bit.
+! Return the critical conductance of a leaf path (mol m-2 s-1 Pa-1, the
+! units of kmax_ref), the lowest conductance the stomatal optimiser
+! accepts before it treats the path as failed. It is the PFT's critical
+! fraction times the path's intact maximum conductance,
+!
+!   kc = kmax_ref (kcrit / kmax_pft)
+!
+! Every canopy option (big leaf, two-leaf, multilayer and the cuticular
+! floor) uses this one function, so they all give the same value to the
+! last bit.
 !
 ! MDK, 23/10/26
 ! *****************************************************************************

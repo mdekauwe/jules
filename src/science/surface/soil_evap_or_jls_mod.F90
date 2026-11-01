@@ -74,47 +74,64 @@ REAL(KIND=real_jlslsm), PARAMETER ::                                           &
 CONTAINS
 
 !-----------------------------------------------------------------------------
-! Description:
-!   Soil surface conductance for evaporation (m s-1) from the pore-scale
-!   model of Or and co-workers (Haghighi et al., 2013; Haghighi & Or, 2015),
-!   as coded in CABLE by Decker et al. (2017, JAMES) - cable_psm.F90,
-!   SUBROUTINE or_soil_evap_resistance, used when cable_user%or_evap = T.
+! Return the conductance of the soil surface to evaporation (m s-1),
+! which limits soil evaporation as the surface dries, from the
+! pore-scale model of Or and co-workers (Haghighi et al., 2013; Haghighi
+! and Or, 2015) as coded in CABLE by Decker et al. (2017, JAMES):
+! cable_psm.F90, or_soil_evap_resistance, used when cable_user%or_evap = T.
 !
-!   The resistance is the sum of a liquid-supply term (lm / 4K) and vapour
-!   diffusion across a viscous sublayer plus the pore-scale boundary layer,
-!   the sublayer depth set from the turbulent eddy spectrum at the soil
-!   surface. Under a canopy CABLE's below-canopy turbulent resistance rt0
-!   (cable_roughness.F90 rt0us, eq. 3.54 of the CSIRO SCAM manual;
-!   cable_canopy.F90 ssnow%rtsoil = rt0) is added in series; over bare soil
-!   JULES's own aerodynamic resistance (ch vshr) already plays CABLE's
-!   rt0 + rt1 role. It returns the conductance of the unsaturated part of the
-!   surface (CABLE's rtevap_unsat), i.e. a saturated fraction of zero, as
-!   CABLE's groundwater configuration with real slopes. (Offline CABLE
-!   without a groundwater elevation file has satfrac ~ 0.99, so nearly the
-!   whole surface uses the moisture-independent rtevap_sat there.)
+! Water leaving the soil meets three resistances in series (s m-1):
 !
-!   Differences from CABLE:
-!   - The sublayer depth uses visc / u*_surface, dividing by the canopy
-!     wind-profile factor, as Decker et al. (2017, eq. 17 and 21: u* scaled
-!     down beneath the canopy) and CABLE CMIP6-GM2; CABLE trunk and Decker's
-!     later branch multiply by it.
-!   - u* is supplied by the caller (JULES computes the tile u* after physiol,
-!     so a neutral-stability estimate is used).
-!   - K(theta) uses CABLE's Campbell form, K = Ks S**(2b+3), with the JULES
-!     b and Ks, even when l_vg_soil = T. The JULES van Genuchten K for the
-!     same b is far smaller in the top layer (e.g. ~50x at S = 0.7 for
-!     b = 6.7), which pins the resistance at rtevap_max almost permanently.
-!   - No snow adjustments (JULES handles snow separately); litter is a
-!     series resistance (see litter_dz).
-!   - Residual water content watr = 0 (CABLE default 0.05).
-!   - The sublayer depth is evaluated each call from a fixed first guess
-!     (CABLE carries canopy%sublayer_dz over from the previous step).
-!   - rt0 uses CABLE's default (non-SLI) formulation, neutral stability, and
-!     the same z0soil (scaled by z0soil_fac) as the Or resistance.
-!   - The soil surface relative humidity (CABLE rh_srf) is not applied: with
-!     CABLE's -10 m cap on the suction it is >= 0.9992, i.e. ~1.
-!   - The eddy_mod gamma-function ratio is evaluated in log space (same
-!     maths, avoids overflow for large eddy shapes).
+!   1. Inside the soil (rtevap). Liquid water must reach the surface,
+!      lm / (4 K), where K is the hydraulic conductivity of the top layer
+!      (m s-1) and lm a constant (m). Then vapour diffuses out of the
+!      surface pores and across a thin layer of still air (the viscous
+!      sublayer) just above the soil. The sublayer's depth is set by the
+!      size of the turbulent eddies that reach the soil surface, which
+!      depends on the wind and the friction velocity there. Both parts are
+!      scaled by z0soil / (sublayer depth), z0soil being the soil's
+!      roughness length, and the sum is capped at rtevap_max.
+!   2. Through the air under the canopy (rt0), CABLE's below-canopy
+!      turbulent resistance (cable_roughness.F90 rt0us, eq. 3.54 of the
+!      CSIRO SCAM manual), only where there is a canopy. Over bare soil,
+!      JULES's own aerodynamic resistance already covers this path.
+!   3. Through the litter, litter_dz / dv_litt, where litter_dz is the
+!      litter depth (m) and dv_litt the vapour diffusivity through litter
+!      (m2 s-1).
+!
+!   gsoil_or = 1 / (rt0 + rtevap + litter_dz / dv_litt)
+!
+! It is the conductance of the unsaturated part of the soil surface
+! (CABLE's rtevap_unsat), as if none of the surface were saturated, as in
+! CABLE's groundwater set-up with real slopes. Offline CABLE without a
+! groundwater elevation file treats about 99 % of the surface as saturated
+! and uses a resistance that does not depend on soil moisture there.
+!
+! Differences from CABLE:
+!   - The sublayer depth scales with the air's viscosity divided by the
+!     friction velocity at the soil surface, which is lower under a
+!     canopy, so the sublayer is thicker there (Decker et al., 2017,
+!     eq. 17 and 21, and CABLE CMIP6-GM2). CABLE trunk and Decker's later
+!     branch multiply by the canopy wind factor instead of dividing.
+!   - The friction velocity comes from the caller, as a neutral-stability
+!     estimate, since JULES works out the tile's value after physiol.
+!   - K uses CABLE's Campbell form, K = Ks S**(2b+3), with JULES's b and
+!     saturated conductivity Ks and relative saturation S, even when
+!     l_vg_soil = T. The JULES van Genuchten K for the same b is much
+!     smaller in the top layer, which would hold the resistance at
+!     rtevap_max nearly all the time. K is kept no lower than or_k_min.
+!   - Snow is left to the rest of JULES. Litter is a separate resistance
+!     in series (see litter_dz).
+!   - The residual water content is 0 (CABLE's default is 0.05).
+!   - The sublayer depth is worked out each call from a fixed first guess
+!     (CABLE carries it over from the previous step).
+!   - rt0 uses CABLE's default (non-SLI) form, neutral stability, and the
+!     same z0soil (times z0soil_fac) as the soil resistance.
+!   - The relative humidity at the soil surface (CABLE rh_srf) is taken as
+!     1: with CABLE's -10 m cap on the suction it is at least 0.9992.
+!   - The eddy-size factor's gamma-function ratio is worked out with
+!     logarithms, which gives the same result without overflow for large
+!     eddy shapes.
 !-----------------------------------------------------------------------------
 FUNCTION gsoil_or(ua, ustar, hc, lai, t_k, sathh, bexp, satcon,          &
                   theta_liq, theta_sat, litter_dz, z0soil_fac)

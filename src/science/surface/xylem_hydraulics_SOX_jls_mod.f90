@@ -24,17 +24,23 @@ PUBLIC :: leaf_conductance_SOX_jls                                             &
 CONTAINS
 
 ! *********************************************************************
-! Contains routines used to calculate conductance and leaf water
-! potential using the conductance model from SOX, Eller CB et al. 2018.
+! Conductance and leaf water potential for the SOX conductance model
+! (Eller CB et al. 2018),
 !
 !                                kmax
 !                  k(psi) = ---------------
 !                            1 + (psi/b)^c
+!
+! with psi the water potential (Pa), kmax the maximum conductance, b
+! (Pa, negative) the psi where k is half kmax, and c (dimensionless) the
+! steepness of the curve.
 ! *********************************************************************
 
 ! ---------------------------------------------------------------------
-! Function to calculate the leaf conductance using the SOX conductance
-! model, Eller CB et al. 2018 for all land points. JBaguley
+! Work out the plant's xylem conductance at each land point's water
+! potential on the SOX curve (Eller CB et al. 2018), for the hydraulic
+! cost of the stomatal optimiser, floored at the critical conductance:
+! it returns MAX(k(psi), kcrit). JBaguley
 ! ---------------------------------------------------------------------
 SUBROUTINE leaf_conductance_SOX_jls( pft,                                      &
                                      land_pnts,                                &
@@ -95,11 +101,11 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE leaf_conductance_SOX_jls
 
 ! ---------------------------------------------------------------------
-! Function to calculate xylem conductance using the SOX conductance
-! model, Eller CB et al. 2018.
-! NOTE: This function is designed for the stomatal optimisation model.
-!       It assumes that the input and output arrays are only large
-!       enough to contain values for points with open stomata.
+! Work out the plant's xylem conductance at several water potentials per
+! point on the SOX curve (Eller CB et al. 2018), for the hydraulic cost of
+! each candidate stomatal opening in the stomatal optimiser. It is floored at
+! the critical conductance: it returns MAX(k(psi), kcrit). The arrays
+! hold only the points with open stomata.
 ! ---------------------------------------------------------------------
 SUBROUTINE xylem_conductance_SOX_jls( pft,                                     &
                                       n_water_potentials,                      &
@@ -180,26 +186,25 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE xylem_conductance_SOX_jls
 
 ! ---------------------------------------------------------------------
-! Subroutine to calculate the leaf water potential from the transpiration
-! rate and root zone water potential, with the SOX conductance curve
-! (Eller et al. 2018).
+! For each candidate transpiration rate of the stomatal optimiser, work out
+! how far the leaf water potential (Pa) falls below the root zone water
+! potential when the plant follows the SOX curve (Eller et al. 2018)
 !
 !                                kmax
 !                  k(psi) = ---------------
 !                            1 + (psi/b)^c
 !
-! The code below uses one of two methods to estimate the leaf
-! water potential from the transpiration rate (there is no method 1: a
-! zeroth-order Taylor expansion about the mid-path psi overstates k near
-! E_crit):
-!   2: Uses a Newton-Raphson solve of the integrated conductance
-!      equation (psi_solver_newton).
-!   3: Inverts the tabulated supply function (psi_solver_lut; see
-!      psi_leaf_lut_jls), on the PFT's own curve only (else Newton).
-!
-! NOTE: This subroutine is designed for the stomatal optimisation model.
-!       It returns an output array that only contains values for points
-!       with open stomata.
+! for the points with open stomata (for the stomatal optimisation model).
+! som_psi_solver picks the method:
+!   2 (psi_solver_newton): find the leaf water potential where the
+!      integral of k from the leaf to the root zone equals the
+!      transpiration, by repeatedly improving a guess using the slope
+!      (Newton's method);
+!   3 (psi_solver_lut): look it up in the PFT's supply table
+!      (psi_leaf_lut_jls). Points with their own curve (b, c) use
+!      method 2.
+! The conductance returned, leaf_k, is the curve at the leaf, k(psi_leaf),
+! which for one curve is also -dE/dpsi_leaf.
 !
 ! MDK, 25/10/26
 ! ---------------------------------------------------------------------
@@ -497,10 +502,11 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE psi_leaf_SOX_jls
 
 ! ---------------------------------------------------------------------
-! Function to calculate the Gaussian Hypergeometric series
-! 2F1(af,bf;cf;xf). This function is used to calculate the
-! transpiration rate from the leaf water potential for the SOX
-! conductance model.
+! Return the Gaussian hypergeometric series 2F1(af,bf;cf;xf), which the
+! SOX solvers use to find the water a path can carry, for an array of xf
+! with one cf. It gives the transpiration for a leaf water potential on
+! the SOX curve: psi 2F1(1, 1/c; 1 + 1/c; -(psi/b)^c) is the integral of
+! 1 / (1 + (psi'/b)^c) from 0 to psi.
 !
 ! For the SOX conductance model the inputs to the 2F1 function are
 ! always;
@@ -532,15 +538,14 @@ END SUBROUTINE psi_leaf_SOX_jls
 !      (1 - xf)^(-af) * 2F1(af,cf-bf;cf;xf/(xf-1))/Gamma(cf)
 !
 ! Note that this equation can be used because cf - af - bf = 0.
-! Canceling out the two Gamma functions and substituting for the values
-! of, bf and cf.
+! The two Gamma functions cancel, and with af = 1, bf = 1/c and
+! cf = 1 + 1/c it becomes
 !
 ! 2F1(1,1/c;1+1/c;xf) =
 !     (1 - xf)^(-1) * 2F1(1,1;1+1/c;xf/(xf - 1))
 !
-! Given that xf <= 0, xf/(xf-1) exists over the range [0,1). Meaning
-! that the series solution for 2F1(1,1;1+1/c;xf/(xf-1)) can be
-! calculated using the series solution for 2F1.
+! Since xf <= 0, xf/(xf-1) lies in [0,1), so the series for
+! 2F1(1,1;1+1/c;xf/(xf-1)) converges and can be summed directly.
 !
 !  2F1(1,1;1+1/c;xf/(xf-1)) =
 !
@@ -556,11 +561,9 @@ END SUBROUTINE psi_leaf_SOX_jls
 !    SUM[ ----------- * (------)^n, n=0,inf]
 !          (1+1/c)_n      xf-1
 !
-! The value within this sum would be expensive to calculate for large
-! n. However, it is possible to re-write the value within the sum such
-! that it is a multiple of the previous iteration (n-1). Writing
-! z = xf/(xf-1) and Tn for the nth term (T0 = 1), the term-to-term ratio
-! is;
+! Each term would be costly to work out from scratch for large n, but it
+! is a multiple of the term before. Writing z = xf/(xf-1) and Tn for the
+! nth term (T0 = 1), the ratio of one term to the one before is;
 !
 !            n! / (1+1/c)_n * z^n              n
 !  Tn/Tn-1 = ----------------------- = ------------------ * z
@@ -594,8 +597,11 @@ f21 = SOX_2F1_multiple_cf(n_xf, SPREAD(cf, 1, n_xf), xf)
 END FUNCTION SOX_2F1
 
 ! ---------------------------------------------------------------------
-! As SOX_2F1, with cf per value (per-point, e.g. impaired, curves); the
-! series itself. JBaguley
+! Return the Gaussian hypergeometric series 2F1, which the SOX solvers
+! use to find the water a path can carry, with its own cf for each value
+! (curves that differ between points, for example impaired ones). This
+! routine sums the series.
+! JBaguley
 ! ---------------------------------------------------------------------
 FUNCTION SOX_2F1_multiple_cf(n_xf, cf, xf) RESULT( f21 )
 

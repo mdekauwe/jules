@@ -25,15 +25,33 @@ PUBLIC :: leaf_conductance_impaired_whole_trunk_jls,                           &
 CONTAINS
 
 ! *********************************************************************
-! Whole-trunk xylem impairment model (pft_xylem_impairment_model = 2):
-! conductance, leaf water potential and the update of the historic
-! minimum leaf and root water potentials.
+! Xylem impairment, whole trunk model (pft_xylem_impairment_model = 2).
+!
+! Each point along the xylem keeps the conductance it had at the driest
+! (most negative) water potential it has met: drought damage does not
+! recover. The model records two values per land point, the driest leaf
+! water potential psi_le and the driest root water potential psi_re (Pa,
+! below 0). The xylem between them is taken to have been carrying a
+! steady flow at that time, so the driest water potential falls smoothly
+! from psi_re at the roots to psi_le at the leaf.
+!
+! The routines give the plant's conductance and leaf water potential with
+! this damage, and update psi_le and psi_re at the end of each step. The
+! vulnerability curve itself (kmax, conductance_b, conductance_c) is not
+! changed.
 !
 ! MDK, 24/10/26
 ! *********************************************************************
 
 ! ---------------------------------------------------------------------
-! Function to calculate leaf conductance
+! Work out the xylem conductance at the leaf (mol m-2 s-1 Pa-1) of a
+! plant damaged by drought, for a given leaf water potential psi_l (Pa),
+! under the whole trunk model of xylem impairment.
+!
+! The leaf keeps the conductance of the driest water potential it has
+! met, so this is the undamaged curve taken at MIN(psi_l, psi_le), where
+! psi_le is the driest leaf water potential so far. psi_le is not updated
+! here.
 ! ---------------------------------------------------------------------
 SUBROUTINE leaf_conductance_impaired_whole_trunk_jls( pft,                     &
                                                       land_pnts,               &
@@ -123,11 +141,15 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE leaf_conductance_impaired_whole_trunk_jls
 
 ! ---------------------------------------------------------------------
-! Function to manage xylem conductance calculations for different
-! impairment models.
-! NOTE: This function is designed for the stomatal optimisation model.
-!       It assumes that the input and output arrays are only large
-!       enough to contain values for points with open stomata.
+! Work out the xylem conductance (mol m-2 s-1 Pa-1) of a plant damaged by
+! drought at several water potentials psi (Pa) per point, under the whole
+! trunk model of xylem impairment, for the stomatal optimiser's candidate
+! openings at points where the stomata are open.
+!
+! Each value is the undamaged curve taken at MIN(psi, psi_extreme), where
+! psi_extreme is the driest water potential met so far at that place in
+! the plant (the leaf's for leaf conductance, the root's for root
+! conductance). psi_extreme is not updated here.
 !
 ! MDK, 24/10/26
 ! ---------------------------------------------------------------------
@@ -245,11 +267,18 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE xylem_conductance_impaired_whole_trunk_stom_opt_jls
 
 ! ---------------------------------------------------------------------
-! Subroutine to manage leaf water potential calculations for different
-! conductance models.
-! NOTE: This function is designed for the stomatal optimisation model.
-!       It returns an output array that only contain values for points
-!       with open stomata.
+! For each candidate transpiration rate of the stomatal optimiser, work out
+! the leaf water potential (Pa) and the xylem conductance at the leaf
+! (mol m-2 s-1 Pa-1) of a plant damaged by drought, under the whole trunk
+! model of xylem impairment, at points where the stomata are open.
+!
+! The driest root water potential psi_re is first brought down to the
+! current root-zone water potential if that is drier. The driest leaf
+! water potential psi_le is then kept at or below psi_re, as the leaf is
+! never wetter than the roots. Neither change is stored: the stored
+! values are updated in update_xylem_impairment_whole_trunk. The solve
+! is then passed to the routine for the PFT's vulnerability curve
+! (cumulative Weibull or SOX).
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_impaired_whole_trunk( pft,                                 &
                                           n_e_leaf,                            &
@@ -408,7 +437,12 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE psi_leaf_impaired_whole_trunk
 
 ! ------------------------------------------------------------------------
-! Subroutine to update the historic minimum leaf and root water potentials
+! Xylem impairment, whole trunk model: update the driest leaf and root
+! water potentials met so far (Pa) with this step's values,
+!
+!   psi_le = MIN(psi_le, psi_leaf),   psi_re = MIN(psi_re, psi_root).
+!
+! Every land point is updated, whether or not its stomata are open.
 ! ------------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment_whole_trunk ( n_land_pts                    &
 ,                                                n_open_pts                    &
@@ -468,40 +502,61 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE update_xylem_impairment_whole_trunk
 
 ! ---------------------------------------------------------------------
-! Internal subroutines to calculate leaf water potential from
-! transpiration and root zone water potential.
+! Xylem impairment, whole trunk model: the routines below find the leaf
+! water potential from the transpiration rate and the root-zone water
+! potential, one for each shape of vulnerability curve.
 ! ---------------------------------------------------------------------
 
 ! ---------------------------------------------------------------------
-! Whole-trunk impairment: the conductance at each point along the xylem
-! is that of the unimpaired curve at the lowest water potential that
-! point has experienced. The historic minimum profile runs from
-! psi_root_extreme (psi_re) at the roots to psi_leaf_extreme (psi_le) at
-! the leaf, and is taken to have been a steady-state flow profile, so
-! with G(psi) = integral of k(psi') dpsi' from psi to psi_re (on the
-! unimpaired curve):
+! Xylem impairment, whole trunk model: how the leaf water potential is
+! found.
 !
-!  Case 1 - leaf stays above its historic minimum (psi_l >= psi_le): the
-!   whole path keeps its historic conductance, so
-!     e = keff * (psi_r - psi_l),   keff = G(psi_le) / (psi_re - psi_le)
-!   (keff -> k(psi_re) as psi_le -> psi_re).
+! Each point along the xylem has the undamaged curve's conductance at the
+! driest water potential that point has met. That driest profile runs
+! from psi_re at the roots to psi_le at the leaf (Pa) and is taken to be
+! the profile of a steady flow. Let
 !
-!  Case 2 - leaf goes below its historic minimum (psi_l < psi_le): the
-!   historic profile is reset to run from psi_re to psi_l, so
-!     E(psi_l) = G(psi_l) * (psi_r - psi_l) / (psi_re - psi_l)
-!   solved for E(psi_l) = e by Newton-Raphson, with
-!     dE/dpsi_l = - k(psi_l) (psi_r - psi_l) / (psi_re - psi_l)
-!                 + G(psi_l) (psi_r - psi_re) / (psi_re - psi_l)^2
+!   G(psi) = integral of k(psi') dpsi' from psi to psi_re
 !
-! Case 1 applies when its solution satisfies psi_l >= psi_le, otherwise
-! case 2 (E is continuous at psi_l = psi_le, where both give the same e).
+! on the undamaged curve k (mol m-2 s-1 Pa-1). G(psi) is the flow the
+! undamaged xylem would carry between psi_re and psi. With psi_r the
+! root-zone water potential, psi_l the leaf water potential and E the
+! transpiration rate (mol H2O m-2 s-1, on the same area basis as kmax):
+!
+! Case 1, the leaf is no drier than before (psi_l >= psi_le). The whole
+! path keeps the conductance of the driest profile, a constant
+!
+!   E = keff (psi_r - psi_l),   keff = G(psi_le) / (psi_re - psi_le),
+!
+! and keff is k(psi_re) when psi_le is (almost) equal to psi_re.
+!
+! Case 2, the leaf is drier than before (psi_l < psi_le). The driest
+! profile now runs from psi_re to psi_l, so
+!
+!   E(psi_l) = G(psi_l) (psi_r - psi_l) / (psi_re - psi_l),
+!
+! which is solved for psi_l by Newton's method, using
+!
+!   dE/dpsi_l = - k(psi_l) (psi_r - psi_l) / (psi_re - psi_l)
+!               + G(psi_l) (psi_r - psi_re) / (psi_re - psi_l)^2.
+!
+! Case 1 is used where its answer has psi_l >= psi_le, and case 2
+! elsewhere. The two give the same E at psi_l = psi_le.
 ! ---------------------------------------------------------------------
 
 ! ---------------------------------------------------------------------
-! Subroutine to calculate the leaf water potential for the Cumulative
-! Weibull model.
+! Solve the whole trunk model for a cumulative Weibull vulnerability
+! curve: for each candidate transpiration rate of the stomatal optimiser,
+! work out the leaf water potential (Pa) and the leaf's conductance
+! (mol m-2 s-1 Pa-1) of the damaged plant. The curve is
+!
+!   k(psi) = kmax EXP(-(psi / b)^c),
+!
+! with b = conductance_b (Pa, below 0) and c = conductance_c. G(psi) uses
+! the lower incomplete gamma function. Cases 1 and 2 are as described
+! above. The conductance returned is the undamaged curve at the driest
+! leaf water potential, MIN(psi_l, psi_le).
 ! ---------------------------------------------------------------------
-
 SUBROUTINE psi_leaf_impaired_CW_jls( pft,                                      &
                                      n_e_leaf,                                 &
                                      land_pnts,                                &
@@ -708,9 +763,18 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE psi_leaf_impaired_CW_jls
 
 ! ---------------------------------------------------------------------
-! Subroutine to calculate the leaf water potential for the SOX model.
+! Solve the whole trunk model for the SOX vulnerability curve: for each
+! candidate transpiration rate of the stomatal optimiser, work out the leaf
+! water potential (Pa) and the leaf's conductance (mol m-2 s-1 Pa-1) of
+! the damaged plant. The curve is
+!
+!   k(psi) = kmax / (1 + (psi / b)^c),
+!
+! with b = conductance_b (Pa, below 0) and c = conductance_c. G(psi) uses
+! the Gauss hypergeometric function 2F1. Cases 1 and 2 are as described
+! above. The conductance returned is the undamaged curve at the driest
+! leaf water potential, MIN(psi_l, psi_le).
 ! ---------------------------------------------------------------------
-
 SUBROUTINE psi_leaf_impaired_SOX_jls( pft,                                     &
                                       n_e_leaf,                                &
                                       land_pnts,                               &
@@ -919,8 +983,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE psi_leaf_impaired_SOX_jls
 
 ! ---------------------------------------------------------------------
-! Scalar wrappers around the array series functions used by the
-! whole-trunk solvers above.
+! Return the lower incomplete gamma function for one value, which the
+! whole trunk solver for the cumulative Weibull curve uses to find the
+! water a path can carry (incomplete_gamma takes arrays).
 ! ---------------------------------------------------------------------
 FUNCTION incomplete_gamma_scalar( a, x ) RESULT( gamma )
 
@@ -935,6 +1000,11 @@ gamma = gamma_arr(1)
 
 END FUNCTION incomplete_gamma_scalar
 
+! ---------------------------------------------------------------------
+! Return the 2F1 function for one value, which the whole trunk solver
+! for the SOX curve uses to find the water a path can carry (SOX_2F1
+! takes arrays).
+! ---------------------------------------------------------------------
 FUNCTION sox_2f1_scalar( cf, xf ) RESULT( sum )
 
 USE xylem_hydraulics_SOX_jls_mod, ONLY: SOX_2F1

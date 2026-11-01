@@ -7,32 +7,41 @@
 MODULE phen_budburst_mod
 
 !-----------------------------------------------------------------------------
-! Budburst for deciduous TRIFFID phenology (phen_bb_doy or phen_bb_gdd set).
+! Budburst for deciduous TRIFFID phenology, used for a PFT when phen_bb_doy
+! or phen_bb_gdd is set: leaves come out once a year, on a set day or
+! after enough spring warmth, and the canopy stays bare through winter.
 !
-! Standard phenol lets leaves regrow whenever the day's leaf turnover is
-! below twice its minimum, so a deciduous canopy regrows in mild winter
-! spells and its spring flush is set by the same temperature threshold
-! as leaf fall (tleaf_of, dgl_dt). Here a PFT is dormant from the autumn
-! fall of its canopy to the floor (phen 0.01) until budburst, and phenol
-! does not regrow leaves while it is dormant or before this year's
-! budburst. Budburst is on day of year phen_bb_doy, or when the growing
-! degree-days from 1 January, the sum of the daily mean air temperature
-! above phen_bb_tbase, reach phen_bb_gdd (e.g. oak about 730 degC d above
-! 0 degC at Alice Holt, from MODIS green-up). Leaf fall is the standard
-! cold leaf drop, held off for phen_bb_min_days after budburst: the
-! half-hourly cold hinge it averages counts cold nights, which otherwise
-! stop the spring flush and can drop a summer canopy (and so start
-! dormancy) in a cool spell.
-! The year starts on 1 January (northern-hemisphere seasons). A point that
-! never reaches phen_bb_gdd in a year stays leafless that year, as a site
-! too cold for the PFT; set the gate only for deciduous PFTs.
+! In the standard phenology (phenol) leaves regrow whenever the daily leaf
+! turnover falls below twice its minimum, so a deciduous canopy can regrow
+! in a mild winter spell, and spring regrowth uses the same temperature
+! threshold as autumn leaf fall (tleaf_of, dgl_dt). With budburst on:
 !
-! State (pft, land; in dumps with the gate on):
-!   phen_gdd      growing degree-days since 1 January (degC d)
-!   phen_bb_day   day of year of this year's budburst; -1 = not yet
-!   phen_dormant  1 = dormant (canopy fallen, waiting for budburst)
-! phen_bb_day is public so other schemes (e.g. the store's leaf flush) can
-! start at the model's budburst.
+!   1. Once the canopy has fallen to its floor (phen = 0.01, the fraction
+!      of the balanced LAI) after this year's budburst, the PFT is
+!      dormant. phenol grows no leaves while it is dormant, nor before
+!      this year's budburst.
+!   2. Budburst is on day of year phen_bb_doy, or on the day the growing
+!      degree-days reach phen_bb_gdd (degC d). The growing degree-days are
+!      summed from 1 January over each time step,
+!
+!        GDD = SUM MAX(T_air - phen_bb_tbase, 0) dt / 86400,
+!
+!      with T_air the air temperature (degC), phen_bb_tbase the base
+!      temperature (degC) and dt the time step (s).
+!   3. Autumn leaf fall is phenol's standard cold leaf drop, held off for
+!      phen_bb_min_days after budburst. The drop responds to cold nights,
+!      so without the hold a cool spell could stop the spring flush, or
+!      shed a summer canopy and start dormancy.
+!
+! The year starts on 1 January, which suits northern-hemisphere seasons. A
+! point that never reaches phen_bb_gdd in a year stays leafless that year,
+! as a site too cold for the PFT, so set budburst only for deciduous PFTs.
+!
+! For each land point and PFT the module keeps, in dumps, the growing
+! degree-days since 1 January (degC d), the day of year of this year's
+! budburst (-1 until it happens) and whether the PFT is dormant (1) or
+! not (0). The budburst day is public so other schemes, such as the
+! store's leaf flush, can start at the model's budburst.
 !
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
@@ -54,7 +63,8 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PHEN_BUDBURST_MOD'
 CONTAINS
 
 !-----------------------------------------------------------------------------
-! Is the budburst gate on for PFT n?
+! True when budburst is on for PFT n, that is when phen_bb_doy or
+! phen_bb_gdd is set.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -72,7 +82,8 @@ phen_bb_on = is_set(phen_bb_doy(n)) .OR. is_set(phen_bb_gdd(n))
 END FUNCTION phen_bb_on
 
 !-----------------------------------------------------------------------------
-! Allocate the state at its fresh-start values.
+! Allocates the budburst state, if not already allocated, at its values
+! for a fresh start: no degree-days, no budburst yet (-1), not dormant.
 !-----------------------------------------------------------------------------
 SUBROUTINE phen_bb_alloc( land_pts )
 
@@ -112,7 +123,16 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE phen_bb_alloc
 
 !-----------------------------------------------------------------------------
-! Every time step: degree-days and budburst of PFT ft.
+! Track spring warming for PFT ft and mark the day its leaves come out,
+! so phenol knows when the PFT may grow leaves. Called every time step,
+! it adds the step's growing degree-days and marks budburst. It does
+! nothing for a PFT without budburst.
+!
+! On the first time step of 1 January the degree-days go back to 0 and
+! the budburst day to -1 (not yet). Budburst happens on the first step on
+! which the day of year reaches phen_bb_doy or the degree-days reach
+! phen_bb_gdd. That day is stored as this year's budburst day, and the PFT
+! is no longer dormant.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -197,8 +217,9 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE phen_bb_update
 
 !-----------------------------------------------------------------------------
-! In phenol: no leaf regrowth for PFT n at land point l while dormant or
-! before this year's budburst.
+! Used by phenol: true when PFT n at land point l may not grow leaves,
+! because it is dormant or this year's budburst has not happened yet.
+! False for a PFT without budburst.
 !-----------------------------------------------------------------------------
 LOGICAL FUNCTION phen_bb_blocked( l, n )
 
@@ -213,8 +234,10 @@ phen_bb_blocked = phen_bb_day(l,n) < 0.0 .OR. phen_dormant(l,n) > 0.5
 END FUNCTION phen_bb_blocked
 
 !-----------------------------------------------------------------------------
-! In phenol: PFT n at land point l is within phen_bb_min_days of this
-! year's budburst (no cold leaf drop).
+! Used by phenol: true when PFT n at land point l is less than
+! phen_bb_min_days after this year's budburst, so the cold leaf drop is
+! held off. False without budburst, before this year's budburst, or when
+! phen_bb_min_days <= 0.
 !-----------------------------------------------------------------------------
 LOGICAL FUNCTION phen_bb_in_leaf( l, n )
 

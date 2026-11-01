@@ -13,9 +13,15 @@ USE jules_vegetation_mod, ONLY: l_nsc_k_sapwood
 
 IMPLICIT NONE
 
-! Supply-function lookup tables for the plant hydraulics
-! (som_psi_solver = psi_solver_lut): the whole-plant table of each PFT and
-! the root, stem and leaf segment tables, and the solvers that read them.
+! Lookup tables of the plant's water supply, used when
+! som_psi_solver = psi_solver_lut, and the routines that read them.
+!
+! A table holds, for one vulnerability curve, how much water the path can
+! carry per unit of maximum conductance from psi = 0 down to each water
+! potential on a fine grid (S(psi), below). There is one table for the
+! whole plant of each PFT and, for plants made of root, stem and leaf
+! segments, one for each segment. Reading a table gives the leaf water
+! potential for a transpiration rate without iterating.
 !
 ! MDK, 31/10/26
 PRIVATE
@@ -36,24 +42,27 @@ PUBLIC :: psi_leaf_lut_jls                                                     &
 ,         seg_lut_s
 
 ! ---------------------------------------------------------------------
-! Supply-function lookup table (som_psi_solver = psi_solver_lut),
-! for either conductance model of the PFT (pft_conductance_model):
+! The supply function. The PFT's vulnerability curve gives the fraction
+! of the maximum conductance kmax left at water potential psi (Pa,
+! negative), f(psi) = k(psi) / kmax, in one of two forms
+! (pft_conductance_model):
 !
 !   cumulative Weibull: f(psi) = exp(-(psi/b)^c)
 !   SOX:                f(psi) = 1 / (1 + (psi/b)^c)
 !
-! With k(psi) = kmax * f(psi), the transpiration between root zone and
-! leaf is
+! where b (Pa, negative) and c (dimensionless) set the curve. The water
+! the path carries from the root zone at psi_r to the leaf at psi_l is the
+! area under the conductance curve between them,
 !
-!   E = kmax * (S(psi_l) - S(psi_r)),   S(psi) = integral(f, psi, 0).
+!   E = kmax (S(psi_l) - S(psi_r))         (mol H2O m-2 s-1)
 !
-! S depends only on the PFT's b and c (not on kmax, which can vary in
-! space and time), so it is tabulated once per PFT on a uniform psi grid
-! from 0 down to where f has fallen to well below kcrit/kmax (and below
-! sl_kfail_frac; see lut_grid). psi_leaf is
-! then found by inverting S directly (binary search plus linear
-! interpolation) instead of Newton-Raphson on the incomplete gamma or
-! hypergeometric series.
+! where S(psi) (Pa) is the area under f from psi up to 0. S depends only
+! on b and c, not on kmax, which changes from point to point and in time,
+! so it is worked out once per PFT on an evenly spaced psi grid from 0
+! down to where f is far below the critical conductance (lut_grid). The
+! leaf water potential for a given E is the psi_l where
+! S(psi_l) = S(psi_r) + E / kmax, found by searching the table and
+! interpolating along a straight line between grid points.
 ! ---------------------------------------------------------------------
 ! Nodes in a table that ends at its usual floor (below). A table extended down
 ! to a lower critical conductance keeps the same spacing and has more nodes, up
@@ -95,9 +104,13 @@ LOGICAL, ALLOCATABLE, SAVE, PRIVATE :: lut_seg_ready(:)
 CONTAINS
 
 ! *****************************************************************************
-! .TRUE. if every open point's curve (b, c) is the PFT's, so the supply
-! table (keyed by PFT) holds for all of them. A point with its own curve
-! (e.g. impaired b and c) must be solved by Newton instead.
+! Check whether the PFT's supply table can be used for these points: it
+! returns .TRUE. if every open point uses the PFT's own vulnerability
+! curve (the PFT's b and c). The supply table is built from the PFT's
+! curve, so it holds only when this is true. A point with its own curve,
+! for example one changed by xylem impairment, is solved by the Newton
+! solver instead, which finds psi by repeatedly improving a guess using
+! the slope of the flow.
 !
 ! MDK, 21/10/26
 ! *****************************************************************************
@@ -126,16 +139,26 @@ END DO
 END FUNCTION lut_pft_curve
 
 ! *****************************************************************************
-! Leaf water potential and conductance by inverting the tabulated supply
-! function (the table lut_tab, see the top of this module):
+! For each candidate transpiration rate of the stomatal optimiser, read the
+! leaf water potential and conductance from the PFT's supply table, which
+! is quicker than solving the vulnerability curve each time. For root
+! zone water potential
+! psi_r (Pa) and transpiration E, the leaf water potential psi_l (Pa) is
+! where
 !
-!   S(psi_l) = S(psi_r) + e_leaf/kmax.
+!   S(psi_l) = S(psi_r) + E / kmax
 !
-! Exact up to the table's linear interpolation, with no iteration. A demand
-! beyond what the curve can supply from psi_r puts the leaf at the bottom of
-! the table, where k = lut_f_floor * kmax < kcrit, so stom_opt_mod rejects it
-! as for the Newton-Raphson solve. Has no automatic arrays, so it is cheap to
-! call for a single sample per point.
+! with S the supply function (top of this module) and kmax the point's
+! maximum conductance (mol m-2 s-1 Pa-1). The answer is exact apart from
+! the straight-line interpolation between grid points, and needs no
+! iteration. The conductance returned is the curve at the leaf,
+! k = kmax f(psi_l), which for a single curve is also -dE/dpsi_l.
+!
+! If E is more than the curve can carry from psi_r, the leaf is put at
+! the bottom of the table, where k is at most half the critical
+! conductance, so stom_opt_mod rejects the sample, as it does with the
+! Newton solver. The routine uses no work arrays, so a call for one
+! sample per point is cheap.
 !
 ! MDK, 18/10/26
 ! *****************************************************************************
@@ -190,21 +213,32 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE psi_leaf_lut_jls
 
 ! *****************************************************************************
-! Memory xylem impairment model (pft_xylem_impairment_model = 3) without
-! segments, from the supply-function table (psi_solver_lut): the capped
-! curve k(psi) = MIN(kmax f(psi), kc) of psi_leaf_impaired_memory, inverted
-! exactly from the intact PFT table. With psi_s where the intact curve
-! meets the cap (f(psi_s) = kc/kmax), the flow from psi_r is carried at the
-! constant conductance kc down to psi_s, e_cap = kc (psi_r - psi_s) if
-! psi_r > psi_s (else 0), so
+! For each candidate transpiration rate of the stomatal optimiser, read the
+! leaf water potential and conductance from the supply table for a plant
+! whose xylem has been damaged by drought, under the memory model of
+! xylem impairment (pft_xylem_impairment_model = 3), for a plant without
+! segments. The memory model caps the conductance at kc,
+! the most the damaged xylem can carry:
 !
-!   E <= e_cap:  psi_l = psi_r - E / kc                     (exact)
-!   E >  e_cap:  S(psi_l) = S(psi_top) + (E - e_cap) / kmax, psi_top =
-!                MIN(psi_r, psi_s)                          (one inversion)
+!   k(psi) = MIN(kmax f(psi), kc)
 !
-! as the Newton-Raphson of psi_leaf_impaired_memory solves. leaf_k is the
-! capped conductance at psi_l floored at kcrit, as there. The curve must be
-! the PFT's (the table's): b and c are not changed by the memory model.
+! The memory model does not change b or c, so the curve f is the PFT's
+! and the intact table can be used. psi_r is the root zone water
+! potential and psi_l the leaf's (Pa). Let psi_s be where the intact curve
+! falls to the cap, f(psi_s) = kc / kmax. Between psi_r and psi_s the
+! conductance is the constant kc, so that part of the path carries at
+! most
+!
+!   e_cap = kc (psi_r - psi_s)   if psi_r > psi_s, else 0.
+!
+! A transpiration E up to e_cap gives psi_l = psi_r - E / kc. A larger E
+! continues down the intact curve from psi_top = MIN(psi_r, psi_s):
+!
+!   S(psi_l) = S(psi_top) + (E - e_cap) / kmax
+!
+! which is one table look-up. This is the equation the Newton solver in
+! psi_leaf_impaired_memory solves. The conductance returned is the capped
+! curve at psi_l, floored at the critical conductance kcrit, as there.
 !
 ! MDK, 18/10/26
 ! *****************************************************************************
@@ -288,9 +322,14 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE psi_leaf_capped_lut_jls
 
 ! *****************************************************************************
-! Leaf water potential (Pa) from the supply-function table, for root zone
-! potential psi_root (Pa) and normalised demand e_over_kmax = e_leaf/kmax (Pa):
-! solves S(psi_l) = S(psi_r) + e_over_kmax. See psi_leaf_lut_jls.
+! Return the leaf water potential psi_l (Pa) for one transpiration rate,
+! read from the PFT's supply table, for root zone water potential psi_root
+! (Pa) and transpiration per unit maximum conductance,
+! e_over_kmax = E / kmax (Pa). It solves
+!
+!   S(psi_l) = S(psi_root) + e_over_kmax
+!
+! (see psi_leaf_lut_jls). The table is built first if it is not ready.
 ! *****************************************************************************
 FUNCTION supply_lut_psi( pft, psi_root, e_over_kmax ) RESULT( psi_l )
 
@@ -304,10 +343,16 @@ psi_l = table_psi(lut_tab(pft), psi_root, e_over_kmax)
 END FUNCTION supply_lut_psi
 
 ! *****************************************************************************
-! Largest normalised transpiration, e/kmax (Pa), the curve can supply from
-! psi_root while keeping k >= kcrit_frac * kmax: S(psi_crit) - S(psi_root),
-! with k(psi_crit) = kcrit_frac * kmax. Zero if psi_root is already beyond
-! psi_crit.
+! Return the most transpiration per unit maximum conductance (E / kmax,
+! Pa) the PFT's curve can carry from the root zone at psi_root (Pa) before
+! the conductance at the leaf falls to the fraction kcrit_frac of kmax,
+! which sets the top of the stomatal optimiser's search. With
+! psi_crit the water potential where f(psi_crit) = kcrit_frac, found
+! from the curve's formula,
+!
+!   e_crit = S(psi_crit) - S(psi_root)
+!
+! It is 0 when the root zone is already drier than psi_crit.
 !
 ! MDK, 18/10/26
 ! *****************************************************************************
@@ -350,7 +395,11 @@ e_crit = MAX(table_s_at(lut_tab(pft), psi_crit)                                &
 
 END FUNCTION supply_lut_e_crit
 
-! Relative conductance f(psi) = k/kmax of the PFT's conductance model.
+! Return the fraction of the maximum conductance left at water potential
+! psi (Pa), f = k / kmax, on the PFT's curve (Weibull or SOX), which the
+! stomatal optimiser uses for the conductance at one water potential. It
+! is worked out from the curve's formula; the table is built only to
+! record which form the PFT uses.
 !
 ! MDK, 18/10/26
 FUNCTION supply_lut_f( pft, psi ) RESULT( f )
@@ -375,15 +424,20 @@ END IF
 END FUNCTION supply_lut_f
 
 ! *****************************************************************************
-! Helpers shared by the whole-plant tables (lut_tab) and the segment tables
-! (lut_seg_tab), so that a table is read, inverted and built in one place:
+! Routines shared by the whole-plant tables (lut_tab) and the segment
+! tables (lut_seg_tab), so every table is read, inverted and built the
+! same way:
 !
-!   table_s_at:  S(psi) by linear interpolation;
-!   table_psi:   the psi_out where S(psi_out) = S(psi_in) + e_over_k;
-!   table_build: S at every node, by Simpson's rule.
+!   table_s_at:  S(psi) at any psi, interpolated between grid points;
+!   table_psi:   the psi_out where S(psi_out) = S(psi_in) + E / kmax;
+!   table_build: S at every grid point, by Simpson's rule.
 ! *****************************************************************************
 
-! S(psi) by linear interpolation in table tab (which must be built).
+! Return the supply function S(psi) (Pa) at water potential psi (Pa), read
+! from table tab by straight-line interpolation between its grid points.
+! The table must be built. psi above 0
+! gives S = 0, and psi below the bottom of the table gives S at the
+! bottom.
 !
 ! MDK, 20/10/26
 FUNCTION table_s_at( tab, psi ) RESULT( s_psi )
@@ -406,10 +460,20 @@ s_psi = tab%s(i0) + (r - (i0 - 1)) * (tab%s(i0+1) - tab%s(i0))
 END FUNCTION table_s_at
 
 ! *****************************************************************************
-! Water potential psi_out (Pa) at the far end of a path on table tab, from
-! psi_in (Pa) at the near end and normalised flow e_over_k = E / kmax (Pa):
-! solves S(psi_out) = S(psi_in) + e_over_k. psi_out is never wetter than
-! psi_in.
+! Return the water potential psi_out (Pa) at the leaf-side end of a path
+! that carries a given flow, read from table tab. psi_in (Pa) is the water
+! potential at the root-side end and e_over_k = E / kmax (Pa) the flow per
+! unit maximum conductance:
+!
+!   S(psi_out) = S(psi_in) + e_over_k
+!
+! The grid cell that holds the answer is found by stepping down from
+! psi_in's cell in steps that double (1, 2, 4, ... grid points), then
+! halving the range until one cell is left. psi_out is interpolated along
+! a straight line inside that cell. Most flows move psi_out only a few
+! cells, so this takes few steps. psi_out is never wetter than psi_in. A
+! flow more than the table can carry puts psi_out at the bottom of the
+! table.
 !
 ! MDK, 31/10/26
 ! *****************************************************************************
@@ -476,12 +540,16 @@ END IF
 END FUNCTION table_psi
 
 ! *****************************************************************************
-! Fill table tab on the curve (b, c; SOX if l_sox, else Weibull): the grid
-! from lut_grid (bottom at f_floor, extended down to f_need), then S
-! accumulated downwards from S(0) = 0. Each cell [p1, p0] adds the integral
-! of f over it by Simpson's rule (ends and midpoint weighted 1:4:1, times
-! dpsi/6). f > 0, so S rises strictly with depth, which the binary search in
-! table_psi relies on.
+! Fill table tab for the curve with parameters b (Pa) and c (SOX if l_sox,
+! else Weibull). lut_grid sets the grid, which ends where f = f_floor, or
+! further down where f = f_need if that is smaller. S starts at S(0) = 0,
+! and each grid cell from p0 down to p1 adds the area under f across it by
+! Simpson's rule (f at the two ends and the middle, weighted 1:4:1):
+!
+!   S(p1) = S(p0) + dpsi / 6 (f(p0) + 4 f(pm) + f(p1))
+!
+! with dpsi the grid spacing (Pa) and pm the cell's midpoint. f > 0, so S
+! rises at every step as psi falls, which the search in table_psi needs.
 !
 ! MDK, 23/10/26
 ! *****************************************************************************
@@ -508,7 +576,9 @@ END DO
 
 CONTAINS
 
-  ! f = k/kmax at psi = p on the curve (as supply_lut_f).
+  ! Return the fraction of the maximum conductance left at water potential
+  ! p (Pa), f = k / kmax, on the curve being tabulated (as supply_lut_f),
+  ! for the integration that fills the table.
   REAL(KIND=real_jlslsm) FUNCTION f_of(p)
   ! Water potential (Pa, <= 0).
   REAL(KIND=real_jlslsm), INTENT(IN) :: p
@@ -522,15 +592,15 @@ CONTAINS
 END SUBROUTINE table_build
 
 ! *****************************************************************************
-! Build the supply tables of every PFT (and the segment tables with
-! l_som_plant_segments) at initialisation, once the PFT parameters are read
-! and checked (init_pftparm_jules), instead of on first use inside the
-! timestep. So no table is built inside an OpenMP region, and the ready
-! flags the table functions test outside the critical sections are all set
-! before any thread reads them. Tables from an earlier call are discarded
-! first, so a re-initialisation with other parameters cannot keep stale
-! ones. (The table functions still build a missing table on first use, for
-! callers that do not come through here.)
+! Build the supply tables of every PFT, and the segment tables when the
+! plant is made of root, stem and leaf segments (l_som_plant_segments).
+! It is called once at initialisation, after the PFT parameters are read
+! and checked (init_pftparm_jules). Building the tables here means none is
+! built inside a parallel (OpenMP) region, and every "ready" flag is set
+! before any thread reads it. Tables from an earlier call are discarded
+! first, so a second initialisation with other parameters rebuilds them
+! all. The table routines still build a missing table on first use, for
+! callers that do not come through here.
 !
 ! MDK, 21/10/26
 ! *****************************************************************************
@@ -554,36 +624,42 @@ END DO
 END SUBROUTINE init_supply_luts
 
 ! *****************************************************************************
-! Build (once per PFT) the supply-function table used by psi_solver_lut:
+! Build the supply table of one PFT, once, for the PFT's curve (Weibull or
+! SOX, pft_conductance_model):
 !
-!   lut_tab(pft)%s(i) = integral( f(psi) dpsi, psi_i, 0 )
+!   lut_tab(pft)%s(i) = integral of f(psi) from psi_i up to 0     (Pa)
 !
-! by Simpson's rule on each grid cell, for the PFT's conductance model (see
-! lut_tab at the top of this module). Built by numerical integration rather
-! than the closed forms (incomplete gamma / hypergeometric series), whose
-! series are poorly conditioned deep into the curve.
+! with psi_i the i-th grid point (Pa, negative). Each grid cell's part is
+! found by Simpson's rule (table_build). The closed formulas for this
+! integral (the incomplete gamma function for Weibull, a hypergeometric
+! series for SOX) lose accuracy deep into the curve, so they are not used.
 !
-! In plain terms. The water a plant path can carry depends on how its
-! conductance falls as the water potential drops (the vulnerability curve,
-! f = k / kmax). Adding up f from psi = 0 down to some psi gives S(psi): how
-! much water (per unit kmax) the path can move across that drop. This only
-! depends on the shape of the PFT's curve, not on the weather, the soil or
-! kmax, so it is worked out once, on a fine grid of psi values from 0 down
-! to where the conductance has almost gone, and stored.
+! In plain terms: the water a plant path can carry depends on how its
+! conductance falls as the water potential drops (the vulnerability
+! curve, f = k / kmax). Adding up f from psi = 0 down to some psi gives
+! S(psi), the water the path can move across that drop per unit kmax. S
+! depends only on the shape of the PFT's curve, not on the weather, the
+! soil or kmax, so it is worked out once on a fine grid and stored. Then:
 !
-! Every later call then just reads the table:
 !   - transpiration between two water potentials is
-!       E = kmax (S(psi_leaf) - S(psi_soil))
-!   - so for a given E the leaf water potential is the psi where
-!       S(psi_leaf) = S(psi_soil) + E / kmax
-!     found by searching the table and interpolating between grid points
-!     (supply_lut_psi);
-!   - the conductance at any psi is read from the same grid
-!     (supply_lut_f), and so is E_crit (supply_lut_e_crit).
-! S is smooth and only ever increases with depth, so straight-line
-! interpolation between closely spaced grid points is very accurate, and it
-! is far cheaper than solving the integral again for every Ci sample at
-! every timestep.
+!       E = kmax (S(psi_leaf) - S(psi_soil));
+!   - for a given E the leaf water potential is the psi where
+!       S(psi_leaf) = S(psi_soil) + E / kmax,
+!     found by searching the table (supply_lut_psi);
+!   - the most the path can carry before the conductance at the leaf
+!     falls to a given fraction of kmax comes from the same table
+!     (supply_lut_e_crit).
+!
+! S is smooth and rises steadily as psi falls, so straight-line
+! interpolation between close grid points is accurate, and much cheaper
+! than working out the integral again for every sample at every step.
+!
+! The grid ends where f falls to a floor: lut_f_floor for Weibull, and
+! lut_f_floor_kcrit times the critical fraction kcrit / kmax for SOX,
+! whose curve has a long tail. It goes further down when the failure
+! conductance is lower (lut_grid). The first call allocates the tables of
+! all PFTs. A table is built inside a critical section, so two threads
+! cannot build it at once, and is marked ready only when it is complete.
 !
 ! MDK, 23/10/26
 ! *****************************************************************************
@@ -680,12 +756,15 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE build_supply_lut
 
 ! *****************************************************************************
-! Leaf-side water potential (Pa) of segment iseg for root-side psi_in (Pa) and
-! normalised flow e_over_k = E / kmax_s (Pa),
+! Return the leaf-side water potential psi_out (Pa) of segment iseg
+! (1 root, 2 stem, 3 leaf) carrying a given flow, read from the segment's
+! supply table, for root-side water potential psi_in (Pa) and flow per
+! unit of the segment's maximum conductance, e_over_k = E / kmax_s (Pa):
 !
 !   S_s(psi_out) = S_s(psi_in) + e_over_k
 !
-! (table_psi on the segment's table).
+! where S_s is the segment's supply table. A negative flow is treated as
+! zero.
 !
 ! MDK, 23/10/26
 ! *****************************************************************************
@@ -702,16 +781,18 @@ psi_out = table_psi(lut_seg_tab(pft,iseg), psi_in, MAX(e_over_k, 0.0))
 END FUNCTION seg_lut_psi
 
 ! *****************************************************************************
-! Root-side to leaf-side water potential (Pa) of segment iseg for a flow back
-! towards the soil, e_over_k = E / kmax_s < 0 (Pa): the root and stem
-! carrying E - q_f with the plant capacitance store giving more than E
-! (l_store_q_path). Solves
+! Return the leaf-side water potential psi_out (Pa) of segment iseg when
+! water flows back towards the soil, e_over_k = E / kmax_s < 0 (Pa), read
+! from the segment's supply table. This happens on the
+! root and stem when the plant capacitance store gives more water than
+! the leaves transpire (l_store_q_path): they carry E - q_f < 0, where q_f
+! is the store's flow out. It solves
 !
 !   S_s(psi_out) = S_s(psi_in) + e_over_k
 !
-! upwards from psi_in (psi_out is wetter), and psi_out = 0 when the flow is
-! more than the segment carries from psi_in up to psi = 0, as the Newton
-! solver's cap at 0 (psi_leaf_segments_jls).
+! upwards from psi_in, so psi_out is wetter than psi_in. If the flow is
+! more than the segment can carry from psi_in up to psi = 0, psi_out is 0,
+! as in the Newton solver (psi_leaf_segments_jls).
 !
 ! MDK, 31/10/26
 ! *****************************************************************************
@@ -752,7 +833,9 @@ END IF
 END FUNCTION seg_lut_psi_back
 
 ! *****************************************************************************
-! S_s(psi) of segment iseg (Pa), by linear interpolation in its table.
+! Return the supply function S_s(psi) (Pa) of segment iseg at water
+! potential psi (Pa), by straight-line interpolation in the segment's
+! table.
 !
 ! MDK, 31/10/26
 ! *****************************************************************************
@@ -767,9 +850,14 @@ s_psi = table_s_at(lut_seg_tab(pft,iseg), psi)
 END FUNCTION seg_lut_s
 
 ! *****************************************************************************
-! Build (once per PFT) the segment supply-function tables: as
-! build_supply_lut for each segment's Weibull, from psi = 0 down to where the
-! normalised conductance falls to lut_f_floor (or lower, see lut_grid).
+! Build the three segment supply tables (root, stem, leaf) of one PFT,
+! once, as build_supply_lut does for the whole plant. Each segment has its
+! own Weibull curve (conductance_b_seg, conductance_c_seg). A table runs
+! from psi = 0 down to where f falls to lut_f_floor, or further if the
+! segment's failure conductance lies below that (lut_f_crit, lut_grid).
+! A segment's share of the plant's conductance changes with LAI
+! (kplant_model = 1) and with the sapwood area (l_nsc_k_sapwood), so each
+! table is built deep enough for the largest share these allow.
 !
 ! MDK, 31/10/26
 ! *****************************************************************************
@@ -842,14 +930,16 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE build_supply_lut_seg
 
 ! *****************************************************************************
-! Lowest normalised conductance f = k/kmax the supply tables must reach:
-! half the critical fraction of the path (kcrit/kmax = 1 -
-! kcrit_fractional_loss, or sl_kfail_frac when set and lower), divided by
-! kfac (a segment's kmax over the path's; 1 for the whole-plant table).
-! sl_kfail_frac (stomata_model = 9) can be far below kcrit (Sperry et al.
-! 2016 use 0.0005), so a table that only reached the fixed floor (1e-6
-! Weibull, 0.1 kcrit/kmax SOX) could leave the failure point below its
-! bottom.
+! Return how far down the vulnerability curve a supply table must reach,
+! as the lowest conductance fraction f = k / kmax it must hold, so the
+! table covers every flow the stomatal optimiser may try. It is half the
+! path's failure fraction, divided by kfac, the segment's maximum
+! conductance over the whole path's (1 for the whole-plant table). The
+! failure fraction is kcrit / kmax = 1 - kcrit_fractional_loss, or
+! sl_kfail_frac when that is set and lower. sl_kfail_frac
+! (stomata_model = 9) can be far below kcrit / kmax (Sperry et al. 2016
+! use 0.0005), so a table that stopped at the usual floor (lut_f_floor,
+! lut_f_floor_kcrit) could end before the failure point.
 !
 ! MDK, 20/10/26
 ! *****************************************************************************
@@ -867,19 +957,24 @@ f_need = 0.5 * f_need / kfac
 END FUNCTION lut_f_crit
 
 ! *****************************************************************************
-! Deepest drop below the root-side water potential that a Newton step for
-! the leaf-side psi may take (Pa, positive), on the curve (b, c; SOX or
-! Weibull). The floor stops runaway steps for a demand the curve cannot
-! supply, and such a sample is rejected only if k at the floor is below the
-! failure conductance (f = kcrit/kmax, or sl_kfail_frac when set and lower).
-! A fixed 5 |b| sits above that point for wide curves (Weibull c below
-! about 0.7, SOX c below about 1.8, or a small sl_kfail_frac), so demands
-! past E_crit would be accepted with k above kcrit. The drop is at least
-! 1.2 times the depth where f falls to the failure fraction,
+! Return the furthest the Newton solvers may move the leaf-side water
+! potential below the root-side one (Pa, positive), on the curve with b
+! (Pa) and c
+! (SOX if l_sox, else Weibull). The Newton solvers find psi by repeatedly
+! improving a guess using the slope of the flow; for a demand the curve
+! cannot supply, the guesses would run away to ever more negative psi,
+! and this floor stops them.
 !
-!   Weibull: psi_f = b (-ln f)^(1/c),   SOX: psi_f = b (1/f - 1)^(1/c),
+! A sample stopped at the floor is rejected only if k there is below the
+! failure conductance, so the floor must lie below the point where f
+! falls to the failure fraction (f_kcrit = kcrit / kmax, or sl_kfail_frac
+! when that is set and lower). That point is at
 !
-! and 5 |b| where that is deeper already.
+!   Weibull: psi_f = b (-ln f)^(1/c),   SOX: psi_f = b (1/f - 1)^(1/c)
+!
+! and the drop is 1.2 |psi_f| or 5 |b|, whichever is larger. 5 |b| alone
+! lies above the failure point for wide curves (Weibull c below about
+! 0.7, SOX c below about 1.8, or a small sl_kfail_frac).
 !
 ! MDK, 25/10/26
 ! *****************************************************************************
@@ -906,13 +1001,15 @@ drop = ABS(b) * MAX(5.0_real_jlslsm, 1.2 * x_f**(1.0 / c))
 END FUNCTION newton_psi_drop
 
 ! *****************************************************************************
-! Grid of a supply table on the curve (b, c; SOX or Weibull): spacing dpsi
-! (Pa) and node count n. The table ends where f = f_floor, in n_lut - 1
-! cells. If f_need (lut_f_crit) is lower, the table is extended down to
-! where f = f_need with the same spacing and more nodes, so the accuracy
-! near psi = 0, where most of the flow is, is that of the unextended table.
-! Only past n_lut_max nodes (a 16-fold longer table, e.g. a SOX curve with
-! c ~ 1 and a tiny sl_kfail_frac) is the spacing widened instead.
+! Choose the grid of a supply table on the curve with b (Pa) and c (SOX if
+! l_sox, else Weibull): the spacing dpsi (Pa) and the number of grid
+! points n.
+! The usual table has n_lut points and ends where f = f_floor. If f_need
+! (lut_f_crit) is lower, the table is made longer at the same spacing,
+! down to where f = f_need, so the accuracy near psi = 0, where most of
+! the flow is, does not change. Only beyond n_lut_max points (16 times the
+! usual length, for example a SOX curve with c near 1 and a very small
+! sl_kfail_frac) is the spacing widened instead.
 !
 ! MDK, 20/10/26
 ! *****************************************************************************
