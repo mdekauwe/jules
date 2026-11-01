@@ -4957,10 +4957,18 @@ REAL(KIND=real_jlslsm) :: s_sun, e_t
 
 DO m = 1,veg_pts
   l = veg_index(m)
+
+  ! Sunlit leaves' share of the canopy's intact conductance, used on the
+  ! first pass or where the canopy did not transpire.
   s_sun = kmax_ref_sun_2l(l) /                                                 &
           MAX(kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l), TINY(1.0_real_jlslsm))
+
+  ! After the first pass: the sunlit leaves' share of the canopy's
+  ! transpiration on the last pass instead.
   e_t   = MAX(el_sun(l), 0.0) + MAX(el_shd(l), 0.0)
   IF ( l_pass .AND. e_t > 0.0 ) s_sun = MAX(el_sun(l), 0.0) / e_t
+
+  ! The shaded leaves take the rest, so the two parts add to q_f.
   q_f_sun(l) = s_sun * q_f(l)
   q_f_shd(l) = q_f(l) - q_f_sun(l)
 END DO
@@ -4992,9 +5000,16 @@ INTEGER :: m, l
 
 DO m = 1,veg_pts
   l = veg_index(m)
+
+  ! After the first pass: each leaf gets q_f in proportion to its
+  ! transpiration per leaf area on the last pass over the canopy's.
   IF ( k_p > 1 .AND. e_ml_prev(l) > 0.0 ) THEN
     q_sun_ml(l) = q_f(l) * MAX(el_sun_lyr(l,n_l), 0.0) / e_ml_prev(l)
     q_shd_ml(l) = q_f(l) * MAX(el_shd_lyr(l,n_l), 0.0) / e_ml_prev(l)
+
+  ! First pass, or the canopy did not transpire: by the layer's share of
+  ! the canopy's conductance per leaf area, the same for sunlit and shaded
+  ! leaves, as they have the same kmax per leaf area.
   ELSE
     q_sun_ml(l) = q_f(l) * share_sup(l)
     q_shd_ml(l) = q_f(l) * share_sup(l)
