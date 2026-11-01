@@ -35,6 +35,7 @@ USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
     nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
     phen_nhigh, phen_fbleaf, nsc_regrow_acc
+USE triffid_nsc_mod, ONLY: nsc_cmax_pft, nsc_wpot_pft, nsc_resp_pft
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
@@ -443,6 +444,28 @@ DO i = 1,nvars
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(nsc_t_run(:,n), global_data_2d(:,n))
+    END DO
+
+  ! The store's capacity and release for growth at the last store step (sink
+  ! feedback) and its overflow respiration.
+  !
+  ! MDK, 01/11/26
+  CASE ( 'nsc_cmax' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(nsc_cmax_pft(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'nsc_wpot' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(nsc_wpot_pft(:,n), global_data_2d(:,n))
+    END DO
+
+  CASE ( 'nsc_resp' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(nsc_resp_pft(:,n), global_data_2d(:,n))
     END DO
 
   ! Cuticular-loss store (cuticular_leak_state_mod; > 0 = not yet set).
@@ -1378,6 +1401,7 @@ DO i = 1,nvars
            'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',      &
            'cpl_gbw_shd', 'cpl_ra_ca',                                         &
            'nsc_turg_acc', 'nsc_t_run',                                        &
+           'nsc_cmax', 'nsc_wpot', 'nsc_resp',                                 &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &

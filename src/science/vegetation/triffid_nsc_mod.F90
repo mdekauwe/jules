@@ -226,7 +226,7 @@ MODULE triffid_nsc_mod
 ! wood carbon from the prescribed canopy height. The release leaves the
 ! store, as there is no growth to feed, and there is no stem recovery.
 !
-! MDK, 31/10/26
+! MDK, 01/11/26
 !-----------------------------------------------------------------------------
 
 USE um_types, ONLY: real_jlslsm
@@ -254,11 +254,13 @@ PUBLIC :: nsc_cmax_pft, nsc_wpot_pft
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_pft(:,:)
 ! The store's capacity C_max at the last store step (kg C m-2 of the PFT),
 ! for the sink feedback on photosynthesis (l_nsc_sink_feedback); < 0 = not
-! yet set (no feedback until the first store step, also after a restart).
+! yet set (no feedback until the first store step). In dumps with the sink
+! feedback.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_cmax_pft(:,:)
 ! The release for growth at the last store step with the growth limits
 ! open (kg C m-2 of the PFT per 360 days), for the sink feedback: what the
-! store would give growth if the turgor limit allowed.
+! store would give growth if the turgor limit allowed. In dumps with the
+! sink feedback.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_wpot_pft(:,:)
 ! Running mean of NPP (kg C m-2 per 360 days) and its weight, for W_max
 ! (bias-corrected mean = nsc_npp_mean / nsc_npp_wt). In dumps.
@@ -269,7 +271,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_wt(:,:)
 ! into the store (NPP - W).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_load_pft(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_dc_pft(:,:)
-! Overflow respiration of the last store step (kg C m-2 per 360 days).
+! Overflow respiration of the last store step (kg C m-2 per 360 days). In
+! dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_resp_pft(:,:)
 ! Ring renewal (stem recovery), last TRIFFID step: the new ring, TRIFFID's
 ! gross wood production G (kg C m-2 of the PFT per 360 days; the wood

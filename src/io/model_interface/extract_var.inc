@@ -38,6 +38,7 @@ USE triffid_hydmort_mod, ONLY: hydmort_g_pft, hydmort_m_pft,                   &
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,    &
                            nsc_starv_pft, nsc_turg_acc,                        &
                            nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day,  &
+                           nsc_cmax_pft, nsc_wpot_pft,                         &
                            phen_fbleaf, phen_nlow, phen_nhigh, nsc_regrow_acc, &
                            phen_psi_acc
 USE triffid_nsc_mod, ONLY: nsc_xylem_prod_pft, nsc_xylem_renew_pft
@@ -3937,6 +3938,21 @@ CASE ( 'ximpair_repair_pend' )
 CASE ( 'nsc_store' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(nsc_pft) ) workspace_pft(:,:) = MAX(nsc_pft, 0.0)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! The TRIFFID store's values at its last step.
+!
+! MDK, 01/11/26
+CASE ( 'nsc_cmax' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_cmax_pft) ) workspace_pft(:,:) = nsc_cmax_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_wpot' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_wpot_pft) ) workspace_pft(:,:) = nsc_wpot_pft
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

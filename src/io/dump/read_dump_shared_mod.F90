@@ -236,6 +236,15 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
              "its 'not yet set' value (store filled at the first step).")
+        CASE ( 'nsc_cmax', 'nsc_wpot', 'nsc_resp' )
+          ! Store step values: dumps written without them start with no
+          ! sink feedback and no overflow respiration until the first store
+          ! step (restart not exact).
+          !
+          ! MDK, 01/11/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts " //       &
+             "'not yet set' until the first store step (restart not exact).")
         CASE ( 'nsc_wood_lost', 'nsc_net_wood_growth' )
           ! Ring renewal: dumps written without them start with no wood
           ! lost and no net wood growth in the ring year (a restart is

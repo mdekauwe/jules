@@ -10835,4 +10835,34 @@ DATA metadata(836) / var_metadata(                                             &
 ! Units
     "year"                                                                     &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_cmax
+!
+! MDK, 01/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(837) / var_metadata(                                             &
+! String identifier
+    'nsc_cmax',                                                                &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Capacity of the TRIFFID store at the last store step",                    &
+! Units
+    "kg m-2"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_wpot
+!
+! MDK, 01/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(838) / var_metadata(                                             &
+! String identifier
+    'nsc_wpot',                                                                &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "TRIFFID store release for growth with the turgor limit open",             &
+! Units
+    "kg m-2 per 360days"                                                       &
+  ) /
 #endif

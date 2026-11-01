@@ -1104,6 +1104,18 @@ DO i = 1, nvars_required
   CASE ( 'nsc_t_run' )
     ! Not yet set: the air temperature at the first step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
+  CASE ( 'nsc_cmax' )
+    ! The store's capacity at the last store step: not yet set, so no sink
+    ! feedback until the first store step.
+    !
+    ! MDK, 01/11/26
+    CALL dict_set(defaults_dict, identifiers(i), -1.0)
+  CASE ( 'nsc_wpot', 'nsc_resp' )
+    ! The store's release for growth and overflow respiration at the last
+    ! store step: none before the first.
+    !
+    ! MDK, 01/11/26
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',        &
          'cpl_gbw_shd', 'cpl_ra_ca' )
     ! sf_stom state: not yet set.

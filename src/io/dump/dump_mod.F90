@@ -17,7 +17,11 @@ IMPLICIT NONE
 !-----------------------------------------------------------------------------
 
 INTEGER, PARAMETER :: max_dim_dump = 14
-INTEGER, PARAMETER :: max_var_dump = 85
+! Largest number of variables in a dump, with room for the variables this
+! branch adds.
+!
+! MDK, 01/11/26
+INTEGER, PARAMETER :: max_var_dump = 120
 
 #if defined(NCDF_DUMMY)
 CHARACTER(LEN=format_len), PARAMETER :: dump_format = format_ascii
