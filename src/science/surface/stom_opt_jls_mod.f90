@@ -321,7 +321,7 @@ END FUNCTION g_of_geff
 !   carbon and water fluxes in a temperate oak forest despite hydraulic
 !   impairment. Biogeosciences, in review
 !
-! MDK, 24/10/26
+! MDK, 01/11/26
 ! *********************************************************************
 
 SUBROUTINE stom_opt_mod (                                                      &
@@ -501,9 +501,14 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 !-----------------------------------------------------------------------------
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
  rd(land_pts)
-                            ! Dark respiration (mol CO2/m2/s).
-                            ! Not modified: the ozone damage is not coded
-                            ! here (flux_o3 and fo3 are returned as 0).
+                            ! Dark respiration (mol CO2/m2/s). At open
+                            ! points of the bounded search with
+                            ! l_leaf_temp_ci it is returned at the chosen
+                            ! candidate's leaf temperature, the Rd inside its
+                            ! net photosynthesis al, so al + rd is its gross
+                            ! photosynthesis; otherwise not modified (the
+                            ! ozone damage is not coded here: flux_o3 and fo3
+                            ! are returned as 0).
 
 !-----------------------------------------------------------------------------
 ! OUT real variables.
@@ -666,8 +671,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,psi_stem_bnd(open_pts)                                                        &
                             ! Stem segment leaf-side psi at the optimum (xylem
                             ! impairment with segments; else psi_root_zone).
-,lambda_bnd(open_pts)
+,lambda_bnd(open_pts)                                                          &
                             ! dA/dE at the optimum (see lambda_eff).
+,rd_bnd(open_pts)
+                            ! Dark respiration in al at the optimum (see
+                            ! rd).
 
 ! -- Negligible-hydraulic-cost fast path (profit_max_profit_model only) --
 ! A single-point evaluation at the most water-demanding candidate Ci (near
@@ -1034,7 +1042,7 @@ CALL stom_opt_bounded_search(                                                  &
 ! OUT
     ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                                   &
     el_bnd, carbon_gain_bnd, hydraulic_cost_bnd,                               &
-    psi_stem_g = psi_stem_bnd, lambda_g = lambda_bnd,                          &
+    psi_stem_g = psi_stem_bnd, lambda_g = lambda_bnd, rd_g = rd_bnd,           &
 ! IN (optional)
     lai_cost = lai_cost                                                        &
         )
@@ -1046,7 +1054,8 @@ END SUBROUTINE bounded_search
 ! bounded_search) to the outputs on the land-point grid. l_stem: also copy
 ! the stem water potential, which stom_opt_supply_loss does not set and
 ! SOX_opt does not use. The marginal water price (lambda_eff) is copied
-! for every model except supply-loss stomata.
+! for every model except supply-loss stomata, and so is the dark respiration
+! of the chosen state (rd).
 !-----------------------------------------------------------------------------
 SUBROUTINE scatter_bnd( n, idx, l_stem )
 INTEGER, INTENT(IN) :: n, idx(:)
@@ -1068,6 +1077,7 @@ DO j = 1, n
   ! (Not set by the supply-loss rule.)
   IF ( PRESENT(lambda_eff) .AND. som_profit_model /= supply_loss_model )       &
     lambda_eff(l) = lambda_bnd(j)
+  IF ( som_profit_model /= supply_loss_model ) rd(l) = rd_bnd(j)
 END DO
 
 END SUBROUTINE scatter_bnd
@@ -2386,9 +2396,12 @@ END SUBROUTINE stom_opt_profit_max_select
 !
 ! The best Ci seen at any step, both ends included, is returned, with the
 ! marginal water price dA/dE there (lambda_diag). Each evaluation is for one
-! point (eval_ci), so each point stops as soon as it has converged.
+! point (eval_ci), so each point stops as soon as it has converged. With
+! l_leaf_temp_ci the dark respiration in the chosen A, at the candidate's
+! own leaf temperature, is returned too (rd_g), so the gross
+! photosynthesis A + Rd is that of the same leaf temperature.
 !
-! MDK, 30/10/26
+! MDK, 01/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_bounded_search(                                            &
 ! IN
@@ -2400,7 +2413,7 @@ SUBROUTINE stom_opt_bounded_search(                                            &
         psi_root_extreme, l_xylem_impairment, kl_hc_max,                       &
 ! OUT
         ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g,  &
-        psi_stem_g, lambda_g,                                                  &
+        psi_stem_g, lambda_g, rd_g,                                            &
 ! IN (optional)
         lai_cost                                                               &
 )
@@ -2492,6 +2505,11 @@ REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: lambda_g(open_pts)
                             ! Marginal water price dA/dE at the chosen state
                             ! (mol CO2 per mol H2O; see lambda_eff in
                             ! stom_opt_mod), on the search path; 0 if closed.
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: rd_g(open_pts)
+                            ! Dark respiration inside al_g (mol CO2 m-2 s-1):
+                            ! with l_leaf_temp_ci, rd at the chosen
+                            ! candidate's leaf temperature; rd where the
+                            ! point is closed or al_g is floored at -rd.
 REAL(KIND=real_jlslsm) :: el_s1(1,1), psi_s1(1,1), kl_s1(1,1), st_s1(1,1)
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
@@ -2596,6 +2614,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! Evaluation state (eval_ci); al0_u is A without the nonstomatal limitation;
   ! khc_u the conductance for the hydraulic cost (kl_u unless impaired)
   last_ci, al_u, gl_u, el_u, psi_u, kl_u, al0_u, khc_u,                        &
+  ! Rd inside al_u with l_leaf_temp_ci (state_at_leaf_temp)
+  rd_u,                                                                        &
   ! Edge (last feasible) and the infeasible end of its bracket
   e_ci, e_al, e_gl, e_el, e_psi, e_kl, e_g, b_ci, b_g, g_u, c_ci, t_al,        &
   e_khc,                                                                       &
@@ -3110,6 +3130,12 @@ CONTAINS
 
   ! gl = 0 means closed: al = -rd, as in set_closed.
   IF (gl_g(j) <= 0.0) al_g(j) = -rd(l)
+
+  ! The Rd inside al_g: the candidate's own with l_leaf_temp_ci.
+  IF ( PRESENT(rd_g) ) THEN
+    rd_g(j) = rd(l)
+    IF ( gl_g(j) > 0.0 .AND. best_al >= -rd(l) ) rd_g(j) = rd_at_ci(best_ci)
+  END IF
   psi_g(j) = best_psi
   el_g(j) = best_el
   kl_g(j) = best_kl
@@ -3225,6 +3251,10 @@ CONTAINS
     al_g(j) = MAX(-rd(l), al_u)
     gl_g(j) = MAX(0.0, gl_u)
     IF (gl_g(j) <= 0.0) al_g(j) = -rd(l)
+    IF ( PRESENT(rd_g) ) THEN
+      rd_g(j) = rd(l)
+      IF ( gl_g(j) > 0.0 .AND. al_u >= -rd(l) ) rd_g(j) = rd_at_ci(last_ci)
+    END IF
     psi_g(j) = psi_u
     el_g(j) = el_u
     kl_g(j) = kl_u
@@ -3481,8 +3511,10 @@ CONTAINS
     tl = tl_new
   END DO
 
-  ! The state at the last T at which A and gl were evaluated.
+  ! The state at the last T at which A and gl were evaluated, and the Rd
+  ! inside that A.
   al0_u = al_u
+  rd_u  = rd(l) * f(7)
 
   ! E floored at 0 with or without coupled E, as in hydraulic_state: a leaf
   ! cooled below the air's dew point (dawn, dusk, net longwave loss) would
@@ -3998,6 +4030,29 @@ CONTAINS
   best_khc = khc_u
   END SUBROUTINE store_best
 
+  ! The dark respiration inside A at candidate ci: with l_leaf_temp_ci, Rd at
+  ! the candidate's own leaf temperature (state_at_leaf_temp, the same
+  ! evaluation the search made at ci); rd otherwise. The evaluation state
+  ! (al_u, gl_u, el_u, al0_u) is kept.
+  REAL(KIND=real_jlslsm) FUNCTION rd_at_ci(ci)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: ci
+  REAL(KIND=real_jlslsm) :: s_al, s_gl, s_el, s_al0
+  rd_at_ci = rd(l)
+  l_ltc_pt = .FALSE.
+  IF ( l_ltc ) l_ltc_pt = ltc_b(l) > 0.0
+  IF ( .NOT. l_ltc_pt ) RETURN
+  s_al  = al_u
+  s_gl  = gl_u
+  s_el  = el_u
+  s_al0 = al0_u
+  CALL state_at_leaf_temp(ci)
+  rd_at_ci = rd_u
+  al_u  = s_al
+  gl_u  = s_gl
+  el_u  = s_el
+  al0_u = s_al0
+  END FUNCTION rd_at_ci
+
   !---------------------------------------------------------------------------
   ! Step 5 (hold_leaf_psi): keep the latest evaluation if it is feasible
   ! and has the largest Ci so far, as the fallback when the last guess is
@@ -4043,6 +4098,7 @@ CONTAINS
 
   ci_g(j) = ca(l)
   al_g(j) = -rd(l)
+  IF ( PRESENT(rd_g) ) rd_g(j) = rd(l)
   gl_g(j) = 0.0
   kl_g(j) = kl0(1,1)
   psi_g(j) = psi_root_zone(l)
