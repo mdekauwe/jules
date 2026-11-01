@@ -247,7 +247,7 @@ PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,                     &
           phen_fbleaf, nsc_regrow_acc, phen_psi_update,                        &
           triffid_nsc_alloc, triffid_nsc_store, triffid_nsc_area,              &
           triffid_nsc_daily, triffid_nsc_turgor, triffid_nsc_ring_renewal
-PUBLIC :: nsc_cmax_pft, nsc_wpot_pft
+PUBLIC :: nsc_cmax_pft, nsc_wpot_pft, nsc_tseas_acc
 
 ! Store (kg C m-2 of the PFT); < 0 = not yet set (filled to C_max at the
 ! first TRIFFID step). In dumps.
@@ -257,11 +257,17 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_pft(:,:)
 ! yet set (no feedback until the first store step). In dumps with the sink
 ! feedback.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_cmax_pft(:,:)
-! The release for growth at the last store step with the growth limits
+! The release for growth at the last store step with the turgor limit
 ! open (kg C m-2 of the PFT per 360 days), for the sink feedback: what the
-! store would give growth if the turgor limit allowed. In dumps with the
-! sink feedback.
+! store would give growth if the turgor limit allowed, with the cold and
+! season limits still applied (0 outside the growing season). In dumps
+! with the sink feedback.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_wpot_pft(:,:)
+! The growth factor without its turgor part (the cold and season factors)
+! summed over the store period so far, as a fraction of the period, for
+! nsc_wpot_pft (< -1e29 = not yet accumulating: 1 at the next store step).
+! In dumps with the sink feedback and the growth limits.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_tseas_acc(:,:)
 ! Running mean of NPP (kg C m-2 per 360 days) and its weight, for W_max
 ! (bias-corrected mean = nsc_npp_mean / nsc_npp_wt). In dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_mean(:,:)
@@ -344,7 +350,7 @@ CONTAINS
 ! Several start below 0, which marks them as not yet set; each is filled
 ! at its first use.
 !
-! MDK, 30/10/26
+! MDK, 01/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_alloc( n_land_pts )
 
@@ -448,6 +454,10 @@ IF (.NOT. ALLOCATED(nsc_wpot_pft)) THEN
   ALLOCATE(nsc_wpot_pft(n_land_pts, npft))
   nsc_wpot_pft(:,:) = 0.0
 END IF
+IF (.NOT. ALLOCATED(nsc_tseas_acc)) THEN
+  ALLOCATE(nsc_tseas_acc(n_land_pts, npft))
+  nsc_tseas_acc(:,:) = -1.0e30
+END IF
 IF (.NOT. ALLOCATED(nsc_t_run)) THEN
   ALLOCATE(nsc_t_run(n_land_pts, npft))
   nsc_t_run(:,:) = -1.0
@@ -487,8 +497,9 @@ END SUBROUTINE triffid_nsc_alloc
 !      leaves are not paid for twice.
 !   3. Works out the release for growth on the store above its floor (the
 !      reserve or the growth threshold), scaled by the mean growth factor
-!      when growth limits are on. The release with the limits open is kept
-!      in nsc_wpot_pft for the sink feedback on photosynthesis.
+!      when growth limits are on. The release with only the turgor limit
+!      open (the cold and season limits applied) is kept in nsc_wpot_pft
+!      for the sink feedback on photosynthesis.
 !   4. Takes W - NPP from the store, never below the reserve: a deficit
 !      beyond the accessible store passes to TRIFFID as negative growth.
 !      With a growth threshold, the release for growth is first capped so
@@ -500,7 +511,7 @@ END SUBROUTINE triffid_nsc_alloc
 ! The equations are in the module header. Ring renewal (stem recovery)
 ! runs later, in triffid_nsc_ring_renewal after vegcarb.
 !
-! MDK, 30/10/26
+! MDK, 01/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,         &
                               leafc, rootc, npp, pft_only )
@@ -558,8 +569,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
   w_max, w, draw,                                                              &
   ! Store at the start of the step (kg C m-2).
   c_old,                                                                       &
-  ! Turgor-limited sink: turgor factor (0-1).
-  f_turg,                                                                      &
+  ! Turgor-limited sink: turgor factor (0-1), and the cold and season
+  ! factor (0-1) of the release with the turgor limit open.
+  f_turg, f_ts,                                                                &
   ! The store the release for growth draws on: its floor (the reserve, or
   ! the growth threshold nsc_grow_thresh), the store above it, and that
   ! when full (kg C m-2).
@@ -693,11 +705,17 @@ DO n = n1,n2
       IF (c_grow > 0.0 .AND. c_grow_max > 0.0)                                 &
         w = w_max * f_turg * c_grow / (nsc_kc(n) * c_max + c_grow)             &
             * (nsc_kc(n) * c_max + c_grow_max) / c_grow_max
-      ! The release with the limits open, for the sink feedback.
+      ! The release with the turgor limit open, for the sink feedback: the
+      ! period's mean cold and season factor f_ts in place of the mean
+      ! growth factor, so it is 0 outside the growing season.
+      f_ts = 1.0
+      IF (is_set(nsc_tseas_acc(l,n)))                                          &
+        f_ts = MIN(MAX(nsc_tseas_acc(l,n), 0.0), 1.0)
+      nsc_tseas_acc(l,n) = 0.0
       nsc_wpot_pft(l,n) = 0.0
-      IF (f_turg > 0.0) nsc_wpot_pft(l,n) = w / f_turg
-      IF (f_turg <= 0.0 .AND. c_grow > 0.0 .AND. c_grow_max > 0.0)             &
-        nsc_wpot_pft(l,n) = w_max * c_grow / (nsc_kc(n) * c_max + c_grow)      &
+      IF (c_grow > 0.0 .AND. c_grow_max > 0.0)                                 &
+        nsc_wpot_pft(l,n) = w_max * f_ts * c_grow                              &
+                            / (nsc_kc(n) * c_max + c_grow)                     &
                             * (nsc_kc(n) * c_max + c_grow_max) / c_grow_max
     ELSE
       IF (c_grow > 0.0) w = w_max * c_grow / (nsc_kc(n) * c_max + c_grow)
@@ -871,7 +889,7 @@ END SUBROUTINE triffid_nsc_area
 ! year's production still matches g_leaf_0. Leaf renewal does not run in
 ! spin-up, where the stem damage is held fixed.
 !
-! MDK, 30/10/26
+! MDK, 01/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,     &
                                psi_rz, tair )
@@ -912,11 +930,11 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 INTEGER :: j, l
 REAL(KIND=real_jlslsm) :: period, f, a_t, a_yr, d_renew, f_season, doy,        &
-                          doy_start
+                          doy_start, f_ts
     ! Store period (s); growth factor (0-1); weights of this time step in
     ! the daily and annual running means; leaf renewal this time step;
     ! growing-season factor (0 or 1); day of year now and of the start of
-    ! the release.
+    ! the release; the growth factor without its turgor part.
 ! Growth limits on; growing season set.
 LOGICAL :: l_lim, l_season
 
@@ -966,18 +984,24 @@ DO j = 1,veg_pts
 
   ! Cold: the daily running mean of the air temperature (degC) between
   ! nsc_t_grow_zero and nsc_t_grow_full.
+  f_ts = 1.0
   IF (is_set(nsc_t_grow_zero(ft))) THEN
     IF (nsc_t_run(l,ft) < 0.0) nsc_t_run(l,ft) = tair(l)
     nsc_t_run(l,ft) = nsc_t_run(l,ft) + a_t * (tair(l) - nsc_t_run(l,ft))
-    f = f * MIN(MAX((nsc_t_run(l,ft) - tm - nsc_t_grow_zero(ft))               &
-                    / (nsc_t_grow_full(ft) - nsc_t_grow_zero(ft)), 0.0), 1.0)
+    f_ts = MIN(MAX((nsc_t_run(l,ft) - tm - nsc_t_grow_zero(ft))                &
+                   / (nsc_t_grow_full(ft) - nsc_t_grow_zero(ft)), 0.0), 1.0)
+    f = f * f_ts
   END IF
   f = f * f_season
+  f_ts = f_ts * f_season
 
-  ! The store step uses the mean over its period.
+  ! The store step uses the mean over its period, of f and of the factor
+  ! without turgor (for the sink feedback's release with turgor open).
   IF (l_lim) THEN
     IF (.NOT. is_set(nsc_turg_acc(l,ft))) nsc_turg_acc(l,ft) = 0.0
     nsc_turg_acc(l,ft) = nsc_turg_acc(l,ft) + f * timestep / period
+    IF (.NOT. is_set(nsc_tseas_acc(l,ft))) nsc_tseas_acc(l,ft) = 0.0
+    nsc_tseas_acc(l,ft) = nsc_tseas_acc(l,ft) + f_ts * timestep / period
   END IF
 
   ! Running annual mean of the growth factor (leaf renewal, l_nsc_wmax_norm).

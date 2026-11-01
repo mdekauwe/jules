@@ -172,6 +172,7 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
            'cpl_gbw_shd', 'cpl_ra_ca',                                         &
            'nsc_turg_acc', 'nsc_t_run',                                        &
            'nsc_cmax', 'nsc_wpot', 'nsc_resp',                                 &
+           'nsc_tseas_acc',                                                    &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &

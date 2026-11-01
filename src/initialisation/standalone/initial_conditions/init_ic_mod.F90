@@ -1098,8 +1098,11 @@ DO i = 1, nvars_required
   CASE ( 'nsc_store' )
     ! TRIFFID store: -1 = filled to its capacity at the first TRIFFID step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
-  CASE ( 'nsc_turg_acc' )
-    ! Not yet accumulating: no turgor limit at the first store step.
+  CASE ( 'nsc_turg_acc', 'nsc_tseas_acc' )
+    ! Not yet accumulating: no turgor limit at the first store step (and
+    ! for the sink feedback no cold or season limit).
+    !
+    ! MDK, 01/11/26
     CALL dict_set(defaults_dict, identifiers(i), -1.0e30)
   CASE ( 'nsc_t_run' )
     ! Not yet set: the air temperature at the first step.

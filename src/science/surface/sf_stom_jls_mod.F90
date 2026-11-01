@@ -6658,19 +6658,21 @@ SUBROUTINE nsc_sink_factor( ft, land_pts, veg_pts, veg_index, psi_rz, beta )
 !   X    = B / R
 !   beta = beta_min + (1 - beta_min) exp(-X^2)
 !
-! where W_pot is the store's release to growth (kg C m-2 per 360 days) and
-! R = C_max - store is the room left in the store (kg C m-2). X is the
-! share of that room the held-back carbon would fill in t days, so the
-! feedback is 63 % of its full size at X = 1. In wet soil (f_turg = 1)
-! there is no feedback however full the store is (cold and season are not
-! counted). In a long drought the room shrinks and the feedback grows.
-! Capacity falls by at most 1 - beta_min.
+! where W_pot is the store's release to growth at its last step with the
+! turgor limit open (kg C m-2 per 360 days): the cold and season limits
+! still apply, so outside the growing season, or in the cold, W_pot is 0
+! and so is the feedback. R = C_max - store is the room left in the store
+! (kg C m-2). X is the share of that room the held-back carbon would fill
+! in t days, so the feedback is 63 % of its full size at X = 1. In wet soil
+! (f_turg = 1) there is no feedback however full the store is. In a long
+! drought the room shrinks and the feedback grows. Capacity falls by at
+! most 1 - beta_min.
 !
 ! beta is 1 where the store's maximum or content is not yet set, and the
 ! routine leaves beta unchanged without the turgor limit
 ! (nsc_psi_turg_zero not set) or before the store first exists.
 !
-! MDK, 31/10/26
+! MDK, 01/11/26
 
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_cmax_pft, nsc_wpot_pft
 USE pftparm, ONLY: is_set, nsc_psi_turg_zero, nsc_psi_turg_full,              &

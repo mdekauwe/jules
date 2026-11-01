@@ -414,6 +414,11 @@ IF ( l_triffid_nsc ) THEN
   ! nsc_limits_on, the same test as the store).
   IF ( ANY( [ (nsc_limits_on(i), i = 1, npft) ] ) )                            &
     CALL add_to_list( 'nsc_turg_acc', nvars, identifiers )
+  ! With the sink feedback, the same sum for the cold and season factor.
+  !
+  ! MDK, 01/11/26
+  IF ( ANY( [ (nsc_limits_on(i), i = 1, npft) ] ) .AND. l_nsc_sink_feedback )  &
+    CALL add_to_list( 'nsc_tseas_acc', nvars, identifiers )
   ! The daily running mean air temperature of the cold limit.
   IF ( ANY(is_set(nsc_t_grow_zero(:))) )                                       &
     CALL add_to_list( 'nsc_t_run', nvars, identifiers )
