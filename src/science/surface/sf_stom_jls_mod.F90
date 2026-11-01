@@ -4882,9 +4882,6 @@ CONTAINS
 ! ground. The "cut_" prefix is from the module that holds the store,
 ! cuticular_leak_state_mod.
 !
-! Sets cut_q_store and cut_w_store (cuticular_leak_state_mod) for PFT ft
-! (sf_stom).
-!
 ! MDK, 23/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_commit( l_c, c_s, psi_x0, psi_x1 )
@@ -4914,7 +4911,7 @@ END SUBROUTINE store_commit
 ! store's flow out (mol H2O m-2 s-1; < 0 when it refills, which lowers the
 ! cap) and M_w the molar mass of water.
 !
-! Reads e_supply and q_f and sets e_sup_use, all in sf_stom.
+! Sets e_sup_use.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -4941,8 +4938,6 @@ END SUBROUTINE store_cpl_supply
 ! (el_sun, el_shd). On the first pass (l_pass false), or where the canopy
 ! did not transpire, each gets its share of the canopy's hydraulic
 ! conductance (kmax_ref_sun_2l, kmax_ref_shd_2l) instead.
-!
-! All these variables are in sf_stom.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -4985,8 +4980,6 @@ END SUBROUTINE store_cpl_split
 ! the canopy did not transpire, both get q_f times the layer's share of the
 ! canopy's hydraulic conductance (share_sup) instead.
 !
-! All these variables are in sf_stom.
-!
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_ml_q( n_l, k_p )
@@ -5019,18 +5012,21 @@ END DO
 END SUBROUTINE store_cpl_ml_q
 
 !-----------------------------------------------------------------------------
-! The capacitance store with the leak (l_som_cuticular_loss): at leak points
-! (lk_cut) where the committed leaf psi fell below psi_fl_leaf, the psi of
-! the critical loss of conductance, the leak is cut to the E that leaves the
-! leaf there at the end of the step: E is found by bisection on [0, el]
-! around the store's balance (store_cpl_q, Newton segments), gc and el are
-! scaled to it, and the balance is then committed exactly. Only the cut
-! points are solved (l_sel); the others keep the balance already committed.
-! 20 bisection steps leave E within 1e-6 of el.
+! Plant capacitance with the cuticular leak (l_som_cuticular_loss): stop
+! the leak drying the leaf past its critical point.
 !
-! Reads lk_cut, l_fl_hit, el, e_be and the tile flux inputs (pstar, tstar,
-! qs, q1, ra, g_soil_c) and, at the cut points, sets e_be, el, gc and
-! gc_som, all in sf_stom; store_cpl_q then sets the store's balance there.
+! Where the stomata are shut, water still leaks out through the cuticle
+! (lk_cut). If that leak would take the leaf's water potential below
+! psi_fl_leaf, where the leaf has lost its critical share of conductance,
+! the leak is reduced to the largest transpiration that keeps the leaf at
+! psi_fl_leaf at the end of the step.
+!
+! That transpiration is found by bisection between 0 and the leak's own
+! value, solving the store's balance (store_cpl_q) at each guess. 20 steps
+! find it to 1e-6 of the leak's value. The canopy conductance gc is then
+! set to give that transpiration through the tile's flux equation, and the
+! store's balance is committed. Only these points are solved again; the
+! others keep the balance already committed.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -5046,6 +5042,10 @@ REAL(KIND=real_jlslsm) :: a_cut, em_cut
                             ! rho (qs(tstar) - q1) (kg m-3) and the cut E
                             ! (kg m-2 s-1), for the exact gc.
 
+! The points to cut: the leak sets the conductance (lk_cut), the committed
+! leaf psi fell below psi_fl_leaf (l_fl_hit), the canopy transpires, and the
+! store is set up there. The bisection bracket on E runs from 0 to the
+! committed E (the leak's own value).
 l_cut(:) = .FALSE.
 DO m = 1,veg_pts
   l = veg_index(m)
@@ -5056,6 +5056,10 @@ DO m = 1,veg_pts
 END DO
 IF ( .NOT. ANY(l_cut) ) RETURN
 
+! Bisection on E. At each guess, solve the store's balance (Newton steps,
+! cut points only) for the leaf psi at the end of the step. A leaf below
+! psi_fl_leaf means E is too large, so the guess becomes the upper end;
+! otherwise it becomes the lower end. e_lo is always an E the leaf survives.
 DO it = 1,n_it_fl
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -5073,22 +5077,26 @@ DO it = 1,n_it_fl
   END DO
 END DO
 
-! The gc that gives the cut E through the tile flux (the leak's E above,
-! not linear in gc),
+! Take E = e_lo, and find the canopy conductance gc that gives it. The
+! tile's flux is not linear in gc,
 !
 !   E M = A gc / (1 + ra (gc + g_s)),   A = rho (qs(tstar) - q1),
 !
-! so
+! with M the molar mass of water, ra the aerodynamic resistance and g_s the
+! soil's conductance, so
 !
-!   gc = E M (1 + ra g_s) / (A - ra E M);
+!   gc = E M (1 + ra g_s) / (A - ra E M).
 !
-! A > ra E M, as E is below the leak's E at the same A.
+! The denominator is positive, because the cut E is below the leak's E
+! under the same air.
 DO m = 1,veg_pts
   l = veg_index(m)
   IF ( .NOT. l_cut(l) ) CYCLE
   e_be(l) = e_lo(l)
   a_cut   = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)
   em_cut  = e_lo(l) * m_h2o_lt
+
+  ! If the denominator is near 0 (rounding), scale gc by the cut instead.
   IF ( a_cut - ra(l) * em_cut > TINY(1.0_real_jlslsm) ) THEN
     gc(l) = em_cut * ( 1.0 + ra(l) * g_soil_c(l) ) / ( a_cut - ra(l) * em_cut )
   ELSE
@@ -5101,51 +5109,47 @@ DO m = 1,veg_pts
   gc_som(l)  = gc(l)
   el(l)      = e_lo(l)
 END DO
+
+! Commit the store's balance at the cut E, with the exact segment solves.
 CALL store_cpl_q( .TRUE., e_be, l_sel = l_cut )
 
 END SUBROUTINE store_cpl_leak_cut
 
 !-----------------------------------------------------------------------------
-! The capacitance store: the store's balance over the step at the canopy
-! transpiration e_c, at the points where the store is set. Backward Euler
-! at the stem node:
+! Plant capacitance: how much of the canopy's transpiration the stem store
+! gives this step, and how much comes from the soil.
 !
-!   q   = C' (psi_x0 - psi_st),   C' = C / dt,
-!   E_r = E - q >= 0              (soil, root and stem; no flow back),
+! The canopy transpires E. Part of it, q, comes from the stem store and the
+! rest, E - q, is pulled from the soil up through the roots and stem. The
+! two must agree:
 !
-! with psi_st the stem-node psi where the soil link, root and stem carry
-! E_r: the segment chain from psi_src on the canopy's path (the two classes'
-! kmax, intact kmax and kcrit summed; ksr in full). The residual
+!   - the store gives water as it dries, q = C (psi_x0 - psi_st) / dt,
+!     where psi_x0 is its water potential at the start of the step and
+!     psi_st at the end;
+!   - psi_st is also the stem's water potential when the roots and stem
+!     carry E - q from the soil. The more the store gives, the less the
+!     soil must supply, so the wetter the stem.
 !
-!   R(q) = q - C' (psi_x0 - psi_st(E - q))
+! The q where both hold is found by a bracketed search between two limits.
+! The lower one is the store's flow if the stem were as wet as the soil
+! (negative when the store refills). The upper one is all of E, as the soil
+! never takes water back from the plant (E - q >= 0).
 !
-! rises with q (a larger q leaves less E_r, so a wetter psi_st), and as
-! psi_st <= psi_src the root lies between
+! If the store is so much wetter than the soil that it could give all of E,
+! it does (the soil gives nothing), and the leaf's water potential is
+! worked out from the store's.
 !
-!   q_lo = C' (psi_x0 - psi_src)  (R <= 0)   and   q_hi = E  (R > 0).
+! On the final call of the step (l_ex), the search uses the exact plant
+! hydraulics, the stem and leaf are kept no drier than their critical
+! points, the store gives no more than E, and the plant's conductance
+! (kplant) is recorded as if there were no store. Before that, only points
+! that transpire are solved, and with l_sel only the chosen points.
 !
-! It is found by regula falsi (Illinois), with a bisection step whenever
-! the bracket has shrunk by less than half. The iterations use the
-! segments' Newton psi; with l_ex only the final evaluation is exact (the
-! bisection). q_be comes from that final stem psi, so the store's water
-! balances exactly.
-!
-! Where q_lo >= E, the store is wetter than the soil by more than the
-! step's E: it pays all of E (E_r = 0), psi_st = psi_x0 - E / C', and the
-! leaf is solved from psi_st with the leaf segment carrying E.
-!
-! With l_ex (the commit), psi is floored at the critical-loss psi of the
-! stem and leaf, q_be is capped at E, and k_be (kplant) is taken on the
-! path without the store's shift. Without l_ex, only points that transpire
-! are solved; with l_sel, only the selected points.
-!
-! Sets q_be (= C' (psi_x0 - psi_st), as store_commit takes it), psi_st_be,
-! psi_l_be (the leaf psi where the leaf segment carries E from psi_st),
-! k_be and l_fl_hit. Elsewhere q_be = 0, psi_st_be = psi_src and psi_l_be
-! = psi_leaf (or, with l_sel, as they were).
-!
-! Reads kref_cpl, kmx_cpl, kcr_cpl, psi_src and psi_leaf and sets the
-! outputs above and share_sup (to 1), all in sf_stom.
+! Sets q_be (the store's flow, as store_commit takes it), psi_st_be (the
+! stem), psi_l_be (the leaf), k_be (kplant) and l_fl_hit (the leaf passed
+! its critical point). Points without a store keep the soil-only values.
+! It also sets share_sup to 1; each canopy scheme sets it again before
+! using it.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -5195,6 +5199,10 @@ REAL(KIND=real_jlslsm) :: psi_from(land_pts)
                             ! Where the chain starts (Pa): psi_src, or the
                             ! store's psi where it pays all of E.
 
+! Start every output at its no-store value: no flow from the store, the
+! stem at the soil's water potential and the leaf as the canopy scheme left
+! it. With l_sel only the chosen points are reset; the others keep what an
+! earlier call gave them.
 IF ( PRESENT(l_sel) ) THEN
   WHERE ( l_sel(:) )
     q_be(:)      = 0.0
@@ -5211,12 +5219,16 @@ ELSE
   l_fl_hit(:)  = .FALSE.
 END IF
 
-! (q_try is passed whole to set_store_q_path, so the points not solved
-! hold 0, not junk.)
+! The trial store flow at every point. q_try is passed whole to
+! set_store_q_path, so the points not solved must hold 0, not junk.
 q_try(:)     = 0.0
 
-! The canopy's path (kref_cpl, kmx_cpl, kcr_cpl, set by the canopy scheme)
-! and the soil link in full.
+! The plant's hydraulics for the whole canopy, as the canopy scheme set
+! them: intact conductance (kref_cpl), conductance with today's damage
+! (kmx_cpl), the critical conductance (kcr_cpl) and the damaged share of
+! the intact one (kcap_c). The soil-to-root link is the whole canopy's
+! (share_sup = 1). l_imp_be: xylem damage is on, so the damaged path is
+! used.
 l_imp_be = .NOT. is_spinup .AND.                                               &
            pft_xylem_impairment_model(ft) /= xylem_impairment_none
 DO m = 1,veg_pts
@@ -5229,8 +5241,9 @@ DO m = 1,veg_pts
 END DO
 CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
-! The points with the store set, their bracket, and those where the store
-! pays all of E.
+! Choose the points to solve and set up the search at each. The search
+! for the store's flow q runs between q_lo, the flow if the stem were as
+! wet as the soil, and q_hi = E, the most the store may give.
 n_be = 0
 DO m = 1,veg_pts
   l = veg_index(m)
@@ -5245,17 +5258,29 @@ DO m = 1,veg_pts
   IF ( PRESENT(l_sel) ) THEN
     IF ( .NOT. l_sel(l) ) CYCLE
   END IF
+
+  ! The store's capacitance per second, and its water potential at the
+  ! start of the step from its water, psi = W / C.
   c_p(l)    = cut_c_store(l,ft) / timestep
   psi_x0(l) = cut_w_store(l,ft) / cut_c_store(l,ft)
+
+  ! The two ends of the search.
   q_lo(l)   = c_p(l) * (psi_x0(l) - psi_src(l))
   q_hi(l)   = e_c(l)
   n_be = n_be + 1
   idx_be(n_be) = m
+
+  ! The store is so wet that even with the stem as wet as the soil it would
+  ! give more than E: it gives all of E, the soil gives nothing, and the
+  ! store dries by E over the step. No search is needed.
   IF ( q_lo(l) >= q_hi(l) ) THEN
     l_only(l)    = .TRUE.
     q_be(l)      = e_c(l)
     psi_st_be(l) = psi_x0(l) - e_c(l) / c_p(l)
   END IF
+
+  ! Search bookkeeping: no forced halving yet, which end moved last (none),
+  ! and the stopping width, a millionth of the starting one.
   l_bis(l)   = .FALSE.
   l_done(l)  = l_only(l)
   side_be(l) = 0
@@ -5264,7 +5289,9 @@ DO m = 1,veg_pts
 END DO
 IF ( n_be == 0 ) RETURN
 
-! R at both ends of the bracket.
+! The mismatch at both ends of the search: the trial q less the flow the
+! store would give at the stem's resulting water potential. It is below 0
+! at q_lo and above 0 at q_hi, so the answer lies between.
 DO j = 1,n_be
   q_try(veg_index(idx_be(j))) = q_lo(veg_index(idx_be(j)))
 END DO
@@ -5282,8 +5309,12 @@ DO j = 1,n_be
   f_hi(l) = f_try(l)
 END DO
 
-! Regula falsi (Illinois) on q, with bisection where the bracket shrinks
-! slowly.
+! Narrow the range until it holds the answer to within the stopping width.
+! Each new guess is where a straight line drawn between the mismatches at
+! the two ends crosses 0. If the last guess shrank the range by less than
+! half, the midpoint is used instead, which always halves it. (This is the
+! "regula falsi" method, in its "Illinois" form.) Points already done sit
+! at their midpoint, so later calls see a settled value.
 DO it = 1,n_it_be
   l_all_done = .TRUE.
   DO j = 1,n_be
@@ -5303,6 +5334,11 @@ DO it = 1,n_it_be
   IF ( l_all_done ) EXIT
   CALL store_cpl_eval( n_be, idx_be, l_imp_be, .FALSE., e_c, q_try, c_p,      &
                        psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1, f_try )
+
+  ! The guess replaces the end whose mismatch has the same sign, so the
+  ! answer stays inside the range. If the same end has moved twice running,
+  ! the other end is stuck: its mismatch is halved, which pulls the next
+  ! guess toward it. Stop once the range is below the stopping width.
   DO j = 1,n_be
     l = veg_index(idx_be(j))
     IF ( l_done(l) ) CYCLE
@@ -5323,8 +5359,10 @@ DO it = 1,n_it_be
   END DO
 END DO
 
-! The state at the solution (the middle of the bracket; q = E where the
-! store pays all of E).
+! The answer: the middle of the final range (q = E where the store gives
+! all of E). Solve the plant once more there, exactly on the final call
+! (l_ex), and take the stem and leaf water potentials from it. q_be is
+! worked out again from the stem, so the store's water balances exactly.
 DO j = 1,n_be
   l = veg_index(idx_be(j))
   q_try(l) = 0.5 * (q_lo(l) + q_hi(l))
@@ -5341,11 +5379,11 @@ DO j = 1,n_be
   END IF
 END DO
 
-! Where the store pays all of E (l_only) the stem node is the store's,
-! psi_x0 - E / C', and the leaf is solved from it: the chain started at the
-! stem node with no flow in the root and stem (q = E), so the leaf segment
-! carries E from the store's psi, at its own conductance there (not from
-! psi_src, which in a drought gives a far wetter, more conductive leaf).
+! Where the store gives all of E, the stem is at the store's water
+! potential at the end of the step, and the leaf is solved from there:
+! the leaf carries E from the stem, and the roots and stem carry nothing.
+! Starting from the soil's water potential instead would, in a drought,
+! give a far wetter leaf that conducts too well.
 IF ( ANY(l_only(veg_index(idx_be(1:n_be)))) ) THEN
   psi_from(:) = psi_src(:)
   DO j = 1,n_be
@@ -5361,10 +5399,12 @@ IF ( ANY(l_only(veg_index(idx_be(1:n_be)))) ) THEN
   END DO
 END IF
 
-! The commit: no psi below the critical-loss psi of the stem and leaf
-! (where E cannot be carried the chain returns its floor), and the store's
-! flow no more than E (its state then the store-pays-all one), so the store
-! never gives more than the transpiration and its water balances.
+! Final call only: keep the stem and leaf no drier than their critical
+! points (where the plant cannot carry E, the solve returns its floor),
+! and the store's flow no more than E (if it would be, the store gives all
+! of E), so the store never gives more than the canopy transpires and its
+! water balances. Record whether the leaf passed its critical point, for
+! the leak cut.
 IF ( l_ex ) THEN
   DO j = 1,n_be
     l = veg_index(idx_be(j))
@@ -5383,9 +5423,9 @@ IF ( l_ex ) THEN
   END DO
 END IF
 
-! The commit (l_ex): the plant conductance for the output kplant, on the
-! path without the store's shift (q = 0), as with capacitance off, at the
-! committed E.
+! Final call only: the plant's conductance for the output kplant, worked
+! out at the final E with no store flow (q = 0), as it would be with the
+! store off, so kplant means the same with and without capacitance.
 IF ( l_ex ) THEN
   q_try(:) = 0.0
   CALL store_cpl_eval( n_be, idx_be, l_imp_be, .FALSE., e_c, q_try, c_p,       &
@@ -5399,15 +5439,19 @@ END IF
 END SUBROUTINE store_cpl_q
 
 !-----------------------------------------------------------------------------
-! The capacitance store, store_cpl_q: R at the n_be points solved,
+! Plant capacitance: one trial of the search in store_cpl_q. For a guessed
+! store flow q_try, solve the plant's water potentials and say how far the
+! guess is from what the store would really give.
 !
-!   R(q) = q - C' (psi_x0 - psi_st),
+! With the store giving q_try, the roots and stem carry E - q_try from the
+! soil, which sets the stem's water potential psi_st (st1) and the leaf's
+! (psi1). At that stem water potential the store would give
+! C (psi_x0 - psi_st) / dt, so the mismatch is
 !
-! with the store's flow held at q_try on the canopy's path (psi1, st1: the
-! chain's leaf and stem psi, Pa).
+!   f_try = q_try - C (psi_x0 - psi_st) / dt      (mol H2O m-2 s-1)
 !
-! Reads psi_src and share_sup from sf_stom; the rest comes through its
-! arguments.
+! It is 0 at the answer, below 0 when the guess is too small and above 0
+! when it is too large. Only the n_be points being solved are worked out.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -5568,21 +5612,32 @@ IF ( l_store_cpl ) CALL clear_store_q_path()
 END SUBROUTINE ml_class
 
 !-----------------------------------------------------------------------------
-! Two-leaf canopy (can_rad_mod = 7), one leaf class (sunlit or shaded) for
-! one pass: the open points, this class's share of the supply cap and of the
-! soil-to-root conductance, the coupled-transpiration inputs (with the other
-! class's gl, gl_o), the optimisation (at the class's leaf temperature with
-! l_leaf_temp, else at tstar), and min_gl_pft shared by leaf area at the
-! points that end up closed. The arguments are the class's arrays (_o: the
-! other class's).
+! Two-leaf canopy (can_rad_mod = 7): run the stomatal optimisation for one
+! set of leaves, sunlit or shaded, on one pass. Arguments ending _c are this
+! set's; those ending _o are the other set's.
 !
-! With the shared root and stem (l_som_shared_stem) the class's root and
-! stem are the whole plant's and carry the other class's flow e_o_c as
-! well (set_shared_stem), with the whole store's q_f, the whole soil-to-root
-! conductance, and the soil supply left after e_o_c; its leaf keeps its own
-! share of the plant conductance. kcrit stays the same fraction of the
-! path's intact conductance (kcrit_of_path), now that of the path with the
-! whole root and stem.
+! Steps:
+!
+!   1. Split the points into open (the leaves get light) and closed.
+!   2. Give these leaves their share of the soil's water supply and of the
+!      soil-to-root conductance, in proportion to their share of the
+!      canopy's intact hydraulic conductance (share_sup). With the stem
+!      store, add the store's flow to these leaves (q_f_c).
+!   3. Set up the leaves' transpiration, which also depends on how open the
+!      other leaves are (gl_o), as both lose water to the same canopy air.
+!   4. Run the optimisation, at these leaves' own temperature with
+!      l_leaf_temp, or at the canopy temperature tstar otherwise.
+!   5. At points that end up closed, share the closed canopy's conductance
+!      (min_gl_pft) between the two sets by leaf area.
+!
+! With a shared root and stem (l_som_shared_stem), the two sets of leaves
+! sit on one plant: these leaves' root and stem are the whole plant's, and
+! they also carry the other leaves' transpiration (e_o_c). So the whole
+! store's flow, the whole soil-to-root conductance and the soil's supply
+! less the other leaves' use are seen here, while these leaves keep their
+! own share of the leaf conductance. The critical conductance (kcrit) stays
+! the same fraction of the plant's intact conductance, now of the whole
+! plant's root and stem.
 !
 ! MDK, 30/10/26
 !-----------------------------------------------------------------------------
