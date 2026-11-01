@@ -381,8 +381,11 @@ END SUBROUTINE clear_shared_stem
 !
 ! With the sapwood-area factor k_area (0-1, l_nsc_k_sapwood) the stem's
 ! conductance is also multiplied by k_area, or, for a plant without
-! segments, the whole plant's (kplant_scale = k_area). Otherwise the
-! whole-plant conductance relative to kmax is the series sum
+! segments, the whole plant's (kplant_scale = k_area). With r_stem
+! (l_nsc_k_sapwood_gain), where it is > 0 the stem's factor is r_stem in
+! place of r k_area: the stem's conductance per unit leaf area relative
+! to kmax, from its sapwood area. Otherwise the whole-plant conductance
+! relative to kmax is the series sum
 !
 !   g = 1 / sum over s of 1 / (seg_kfac_s r_s)
 !
@@ -390,10 +393,10 @@ END SUBROUTINE clear_shared_stem
 ! (seg_kscale). With kplant_model = 0 and no k_area both stay 1 and are
 ! not used (l_kscale = .FALSE.).
 !
-! MDK, 31/10/26
+! MDK, 01/11/26
 ! *****************************************************************************
 SUBROUTINE set_k_ground_basis( pft, land_pts, veg_pts, veg_index, lai,         &
-                               lai_ref, k_area )
+                               lai_ref, k_area, r_stem )
 
 USE pftparm, ONLY: seg_kfac
 USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground
@@ -406,6 +409,9 @@ INTEGER, INTENT(IN) :: pft, land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: lai(land_pts), lai_ref(land_pts)
 ! Sapwood-area factor on kmax (0-1; l_nsc_k_sapwood).
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: k_area(land_pts)
+! The stem's factor from its sapwood area (l_nsc_k_sapwood_gain; <= 0 =
+! not set).
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: r_stem(land_pts)
 
 INTEGER :: l, m, iseg
 REAL(KIND=real_jlslsm) :: r(3), rinv
@@ -458,6 +464,9 @@ DO m = 1,veg_pts
       CYCLE
     END IF
     r(2) = r(2) * k_area(l)
+  END IF
+  IF ( PRESENT(r_stem) ) THEN
+    IF ( r_stem(l) > 0.0 ) r(2) = r_stem(l)
   END IF
 
   ! Whole-plant (series) conductance relative to kmax: 1 / sum_s 1/k_s.

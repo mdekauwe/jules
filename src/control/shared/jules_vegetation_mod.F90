@@ -1113,13 +1113,12 @@ LOGICAL ::                                                                     &
       ! (the balanced LAI until a ring year has ended) and the height
       ! (nsc_la_sa, nsc_wood_density), at most TRIFFID's wood C_W, and
       ! heartwood forms at nsc_heartwood_rate times g = (X_s / X_t)^gamma
-      ! above the target or (X_f / X_t)^gamma below it (X_f the functional
-      ! sapwood; gamma = nsc_pipe_gamma; g at most 10). The pool starts at
-      ! the target and is at most C_W; the heartwood is the rest of the
-      ! wood (nsc_heartwood, an output). With or without the ring cohorts.
-      ! See triffid_nsc_mod.
+      ! (gamma = nsc_pipe_gamma; g at most 10; drought damage does not
+      ! change g). The pool starts at the target and is at most C_W; the
+      ! heartwood is the rest of the wood (nsc_heartwood, an output). With
+      ! or without the ring cohorts. See triffid_nsc_mod.
       !
-      ! MDK, 31/10/26
+      ! MDK, 01/11/26
   l_nsc_k_sapwood = .FALSE.,                                                   &
       ! Pipe-model target (l_nsc_pipe_target) with the plant's conductance
       ! from its conducting sapwood area: kmax is scaled by
@@ -1131,6 +1130,31 @@ LOGICAL ::                                                                     &
       ! nsc_k_area_frac.
       !
       ! MDK, 31/10/26
+  l_nsc_k_sapwood_gain = .FALSE.,                                              &
+      ! With l_nsc_k_sapwood and kplant_model = 1: the stem conducts
+      ! through its sapwood area, whatever the leaf area. The stem's
+      ! conductance per unit ground area is kmax L_A, with L_A the leaf
+      ! area the sapwood can supply under the pipe model,
+      !   L_A = X_s (SUM_i f_i c_i / c_ref) nsc_la_sa
+      !         / (h nsc_stem_form nsc_wood_density cmass),
+      ! so per unit leaf area it is kmax L_A / LAI, which can exceed kmax
+      ! when leaves are shed (at most k_ground_ratio_max times, the bound
+      ! of the ground basis as LAI -> 0). The root keeps its ground basis
+      ! at the reference LAI. Output nsc_k_area_frac is then L_A / LAI.
+      ! .FALSE.: the stem has kmax f_A per unit leaf area (f_A <= 1).
+      !
+      ! MDK, 01/11/26
+  l_nsc_sapwood_canopy = .FALSE.,                                              &
+      ! Pipe-model target (l_nsc_pipe_target) with the canopy limited by
+      ! its functional sapwood: the phenological LAI is at most the leaf
+      ! area the sapwood less its drought damage can supply (L_A with
+      ! SUM_i f_i c_i (1 - L_i) in place of SUM_i f_i c_i; without the
+      ! rings X_s (1 - L)). Leaves above the cap are shed as leaf litter
+      ! at the rate of phenological leaf drop, and the canopy regrows by
+      ! the usual phenology when the sapwood recovers. Output
+      ! nsc_lai_sap_cap. Needs l_phenol.
+      !
+      ! MDK, 01/11/26
   l_som_fast = .FALSE.
       ! RETIRED input: .TRUE. stops the run; use som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table). Still read so namelists that
@@ -1313,6 +1337,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_nsc_wmax_norm, l_trif_hydmort,                                           &
     l_nsc_sapwood_pool, l_nsc_ring_additive, l_nsc_sapwood_rings,              &
     l_nsc_pipe_target, l_nsc_k_sapwood,                                        &
+    l_nsc_k_sapwood_gain, l_nsc_sapwood_canopy,                                &
     nsc_n_ring,                                                                &
     l_nsc_sink_feedback,                                                       &
     ximpair_stomatal_response,                                                 &
@@ -2546,6 +2571,26 @@ IF ( l_nsc_k_sapwood .AND.                                                     &
                'l_nsc_k_sapwood needs the stomatal optimisation, not '     //  &
                'can_rad_mod=5 or 6')
 END IF
+! The stem's conductance from the sapwood area needs the area factor and
+! the root and stem on a ground basis; the canopy cap needs the pipe-model
+! target and phenology.
+!
+! MDK, 01/11/26
+IF ( l_nsc_k_sapwood_gain .AND.                                                &
+     ( .NOT. l_nsc_k_sapwood .OR. kplant_model /= kplant_model_ground ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_k_sapwood_gain needs l_nsc_k_sapwood=T and '         //  &
+               'kplant_model=1 (root and stem per unit ground area, '      //  &
+               'with l_som_plant_segments=T)')
+END IF
+IF ( l_nsc_sapwood_canopy .AND.                                                &
+     ( .NOT. l_nsc_pipe_target .OR. .NOT. l_phenol ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_sapwood_canopy needs the pipe-model target '         //  &
+               '(l_nsc_pipe_target=T) and l_phenol=T')
+END IF
 IF ( nsc_n_ring < 1 .OR. nsc_n_ring > 200 ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2785,6 +2830,10 @@ WRITE(lineBuffer,*) ' l_nsc_pipe_target = ', l_nsc_pipe_target
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_k_sapwood = ', l_nsc_k_sapwood
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_k_sapwood_gain = ', l_nsc_k_sapwood_gain
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_sapwood_canopy = ', l_nsc_sapwood_canopy
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' ximpair_stomatal_response = ', ximpair_stomatal_response
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2932,11 +2981,11 @@ INTEGER, PARAMETER :: n_int = 25
 INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! The REAL items: 20 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 63 + npft_max
-                                  ! The LOGICAL items: 63 scalars and
+INTEGER, PARAMETER :: n_log = 65 + npft_max
+                                  ! The LOGICAL items: 65 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
-                                  ! MDK, 31/10/26
+                                  ! MDK, 01/11/26
 
 TYPE :: my_namelist
   SEQUENCE
@@ -3022,6 +3071,8 @@ TYPE :: my_namelist
   LOGICAL :: l_nsc_sapwood_rings   ! MDK, 30/10/26
   LOGICAL :: l_nsc_pipe_target   ! MDK, 30/10/26
   LOGICAL :: l_nsc_k_sapwood   ! MDK, 31/10/26
+  LOGICAL :: l_nsc_k_sapwood_gain   ! MDK, 01/11/26
+  LOGICAL :: l_nsc_sapwood_canopy   ! MDK, 01/11/26
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_rhizo_mfp
   LOGICAL :: l_nrun_mid_trif
@@ -3152,6 +3203,8 @@ IF (mype == 0) THEN
   my_nml % l_nsc_sapwood_rings = l_nsc_sapwood_rings   ! MDK, 30/10/26
   my_nml % l_nsc_pipe_target = l_nsc_pipe_target   ! MDK, 30/10/26
   my_nml % l_nsc_k_sapwood = l_nsc_k_sapwood   ! MDK, 31/10/26
+  my_nml % l_nsc_k_sapwood_gain = l_nsc_k_sapwood_gain   ! MDK, 01/11/26
+  my_nml % l_nsc_sapwood_canopy = l_nsc_sapwood_canopy   ! MDK, 01/11/26
   my_nml % nsc_n_ring = nsc_n_ring   ! MDK, 30/10/26
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
@@ -3272,6 +3325,8 @@ IF (mype /= 0) THEN
   l_nsc_sapwood_rings = my_nml % l_nsc_sapwood_rings   ! MDK, 30/10/26
   l_nsc_pipe_target = my_nml % l_nsc_pipe_target   ! MDK, 30/10/26
   l_nsc_k_sapwood = my_nml % l_nsc_k_sapwood   ! MDK, 31/10/26
+  l_nsc_k_sapwood_gain = my_nml % l_nsc_k_sapwood_gain   ! MDK, 01/11/26
+  l_nsc_sapwood_canopy = my_nml % l_nsc_sapwood_canopy   ! MDK, 01/11/26
   nsc_n_ring = my_nml % nsc_n_ring   ! MDK, 30/10/26
   l_som_gravity = my_nml % l_som_gravity
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp

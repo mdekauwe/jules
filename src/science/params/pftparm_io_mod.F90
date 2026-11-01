@@ -329,6 +329,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_sink_beta_min_io(npft_max) = rmdi,                                       &
   nsc_ring_cond_efold_io(npft_max) = rmdi,                                     &
   nsc_pipe_gamma_io(npft_max) = rmdi,                                          &
+  nsc_stem_form_io(npft_max) = rmdi,                                           &
   nsc_ring_c_old_io(npft_max) = rmdi,                                          &
   nsc_ring_func_doy_io(npft_max) = rmdi,                                       &
   phen_psi_tlp_io(npft_max) = rmdi,                                            &
@@ -421,7 +422,7 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_xylem_cond_ratio_io,                                                     &
   nsc_heartwood_rate_io, nsc_grow_thresh_io,                                   &
   nsc_sink_days_io, nsc_sink_beta_min_io,                                      &
-  nsc_ring_cond_efold_io, nsc_pipe_gamma_io,                                   &
+  nsc_ring_cond_efold_io, nsc_pipe_gamma_io, nsc_stem_form_io,                 &
   nsc_ring_c_old_io, nsc_ring_func_doy_io,                                     &
   phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io,                         &
   phen_bb_doy_io, phen_bb_gdd_io, phen_bb_tbase_io, phen_bb_min_days_io
@@ -468,7 +469,7 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 183 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 184 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
@@ -660,6 +661,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_sink_beta_min_io(npft_max)   ! MDK, 31/10/26
   REAL(KIND=real_jlslsm) :: nsc_ring_cond_efold_io(npft_max)   ! MDK, 30/10/26
   REAL(KIND=real_jlslsm) :: nsc_pipe_gamma_io(npft_max)   ! MDK, 30/10/26
+  REAL(KIND=real_jlslsm) :: nsc_stem_form_io(npft_max)   ! MDK, 01/11/26
   REAL(KIND=real_jlslsm) :: nsc_ring_c_old_io(npft_max)   ! MDK, 31/10/26
   REAL(KIND=real_jlslsm) :: nsc_ring_func_doy_io(npft_max)   ! MDK, 31/10/26
   REAL(KIND=real_jlslsm) :: phen_psi_tlp_io(npft_max)
@@ -869,6 +871,7 @@ IF (mype == 0) THEN
   my_nml % nsc_sink_beta_min_io = nsc_sink_beta_min_io   ! MDK, 31/10/26
   my_nml % nsc_ring_cond_efold_io = nsc_ring_cond_efold_io   ! MDK, 30/10/26
   my_nml % nsc_pipe_gamma_io = nsc_pipe_gamma_io   ! MDK, 30/10/26
+  my_nml % nsc_stem_form_io = nsc_stem_form_io   ! MDK, 01/11/26
   my_nml % nsc_ring_c_old_io = nsc_ring_c_old_io   ! MDK, 31/10/26
   my_nml % nsc_ring_func_doy_io = nsc_ring_func_doy_io   ! MDK, 31/10/26
   my_nml % phen_psi_tlp_io = phen_psi_tlp_io
@@ -1066,6 +1069,7 @@ IF (mype /= 0) THEN
   nsc_sink_beta_min_io = my_nml % nsc_sink_beta_min_io   ! MDK, 31/10/26
   nsc_ring_cond_efold_io = my_nml % nsc_ring_cond_efold_io   ! MDK, 30/10/26
   nsc_pipe_gamma_io = my_nml % nsc_pipe_gamma_io   ! MDK, 30/10/26
+  nsc_stem_form_io = my_nml % nsc_stem_form_io   ! MDK, 01/11/26
   nsc_ring_c_old_io = my_nml % nsc_ring_c_old_io   ! MDK, 31/10/26
   nsc_ring_func_doy_io = my_nml % nsc_ring_func_doy_io   ! MDK, 31/10/26
   phen_psi_tlp_io = my_nml % phen_psi_tlp_io
@@ -1168,7 +1172,7 @@ USE pftparm, ONLY:                                                             &
   nsc_xylem_cond_ratio,                                                       &
   nsc_heartwood_rate, nsc_grow_thresh, nsc_ring_cond_efold,                   &
   nsc_sink_days, nsc_sink_beta_min,                                            &
-  nsc_pipe_gamma, nsc_ring_c_old, nsc_ring_func_doy,                           &
+  nsc_pipe_gamma, nsc_ring_c_old, nsc_ring_func_doy, nsc_stem_form,            &
   phen_bb_doy, phen_bb_gdd, phen_bb_tbase, phen_bb_min_days
 
 
@@ -1579,6 +1583,8 @@ DO i = 1, npft
     nsc_ring_cond_efold(i) = nsc_ring_cond_efold_io(i)
   IF (ABS(nsc_pipe_gamma_io(i) - rmdi) > EPSILON(1.0))                         &
     nsc_pipe_gamma(i) = nsc_pipe_gamma_io(i)
+  IF (ABS(nsc_stem_form_io(i) - rmdi) > EPSILON(1.0))                          &
+    nsc_stem_form(i) = nsc_stem_form_io(i)
   IF (ABS(nsc_ring_c_old_io(i) - rmdi) > EPSILON(1.0))                         &
     nsc_ring_c_old(i) = nsc_ring_c_old_io(i)
   IF (ABS(nsc_ring_func_doy_io(i) - rmdi) > EPSILON(1.0))                      &
@@ -1755,6 +1761,14 @@ IF ( ANY(nsc_pipe_gamma(1:npft) < 0.0) ) THEN
   errcode = 101
   CALL ereport(RoutineName, errcode,                                           &
                'nsc_pipe_gamma_io must be >= 0.')
+END IF
+! The stem form factor of the pipe model is > 0.
+!
+! MDK, 01/11/26
+IF ( ANY(nsc_stem_form(1:npft) <= 0.0) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                           &
+               'nsc_stem_form_io must be > 0.')
 END IF
 ! Ring cohorts by age and season: the old rings' conductivity is 0-1 and
 ! the ring-porous day of year 1-366 if set.

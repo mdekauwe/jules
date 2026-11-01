@@ -33,6 +33,11 @@ USE jules_vegetation_mod, ONLY: l_nitrogen, l_ximpair_leaf_loss,               &
                                 ! TEMP RED
                                 l_red
 USE triffid_nsc_mod, ONLY: phen_fbleaf, nsc_pft, nsc_regrow_acc
+USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_lai_sapwood,                &
+                           nsc_lai_sap_cap
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_canopy
+USE model_time_mod, ONLY: is_spinup
+                           ! MDK, 01/11/26
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
 USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht   ! MDK, 20/10/26
 USE pftparm, ONLY: a_wl, a_ws, b_wl, eta_sl, g_leaf_0, ximpair_leaf_sens,      &
@@ -118,6 +123,12 @@ LOGICAL :: l_pay
 REAL(KIND=real_jlslsm) :: doy
     ! Day of the year.
 
+REAL(KIND=real_jlslsm) :: lai_cap
+    ! Largest LAI the functional sapwood can supply (l_nsc_sapwood_canopy;
+    ! < 0 = no cap).
+    !
+    ! MDK, 01/11/26
+
 REAL(KIND=real_jlslsm) ::                                                      &
   lai_bal(land_pts),                                                           &
     ! Balanced growth LAI.
@@ -183,6 +194,25 @@ IF (l_phen_psi .AND. is_set(phen_psi_tlp(n)) .AND.                             &
   DO j = 1,veg_pts
     l = veg_index(j)
     phen_max(l) = MIN(phen_max(l), MAX(phen_fbleaf(l,n), 0.01))
+  END DO
+END IF
+
+! Canopy limited by the sapwood (l_nsc_sapwood_canopy): the canopy is also
+! capped at the leaf area its functional sapwood can supply under the pipe
+! model (nsc_lai_sapwood, with the drought damage), so leaves above it are
+! shed as below and regrow as the sapwood recovers. No cap in spin-up or
+! before the sapwood is set.
+!
+! MDK, 01/11/26
+IF (l_nsc_sapwood_canopy) THEN
+  CALL triffid_nsc_alloc( land_pts )
+  DO j = 1,veg_pts
+    l = veg_index(j)
+    lai_cap = -1.0
+    IF (.NOT. is_spinup) lai_cap = nsc_lai_sapwood(l, n, ht(l), .TRUE.)
+    nsc_lai_sap_cap(l,n) = lai_cap
+    IF (lai_cap >= 0.0 .AND. lai_bal(l) > 0.0)                                 &
+      phen_max(l) = MIN(phen_max(l), MAX(lai_cap / lai_bal(l), 0.01))
   END DO
 END IF
 

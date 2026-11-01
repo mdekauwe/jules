@@ -173,15 +173,20 @@ END FUNCTION live_stemwood
 !-----------------------------------------------------------------------------
 ! Conducting sapwood carbon (kg C m-2), the xylem X of the TRIFFID store:
 ! with nsc_la_sa > 0 the pipe model on the balanced leaf area (sapwood area
-! LAI_bal / nsc_la_sa times height, wood density and carbon fraction), as in
-! FATES; otherwise the fraction nsc_sapwood_frac of the wood carbon
-! (Trugman et al. 2018, Table S2).
+! LAI_bal / nsc_la_sa times height, form factor, wood density and carbon
+! fraction), as in FATES,
 !
-! MDK, 20/10/26
+!   X = LAI_bal / nsc_la_sa h nsc_stem_form nsc_wood_density cmass;
+!
+! otherwise the fraction nsc_sapwood_frac of the wood carbon (Trugman et
+! al. 2018, Table S2).
+!
+! MDK, 01/11/26
 !-----------------------------------------------------------------------------
 ELEMENTAL FUNCTION sapwood_c(n, ht, lai_bal, wood) RESULT(x_s)
 
-USE pftparm, ONLY: nsc_la_sa, nsc_sapwood_frac, nsc_wood_density
+USE pftparm, ONLY: nsc_la_sa, nsc_sapwood_frac, nsc_wood_density,             &
+                   nsc_stem_form
 
 USE jules_surface_mod, ONLY: cmass
 
@@ -194,7 +199,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: wood     ! Wood carbon (kg C m-2).
 REAL(KIND=real_jlslsm) :: x_s                  ! Sapwood carbon (kg C m-2).
 
 IF (nsc_la_sa(n) > 0.0) THEN
-  x_s = lai_bal / nsc_la_sa(n) * ht * nsc_wood_density(n) * cmass
+  x_s = lai_bal / nsc_la_sa(n) * ht * nsc_stem_form(n)                        &
+        * nsc_wood_density(n) * cmass
 ELSE
   x_s = nsc_sapwood_frac(n) * wood
 END IF

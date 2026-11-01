@@ -46,6 +46,9 @@ USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE triffid_nsc_mod, ONLY: nsc_heartwood, nsc_sapwood_target
 USE triffid_nsc_mod, ONLY: nsc_lai_peak, nsc_lai_peak_prev
 USE triffid_nsc_mod, ONLY: nsc_k_area_frac
+USE triffid_nsc_mod, ONLY: nsc_k_area_raw, nsc_lai_sap_cap,                    &
+                           nsc_xylem_renew_cw, nsc_heartwood_factor,           &
+                           nsc_xt_cap_count
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_functional
@@ -4233,6 +4236,42 @@ CASE ( 'nsc_k_area_frac' )
 CASE ( 'nsc_sapwood_target' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(nsc_sapwood_target) ) workspace_pft(:,:) = nsc_sapwood_target
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! The pipe-model diagnostics: f_A before its MIN (1 when not set), the
+! sapwood canopy cap (-1 = none), the new ring's share of the conductance
+! weight, the heartwood factor g and the count of target caps.
+!
+! MDK, 01/11/26
+CASE ( 'nsc_k_area_raw' )
+  workspace_pft(:,:) = 1.0
+  IF ( ALLOCATED(nsc_k_area_raw) ) workspace_pft(:,:) = nsc_k_area_raw
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_lai_sap_cap' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(nsc_lai_sap_cap) ) workspace_pft(:,:) = nsc_lai_sap_cap
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_xylem_renew_cw' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_xylem_renew_cw) ) workspace_pft(:,:) = nsc_xylem_renew_cw
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_heartwood_factor' )
+  workspace_pft(:,:) = 1.0
+  IF ( ALLOCATED(nsc_heartwood_factor) )                                       &
+    workspace_pft(:,:) = nsc_heartwood_factor
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_xt_cap_count' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_xt_cap_count) ) workspace_pft(:,:) = nsc_xt_cap_count
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

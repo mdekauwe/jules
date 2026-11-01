@@ -10598,7 +10598,7 @@ DATA metadata(817) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Ring renewal: stem share renewed per 360 d (rings: new wood/sapwood)",    &
+    "Ring renewal: stem share renewed (rings: carbon share of new wood)",      &
 ! Units
     "per 360days"                                                              &
   ) /
@@ -10834,5 +10834,62 @@ DATA metadata(836) / var_metadata(                                             &
     "Ring cohorts: calendar year in which the youngest ring grows",            &
 ! Units
     "year"                                                                     &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for the pipe-model diagnostics: f_A before its MIN, the canopy
+! cap, the conductance-weighted renewal, the heartwood factor and the count
+! of target caps
+!
+! MDK, 01/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(837) / var_metadata(                                             &
+! String identifier
+    'nsc_k_area_raw',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Sapwood-area ratio of kmax before the MIN (can exceed 1)",                &
+! Units
+    "1"                                                                        &
+  ) /
+DATA metadata(838) / var_metadata(                                             &
+! String identifier
+    'nsc_lai_sap_cap',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Canopy limited by the sapwood: largest LAI it supplies",                  &
+! Units
+    "1"                                                                        &
+  ) /
+DATA metadata(839) / var_metadata(                                             &
+! String identifier
+    'nsc_xylem_renew_cw',                                                      &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ring cohorts: new ring's share of the conductance weight",                &
+! Units
+    "per 360days"                                                              &
+  ) /
+DATA metadata(840) / var_metadata(                                             &
+! String identifier
+    'nsc_heartwood_factor',                                                    &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Pipe-model target: heartwood factor g on nsc_heartwood_rate",             &
+! Units
+    "1"                                                                        &
+  ) /
+DATA metadata(841) / var_metadata(                                             &
+! String identifier
+    'nsc_xt_cap_count',                                                        &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Pipe-model target: TRIFFID steps the target was capped at wood",          &
+! Units
+    "1"                                                                        &
   ) /
 #endif

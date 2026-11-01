@@ -182,23 +182,25 @@ MODULE triffid_nsc_mod
 ! leaf area it supplied, last ring year's peak LAI L_pk (the balanced LAI
 ! until the first ring year has ended), and on the canopy height h (m):
 !
-!   X_t = (L_pk / nsc_la_sa) h nsc_wood_density cmass   (kg C m-2),
+!   X_t = (L_pk / nsc_la_sa) h F nsc_wood_density cmass   (kg C m-2),
 !
-! with nsc_la_sa the leaf area per unit sapwood area, nsc_wood_density the
-! wood density and cmass the carbon fraction of dry mass (sapwood_c; or
-! nsc_sapwood_frac C_W without nsc_la_sa). X_t is at most the wood C_W,
-! with a warning once per point when this cap applies. Heartwood forms at
-! k_h scaled by how far the sapwood is from its target:
+! with nsc_la_sa the leaf area per unit sapwood area, F = nsc_stem_form
+! the form factor of the wood (its volume over basal area x height),
+! nsc_wood_density the wood density and cmass the carbon fraction of dry
+! mass (sapwood_c; or nsc_sapwood_frac C_W without nsc_la_sa). X_t is at
+! most the wood C_W. This cap guards against inputs that do not fit
+! together: a warning names the point and the form factor that would fit
+! the first time it binds, and nsc_xt_cap_count (an output) counts the
+! TRIFFID steps at which it bound. Heartwood forms at k_h scaled by how
+! far the sapwood is from its target:
 !
-!   dX_hw/dt = g k_h X_s,   g = MIN(r^gamma, g_max),
+!   dX_hw/dt = g k_h X_s,   g = MIN((X_s / X_t)^gamma, g_max),
 !
-! with gamma = nsc_pipe_gamma (gamma = 0 gives g = 1). Above the target
-! r = X_s / X_t; below it r = X_f / X_t, with X_f = X_s (1 - L) the
-! sapwood that still conducts and L the stem's loss (with the rings, their
-! conductivity-weighted mean loss). Sapwood above the target becomes
-! heartwood faster, and a damaged or small sapwood keeps its old rings
-! longer. The pool starts at the target. The sapwood is at most the wood,
-! and the heartwood is the rest,
+! with gamma = nsc_pipe_gamma (gamma = 0 gives g = 1; g is an output,
+! nsc_heartwood_factor). Sapwood above the target becomes heartwood
+! faster, and a small sapwood keeps its old rings longer. Drought damage
+! does not change g. The pool starts at the target. The sapwood is at most
+! the wood, and the heartwood is the rest,
 !
 !   H = C_W - X_s   (nsc_heartwood, an output).
 !
@@ -218,15 +220,36 @@ MODULE triffid_nsc_mod
 ! the season has gone), so a stand at its target has f_A = 1 on any date.
 ! Without the rings f_A = MIN(1, X_s / X_t). f_A counts the sapwood's
 ! capacity only: drought damage in the rings lowers the conductance
-! through the impairment memory.
+! through the impairment memory. The ratio before the MIN is an output
+! (nsc_k_area_raw).
 !
-! 10. Without TRIFFID (l_triffid off)
+! With l_nsc_k_sapwood_gain (and kplant_model = 1) the stem conducts
+! through its sapwood area, whatever the leaf area. The leaf area the
+! sapwood can supply (nsc_lai_sapwood),
+!
+!   L_A = X_A nsc_la_sa / (h F nsc_wood_density cmass),
+!   X_A = X_s SUM_i f_i c_i / c_ref,
+!
+! sets the stem's conductance per unit ground area, kmax L_A, so its
+! conductance per unit leaf area is kmax L_A / LAI and rises when leaves
+! are shed. At the target and a full canopy L_A = LAI.
+!
+! 10. Canopy limited by the sapwood (l_nsc_sapwood_canopy)
+!
+! The phenological LAI is at most the leaf area the functional sapwood can
+! supply, L_A with X_A = X_s SUM_i f_i c_i (1 - L_i) / c_ref (or
+! X_s (1 - L) without the rings), the f_A sapwood less its damage. phenol
+! sheds the leaves above the cap as leaf litter, at the rate of
+! phenological leaf drop, and the canopy regrows by the usual phenology
+! as the sapwood recovers. The cap is an output (nsc_lai_sap_cap).
+!
+! 11. Without TRIFFID (l_triffid off)
 !
 ! The store runs once a day (triffid_nsc_daily), with the leaf, root and
 ! wood carbon from the prescribed canopy height. The release leaves the
 ! store, as there is no growth to feed, and there is no stem recovery.
 !
-! MDK, 31/10/26
+! MDK, 01/11/26
 !-----------------------------------------------------------------------------
 
 USE um_types, ONLY: real_jlslsm
@@ -241,6 +264,13 @@ PUBLIC :: nsc_net_wood_growth
 PUBLIC :: nsc_sapwood
 PUBLIC :: nsc_heartwood, nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
 PUBLIC :: nsc_k_area_frac, nsc_k_area
+PUBLIC :: nsc_k_area_raw, nsc_lai_sapwood, nsc_lai_sap_cap
+PUBLIC :: nsc_xylem_renew_cw, nsc_heartwood_factor, nsc_xt_cap_count
+PUBLIC :: nsc_f_a_min
+
+! Smallest sapwood-area factor on kmax (and on the stem with
+! l_nsc_k_sapwood_gain), so the plant keeps a conducting path.
+REAL(KIND=real_jlslsm), PARAMETER :: nsc_f_a_min = 0.01
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,                     &
           nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft,  &
           nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, phen_nhigh,         &
@@ -305,6 +335,22 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_lai_peak_prev(:,:)
 ! the plant's kmax of the last step (1 = full area). A diagnostic, set by
 ! sf_stom.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_k_area_frac(:,:)
+! The sapwood-area ratio before the MIN of f_A of the last step (can
+! exceed 1; 1 until set). A diagnostic, set by sf_stom.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_k_area_raw(:,:)
+! Canopy limited by the sapwood (l_nsc_sapwood_canopy): the largest LAI
+! the functional sapwood can supply at the last phenology step (< 0 = no
+! cap). A diagnostic, set by phenol.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_lai_sap_cap(:,:)
+! Ring cohorts: the new ring's share of the stem's conductance weight,
+! the share of the stem's loss it dilutes, of the last TRIFFID step (per
+! 360 days). A diagnostic.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_renew_cw(:,:)
+! Pipe-model target: the heartwood factor g of the last TRIFFID step, and
+! the number of TRIFFID steps since the start (or restart) at which the
+! target was capped at the wood. Diagnostics.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_heartwood_factor(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xt_cap_count(:,:)
 ! Carbon-starvation mortality of the last TRIFFID step (per 360 days), used
 ! by lotka.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_starv_pft(:,:)
@@ -341,7 +387,7 @@ CONTAINS
 ! Several start below 0, which marks them as not yet set; each is filled
 ! at its first use.
 !
-! MDK, 30/10/26
+! MDK, 01/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_alloc( n_land_pts )
 
@@ -424,6 +470,24 @@ END IF
 IF (.NOT. ALLOCATED(nsc_k_area_frac)) THEN
   ALLOCATE(nsc_k_area_frac(n_land_pts, npft))
   nsc_k_area_frac(:,:) = 1.0
+END IF
+IF (.NOT. ALLOCATED(nsc_k_area_raw)) THEN
+  ALLOCATE(nsc_k_area_raw(n_land_pts, npft))
+  nsc_k_area_raw(:,:) = 1.0
+END IF
+IF (.NOT. ALLOCATED(nsc_lai_sap_cap)) THEN
+  ALLOCATE(nsc_lai_sap_cap(n_land_pts, npft))
+  nsc_lai_sap_cap(:,:) = -1.0
+END IF
+IF (.NOT. ALLOCATED(nsc_xylem_renew_cw)) THEN
+  ALLOCATE(nsc_xylem_renew_cw(n_land_pts, npft))
+  nsc_xylem_renew_cw(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(nsc_heartwood_factor)) THEN
+  ALLOCATE(nsc_heartwood_factor(n_land_pts, npft))
+  ALLOCATE(nsc_xt_cap_count(n_land_pts, npft))
+  nsc_heartwood_factor(:,:) = 1.0
+  nsc_xt_cap_count(:,:)     = 0.0
 END IF
 IF (.NOT. ALLOCATED(nsc_starv_pft)) THEN
   ALLOCATE(nsc_starv_pft(n_land_pts, npft))
@@ -1205,11 +1269,12 @@ END SUBROUTINE triffid_nsc_daily
 ! a stand in equilibrium on the same day (ximpair_ring_cref). Without the
 ! rings f_A = MIN(1, X_s / X_t). f_A is 1 until the sapwood and its target
 ! are set (in spin-up and before the first ring step), and at least
-! f_a_min, so the plant keeps a conducting path.
+! nsc_f_a_min, so the plant keeps a conducting path. f_raw, if present, is
+! the ratio before the MIN and the floor.
 !
-! MDK, 31/10/26
+! MDK, 01/11/26
 ! ---------------------------------------------------------------------
-FUNCTION nsc_k_area( l, n ) RESULT( f_a )
+FUNCTION nsc_k_area( l, n, f_raw ) RESULT( f_a )
 
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_year,  &
@@ -1217,36 +1282,112 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_year,  &
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, n
+! The ratio before the MIN and the floor.
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: f_raw
 ! Area factor on kmax (0-1).
 REAL(KIND=real_jlslsm) :: f_a
 
-! Sapwood and its target (kg C m-2), and the rings' equilibrium mean
-! conductivity.
-REAL(KIND=real_jlslsm) :: x_s, x_t, c_ref
-
-! Smallest area factor, so the plant keeps a conducting path.
-REAL(KIND=real_jlslsm), PARAMETER :: f_a_min = 0.01
+! Sapwood and its target (kg C m-2), the rings' equilibrium mean
+! conductivity and the ratio.
+REAL(KIND=real_jlslsm) :: x_s, x_t, c_ref, r
 
 f_a = 1.0
+IF (PRESENT(f_raw)) f_raw = 1.0
 IF (.NOT. ALLOCATED(nsc_sapwood) .OR. .NOT. ALLOCATED(nsc_sapwood_target))     &
   RETURN
 x_s = nsc_sapwood(l,n)
 x_t = nsc_sapwood_target(l,n)
 IF (x_s < 0.0 .OR. x_t <= 0.0) RETURN
 
+r = x_s / x_t
 IF (l_nsc_sapwood_rings .AND. ALLOCATED(ximpair_ring_frac)) THEN
   IF (ximpair_ring_frac(l,n,1) >= 0.0 .AND.                                   &
       ximpair_ring_year(l,n) >= 0.0) THEN
     c_ref = ximpair_ring_cref(l, n)
-    IF (c_ref > 0.0)                                                           &
-      f_a = MIN(1.0, x_s * ximpair_ring_cweight(l, n) / (x_t * c_ref))
-    f_a = MAX(f_a, f_a_min)
+    r = 1.0
+    IF (c_ref > 0.0) THEN
+      r   = x_s * ximpair_ring_cweight(l, n) / (x_t * c_ref)
+      f_a = MIN(1.0, r)
+    END IF
+    f_a = MAX(f_a, nsc_f_a_min)
+    IF (PRESENT(f_raw)) f_raw = r
     RETURN
   END IF
 END IF
-f_a = MAX(MIN(1.0, x_s / x_t), f_a_min)
+f_a = MAX(MIN(1.0, x_s / x_t), nsc_f_a_min)
+IF (PRESENT(f_raw)) f_raw = r
 
 END FUNCTION nsc_k_area
+
+! ---------------------------------------------------------------------
+! Return the leaf area index the sapwood of PFT n at land point l can
+! supply under the pipe model (l_nsc_k_sapwood_gain, l_nsc_sapwood_canopy),
+!
+!   L_A = X_A nsc_la_sa / (h F nsc_wood_density cmass),
+!
+! with h the canopy height (m), F = nsc_stem_form and X_A (kg C m-2) the
+! sapwood that counts:
+!
+!   without the damage (l_dam false),  X_A = X_s SUM_i f_i c_i / c_ref,
+!   with it (l_dam true),               X_A = X_s SUM_i f_i c_i (1 - L_i)
+!                                                 / c_ref,
+!
+! as in f_A (nsc_k_area) before the MIN, with L_i each ring's loss of
+! conductance. Without the rings X_A = X_s, or X_s (1 - L) with the
+! damage, L the stem's loss. A stand at its target with a full canopy and
+! no damage has L_A = the LAI the target was set on. Returns -1 when the
+! sapwood, its target or the pipe model is not set (in spin-up and before
+! the first ring step).
+!
+! MDK, 01/11/26
+! ---------------------------------------------------------------------
+FUNCTION nsc_lai_sapwood( l, n, ht, l_dam ) RESULT( lai_s )
+
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
+USE pftparm, ONLY: nsc_la_sa, nsc_wood_density, nsc_stem_form
+USE jules_surface_mod, ONLY: cmass
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_year,  &
+                                       ximpair_ring_cweight, ximpair_ring_cref, &
+                                       ximpair_ring_functional, ximpair_lock
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, n
+! Canopy height (m).
+REAL(KIND=real_jlslsm), INTENT(IN) :: ht
+! Take the drought damage off the sapwood.
+LOGICAL, INTENT(IN) :: l_dam
+! Leaf area index the sapwood can supply (m2 m-2; -1 = not set).
+REAL(KIND=real_jlslsm) :: lai_s
+
+! The sapwood that counts (kg C m-2) and the rings' equilibrium mean
+! conductivity.
+REAL(KIND=real_jlslsm) :: x_a, c_ref
+
+lai_s = -1.0
+IF (.NOT. ALLOCATED(nsc_sapwood) .OR. .NOT. ALLOCATED(nsc_sapwood_target))     &
+  RETURN
+IF (nsc_sapwood(l,n) < 0.0 .OR. nsc_sapwood_target(l,n) <= 0.0) RETURN
+IF (nsc_la_sa(n) <= 0.0 .OR. ht <= 0.0) RETURN
+
+x_a = nsc_sapwood(l,n)
+IF (l_nsc_sapwood_rings .AND. ALLOCATED(ximpair_ring_frac)) THEN
+  IF (ximpair_ring_frac(l,n,1) < 0.0 .OR. ximpair_ring_year(l,n) < 0.0)      &
+    RETURN
+  c_ref = ximpair_ring_cref(l, n)
+  IF (c_ref <= 0.0) RETURN
+  IF (l_dam) THEN
+    x_a = x_a * ximpair_ring_functional(l, n) / c_ref
+  ELSE
+    x_a = x_a * ximpair_ring_cweight(l, n) / c_ref
+  END IF
+ELSE IF (l_dam .AND. ALLOCATED(ximpair_lock)) THEN
+  x_a = x_a * (1.0 - MIN(MAX(ximpair_lock(l,n), 0.0), 1.0))
+END IF
+
+lai_s = x_a * nsc_la_sa(n)                                                     &
+        / (ht * nsc_stem_form(n) * nsc_wood_density(n) * cmass)
+
+END FUNCTION nsc_lai_sapwood
 
 ! ---------------------------------------------------------------------
 ! Let the stem recover from drought damage as new sapwood rings take over
@@ -1277,13 +1418,14 @@ END FUNCTION nsc_k_area
 !      heartwood takes the oldest rings first.
 !   5. With the pipe-model target, heartwood forms at g k_h X_s, with g
 !      from the sapwood against its target on last ring year's peak leaf
-!      area, and the heartwood is the rest of the wood.
+!      area, and the heartwood is the rest of the wood. The target is at
+!      most the wood; the steps at which this cap binds are counted.
 !   6. At the end of the ring year, the year's net wood growth S settles
 !      the deficit D, a net loss of wood also comes off the sapwood, and
 !      with the pipe-model target this ring year's peak LAI becomes last
 !      year's.
 !
-! MDK, 31/10/26
+! MDK, 01/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
                                      r_gamma, ht, lai_bal, lai, woodc, dwood,  &
@@ -1294,7 +1436,7 @@ USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_pool
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, l_nsc_pipe_target
 USE pftparm, ONLY: pft_xylem_impairment_model, nsc_xylem_cond_ratio
-USE pftparm, ONLY: nsc_pipe_gamma
+USE pftparm, ONLY: nsc_pipe_gamma, nsc_stem_form
 USE pftparm, ONLY: is_set, nsc_grow_end_doy, nsc_heartwood_rate
 USE calc_c_comps_triffid_mod, ONLY: sapwood_c
 USE model_time_mod, ONLY: is_spinup
@@ -1305,7 +1447,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend,                    &
                                        ximpair_memory_alloc
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_area_w,           &
                                        ximpair_ring_frac, ximpair_ring_init,   &
-                                       ximpair_ring_grow, ximpair_ring_mean
+                                       ximpair_ring_grow
 USE logging_mod, ONLY: log_warn
 USE string_utils_mod, ONLY: to_string
 
@@ -1355,9 +1497,11 @@ INTEGER :: g_year
 ! or, without one, the last day of the year).
 LOGICAL :: l_ring_end
 ! The leaf area the sapwood serves, the pipe-model target sapwood (kg C
-! m-2), the sapwood against it (X_s or the functional sapwood over X_t),
-! the heartwood factor g and the heartwood rate (per 360 days).
+! m-2), the sapwood against it (X_s / X_t), the heartwood factor g and
+! the heartwood rate (per 360 days).
 REAL(KIND=real_jlslsm) :: lai_ref, x_t, ratio, g_hw, rate_h
+! The new ring's share of the conductance weight.
+REAL(KIND=real_jlslsm) :: w_cw
 
 ! Largest heartwood factor g: a sapwood far above a small target is
 ! retired at most g_max times faster than k_h, so it cannot be emptied
@@ -1409,6 +1553,7 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       l = trif_index(t)
       nsc_xylem_prod_pft(l,n)  = 0.0
       nsc_xylem_renew_pft(l,n) = 0.0
+      nsc_xylem_renew_cw(l,n)  = 0.0
       wood_old = woodc(l,n) - dwood(l,n)
 
       ! The leaf area the sapwood serves: the balanced LAI, or with the
@@ -1431,13 +1576,21 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       x_s = sapwood_c(n, ht(l,n), lai_ref, wood_old)
       x_t = x_s
       IF (l_nsc_pipe_target .AND. x_t > wood_old) THEN
+        ! The cap is a guard: the inputs (LA:SA, height, form factor,
+        ! density) give more sapwood than the wood. The first time, say
+        ! by how much and what form factor would fit; count every step.
         IF (.NOT. nsc_xt_warned(l,n))                                          &
           CALL log_warn(RoutineName,                                           &
                         "Pipe-model target capped at the wood carbon " //      &
                         "at land point " //                                    &
                         TRIM(to_string(l)) // ", PFT " //                      &
-                        TRIM(to_string(n)) // ".")
+                        TRIM(to_string(n)) // ": X_t / C_W = " //              &
+                        TRIM(to_string(x_t / MAX(wood_old, 1.0e-12))) //       &
+                        "; nsc_stem_form_io at most " //                       &
+                        TRIM(to_string(nsc_stem_form(n) * MAX(wood_old, 0.0)   &
+                                       / x_t)) // " would fit.")
         nsc_xt_warned(l,n) = .TRUE.
+        nsc_xt_cap_count(l,n) = nsc_xt_cap_count(l,n) + 1.0
         x_t = MAX(wood_old, 0.0)
       END IF
       IF (l_nsc_sapwood_pool) THEN
@@ -1455,25 +1608,21 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       END IF
 
       ! Pipe-model target: heartwood forms at g k_h, with g from the
-      ! sapwood above the target, or from the functional sapwood below it
-      ! (the conducting share, 1 - L, of the conductivity-weighted rings);
-      ! gamma = 0 leaves k_h.
+      ! sapwood against the target, g = (X_s / X_t)^gamma, on both sides of
+      ! the target; drought damage does not change it. gamma = 0 leaves
+      ! k_h.
       rate_h = nsc_heartwood_rate(n)
       IF (l_nsc_pipe_target) THEN
-        nsc_sapwood_target(l,n) = x_t
+        nsc_sapwood_target(l,n)   = x_t
+        nsc_heartwood_factor(l,n) = 1.0
         IF (nsc_pipe_gamma(n) > 0.0) THEN
           g_hw = g_max
           IF (x_t > x_min) THEN
-            IF (x_s > x_t) THEN
-              ratio = x_s / x_t
-            ELSE IF (l_nsc_sapwood_rings) THEN
-              ratio = x_s * (1.0 - ximpair_ring_mean(l, n)) / x_t
-            ELSE
-              ratio = x_s * (1.0 - ximpair_lock(l,n)) / x_t
-            END IF
-            g_hw = MIN(ratio**nsc_pipe_gamma(n), g_max)
+            ratio = x_s / x_t
+            g_hw  = MIN(ratio**nsc_pipe_gamma(n), g_max)
           END IF
           rate_h = rate_h * g_hw
+          nsc_heartwood_factor(l,n) = g_hw
         END IF
       END IF
 
@@ -1521,7 +1670,10 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
                                      / MAX(ximpair_area_w(l,n), 1.0e-6), 1.0))
         CALL ximpair_ring_grow(l, n, x_s * EXP(-g_turn / r_gamma),             &
                                g_wood_prod / r_gamma, rate_h / r_gamma,        &
-                               l_ring_end, g_year)
+                               l_ring_end, g_year, w_cw)
+        ! The new ring's share of the conductance weight, per 360 days:
+        ! the share of the stem's loss it dilutes.
+        nsc_xylem_renew_cw(l,n) = w_cw * r_gamma
       END IF
 
       ! Sapwood pool: the oldest sapwood becomes heartwood, TRIFFID's

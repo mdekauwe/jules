@@ -623,10 +623,20 @@ END FUNCTION ximpair_ring_cref
 ! 3. At the end of the ring year (l_shift), the two oldest rings merge
 !    and a new, empty youngest ring starts, to grow in calendar year
 !    g_year. With only one ring, that ring carries on.
+! 4. Optionally, the share of the stem's conductance weight that the new
+!    wood holds after step 2,
 !
-! MDK, 31/10/26
+!      w_new = (dg / X) c_1 / SUM_i f_i c_i,
+!
+!    with X the sapwood after the step and c_1 how well the youngest ring
+!    conducts on this day: the part of the stem's loss the new wood
+!    dilutes (0 for a ring-porous tree's new ring before its vessels
+!    conduct).
+!
+! MDK, 01/11/26
 ! ---------------------------------------------------------------------
-SUBROUTINE ximpair_ring_grow( l, pft, x_old, dg, f_heart, l_shift, g_year )
+SUBROUTINE ximpair_ring_grow( l, pft, x_old, dg, f_heart, l_shift, g_year,    &
+                              w_new )
 
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 
@@ -639,9 +649,13 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: x_old, dg, f_heart
 LOGICAL, INTENT(IN) :: l_shift
 ! The calendar year in which a ring started at this step grows.
 INTEGER, INTENT(IN) :: g_year
+! The new wood's share of the conductance weight (0-1).
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: w_new
 
 ! Ring counter and the number of rings.
 INTEGER :: i, n
+! The ring sums (ring_sums).
+REAL(KIND=real_jlslsm) :: sw, swl, swf
 ! Sapwood of each ring (kg C m-2), ring 1 with the new wood, heartwood still
 ! to take, the part taken from a ring, the total, and the merged rings'
 ! share.
@@ -667,6 +681,16 @@ DO i = n, 1, -1
 END DO
 tot = SUM(a)
 IF (tot > 0.0) ximpair_ring_frac(l,pft,:) = a(:) / tot
+
+! The new wood's share of the conductance weight.
+IF (PRESENT(w_new)) THEN
+  w_new = 0.0
+  IF (dg > 0.0 .AND. tot > 0.0) THEN
+    CALL ring_sums(l, pft, .FALSE., sw, swl, swf)
+    IF (sw > 0.0) w_new = MIN(dg / tot, 1.0)                                   &
+                          * ring_cond(pft, ring_age(l, pft, 1), 0) / sw
+  END IF
+END IF
 
 ! End of the ring year: the oldest two rings merge and a new ring starts.
 IF (l_shift) THEN

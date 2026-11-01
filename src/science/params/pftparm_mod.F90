@@ -809,13 +809,27 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  MDK, 30/10/26
 ,nsc_pipe_gamma(:)                                                             &
                  ! Pipe-model target (l_nsc_pipe_target): exponent gamma
-                 !  (>= 0) of the heartwood factor g = (X / X_t)^gamma, X
-                 !  the sapwood above the target and the functional sapwood
-                 !  below it. 0: heartwood at nsc_heartwood_rate (the
-                 !  target then sets only the pool's start and the cap
+                 !  (>= 0) of the heartwood factor g = (X_s / X_t)^gamma,
+                 !  X_s the sapwood. 0: heartwood at nsc_heartwood_rate
+                 !  (the target then sets only the pool's start and the cap
                  !  at the wood). Default 1.
                  !
-                 !  MDK, 31/10/26
+                 !  MDK, 01/11/26
+,nsc_stem_form(:)                                                              &
+                 ! Pipe model (nsc_la_sa > 0): the form factor of the wood,
+                 !  its volume over basal area x canopy height (-). It
+                 !  multiplies the sapwood carbon of the pipe model,
+                 !  X = LAI / nsc_la_sa h nsc_stem_form nsc_wood_density
+                 !  cmass, and the leaf area the sapwood supplies. 1 = a
+                 !  cylinder of the canopy height (default). JULES wood is
+                 !  one pool, so the volume is all the above-ground wood.
+                 !  FR-Pue: about 0.71-0.78, from the Rambal et al. (2004)
+                 !  allometries (above-ground woody dry mass 10.7 kg m-2 at
+                 !  basal area 30.5 m2 ha-1) over basal area x height
+                 !  (5.3-5.95 m) x wood density 830 kg m-3; an inference
+                 !  from the allometries, not a measured stem form.
+                 !
+                 !  MDK, 01/11/26
 ,nsc_ring_c_old(:)                                                             &
                  ! Ring cohorts: the conductivity left in old rings (0-1),
                  !  c(a) = c_old + (1 - c_old) EXP(-a / nsc_ring_cond_efold)
@@ -1255,6 +1269,7 @@ ALLOCATE( nsc_sink_days(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_sink_beta_min(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_ring_cond_efold(npft))   ! MDK, 30/10/26
 ALLOCATE( nsc_pipe_gamma(npft))   ! MDK, 30/10/26
+ALLOCATE( nsc_stem_form(npft))   ! MDK, 01/11/26
 ALLOCATE( nsc_ring_c_old(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_ring_func_doy(npft))   ! MDK, 31/10/26
 ALLOCATE( phen_psi_tlp(npft))
@@ -1338,6 +1353,7 @@ nsc_sink_days(:) = 240.0   ! MDK, 31/10/26
 nsc_sink_beta_min(:) = 0.8   ! MDK, 31/10/26
 nsc_ring_cond_efold(:) = -1.0e30   ! MDK, 30/10/26
 nsc_pipe_gamma(:) = 1.0   ! MDK, 30/10/26
+nsc_stem_form(:) = 1.0   ! MDK, 01/11/26
 nsc_ring_c_old(:) = 0.0   ! MDK, 31/10/26
 nsc_ring_func_doy(:) = -1.0e30   ! MDK, 31/10/26
 phen_psi_tlp(:) = -1.0e30
@@ -1723,6 +1739,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_ring_cond_efold = ',nsc_ring_cond_efold
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_pipe_gamma = ',nsc_pipe_gamma
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_stem_form = ',nsc_stem_form
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_ring_c_old = ',nsc_ring_c_old
 CALL jules_print('pftparm',lineBuffer)
