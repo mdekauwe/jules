@@ -174,7 +174,10 @@ MODULE triffid_nsc_mod
 ! drought's damage leaves with the rings it hit when they become
 ! heartwood. Nothing is queued, and l_nsc_ring_additive is ignored. The
 ! rings start, at the first update of the main run or from a dump without
-! them, as 1 / k_h equal rings, each with the stem's current loss.
+! them, in the steady state of these dynamics, each with the stem's
+! current loss: a ring grown m years ago holds a share in proportion to
+! EXP(-g_t m), as many rings as hold G / (k_h + g_t) of new wood, and the
+! youngest ring holds the part of this year's ring grown so far.
 !
 ! 8. Pipe-model target (l_nsc_pipe_target, with the sapwood pool)
 !
@@ -216,8 +219,9 @@ MODULE triffid_nsc_mod
 !
 ! with X_i the sapwood carbon in ring i, c_i its conductivity by age and
 ! season, and c_ref the mean conductivity of a stand in equilibrium on the
-! same day (1 / k_h rings of equal carbon, the youngest grown as far as
-! the season has gone), so a stand at its target has f_A = 1 on any date.
+! same day (the ring structure the rings start with, above, the youngest
+! grown as far as the season has gone), so a stand at its target has
+! f_A = 1 on any date.
 ! Without the rings f_A = MIN(1, X_s / X_t). f_A counts the sapwood's
 ! capacity only: drought damage in the rings lowers the conductance
 ! through the impairment memory. The ratio before the MIN is an output

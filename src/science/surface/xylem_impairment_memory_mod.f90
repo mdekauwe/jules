@@ -24,7 +24,8 @@ PUBLIC :: ximpair_memory_alloc, ximpair_dilute_area,                           &
           psi_leaf_impaired_memory,                                            &
           update_xylem_impairment_memory
 
-PRIVATE :: k_intact, antideriv, psi_at_k, ring_cond, ring_age, ring_n0,       &
+PRIVATE :: k_intact, antideriv, psi_at_k, ring_cond, ring_age, ring_steady,   &
+           ring_q,                                                             &
            ring_sums
 
 ! Locked-in loss of conductivity, 1 - k_cap/kmax, of each PFT at each land
@@ -229,15 +230,17 @@ END SUBROUTINE ximpair_memory_alloc
 ! Xylem impairment, memory model: set up the sapwood's annual rings at a
 ! point the first time they are used (l_nsc_sapwood_rings).
 !
-! The sapwood is split into equal rings, as many as ring_n0 gives, and
+! The rings start in the steady state of the ring dynamics (ring_steady),
+! the youngest ring grown as far as the season has gone (ring_q), and
 ! every ring starts with the stem's loss of conductance loss0 (0-1). The
 ! youngest ring grows in the current calendar year, or in the next one
-! if the set-up falls in the second half of the year.
+! if the set-up falls in the second half of the year (it is then empty).
 !
-! MDK, 31/10/26
+! MDK, 01/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_ring_init( l, pft, loss0 )
 
+USE jules_vegetation_mod, ONLY: nsc_n_ring
 USE model_time_mod, ONLY: current_time
 USE datetime_utils_mod, ONLY: day_of_year, days_in_year
 USE time_info_mod, ONLY: l_360, l_leap
@@ -247,49 +250,127 @@ INTEGER, INTENT(IN) :: l, pft
 ! The stem's loss of conductance (0-1).
 REAL(KIND=real_jlslsm), INTENT(IN) :: loss0
 
-! Number of rings in the sapwood, and the day of year.
-INTEGER :: n0, doy
+! Day of year.
+INTEGER :: doy
+! Steady-state ring shares (not normalised).
+REAL(KIND=real_jlslsm) :: s(nsc_n_ring)
 
-n0 = ring_n0(pft)
-ximpair_ring_frac(l,pft,:)    = 0.0
-ximpair_ring_frac(l,pft,1:n0) = 1.0 / REAL(n0)
-ximpair_ring_loss(l,pft,:)    = loss0
 doy = day_of_year(current_time%year, current_time%month, current_time%day,   &
                   l_360, l_leap)
 ximpair_ring_year(l,pft) = REAL(current_time%year)
 IF (2 * doy > days_in_year(current_time%year, l_360, l_leap))                  &
   ximpair_ring_year(l,pft) = REAL(current_time%year + 1)
 
+CALL ring_steady(pft, ring_q(l, pft), s)
+ximpair_ring_frac(l,pft,:) = s(:) / SUM(s)
+ximpair_ring_loss(l,pft,:) = loss0
+
 END SUBROUTINE ximpair_ring_init
 
 ! ---------------------------------------------------------------------
-! Return the number of annual rings in the sapwood of a stand in steady
-! state, used to set up a point's rings and the reference stand of the
-! memory model of xylem impairment. With rings of equal carbon,
+! Work out the ring shares of a stand in steady state under the ring
+! dynamics of ximpair_ring_grow, used to set up a point's rings and the
+! reference stand that the sapwood-area factor compares with.
 !
-!   n0 = 1 / k_h,
+! New wood G (kg C m-2 per year) joins the youngest ring, TRIFFID's wood
+! turnover g_t (g_wood, per year) takes from all rings alike, and
+! heartwood forms from the oldest rings at k_h X_s (nsc_heartwood_rate;
+! at the pipe-model target the heartwood factor is 1). A ring that grew
+! m years ago then holds G EXP(-g_t m), and the sapwood holds
 !
-! where k_h is the rate at which sapwood turns to heartwood
-! (nsc_heartwood_rate, per year), rounded and kept between 1 and
-! nsc_n_ring.
+!   X_s = G / (k_h + g_t),
 !
-! MDK, 31/10/26
+! so, in units of one year's new wood, the full rings j = 2, 3, ... have
+! shares
+!
+!   s_j = EXP(-g_t (j - 1)),
+!
+! up to a total of 1 / (k_h + g_t), the last of them part full. The
+! youngest ring (j = 1) has the share q, the part of this year's ring
+! grown so far (0-1). Rings beyond nsc_n_ring are merged into the last,
+! as ximpair_ring_grow does. Without turnover there are 1 / k_h rings of
+! equal carbon.
+!
+! MDK, 01/11/26
 ! ---------------------------------------------------------------------
-FUNCTION ring_n0( pft ) RESULT( n0 )
+SUBROUTINE ring_steady( pft, q, s )
 
 USE pftparm, ONLY: nsc_heartwood_rate
+USE trif, ONLY: g_wood
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 
 ! PFT.
 INTEGER, INTENT(IN) :: pft
-! Number of rings.
-INTEGER :: n0
+! The youngest ring's share (0-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: q
+! Ring shares, youngest first (not normalised).
+REAL(KIND=real_jlslsm), INTENT(OUT) :: s(nsc_n_ring)
 
-n0 = MAX(NINT(MIN(1.0 / MAX(nsc_heartwood_rate(pft),                           &
-                            TINY(1.0_real_jlslsm)),                            &
-                  REAL(nsc_n_ring))), 1)
+! Ring counter.
+INTEGER :: j
+! Wood turnover rate (per year), the full rings' carbon still to place
+! and a full ring's share.
+REAL(KIND=real_jlslsm) :: g_t, rest, full
 
-END FUNCTION ring_n0
+g_t  = MAX(g_wood(pft), 0.0)
+rest = 1.0 / MAX(nsc_heartwood_rate(pft) + g_t, 1.0 / REAL(nsc_n_ring))
+s(:) = 0.0
+s(1) = q
+DO j = 2, nsc_n_ring
+  IF (rest <= 0.0) EXIT
+  full = EXP(-g_t * REAL(j - 1))
+  s(j) = MIN(full, rest)
+  rest = rest - s(j)
+END DO
+IF (nsc_n_ring > 1) THEN
+  s(nsc_n_ring) = s(nsc_n_ring) + MAX(rest, 0.0)
+ELSE
+  s(1) = 1.0
+END IF
+
+END SUBROUTINE ring_steady
+
+! ---------------------------------------------------------------------
+! Return the part (0-1) of the youngest sapwood ring that a stand in
+! steady state has grown by this day: the fraction of the growing season
+! (nsc_grow_start_doy to nsc_grow_end_doy), or of the calendar year if
+! those are not set, that has passed; 0 for a ring not grown yet and 1
+! for an older youngest ring.
+!
+! MDK, 01/11/26
+! ---------------------------------------------------------------------
+FUNCTION ring_q( l, pft ) RESULT( q )
+
+USE pftparm, ONLY: is_set, nsc_grow_start_doy, nsc_grow_end_doy
+USE model_time_mod, ONLY: current_time
+USE datetime_utils_mod, ONLY: day_of_year, days_in_year
+USE time_info_mod, ONLY: l_360, l_leap
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! The youngest ring's share (0-1).
+REAL(KIND=real_jlslsm) :: q
+
+! The youngest ring's age and the day of year.
+INTEGER :: a1, doy
+
+a1  = ring_age(l, pft, 1)
+doy = day_of_year(current_time%year, current_time%month, current_time%day,   &
+                  l_360, l_leap)
+IF (a1 < 0) THEN
+  q = 0.0
+ELSE IF (a1 > 0) THEN
+  q = 1.0
+ELSE IF (is_set(nsc_grow_start_doy(pft)) .AND.                                 &
+         is_set(nsc_grow_end_doy(pft))) THEN
+  q = (REAL(doy) - nsc_grow_start_doy(pft))                                    &
+      / MAX(nsc_grow_end_doy(pft) - nsc_grow_start_doy(pft), 1.0)
+ELSE
+  q = REAL(doy) / REAL(days_in_year(current_time%year, l_360, l_leap))
+END IF
+q = MAX(MIN(q, 1.0), 0.0)
+
+END FUNCTION ring_q
 
 ! ---------------------------------------------------------------------
 ! Return the age of sapwood ring i (1 = youngest), which sets how well
@@ -540,67 +621,41 @@ END FUNCTION ximpair_ring_functional
 ! stand in steady state on the same day, which nsc_k_area compares with
 ! the point's own rings to scale the plant's conductance.
 !
-! The steady stand has n0 rings of equal carbon (ring_n0) at the ages of
-! the point's rings (ring_age). Its youngest ring holds only the part
-! grown so far this year, q: the fraction of the growing season
-! (nsc_grow_start_doy to nsc_grow_end_doy), or of the calendar year if
-! those are not set, that has passed. q = 0 for a ring not grown yet and
-! 1 for an older ring. With s_j the share of ring j (q for the youngest,
-! 1 for the others) and c(a_j) how well a ring of its age conducts
-! (ring_cond),
+! The steady stand has the ring shares s_j of ring_steady (the ring
+! dynamics with TRIFFID's wood turnover and heartwood at the target) at
+! the ages of the point's rings (ring_age), its youngest ring grown as
+! far as the season has gone (ring_q). With c(a_j) how well a ring of its
+! age conducts (ring_cond),
 !
 !   c_ref = SUM_j s_j c(a_j) / SUM_j s_j,
 !
 ! so a stand at its target sapwood X_t with this ring structure has
 ! SUM_i X_i c_i = X_t c_ref on any date.
 !
-! MDK, 31/10/26
+! MDK, 01/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ximpair_ring_cref( l, pft ) RESULT( c_ref )
 
-USE pftparm, ONLY: is_set, nsc_grow_start_doy, nsc_grow_end_doy
-USE model_time_mod, ONLY: current_time
-USE datetime_utils_mod, ONLY: day_of_year, days_in_year
-USE time_info_mod, ONLY: l_360, l_leap
+USE jules_vegetation_mod, ONLY: nsc_n_ring
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, pft
 ! Equilibrium mean conductivity (0-1).
 REAL(KIND=real_jlslsm) :: c_ref
 
-! Ring counter, the number of rings, the youngest ring's age, the last
-! ring and the day of year.
-INTEGER :: j, n0, a1, j_last, doy
-! The youngest ring's share, a ring's share and the sum of the shares.
-REAL(KIND=real_jlslsm) :: q, s, sum_s
+! Ring counter and the youngest ring's age.
+INTEGER :: j, a1
+! The steady stand's ring shares and their sum.
+REAL(KIND=real_jlslsm) :: s(nsc_n_ring), sum_s
 
-n0  = ring_n0(pft)
-a1  = ring_age(l, pft, 1)
-doy = day_of_year(current_time%year, current_time%month, current_time%day,   &
-                  l_360, l_leap)
-IF (a1 < 0) THEN
-  q = 0.0
-ELSE IF (a1 > 0) THEN
-  q = 1.0
-ELSE IF (is_set(nsc_grow_start_doy(pft)) .AND.                                 &
-         is_set(nsc_grow_end_doy(pft))) THEN
-  q = (REAL(doy) - nsc_grow_start_doy(pft))                                    &
-      / MAX(nsc_grow_end_doy(pft) - nsc_grow_start_doy(pft), 1.0)
-ELSE
-  q = REAL(doy) / REAL(days_in_year(current_time%year, l_360, l_leap))
-END IF
-q = MAX(MIN(q, 1.0), 0.0)
-
-! An empty youngest ring leaves n0 full rings behind it.
-j_last = n0
-IF (a1 < 0) j_last = n0 + 1
+a1 = ring_age(l, pft, 1)
+CALL ring_steady(pft, ring_q(l, pft), s)
 c_ref = 0.0
 sum_s = 0.0
-DO j = 1, j_last
-  s = 1.0
-  IF (j == 1) s = q
-  c_ref = c_ref + s * ring_cond(pft, a1 + j - 1, 0)
-  sum_s = sum_s + s
+DO j = 1, nsc_n_ring
+  IF (s(j) <= 0.0) CYCLE
+  c_ref = c_ref + s(j) * ring_cond(pft, a1 + j - 1, 0)
+  sum_s = sum_s + s(j)
 END DO
 IF (sum_s > 0.0) c_ref = c_ref / sum_s
 
