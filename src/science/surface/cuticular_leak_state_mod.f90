@@ -43,7 +43,7 @@ MODULE cuticular_leak_state_mod
 !
 ! The "cut" in the module and dump names comes from cuticular.
 !
-! MDK, 25/10/26
+! MDK, 01/11/26
 
 USE um_types, ONLY: real_jlslsm
 USE water_constants_mod, ONLY: Water_kg_per_mol
@@ -53,7 +53,7 @@ IMPLICIT NONE
 PRIVATE
 PUBLIC :: cut_w_store, cut_psi_stem, cut_q_store, cut_c_store, cut_w_shed,     &
           cut_e_leak, cut_state_alloc, cut_psi_unset, cut_m_h2o,               &
-          cut_store_return
+          cut_store_return, cut_wt_root, cut_w_soil
 
 ! Value of a state not yet set (psi and the store's water are <= 0)
 ! (Pa, or mol m-2).
@@ -104,18 +104,33 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_w_shed(:,:)
 ! corrects the flux for the soil supply and the canopy coupling).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_e_leak(:,:)
 
+! Root extraction weights of each PFT at each land point this timestep
+! (fraction of the root uptake from each soil layer, summing to 1), set in
+! physiol before the soil evaporation is added to layer 1. sf_evap takes
+! the store's flow (cut_q_store) from, or gives it back to, the soil
+! layers with these weights. Dimensions (land points, soil layers, PFTs).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_wt_root(:,:,:)
+
+! Unfrozen water in each soil layer at each land point this timestep
+! (kg H2O m-2), set in physiol: sf_evap does not let the store's refill
+! take more than this from a layer. Dimensions (land points, soil layers).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_w_soil(:,:)
+
 CONTAINS
 
 ! ---------------------------------------------------------------------
 ! Allocate the store's arrays (n_land_pts, npft) unless they are already
 ! allocated. The water and stem water potential start as "not yet set"
-! (cut_psi_unset); the flows and capacitance start at 0.
+! (cut_psi_unset); the flows and capacitance start at 0. The root weights
+! start with all uptake from layer 1 and the soil water at 0; physiol sets
+! both each timestep before sf_evap uses them.
 !
-! MDK, 23/10/26
+! MDK, 01/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE cut_state_alloc( n_land_pts )
 
 USE jules_surface_types_mod, ONLY: npft
+USE jules_soil_mod, ONLY: sm_levels
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -140,6 +155,14 @@ IF (.NOT. ALLOCATED(cut_w_store)) THEN
   cut_c_store(:,:)  = 0.0
   cut_w_shed(:,:)   = 0.0
   cut_e_leak(:,:)   = 0.0
+END IF
+
+IF (.NOT. ALLOCATED(cut_wt_root)) THEN
+  ALLOCATE(cut_wt_root(n_land_pts, sm_levels, npft),                          &
+           cut_w_soil(n_land_pts, sm_levels))
+  cut_wt_root(:,:,:)  = 0.0
+  cut_wt_root(:,1,:)  = 1.0
+  cut_w_soil(:,:)     = 0.0
 END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

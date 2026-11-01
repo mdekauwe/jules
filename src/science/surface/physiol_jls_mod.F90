@@ -109,7 +109,8 @@ USE jules_surface_types_mod, ONLY:                                             &
    lake, npft, nnpft, ntype, soil, urban_canyon, urban_roof, ncpft
 
 USE nvegparm, ONLY: ch_nvg, emis_nvg, gs_nvg, vf_nvg
-USE cuticular_leak_state_mod, ONLY: cut_q_store   ! MDK, 23/10/26
+! MDK, 01/11/26
+USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_wt_root, cut_w_soil
 
 USE jules_soil_mod, ONLY: dzsoil
 USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
@@ -729,6 +730,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   q_rs(sm_levels),                                                             &
       ! Uptake from each layer at the actual root potential (kg m-2 s-1 per
       ! unit of rho_water g, i.e. relative).
+  wsum_root,                                                                   &
+      ! Sum of the root extraction weights, for the store's weights.
   ksum_rs, psi_root_rs,                                                        &
       ! Soil-to-root conductance summed over layers (kg m-3 s-1); root
       ! potential (Pa).
@@ -737,7 +740,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! with the plant capacitance el_pft less the store's release
       ! (cut_q_store), floored at 0.
       !
-      ! MDK, 23/10/26
+      ! MDK, 01/11/26
 LOGICAL, SAVE :: l_warned_ksr = .FALSE.
                             ! Warned once about fsmc_mod /= 2.
 REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_rs = Water_kg_per_mol
@@ -1751,6 +1754,30 @@ DO n = 1,npft
                ERRMSG )
         END IF
       END IF
+    END DO
+  END IF
+
+  ! Plant capacitance: keep the root extraction weights, before soil_evap
+  ! adds the soil evaporation to layer 1, normalised to sum to 1 (all from
+  ! layer 1 if no layer has a weight), and the unfrozen water in each layer
+  ! (kg m-2). sf_evap takes the store's flow from the soil layers with these
+  ! weights and limits the refill from each layer to its water.
+  !
+  ! MDK, 01/11/26
+  IF ( l_som_capacitance_on .AND. ALLOCATED(cut_wt_root) ) THEN
+    DO j = 1,surft_pts(n)
+      l = surft_index(j,n)
+      wsum_root = SUM(MAX(wt_ext_type(l,:,n), 0.0))
+      IF ( wsum_root > TINY(1.0_real_jlslsm) ) THEN
+        cut_wt_root(l,:,n) = MAX(wt_ext_type(l,:,n), 0.0) / wsum_root
+      ELSE
+        cut_wt_root(l,:,n) = 0.0
+        cut_wt_root(l,1,n) = 1.0
+      END IF
+      DO k = 1,sm_levels
+        cut_w_soil(l,k) = rho_water * dzsoil(k) * sthu_soilt(l,m,k)           &
+                          * smvcst_soilt(l,m,k)
+      END DO
     END DO
   END IF
 

@@ -21,6 +21,12 @@ USE sf_stom_state_mod, ONLY: shared_e_shd_prev, shared_amax_shd_prev
                             ! sf_stom_state_mod).
                             !
                             ! MDK, 30/10/26
+USE sf_stom_state_mod, ONLY: store_e_prev
+                            ! The capacitance store coupled to the two-leaf
+                            ! search: the last timestep's transpiration (see
+                            ! sf_stom_state_mod).
+                            !
+                            ! MDK, 01/11/26
 USE leaf_energy_balance_mod, ONLY: leaf_aero_geom, leaf_temp_setup,          &
                                    leaf_temp_update, leaf_temp_update_n
                             ! Leaf energy balance.
@@ -3817,21 +3823,35 @@ CASE ( 7 )
   !---------------------------------------------------------------------------
   ! The soil supply cap of the optimiser, and with the store coupled to it
   ! (the capacitance store) the store's flow out it sees in the first pass:
-  ! last step's (0 where the store is not set).
+  ! last step's (0 where the store is not set). Where the canopy was shut on
+  ! the last step (no stomatal transpiration, e.g. the night before the
+  ! first lit step) that flow is a refill (< 0), floored at 0 as between the
+  ! passes, so leaves that open now are not searched with their root flow
+  ! raised by last night's refill.
   !
   ! cut_q_store is deliberately not in the dump, so it is 0 after a restart.
   ! That changes nothing for a dump written at midnight: q_f is used only at
   ! lit points, and the night steps set cut_q_store before the first of
   ! them. Only a dump written in daylight would differ, in its first step's
   ! first pass.
+  !
+  ! MDK, 01/11/26
   !---------------------------------------------------------------------------
   e_sup_use(:) = e_supply(:)
   IF ( l_store_cpl ) THEN
+!$OMP CRITICAL (som_store_e_prev_alloc)
+    IF ( .NOT. ALLOCATED(store_e_prev) ) THEN
+      ALLOCATE( store_e_prev(land_pts, npft) )
+      store_e_prev(:,:) = 0.0
+    END IF
+!$OMP END CRITICAL (som_store_e_prev_alloc)
     q_f(:) = 0.0
     DO m = 1,veg_pts
       l = veg_index(m)
-      IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min )              &
+      IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min ) THEN
         q_f(l) = cut_q_store(l,ft) / cut_m_h2o
+        IF ( store_e_prev(l,ft) <= 0.0 ) q_f(l) = MAX(q_f(l), 0.0)
+      END IF
     END DO
     CALL store_cpl_supply()
   END IF
@@ -4020,6 +4040,16 @@ CASE ( 7 )
   IF ( l_som_coupled_e ) CALL cpl_state_save( ft, land_pts, veg_pts, veg_index,&
                                               gl_sun, gl_shd, gbw_sun_lt,      &
                                               gbw_shd_lt, ra_ca_lt )
+
+  ! The canopy's stomatal transpiration for the next step's first pass.
+  !
+  ! MDK, 01/11/26
+  IF ( l_store_cpl ) THEN
+    DO m = 1,veg_pts
+      l = veg_index(m)
+      store_e_prev(l,ft) = MAX(el_sun(l) + el_shd(l), 0.0)
+    END DO
+  END IF
 
   ! The shared root and stem (l_som_shared_stem): the shaded leaves' flow
   ! (and A at their edge) for the next timestep's first pass, and one stem
@@ -6661,19 +6691,21 @@ SUBROUTINE nsc_sink_factor( ft, land_pts, veg_pts, veg_index, psi_rz, beta )
 !   X    = B / R
 !   beta = beta_min + (1 - beta_min) exp(-X^2)
 !
-! where W_pot is the store's release to growth (kg C m-2 per 360 days) and
-! R = C_max - store is the room left in the store (kg C m-2). X is the
-! share of that room the held-back carbon would fill in t days, so the
-! feedback is 63 % of its full size at X = 1. In wet soil (f_turg = 1)
-! there is no feedback however full the store is (cold and season are not
-! counted). In a long drought the room shrinks and the feedback grows.
-! Capacity falls by at most 1 - beta_min.
+! where W_pot is the store's release to growth at its last step with the
+! turgor limit open (kg C m-2 per 360 days): the cold and season limits
+! still apply, so outside the growing season, or in the cold, W_pot is 0
+! and so is the feedback. R = C_max - store is the room left in the store
+! (kg C m-2). X is the share of that room the held-back carbon would fill
+! in t days, so the feedback is 63 % of its full size at X = 1. In wet soil
+! (f_turg = 1) there is no feedback however full the store is. In a long
+! drought the room shrinks and the feedback grows. Capacity falls by at
+! most 1 - beta_min.
 !
 ! beta is 1 where the store's maximum or content is not yet set, and the
 ! routine leaves beta unchanged without the turgor limit
 ! (nsc_psi_turg_zero not set) or before the store first exists.
 !
-! MDK, 31/10/26
+! MDK, 01/11/26
 
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_cmax_pft, nsc_wpot_pft
 USE pftparm, ONLY: is_set, nsc_psi_turg_zero, nsc_psi_turg_full,              &

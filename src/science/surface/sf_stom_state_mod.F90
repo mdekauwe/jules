@@ -23,7 +23,7 @@ MODULE sf_stom_state_mod
 ! Both are negative until first set, meaning "not yet set". A dump without
 ! them gives the same.
 !
-! MDK, 30/10/26
+! MDK, 01/11/26
 
 USE um_types, ONLY: real_jlslsm
 
@@ -31,7 +31,7 @@ IMPLICIT NONE
 
 PRIVATE
 PUBLIC :: f_vcmax_state, cpl_state, sf_stom_state_alloc, n_cpl_state,        &
-          shared_e_shd_prev, shared_amax_shd_prev
+          shared_e_shd_prev, shared_amax_shd_prev, store_e_prev
 
 ! gl_sun, gl_shd, gbw_sun, gbw_shd, ra_ca
 INTEGER, PARAMETER :: n_cpl_state = 5
@@ -52,6 +52,13 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: shared_e_shd_prev(:,:)
 ! (land_pts, npft) The same for the shaded leaves' A at their hydraulic
 ! edge (mol CO2 m-2 s-1), for the whole-plant gain (l_som_shared_gain).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: shared_amax_shd_prev(:,:)
+! (land_pts, npft) With the capacitance store coupled to the two-leaf
+! search: the last timestep's stomatal transpiration of the sunlit and
+! shaded leaves together (mol H2O m-2 s-1, >= 0; 0 where the canopy was
+! shut). Where it is 0, the first pass does not use the last step's store
+! refill. Allocated and set to 0 by sf_stom. Not in the dump: after a
+! restart the store's flow (cut_q_store) is also 0.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_e_prev(:,:)
 
 CONTAINS
 

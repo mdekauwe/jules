@@ -54,6 +54,8 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_nsc_pipe_target,                             &
                                 l_som_vcmax_psi, l_som_coupled_e,              &
                                 l_som_capacitance_on   ! MDK, 24/10/26
+! MDK, 01/11/26
+USE jules_vegetation_mod, ONLY: l_nsc_sink_feedback
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -398,10 +400,25 @@ IF ( l_triffid_nsc ) THEN
   CALL add_to_list( 'nsc_npp_wt', nvars, identifiers )
   ! The day's NPP for the daily store step without TRIFFID.
   IF ( .NOT. l_triffid ) CALL add_to_list( 'nsc_npp_day', nvars, identifiers )
+  ! The overflow respiration of the last store step, and with the sink
+  ! feedback the store's capacity and release for growth at that step,
+  ! so a restart has them before its first store step.
+  !
+  ! MDK, 01/11/26
+  CALL add_to_list( 'nsc_resp', nvars, identifiers )
+  IF ( l_nsc_sink_feedback ) THEN
+    CALL add_to_list( 'nsc_cmax', nvars, identifiers )
+    CALL add_to_list( 'nsc_wpot', nvars, identifiers )
+  END IF
   ! The turgor factor so far over the store period (turgor-limited sink;
   ! nsc_limits_on, the same test as the store).
   IF ( ANY( [ (nsc_limits_on(i), i = 1, npft) ] ) )                            &
     CALL add_to_list( 'nsc_turg_acc', nvars, identifiers )
+  ! With the sink feedback, the same sum for the cold and season factor.
+  !
+  ! MDK, 01/11/26
+  IF ( ANY( [ (nsc_limits_on(i), i = 1, npft) ] ) .AND. l_nsc_sink_feedback )  &
+    CALL add_to_list( 'nsc_tseas_acc', nvars, identifiers )
   ! The daily running mean air temperature of the cold limit.
   IF ( ANY(is_set(nsc_t_grow_zero(:))) )                                       &
     CALL add_to_list( 'nsc_t_run', nvars, identifiers )

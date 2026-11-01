@@ -34,6 +34,8 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt,
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
+USE triffid_nsc_mod, ONLY: nsc_cmax_pft, nsc_wpot_pft, nsc_resp_pft,          &
+                           nsc_tseas_acc
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
@@ -2223,6 +2225,48 @@ CASE ( 'cpl_ra_ca' )
     CALL cube_get_data(cube_land, cpl_state(:,:,5))
   ELSE
     cpl_state(:,:,5) = const_val
+  END IF
+
+! The TRIFFID store's values at its last step, for the dump.
+!
+! MDK, 01/11/26
+CASE ( 'nsc_cmax' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_cmax_pft(:,:))
+  ELSE
+    nsc_cmax_pft(:,:) = const_val
+  END IF
+
+CASE ( 'nsc_wpot' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_wpot_pft(:,:))
+  ELSE
+    nsc_wpot_pft(:,:) = const_val
+  END IF
+
+CASE ( 'nsc_resp' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_resp_pft(:,:))
+  ELSE
+    nsc_resp_pft(:,:) = const_val
+  END IF
+
+! The TRIFFID store's values at its last step, for the dump.
+!
+! MDK, 01/11/26
+CASE ( 'nsc_tseas_acc' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_tseas_acc(:,:))
+  ELSE
+    nsc_tseas_acc(:,:) = const_val
   END IF
 
 CASE ( 'nsc_t_run' )

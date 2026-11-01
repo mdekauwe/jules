@@ -10892,4 +10892,49 @@ DATA metadata(841) / var_metadata(                                             &
 ! Units
     "1"                                                                        &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_cmax
+!
+! MDK, 01/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(842) / var_metadata(                                             &
+! String identifier
+    'nsc_cmax',                                                                &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Capacity of the TRIFFID store at the last store step",                    &
+! Units
+    "kg m-2"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_wpot
+!
+! MDK, 01/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(843) / var_metadata(                                             &
+! String identifier
+    'nsc_wpot',                                                                &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "TRIFFID store release for growth with the turgor limit open",             &
+! Units
+    "kg m-2 per 360days"                                                       &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_tseas_acc
+!
+! MDK, 01/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(844) / var_metadata(                                             &
+! String identifier
+    'nsc_tseas_acc',                                                           &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Cold and season factor of the store sink summed so far / store period",   &
+! Units
+    "1"                                                                        &
+  ) /
 #endif
