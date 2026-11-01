@@ -57,7 +57,8 @@ USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica,               &
                                 l_som_cuticular_loss, leaf_flux_mod,           &
                                 leaf_flux_stom_opt, l_som_capacitance_on   ! MDK, 23/10/26
 USE desica_jls_mod, ONLY: desica_commit, desica_cut_uptake
-USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_store_return
+USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_store_return,           &
+                                    cut_wt_root, cut_w_soil
 USE ereport_mod, ONLY: ereport
 
 USE jules_science_fixes_mod, ONLY: l_fix_neg_snow
@@ -233,6 +234,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
 REAL(KIND=real_jlslsm) ::                                                      &
  sum_t, sum_q, excess, dq_cut
                        ! DESICA soil-supply check on the uptake.
+REAL(KIND=real_jlslsm) ::                                                      &
+ w_base, w_give, w_refill, f_lay
+                       ! Store's refill check by soil layer: the layer's
+                       ! extraction without the store, the store's give and
+                       ! refill from the layer (kg/m2/s), and the fraction
+                       ! of the refill the layers can supply.
+                       !
+                       ! MDK, 01/11/26
 LOGICAL :: l_desica
                        ! DESICA is on (stomata_model = stomata_desica).
 LOGICAL :: l_cut_store
@@ -874,16 +883,25 @@ END IF
 !   soil extraction = esoil - MIN(q_store, T),
 !
 ! so soil + plant + atmosphere water is conserved: the store pays part of
-! the transpiration (and the leak) and refills from the soil later.
+! the transpiration (and the leak) and refills from the soil later. The
+! store's flow is root uptake, so it is taken from (refill) or left in
+! (give) the soil layers with the root weights (cut_wt_root, set in
+! physiol), not the weights of the whole flux, which include the soil
+! evaporation from layer 1.
 !
 !   1. The store gives at most the transpiration T (the stomatal share of
 !      esoil, as for DESICA); what it cannot give stays in the store.
-!   2. Its refill (q_store < 0) is at most the soil's water in the top
-!      layer; what the soil cannot supply stays out of the store.
+!   2. The refills (q_store < 0) and esoil together take at most the
+!      root-zone available water (smc_soilt), the limit on esoil.
+!   3. The refill from each layer, added to that layer's extraction
+!      without the store, takes at most the layer's unfrozen water
+!      (cut_w_soil); the refills are cut by the fraction that the most
+!      limiting layer can supply.
 !
-! Both go back to the store through cut_store_return.
+! What is not given or not supplied goes back to the store through
+! cut_store_return.
 !
-! MDK, 23/10/26
+! MDK, 01/11/26
 IF ( l_cut_store ) THEN
   IF ( ALLOCATED(cut_q_store) ) THEN
     DO n = 1,npft
@@ -933,6 +951,42 @@ IF ( l_cut_store ) THEN
         END DO
       END IF
     END DO
+    ! Step 3: the refill from each soil layer is at most the layer's
+    ! unfrozen water less the rest of its extraction this step.
+    DO l = 1,land_pts
+      f_lay = 1.0
+      DO m = 1,sm_levels
+        w_base   = 0.0
+        w_give   = 0.0
+        w_refill = 0.0
+        DO n = 1,nsurft
+          IF ( tile_frac(l,n) <= 0.0 ) CYCLE
+          IF ( l_flake_model .AND. n == lake ) CYCLE
+          w_base = w_base + tile_frac(l,n) * wt_ext_surft(l,m,n)               &
+                            * ( esoil_surft(l,n) + des_or(l,n) )
+          IF ( m == 1 ) w_base = w_base - tile_frac(l,n) * des_or(l,n)
+          IF ( n <= npft ) THEN
+            w_give   = w_give + tile_frac(l,n) * cut_wt_root(l,m,n)           &
+                       * MAX(esoil_surft(l,n) - esoil_ext(l,n), 0.0)
+            w_refill = w_refill + tile_frac(l,n) * cut_wt_root(l,m,n)         &
+                       * MAX(esoil_ext(l,n) - esoil_surft(l,n), 0.0)
+          END IF
+        END DO
+        excess = w_base - w_give + w_refill - cut_w_soil(l,m) / timestep
+        IF ( excess > 0.0 .AND. w_refill > 0.0 )                               &
+          f_lay = MIN(f_lay, MAX(1.0 - excess / w_refill, 0.0))
+      END DO
+      IF ( f_lay < 1.0 ) THEN
+        DO n = 1,npft
+          IF ( tile_frac(l,n) <= 0.0 ) CYCLE
+          dq_cut = (1.0 - f_lay) * MAX(esoil_ext(l,n) - esoil_surft(l,n), 0.0)
+          IF ( dq_cut > 0.0 ) THEN
+            esoil_ext(l,n) = esoil_ext(l,n) - dq_cut
+            CALL cut_store_return( l, n, timestep, -dq_cut )
+          END IF
+        END DO
+      END IF
+    END DO
   END IF
 END IF
 !$OMP END SINGLE
@@ -964,9 +1018,22 @@ DO m = 1,sm_levels
 !$OMP DO SCHEDULE(STATIC)
         DO k = 1,surft_pts(n)
           l = surft_index(k,n)
-          ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                                &
-                            + tile_frac(l,n) * wt_ext_surft(l,m,n)             &
-                            * ( esoil_ext(l,n) + des_or(l,n) )
+          ! With the plant store, the tile's flux esoil is taken with the
+          ! flux weights and the store's flow (esoil_ext - esoil) with the
+          ! root weights.
+          !
+          ! MDK, 01/11/26
+          IF ( l_cut_store .AND. n <= npft .AND. ALLOCATED(cut_wt_root) ) THEN
+            ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                              &
+                              + tile_frac(l,n) * ( wt_ext_surft(l,m,n)         &
+                              * ( esoil_surft(l,n) + des_or(l,n) )             &
+                              + cut_wt_root(l,m,n)                             &
+                              * ( esoil_ext(l,n) - esoil_surft(l,n) ) )
+          ELSE
+            ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                              &
+                              + tile_frac(l,n) * wt_ext_surft(l,m,n)           &
+                              * ( esoil_ext(l,n) + des_or(l,n) )
+          END IF
           IF ( m == 1 ) ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                  &
                                             - tile_frac(l,n) * des_or(l,n)
         END DO
