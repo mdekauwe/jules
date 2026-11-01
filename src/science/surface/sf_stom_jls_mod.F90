@@ -4882,6 +4882,9 @@ CONTAINS
 ! ground. The "cut_" prefix is from the module that holds the store,
 ! cuticular_leak_state_mod.
 !
+! Sets cut_q_store and cut_w_store (cuticular_leak_state_mod) for PFT ft
+! (sf_stom).
+!
 ! MDK, 23/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_commit( l_c, c_s, psi_x0, psi_x1 )
@@ -4902,12 +4905,16 @@ cut_w_store(l_c,ft) = c_s * psi_x1
 END SUBROUTINE store_commit
 
 !-----------------------------------------------------------------------------
-! The capacitance store: the soil supply cap of the two-leaf optimiser.
-! The soil supplies E - q_f, so the cap on E is
+! Plant capacitance: the most the canopy may transpire this step is what
+! the soil can supply plus what the stem store gives.
 !
-!   e_supply + q_f      (kg m-2 s-1, no less than 0),
+!   e_sup_use = e_supply + q_f M_w      (kg H2O m-2 s-1, at least 0)
 !
-! and no cap (e_supply < 0) stays no cap.
+! e_supply is the soil's supply (< 0: no cap, which stays no cap), q_f the
+! store's flow out (mol H2O m-2 s-1; < 0 when it refills, which lowers the
+! cap) and M_w the molar mass of water.
+!
+! Reads e_supply and q_f and sets e_sup_use, all in sf_stom.
 !
 ! MDK, 24/10/26
 !-----------------------------------------------------------------------------
@@ -4927,9 +4934,15 @@ END DO
 END SUBROUTINE store_cpl_supply
 
 !-----------------------------------------------------------------------------
-! The capacitance store: the classes' parts of q_f (see q_f_sun). With
-! l_pass, in proportion to the last pass's class E (el_sun, el_shd);
-! otherwise (first pass), or where E = 0, by the kmax_ref shares.
+! Plant capacitance, two-leaf canopy: split the store's flow q_f between
+! the sunlit and shaded leaves (q_f_sun, q_f_shd).
+!
+! Each leaf gets the share of q_f that it transpired on the last pass
+! (el_sun, el_shd). On the first pass (l_pass false), or where the canopy
+! did not transpire, each gets its share of the canopy's hydraulic
+! conductance (kmax_ref_sun_2l, kmax_ref_shd_2l) instead.
+!
+! All these variables are in sf_stom.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -4955,11 +4968,16 @@ END DO
 END SUBROUTINE store_cpl_split
 
 !-----------------------------------------------------------------------------
-! The capacitance store, multilayer: layer n's sunlit and shaded parts of
-! q_f per unit leaf area (q_sun_ml, q_shd_ml; see e_ml_prev) for pass k:
-! in proportion to the last pass's E of that leaf (el_sun_lyr, el_shd_lyr)
-! over the canopy E (e_ml_prev), or in the first pass, or where E = 0, by
-! the layer's kmax share (share_sup, per unit leaf area).
+! Plant capacitance, multilayer canopy: the store's flow q_f given to the
+! sunlit and shaded leaves of layer n_l, per unit leaf area (q_sun_ml,
+! q_shd_ml), on pass k_p.
+!
+! Each leaf gets q_f times its transpiration on the last pass (el_sun_lyr,
+! el_shd_lyr) over the canopy's (e_ml_prev). On the first pass, or where
+! the canopy did not transpire, both get q_f times the layer's share of the
+! canopy's hydraulic conductance (share_sup) instead.
+!
+! All these variables are in sf_stom.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -4994,6 +5012,10 @@ END SUBROUTINE store_cpl_ml_q
 ! scaled to it, and the balance is then committed exactly. Only the cut
 ! points are solved (l_sel); the others keep the balance already committed.
 ! 20 bisection steps leave E within 1e-6 of el.
+!
+! Reads lk_cut, l_fl_hit, el, e_be and the tile flux inputs (pstar, tstar,
+! qs, q1, ra, g_soil_c) and, at the cut points, sets e_be, el, gc and
+! gc_som, all in sf_stom; store_cpl_q then sets the store's balance there.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -5106,6 +5128,9 @@ END SUBROUTINE store_cpl_leak_cut
 ! psi_l_be (the leaf psi where the leaf segment carries E from psi_st),
 ! k_be and l_fl_hit. Elsewhere q_be = 0, psi_st_be = psi_src and psi_l_be
 ! = psi_leaf (or, with l_sel, as they were).
+!
+! Reads kref_cpl, kmx_cpl, kcr_cpl, psi_src and psi_leaf and sets the
+! outputs above and share_sup (to 1), all in sf_stom.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
@@ -5365,6 +5390,9 @@ END SUBROUTINE store_cpl_q
 !
 ! with the store's flow held at q_try on the canopy's path (psi1, st1: the
 ! chain's leaf and stem psi, Pa).
+!
+! Reads psi_src and share_sup from sf_stom; the rest comes through its
+! arguments.
 !
 ! MDK, 25/10/26
 !-----------------------------------------------------------------------------
