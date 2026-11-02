@@ -43,7 +43,7 @@ MODULE cuticular_leak_state_mod
 !
 ! The "cut" in the module and dump names comes from cuticular.
 !
-! MDK, 01/11/26
+! MDK, 02/11/26
 
 USE um_types, ONLY: real_jlslsm
 USE water_constants_mod, ONLY: Water_kg_per_mol
@@ -53,7 +53,7 @@ IMPLICIT NONE
 PRIVATE
 PUBLIC :: cut_w_store, cut_psi_stem, cut_q_store, cut_c_store, cut_w_shed,     &
           cut_e_leak, cut_state_alloc, cut_psi_unset, cut_m_h2o,               &
-          cut_store_return, cut_wt_root, cut_w_soil
+          cut_store_return, cut_wt_root, cut_w_soil, cut_w_root_avail
 
 ! Value of a state not yet set (psi and the store's water are <= 0)
 ! (Pa, or mol m-2).
@@ -116,6 +116,13 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_wt_root(:,:,:)
 ! take more than this from a layer. Dimensions (land points, soil layers).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_w_soil(:,:)
 
+! Water the roots of each PFT can take this timestep (kg H2O m-2): the
+! water above the closure point (v_close) in each soil layer, weighted by
+! the root extraction weights (cut_wt_root), set in physiol. sf_evap does
+! not let the transpiration and the store's refill together take more than
+! this. Dimensions (land points, PFTs).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cut_w_root_avail(:,:)
+
 CONTAINS
 
 ! ---------------------------------------------------------------------
@@ -123,9 +130,9 @@ CONTAINS
 ! allocated. The water and stem water potential start as "not yet set"
 ! (cut_psi_unset); the flows and capacitance start at 0. The root weights
 ! start with all uptake from layer 1 and the soil water at 0; physiol sets
-! both each timestep before sf_evap uses them.
+! them each timestep before sf_evap uses them.
 !
-! MDK, 01/11/26
+! MDK, 02/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE cut_state_alloc( n_land_pts )
 
@@ -159,10 +166,12 @@ END IF
 
 IF (.NOT. ALLOCATED(cut_wt_root)) THEN
   ALLOCATE(cut_wt_root(n_land_pts, sm_levels, npft),                          &
-           cut_w_soil(n_land_pts, sm_levels))
-  cut_wt_root(:,:,:)  = 0.0
-  cut_wt_root(:,1,:)  = 1.0
-  cut_w_soil(:,:)     = 0.0
+           cut_w_soil(n_land_pts, sm_levels),                                  &
+           cut_w_root_avail(n_land_pts, npft))
+  cut_wt_root(:,:,:)    = 0.0
+  cut_wt_root(:,1,:)    = 1.0
+  cut_w_soil(:,:)       = 0.0
+  cut_w_root_avail(:,:) = 0.0
 END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

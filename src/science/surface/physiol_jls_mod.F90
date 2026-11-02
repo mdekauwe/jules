@@ -110,7 +110,8 @@ USE jules_surface_types_mod, ONLY:                                             &
 
 USE nvegparm, ONLY: ch_nvg, emis_nvg, gs_nvg, vf_nvg
 ! MDK, 01/11/26
-USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_wt_root, cut_w_soil
+USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_wt_root, cut_w_soil,  &
+                                    cut_w_root_avail
 
 USE jules_soil_mod, ONLY: dzsoil
 USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
@@ -1759,11 +1760,18 @@ DO n = 1,npft
 
   ! Plant capacitance: keep the root extraction weights, before soil_evap
   ! adds the soil evaporation to layer 1, normalised to sum to 1 (all from
-  ! layer 1 if no layer has a weight), and the unfrozen water in each layer
-  ! (kg m-2). sf_evap takes the store's flow from the soil layers with these
-  ! weights and limits the refill from each layer to its water.
+  ! layer 1 if no layer has a weight), the unfrozen water in each layer
+  ! (kg m-2), and the water the roots can take (kg m-2), the water above the
+  ! closure point in each layer weighted by the root weights,
   !
-  ! MDK, 01/11/26
+  !   W_root = SUM_k w_k rho_w dz_k MAX(0, theta_k - theta_close,k),
+  !
+  ! as smc_soilt but with the root weights, which soil_evap does not change.
+  ! sf_evap takes the store's flow from the soil layers with these weights,
+  ! limits the transpiration and refill together to W_root, and the refill
+  ! from each layer to its water.
+  !
+  ! MDK, 02/11/26
   IF ( l_som_capacitance_on .AND. ALLOCATED(cut_wt_root) ) THEN
     DO j = 1,surft_pts(n)
       l = surft_index(j,n)
@@ -1774,9 +1782,15 @@ DO n = 1,npft
         cut_wt_root(l,:,n) = 0.0
         cut_wt_root(l,1,n) = 1.0
       END IF
+      cut_w_root_avail(l,n) = 0.0
       DO k = 1,sm_levels
         cut_w_soil(l,k) = rho_water * dzsoil(k) * sthu_soilt(l,m,k)           &
                           * smvcst_soilt(l,m,k)
+        cut_w_root_avail(l,n) = cut_w_root_avail(l,n)                         &
+                                + cut_wt_root(l,k,n) * rho_water * dzsoil(k)   &
+                                  * MAX(0.0, sthu_soilt(l,m,k)                 &
+                                             * smvcst_soilt(l,m,k)             &
+                                             - v_close_pft(l,k,n))
       END DO
     END DO
   END IF

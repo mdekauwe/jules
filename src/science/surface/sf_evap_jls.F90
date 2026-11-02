@@ -58,7 +58,7 @@ USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica,               &
                                 leaf_flux_stom_opt, l_som_capacitance_on   ! MDK, 23/10/26
 USE desica_jls_mod, ONLY: desica_commit, desica_cut_uptake
 USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_store_return,           &
-                                    cut_wt_root, cut_w_soil
+                                    cut_wt_root, cut_w_soil, cut_w_root_avail
 USE ereport_mod, ONLY: ereport
 
 USE jules_science_fixes_mod, ONLY: l_fix_neg_snow
@@ -235,11 +235,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
  sum_t, sum_q, excess, dq_cut
                        ! DESICA soil-supply check on the uptake.
 REAL(KIND=real_jlslsm) ::                                                      &
- w_base, w_give, w_refill, f_lay
+ w_base, w_give, w_refill, f_lay, w_root
                        ! Store's refill check by soil layer: the layer's
                        ! extraction without the store, the store's give and
                        ! refill from the layer (kg/m2/s), and the fraction
-                       ! of the refill the layers can supply.
+                       ! of the refill the layers can supply; the water
+                       ! the roots can reach over the tiles (kg/m2).
                        !
                        ! MDK, 01/11/26
 LOGICAL :: l_desica
@@ -891,8 +892,11 @@ END IF
 !
 !   1. The store gives at most the transpiration T (the stomatal share of
 !      esoil, as for DESICA); what it cannot give stays in the store.
-!   2. The refills (q_store < 0) and esoil together take at most the
-!      root-zone available water (smc_soilt), the limit on esoil.
+!   2. The refills (q_store < 0) and the stomatal transpiration the soil
+!      still gives together take at most the water the roots can reach
+!      (cut_w_root_avail: the water above the closure point, weighted by the
+!      root weights). smc_soilt cannot be used here: at night soil_evap
+!      gives all the weight to layer 1, so it would hold the top layer only.
 !   3. The refill from each layer, added to that layer's extraction
 !      without the store, takes at most the layer's unfrozen water
 !      (cut_w_soil); the refills are cut by the fraction that the most
@@ -901,7 +905,7 @@ END IF
 ! What is not given or not supplied goes back to the store through
 ! cut_store_return.
 !
-! MDK, 01/11/26
+! MDK, 02/11/26
 IF ( l_cut_store ) THEN
   IF ( ALLOCATED(cut_q_store) ) THEN
     DO n = 1,npft
@@ -928,18 +932,23 @@ IF ( l_cut_store ) THEN
                                  cut_q_store(l,n) - MAX(t_stom(l,n), 0.0) )
       END DO
     END DO
-    ! Step 2: the refills (kg m-2 s-1, summed over the tiles) cannot take
-    ! more than the soil water available this step; any excess is taken
-    ! off each refill in proportion and stays out of the store.
+    ! Step 2: the refills and the stomatal transpiration the soil still
+    ! gives (kg m-2 s-1, summed over the tiles) cannot take more than the
+    ! water the roots can reach this step; any excess is taken off each
+    ! refill in proportion and stays out of the store.
     DO l = 1,land_pts
-      j = (land_index(l) - 1) / t_i_length + 1
-      i = land_index(l) - (j-1) * t_i_length
-      sum_q = 0.0
+      sum_q  = 0.0
+      sum_t  = 0.0
+      w_root = 0.0
       DO n = 1,npft
-        sum_q = sum_q + tile_frac(l,n) * MAX(esoil_ext(l,n) - esoil_surft(l,n), &
-                                             0.0)
+        sum_q  = sum_q + tile_frac(l,n) * MAX(esoil_ext(l,n) - esoil_surft(l,n), &
+                                              0.0)
+        sum_t  = sum_t + tile_frac(l,n)                                        &
+                 * MAX(t_stom(l,n) - MAX(esoil_surft(l,n) - esoil_ext(l,n), 0.0), &
+                       0.0)
+        w_root = w_root + tile_frac(l,n) * cut_w_root_avail(l,n)
       END DO
-      excess = esoil_soilt(i,j,1) + sum_q - smc_soilt(l,1) / timestep
+      excess = sum_t + sum_q - w_root / timestep
       IF ( excess > 0.0 .AND. sum_q > 0.0 ) THEN
         DO n = 1,npft
           dq_cut = MIN(excess / sum_q, 1.0)                                    &
