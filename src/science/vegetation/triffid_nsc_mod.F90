@@ -60,9 +60,11 @@ MODULE triffid_nsc_mod
 !   f_T = (T_d - T_0) / (T_1 - T_0),   kept within 0-1,
 !
 ! with T_d a running mean of the air temperature over about a day (degC),
-! T_0 = nsc_t_grow_zero and T_1 = nsc_t_grow_full. f_season is 1 from
-! nsc_grow_start_doy (or the leaf flush start, if set) to nsc_grow_end_doy
-! and 0 outside it. With any limit on, the release is scaled so that a
+! T_0 = nsc_t_grow_zero and T_1 = nsc_t_grow_full. f_season is 1 from the
+! start of the growing season to nsc_grow_end_doy and 0 outside it. The
+! season starts at nsc_flush_start_doy when a leaf flush is set (then
+! nsc_grow_start_doy is not used here), and at nsc_grow_start_doy
+! otherwise. With any limit on, the release is scaled so that a
 ! full store with f = 1 still releases W_max:
 !
 !   W = W_max f [C_a / (k_c C_max + C_a)] / [C_m / (k_c C_max + C_m)],
@@ -108,10 +110,10 @@ MODULE triffid_nsc_mod
 ! with dt the TRIFFID step (360-day years) and X the conducting sapwood
 ! (kg C m-2). X is the sapwood pool (section 6) or, without it, sapwood_c:
 ! nsc_sapwood_frac of the wood, or with nsc_la_sa > 0 the pipe model, in
-! which the sapwood area is proportional to the leaf area it supplies (as
-! in FATES). No carbon is drawn from the store for the ring: the store
+! which the sapwood area is proportional to the leaf area it supplies.
+! No carbon is drawn from the store for the ring: the store
 ! sets its pace through W. The ring replaces damaged xylem first
-! (l_nsc_ring_additive, as in MEDFATE); with that off the ring dilutes the
+! (l_nsc_ring_additive); with that off the ring dilutes the
 ! loss, L -> L (1 - rho).
 !
 ! While the release is shut TRIFFID still removes the wood turnover, so the
@@ -576,10 +578,7 @@ END SUBROUTINE triffid_nsc_alloc
 !      nsc_overflow_resp, which is respired, and sets the starvation
 !      disturbance for lotka.
 !
-! The equations are in the module header. Ring renewal (stem recovery)
-! runs later, in triffid_nsc_ring_renewal after vegcarb.
-!
-! MDK, 01/11/26
+! MDK, 03/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,         &
                               leafc, rootc, npp, pft_only )
