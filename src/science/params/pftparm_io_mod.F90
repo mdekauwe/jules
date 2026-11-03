@@ -2094,6 +2094,16 @@ DO i = 1, npft
     CALL ereport(RoutineName, errcode,                                         &
                  'l_som_plant_segments needs pft_conductance_model = 1.')
   END IF
+  ! The capacitance store (l_som_capacitance, or the leak that turns it on)
+  ! always works on the segment curves, which are Weibull: with the SOX
+  ! curve they would hold SOX b and c used in the Weibull formulas.
+  ! MDK, 03/11/26
+  IF ( l_som_capacitance_on .AND. pft_conductance_model(i) /= 1 ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'l_som_capacitance (or l_som_cuticular_loss) needs ' //       &
+                 'pft_conductance_model = 1.')
+  END IF
   IF ( l_som_plant_segments .AND. pft_xylem_impairment_model(i) /= 0 .AND.   &
        pft_xylem_impairment_model(i) /= xylem_impairment_memory ) THEN
     ! With segments only the memory model is coded: its cap is applied to

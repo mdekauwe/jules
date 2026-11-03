@@ -1219,8 +1219,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! MDK, 19/10/26
   dnw_2l,                                                                      &
       ! Layer integral of exp(-kn_2l*L) over dlai.
-  kn_2l
+  kn_2l,                                                                       &
       ! N extinction per unit LAI of the two-leaf classes (= knl).
+  nw_tot_2l
+      ! Canopy N weight N_sun + N_shd (floored at TINY); each class gets
+      ! its share N_class / nw_tot_2l of the canopy kmax.
+      !
+      ! MDK, 03/11/26
 
 ! Two-leaf leaf temperatures (l_leaf_temp).
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -3631,16 +3636,41 @@ CASE ( 7 )
   ! The sunlit fraction and the absorbed PAR per unit sunlit/shaded leaf area
   ! come from the JULES two-stream profile over ilayers (as for
   ! can_rad_mod = 5/6), and are summed over the layers into two canopy-scale
-  ! leaves. Leaf N (and so Vcmax, Jmax, Rd) follows the big-leaf profile
-  ! exp(-kpar*L), so the canopy totals of Vcmax, Jmax, Rd and gl_max match
-  ! can_rad_mod = 1. The absorbed light is the two-stream canopy total
-  ! (<= incident PAR), whereas big-leaf uses acr*fpar, (1-omega)*ipar*
-  ! (1-exp(-kpar*L))/kpar, about 1/kpar times more; so expect lower
-  ! light-limited GPP than big-leaf, beyond the effect of the sun/shade
-  ! split. Kmax is per unit leaf area as in big-leaf, and the canopy
-  ! kmax_pft*LAI is shared between
-  ! the classes by N-weighted leaf area; each class draws from psi_root_zone
-  ! on its own parallel path.
+  ! leaves.
+  !
+  ! Leaf N, and so Vcmax, Jmax and Rd, declines with cumulative leaf area L
+  ! as exp(-knl L), as in the multilayer scheme (can_rad_mod = 6). Layer n,
+  ! of leaf area dL, has the N weight
+  !
+  !   w_n = ( exp(-knl (n-1) dL) - exp(-knl n dL) ) / knl,
+  !
+  ! and the classes take
+  !
+  !   N_sun = sum_n f_sun,n w_n,
+  !   N_shd = sum_n (1 - f_sun,n) w_n,
+  !
+  ! with f_sun,n the sunlit fraction of layer n. Each class's Vcmax and Jmax
+  ! are the top-leaf values times its N weight, so the canopy total is the
+  ! top-leaf value times (1 - exp(-knl LAI)) / knl. Big-leaf (can_rad_mod =
+  ! 1) scales by (1 - exp(-kpar LAI)) / kpar, so the canopy totals match
+  ! big-leaf only when knl = kpar.
+  !
+  ! The absorbed light is the two-stream canopy total (<= incident PAR),
+  ! whereas big-leaf uses
+  !
+  !   acr fpar = (1 - omega) ipar (1 - exp(-kpar LAI)) / kpar,
+  !
+  ! about 1/kpar times more, so expect lower light-limited GPP than big-leaf,
+  ! beyond the effect of the sun/shade split. The leaf conductance cap is
+  ! gl_leaf_cap times each class's leaf area.
+  !
+  ! kmax is per unit leaf area as in big-leaf. The canopy conductance
+  ! kmax_pft LAI is shared between the classes by their N weights,
+  !
+  !   kmax_sun = kmax_pft LAI N_sun / (N_sun + N_shd),
+  !
+  ! and likewise for the shaded leaf, so the canopy total is unchanged. Each
+  ! class draws from psi_root_zone on its own parallel path.
   !
   ! l_leaf_temp: each leaf has its own temperature from a leaf energy
   ! balance (Penman-Monteith; Leuning et al., 1995; Wang & Leuning, 1998),
@@ -3653,7 +3683,7 @@ CASE ( 7 )
   ! temperatures: leaf_temp_iter passes, so no more stom_opt_mod calls than
   ! without l_leaf_temp (for leaf_temp_iter = iter).
   !
-  ! MDK, 30/10/26
+  ! MDK, 03/11/26
   !---------------------------------------------------------------------------
   IF ( leaf_flux_mod /= leaf_flux_stom_opt ) THEN
     errcode = 101  !  a hard error
@@ -3705,18 +3735,17 @@ CASE ( 7 )
     ! shade leaves without changing the canopy total (cf. the multilayer
     ! leaf-segment profile). CABLE itself uses kmax_pft * scalex, which
     ! lowers the canopy total by fpar/LAI.
+    !
     ! Xylem impairment: both classes draw on the one (impaired) plant, so
     ! the impaired leaf-basis k_max (= kmax_pft when unimpaired) is shared
     ! the same way, and the unimpaired kmax_pft share is the reference for
     ! the hydraulic cost; kcrit stays on the unimpaired curve, as big-leaf.
-    kmax_ref_sun_2l(l) = kmax_pft(ft) * lai(l) * nw_sun_2l(l)                  &
-                         / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
-    kmax_ref_shd_2l(l) = kmax_pft(ft) * lai(l) * nw_shd_2l(l)                  &
-                         / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
-    kmax_sun_2l(l) = k_max(l) * lai(l) * nw_sun_2l(l)                          &
-                     / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
-    kmax_shd_2l(l) = k_max(l) * lai(l) * nw_shd_2l(l)                          &
-                     / MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
+    nw_tot_2l = MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
+    kmax_ref_sun_2l(l) = kmax_pft(ft) * lai(l) * nw_sun_2l(l) / nw_tot_2l
+    kmax_ref_shd_2l(l) = kmax_pft(ft) * lai(l) * nw_shd_2l(l) / nw_tot_2l
+    kmax_sun_2l(l)     = k_max(l) * lai(l) * nw_sun_2l(l) / nw_tot_2l
+    kmax_shd_2l(l)     = k_max(l) * lai(l) * nw_shd_2l(l) / nw_tot_2l
+
     ! In spin-up, or without an impairment model, the intact kmax (as big
     ! leaf).
     IF ( is_spinup .OR. pft_xylem_impairment_model(ft) ==                     &
@@ -3726,6 +3755,7 @@ CASE ( 7 )
     END IF
     kcrit_sun_2l(l) = kcrit_of_path(ft, kmax_ref_sun_2l(l))
     kcrit_shd_2l(l) = kcrit_of_path(ft, kmax_ref_shd_2l(l))
+
     ! kplant_model = 1: root and stem per unit ground area, each class's
     ! path in series. One factor for both classes (so the shares are
     ! unchanged) and for the impaired, intact and critical conductances
@@ -3739,6 +3769,7 @@ CASE ( 7 )
       kcrit_sun_2l(l)    = kcrit_sun_2l(l)    * kplant_scale(l)
       kcrit_shd_2l(l)    = kcrit_shd_2l(l)    * kplant_scale(l)
     END IF
+
     ! som_gl_max is per unit leaf area: x the class leaf area.
     gl_max_sun_2l(l) = gl_leaf_cap * lai_sun_2l(l)
     gl_max_shd_2l(l) = gl_leaf_cap * lai_shd_2l(l)
@@ -3748,9 +3779,20 @@ CASE ( 7 )
     i2_shd(l) = alpha_elec(ft) * acr_shd_2l(l)
   END DO
 
-  ! The non-rectangular hyperbola is homogeneous of degree one in (I, Jmax),
-  ! so applying it to the class totals is the same as summing identical
-  ! leaves.
+  ! Each class's electron transport comes from its totals of I and Jmax.
+  ! The light response,
+  !
+  !   J = ( I + Jmax - SQRT((I + Jmax)**2 - 4 theta I Jmax) ) / (2 theta),
+  !
+  ! with theta = light_curvature (calc_electron_flux), scales with I and
+  ! Jmax together, J(c I, c Jmax) = c J(I, Jmax), so J of
+  ! the totals equals the sum of J over the class's leaves when they all
+  ! have the same I / Jmax. Within a class the ratio varies (light and N
+  ! fall at different rates with depth); J is concave, so J of the totals
+  ! is then at least the sum over leaves. This is the usual two-leaf
+  ! approximation (de Pury & Farquhar, 1997).
+  !
+  ! MDK, 03/11/26
   IF ( pft_photo_model == photo_farquhar ) THEN
     CALL calc_electron_flux( land_pts, veg_pts, veg_index, i2_sun,             &
                              jmax_sun_2l, je_sun )
@@ -4443,15 +4485,35 @@ IF ( l_cap_store ) THEN
     lk_cut(l) = .TRUE.
   END DO
 
-  ! Floors on psi: the psi of the critical loss of conductance
-  ! (kcrit_fractional_loss), where the memory stops, on the curve of the
-  ! leaf and stem segments, or the PFT curve without segments.
+  ! Lower limits on the leaf and stem psi for the store and the leak. Each
+  ! is the psi at which the segment keeps only the share
+  !
+  !   r = 1 - kcrit_fractional_loss
+  !
+  ! of its conductance (the critical loss, e.g. 0.95), which is also the
+  ! lowest conductance the impairment memory allows. On the Weibull curve,
+  ! k / kmax = exp(-(psi / b)**c),
+  !
+  !   psi_fl = -b (-LOG(r))**(1 / c),
+  !
+  ! and on the SOX curve, k / kmax = 1 / (1 + (psi / b)**c),
+  !
+  !   psi_fl = -b (1 / r - 1)**(1 / c).
+  !
+  ! psi_fl_leaf and psi_fl_stem come from the leaf and stem segment curves
+  ! when segments are on (after spin-up, with an impairment model), and
+  ! always when the store is coupled to the optimiser, because the store's
+  ! balance and the optimiser then use the segment curves in spin-up and
+  ! without an impairment model too. The segment curves are Weibull.
+  ! Otherwise both are on the PFT curve, Weibull or SOX.
+  ! The leak is cut where the leaf would end below psi_fl_leaf
+  ! (store_cpl_leak_cut), and the store's stem psi is kept at or above
+  ! psi_fl_stem (store_cpl_q).
+  !
+  ! MDK, 03/11/26
   r_crit = 1.0 - kcrit_fractional_loss(ft)
   l_seg_cut = l_som_plant_segments .AND. .NOT. is_spinup .AND.                 &
               pft_xylem_impairment_model(ft) /= xylem_impairment_none
-  ! (With the store coupled to the optimiser, always the segment curves:
-  ! its balance and the optimiser use the segments in spin-up and without
-  ! an impairment model too.)
   IF ( l_seg_cut .OR. l_store_cpl ) THEN
     psi_fl_leaf = -ABS(conductance_b_seg(ft,3))                                &
                   * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,3))
@@ -6271,11 +6333,19 @@ SUBROUTINE sun_shade_totals( land_pts, veg_pts, veg_index, ilayers, dlai,     &
                              lai_shd, apar_sun, apar_shd )
 
 ! Add up, over the canopy layers, the leaf area of the sunlit and of the
-! shaded leaves (m2 m-2) and the PAR each set absorbs (W m-2 ground),
-! using each layer's sunlit fraction. The two-leaf canopy runs on these
-! totals, and the multilayer canopy's leaf energy balance uses them too.
+! shaded leaves (m2 m-2) and the PAR each set absorbs (W m-2 ground). Layer
+! n has leaf area dL, sunlit fraction f_n and absorbed PAR per unit sunlit
+! and shaded leaf area a_sun,n and a_shd,n (fractions of the incident PAR
+! I, from the two-stream profile), so
 !
-! MDK, 24/10/26
+!   L_sun = sum_n f_n dL,          L_shd = sum_n (1 - f_n) dL,
+!   A_sun = I sum_n a_sun,n f_n dL,
+!   A_shd = I sum_n a_shd,n (1 - f_n) dL.
+!
+! The two-leaf canopy runs on these totals, and the multilayer canopy's
+! leaf energy balance uses them too.
+!
+! MDK, 03/11/26
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
