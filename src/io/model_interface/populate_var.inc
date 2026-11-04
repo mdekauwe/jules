@@ -27,6 +27,10 @@ USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
                                     cut_psi_stem, cut_c_store, cut_q_store
 USE sf_stom_state_mod, ONLY: store_e_prev, shared_e_shd_prev,                &
                              shared_amax_shd_prev
+! The stomatal optimisation's tile aerodynamic resistance.
+!
+! MDK, 04/11/26
+USE sf_stom_state_mod, ONLY: ra_tile_prev, ra_tile_alloc
 USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
                              phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
@@ -2184,6 +2188,19 @@ CASE ( 'shared_amax_shd_prev' )
     CALL cube_get_data(cube_land, shared_amax_shd_prev(:,:))
   ELSE
     shared_amax_shd_prev(:,:) = const_val
+  END IF
+
+! The stomatal optimisation: each tile's aerodynamic resistance of the
+! last timestep (< 0: not yet set).
+!
+! MDK, 04/11/26
+CASE ( 'ra_tile_prev' )
+  CALL ra_tile_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ra_tile_prev(:,:))
+  ELSE
+    ra_tile_prev(:,:) = const_val
   END IF
 
 ! Leaf temperatures of the last timestep (l_leaf_temp; 0 = not yet set).

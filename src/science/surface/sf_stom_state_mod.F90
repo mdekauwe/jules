@@ -20,8 +20,14 @@ MODULE sf_stom_state_mod
 !     the next timestep (dump names cpl_gl_sun, cpl_gl_shd, cpl_gbw_sun,
 !     cpl_gbw_shd, cpl_ra_ca).
 !
-! Both are negative until first set, meaning "not yet set". A dump without
-! them gives the same.
+!   - ra_tile_prev: with the stomatal optimisation, each surface tile's
+!     aerodynamic resistance of the last timestep, 1 / (ch vshr) (s/m), as
+!     sf_resist applies it to the tile's stomatal flux (with the stability
+!     and z0h of the surface exchange). physiol gives it to sf_stom in
+!     place of the neutral resistance from raero (dump name ra_tile_prev).
+!
+! These are negative until first set, meaning "not yet set". A dump
+! without them gives the same.
 !
 ! MDK, 04/11/26
 
@@ -31,7 +37,8 @@ IMPLICIT NONE
 
 PRIVATE
 PUBLIC :: f_vcmax_state, cpl_state, sf_stom_state_alloc, n_cpl_state,        &
-          shared_e_shd_prev, shared_amax_shd_prev, store_e_prev
+          shared_e_shd_prev, shared_amax_shd_prev, store_e_prev,           &
+          ra_tile_prev, ra_tile_alloc
 
 ! gl_sun, gl_shd, gbw_sun, gbw_shd, ra_ca
 INTEGER, PARAMETER :: n_cpl_state = 5
@@ -58,6 +65,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: shared_amax_shd_prev(:,:)
 ! refill. Allocated and set to 0 by sf_stom or the dump reading; in the
 ! dump with the store's flow (cut_q_store).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_e_prev(:,:)
+! (land_pts, nsurft) The stomatal optimisation: each surface tile's
+! aerodynamic resistance of the last timestep (s/m; < 0: not yet set).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: ra_tile_prev(:,:)
 
 CONTAINS
 
@@ -82,5 +92,22 @@ IF ( .NOT. ALLOCATED(cpl_state) ) THEN
 END IF
 
 END SUBROUTINE sf_stom_state_alloc
+
+! ---------------------------------------------------------------------
+! Allocate ra_tile_prev, filled with -1 ("not yet set"), unless it is
+! already allocated.
+! ---------------------------------------------------------------------
+SUBROUTINE ra_tile_alloc( n_land_pts )
+
+USE ancil_info, ONLY: nsurft
+
+INTEGER, INTENT(IN) :: n_land_pts
+
+IF ( .NOT. ALLOCATED(ra_tile_prev) ) THEN
+  ALLOCATE( ra_tile_prev(n_land_pts, nsurft) )
+  ra_tile_prev(:,:) = -1.0
+END IF
+
+END SUBROUTINE ra_tile_alloc
 
 END MODULE sf_stom_state_mod

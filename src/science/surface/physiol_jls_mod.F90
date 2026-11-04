@@ -122,6 +122,8 @@ USE jules_vegetation_mod, ONLY:                                                &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
   l_som_rhizo_series, l_som_capacitance_on   ! MDK, 04/11/26
 USE plant_hydraulic_path_mod, ONLY: ksr
+USE jules_vegetation_mod, ONLY: leaf_flux_stom_opt
+USE sf_stom_state_mod, ONLY: ra_tile_prev
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: fsmc_mod
 
@@ -688,6 +690,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
 
 REAL(KIND=real_jlslsm), PARAMETER :: vonk_or = 0.4
       ! von Karman constant.
+
+! The aerodynamic resistance of the stomatal optimisation (ra_tile_prev)
+!
+! MDK, 04/11/26
+INTEGER :: n_ra
+      ! The surface tile of PFT n.
 
 ! Soil supply limit on transpiration (l_som_supply_limit)
 INTEGER ::                                                                     &
@@ -1387,6 +1395,23 @@ DO n = 1,npft
 
   CALL raero (land_pts,land_index,surft_pts(n),surft_index(:,n)                &
 ,             rib,vshr,z0,z0,z1_uv_ij,ra)
+
+  ! The stomatal optimisation takes the tile's aerodynamic resistance of
+  ! the last timestep (ra_tile_prev, 1 / (ch vshr)) where it is set, so
+  ! that sf_stom inverts the tile's flux with the resistance the tile
+  ! applies to it. Where it is not set (the first timestep), the neutral
+  ! ra above.
+  !
+  ! MDK, 04/11/26
+  IF ( leaf_flux_mod == leaf_flux_stom_opt .AND.                               &
+       ALLOCATED(ra_tile_prev) ) THEN
+    n_ra = n
+    IF ( l_aggregate ) n_ra = 1
+    DO j = 1,surft_pts(n)
+      l = surft_index(j,n)
+      IF ( ra_tile_prev(l,n_ra) > 0.0 ) ra(l) = ra_tile_prev(l,n_ra)
+    END DO
+  END IF
   !-----------------------------------------------------------------------
   ! Calculate light absorption by the plant canopy
   !-----------------------------------------------------------------------

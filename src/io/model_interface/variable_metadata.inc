@@ -10972,4 +10972,20 @@ DATA metadata(847) / var_metadata(                                             &
 ! Units
     "per 360days"                                                              &
   ) /
+
+!-----------------------------------------------------------------------------
+! Metadata for ra_tile_prev
+!
+! MDK, 04/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(848) / var_metadata(                                             &
+! String identifier
+    'ra_tile_prev',                                                            &
+! Variable type
+    var_type_surft,                                                            &
+! Long name
+    "Stomatal optimisation: tile aerodynamic resistance, last timestep (dump)",&
+! Units
+    "s m-1"                                                                    &
+  ) /
 #endif

@@ -20,6 +20,10 @@ USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
                                     cut_psi_stem, cut_c_store, cut_q_store
 USE sf_stom_state_mod, ONLY: store_e_prev, shared_e_shd_prev,                &
                              shared_amax_shd_prev
+! The stomatal optimisation's tile aerodynamic resistance.
+!
+! MDK, 04/11/26
+USE sf_stom_state_mod, ONLY: ra_tile_prev, ra_tile_alloc
 USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, ainfo, trif_vars,      &
                             soilecosse, progs, progs_data, trifctltype,        &
                             jules_vars, fluxes, rivers, water_resources
@@ -370,6 +374,17 @@ DO i = 1,nvars
     CASE ( 'canopy', 'nsnow', 'rgrain', 'rho_snow', 'snow_tile',               &
            'snow_depth', 'snow_grnd', 'tstar_tile', 'tsurf_elev_surft' )
       CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:nsurft))
+
+    ! The stomatal optimisation's tile aerodynamic resistance: a dump
+    ! written without it starts it 'not yet set' (read_dump_shared warns).
+    !
+    ! MDK, 04/11/26
+    CASE ( 'ra_tile_prev' )
+      IF ( var_ids(i) > 0 ) THEN
+        CALL file_read_var(FILE, var_ids(i), global_data_2d(:,1:nsurft))
+      ELSE
+        global_data_2d(:,1:nsurft) = -1.0
+      END IF
 
     CASE ( 'rgrainl', 'snow_ds', 'snow_ice', 'snow_liq', 'tsnow' )
       CALL file_read_var(FILE, var_ids(i),                                     &
@@ -851,6 +866,15 @@ DO i = 1,nvars
     END IF
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), shared_amax_shd_prev(:,n))
+    END DO
+  ! The stomatal optimisation: each tile's aerodynamic resistance of the
+  ! last timestep.
+  !
+  ! MDK, 04/11/26
+  CASE ( 'ra_tile_prev' )
+    CALL ra_tile_alloc( land_pts )
+    DO n = 1,nsurft
+      CALL scatter_land_field(global_data_2d(:,n), ra_tile_prev(:,n))
     END DO
   ! Leaf temperatures of the last timestep (l_leaf_temp).
   !
