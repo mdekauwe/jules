@@ -182,11 +182,14 @@ CONTAINS
 ! the whole plant: its kmax over kmax_pft * LAI, in the units of that
 ! kmax. It must come from the undamaged plant conductance, so that xylem
 ! impairment, which lowers the kmax given to the solver, leaves the soil
-! link as it is. ksr_path < 0 means the path has no soil link.
+! link as it is. ksr_path < 0 means the path has no soil link. It is
+! called only on the profit-max and DESICA paths, where l_som_rhizo_series
+! is always .TRUE.
+!
+! MDK, 04/11/26
 ! *****************************************************************************
 SUBROUTINE set_ksr_path( land_pts, veg_pts, veg_index, share )
 
-USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -204,10 +207,6 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='SET_KSR_PATH'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-IF ( .NOT. l_som_rhizo_series ) THEN
-  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-  RETURN
-END IF
 IF ( .NOT. ALLOCATED(ksr_path) ) ALLOCATE(ksr_path(land_pts))
 ksr_path(:) = -1.0
 DO m = 1,veg_pts
@@ -543,13 +542,13 @@ END FUNCTION seg_kmax_fac
 !
 ! The result is 0 if any part has no conductance.
 !
-! MDK, 26/10/26
+! MDK, 04/11/26
 ! *****************************************************************************
 FUNCTION k_path_zero_flow( pft, l, kmax, psi_root, b, c, kcap_frac, kx,        &
                            l_plant_only ) RESULT( k0 )
 
 USE pftparm, ONLY: seg_rel_k
-USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_rhizo_series
+USE jules_vegetation_mod, ONLY: l_som_plant_segments
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
 
 IMPLICIT NONE
@@ -570,7 +569,7 @@ REAL(KIND=real_jlslsm) :: k0, r, k_el, k_s
 INTEGER :: iseg
 LOGICAL :: l_soil
 
-l_soil = l_som_rhizo_series
+l_soil = .TRUE.
 IF ( PRESENT(l_plant_only) ) l_soil = l_soil .AND. .NOT. l_plant_only
 
 k0 = 0.0
@@ -657,7 +656,7 @@ END FUNCTION k_path_zero_flow
 ! answer), so it is exact also near the most the segment can carry; a
 ! larger flow is infeasible (leaf_psi = som_psi_in_min, leaf_k = 0).
 !
-! MDK, 30/10/26
+! MDK, 04/11/26
 ! *****************************************************************************
 SUBROUTINE psi_leaf_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
                                   veg_index, open_index, e_leaf,               &
@@ -682,7 +681,6 @@ SUBROUTINE psi_leaf_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
 ! same (impaired) water potentials, for the hydraulic cost.
 
 USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
-USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -823,7 +821,7 @@ DO j = 1, open_pnts
   ! whole soil-to-leaf path. The soil is not damaged, so the intact chain
   ! (leaf_k_intact, for the hydraulic cost under impairment: the intact
   ! segments at the same water potentials) starts the same way.
-  IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
+  IF ( ksr_path(l) >= 0.0 ) THEN
     k_s = ksr_path(l)
     IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
       psi_in(:)  = MAX(root_zone_psi(l) - e_seg(:) / k_s,                      &
@@ -904,11 +902,10 @@ DO j = 1, open_pnts
 
     ! Conductance and supply integral at the root-side end of the segment.
     k_in(:) = seg_k(psi_in)
-    IF ( iseg == 1 .AND. .NOT. ( l_som_rhizo_series .AND.                      &
-                                 ksr_path(l) >= 0.0 ) ) THEN
+    IF ( iseg == 1 .AND. .NOT. ( ksr_path(l) >= 0.0 ) ) THEN
       ! The root water potential is psi_root_zone for every sample: one
       ! evaluation.
-      ! (With l_som_rhizo_series it falls with E, so not here.)
+      ! (With a soil link it falls with E, so not here.)
       a_in(:) = seg_a(psi_in(1))
     ELSE
       a_in(:) = seg_a(psi_in)
@@ -1164,7 +1161,7 @@ END SUBROUTINE psi_leaf_segments_jls
 ! towards the soil: it is found upwards in the table (seg_lut_psi_back)
 ! and stops at psi = 0, as in the Newton solver.
 !
-! MDK, 31/10/26
+! MDK, 04/11/26
 ! *****************************************************************************
 SUBROUTINE psi_leaf_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
                                       veg_index, open_index, e_leaf,           &
@@ -1172,7 +1169,6 @@ SUBROUTINE psi_leaf_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
                                       kcap_frac, leaf_k_intact, stem_psi )
 
 USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
-USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -1242,7 +1238,7 @@ DO j = 1, open_pnts
     IF ( l_shared_stem_path ) e_r = e_r + shared_e_other(l)
     ! l_som_rhizo_series: soil link ahead of the root segment (as
     ! psi_leaf_segments_jls).
-    IF ( l_som_rhizo_series .AND. ksr_path(l) >= 0.0 ) THEN
+    IF ( ksr_path(l) >= 0.0 ) THEN
       k_s = ksr_path(l)
       IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
         psi_in  = MAX(root_zone_psi(l) - e_r / k_s, som_psi_in_min)

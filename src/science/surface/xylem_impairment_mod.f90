@@ -210,9 +210,10 @@ END SUBROUTINE leaf_conductance_impaired_jls
 ! solved (psi_leaf_jls). Otherwise the whole trunk or memory model solves
 ! the path from the root zone to the leaf.
 !
-! With l_som_rhizo_series, a soil-to-root conductance K_s (mol m-2 s-1
-! Pa-1) lies in series ahead of the damaged plant. Water first crosses
-! the soil, so the water potential where it enters the roots is
+! With l_som_rhizo_series (always on where this is called), a soil-to-root
+! conductance K_s (mol m-2 s-1 Pa-1) lies in series ahead of the damaged
+! plant. Water first crosses the soil, so the water potential where it
+! enters the roots is
 !
 !   psi_in = psi_soil - E / K_s,
 !
@@ -258,7 +259,6 @@ USE pftparm, ONLY: pft_xylem_impairment_model,                                 &
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls, leaf_conductance_jls
 USE xylem_impairment_whole_trunk_mod, ONLY: psi_leaf_impaired_whole_trunk
 USE xylem_impairment_memory_mod, ONLY: psi_leaf_impaired_memory
-USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 USE plant_hydraulic_path_mod, ONLY: ksr_path, som_psi_in_min
 
 USE um_types, ONLY: real_jlslsm
@@ -369,68 +369,64 @@ END IF
 SELECT CASE ( pft_xylem_impairment_model(pft) )
 
   CASE (xylem_impairment_whole_trunk, xylem_impairment_memory)
-    IF ( .NOT. l_som_rhizo_series ) THEN
-      CALL impaired_path( n_e_leaf, e_leaf, root_zone_psi, leaf_psi, leaf_k )
-    ELSE
-      !-----------------------------------------------------------------------
-      ! Soil-to-root conductance in series ahead of the impaired plant, as
-      ! psi_leaf_jls: the root water potential of each sample is
-      !
-      !   psi_in = psi_src - E/K_s,
-      !
-      ! the impaired plant path runs from there, and the whole-path marginal
-      ! conductance is
-      !
-      !   k_p / (1 + k(psi_in) / K_s),
-      !
-      ! with k(psi_in) this model's impaired conductance at the root. The soil
-      ! is not damaged.
-      !-----------------------------------------------------------------------
-      DO i = 1, n_e_leaf
-        psi_in(:) = root_zone_psi(:)
-        DO j = 1, open_pnts
-          l = veg_index(open_index(j))
-          k_s = ksr_path(l)
-          IF ( ksr_path(l) < 0.0 ) THEN
-            ! No soil link for this PFT (fsmc_mod /= 2).
-          ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
-            psi_in(l) = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s,              &
-                            som_psi_in_min)
-          ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
-            psi_in(l) = som_psi_in_min
-          END IF
-          e1(1,j) = e_leaf(i,j)
-        END DO
-        CALL impaired_path( 1, e1, psi_in, psi1, k1 )
-        IF ( pft_xylem_impairment_model(pft) ==                                &
-             xylem_impairment_whole_trunk ) THEN
-          ! Whole trunk: the root end of the path is where water enters, so its
-          ! conductance is the unimpaired curve at the root's historic
-          ! minimum (as psi_leaf_impaired_whole_trunk uses there), not the
-          ! leaf's, which leaf_conductance_impaired_jls would use.
-          psi_k(:) = MIN(psi_in(:), psi_root_extreme(:))
-          CALL leaf_conductance_jls( pft, land_pnts, psi_k, kmax, kcrit,       &
-                                     conductance_b, conductance_c, k_inlet )
-        ELSE
-          CALL leaf_conductance_impaired_jls( pft, land_pnts, psi_in,          &
-                                              kmax_ref, kmax, kcrit,           &
-                                              conductance_b, conductance_c,    &
-                                              psi_leaf_extreme, k_inlet )
+    !-----------------------------------------------------------------------
+    ! Soil-to-root conductance in series ahead of the impaired plant, as
+    ! psi_leaf_jls: the root water potential of each sample is
+    !
+    !   psi_in = psi_src - E/K_s,
+    !
+    ! the impaired plant path runs from there, and the whole-path marginal
+    ! conductance is
+    !
+    !   k_p / (1 + k(psi_in) / K_s),
+    !
+    ! with k(psi_in) this model's impaired conductance at the root. The soil
+    ! is not damaged.
+    !-----------------------------------------------------------------------
+    DO i = 1, n_e_leaf
+      psi_in(:) = root_zone_psi(:)
+      DO j = 1, open_pnts
+        l = veg_index(open_index(j))
+        k_s = ksr_path(l)
+        IF ( ksr_path(l) < 0.0 ) THEN
+          ! No soil link for this PFT (fsmc_mod /= 2).
+        ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+          psi_in(l) = MAX(root_zone_psi(l) - e_leaf(i,j) / k_s,                &
+                          som_psi_in_min)
+        ELSE IF ( e_leaf(i,j) > 0.0 ) THEN
+          psi_in(l) = som_psi_in_min
         END IF
-        DO j = 1, open_pnts
-          l = veg_index(open_index(j))
-          k_s = ksr_path(l)
-          leaf_psi(i,j) = psi1(1,j)
-          IF ( ksr_path(l) < 0.0 ) THEN
-            leaf_k(i,j) = k1(1,j)
-          ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
-            leaf_k(i,j) = k1(1,j) / (1.0 + k_inlet(l) / k_s)
-          ELSE
-            leaf_k(i,j) = 0.0
-          END IF
-        END DO
+        e1(1,j) = e_leaf(i,j)
       END DO
-    END IF
+      CALL impaired_path( 1, e1, psi_in, psi1, k1 )
+      IF ( pft_xylem_impairment_model(pft) ==                                  &
+           xylem_impairment_whole_trunk ) THEN
+        ! Whole trunk: the root end of the path is where water enters, so its
+        ! conductance is the unimpaired curve at the root's historic
+        ! minimum (as psi_leaf_impaired_whole_trunk uses there), not the
+        ! leaf's, which leaf_conductance_impaired_jls would use.
+        psi_k(:) = MIN(psi_in(:), psi_root_extreme(:))
+        CALL leaf_conductance_jls( pft, land_pnts, psi_k, kmax, kcrit,         &
+                                   conductance_b, conductance_c, k_inlet )
+      ELSE
+        CALL leaf_conductance_impaired_jls( pft, land_pnts, psi_in,            &
+                                            kmax_ref, kmax, kcrit,             &
+                                            conductance_b, conductance_c,      &
+                                            psi_leaf_extreme, k_inlet )
+      END IF
+      DO j = 1, open_pnts
+        l = veg_index(open_index(j))
+        k_s = ksr_path(l)
+        leaf_psi(i,j) = psi1(1,j)
+        IF ( ksr_path(l) < 0.0 ) THEN
+          leaf_k(i,j) = k1(1,j)
+        ELSE IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
+          leaf_k(i,j) = k1(1,j) / (1.0 + k_inlet(l) / k_s)
+        ELSE
+          leaf_k(i,j) = 0.0
+        END IF
+      END DO
+    END DO
   CASE DEFAULT
     errcode = 101  !  a hard error
     CALL ereport(RoutineName, errcode,                                         &

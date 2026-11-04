@@ -231,8 +231,8 @@ END SUBROUTINE xylem_conductance_jls
 ! point uses the PFT's curve), or the Newton solver of the PFT's
 ! conductance model.
 !
-! With a soil-to-root link in series (l_som_rhizo_series) and no
-! segments, each sample has its own root water potential,
+! With a soil-to-root link in series (l_som_rhizo_series, always on in
+! the profit max and DESICA) and no segments, each sample has its own root water potential,
 !
 !   psi_in = psi_src - E / K_s
 !
@@ -268,8 +268,7 @@ SUBROUTINE psi_leaf_jls( pft,                                                  &
 USE pftparm, ONLY: pft_conductance_model
 USE jules_vegetation_mod, ONLY: CW_conductance, SOX_conductance,               &
                                 som_psi_solver, psi_solver_lut,                &
-                                psi_solver_newton, l_som_plant_segments,       &
-                                l_som_rhizo_series
+                                psi_solver_newton, l_som_plant_segments
 USE xylem_hydraulics_CW_jls_mod, ONLY: psi_leaf_CW_jls, xylem_f_bc
 USE supply_table_mod, ONLY: psi_leaf_lut_jls, lut_pft_curve
 USE plant_hydraulic_path_mod, ONLY: ksr_path, som_psi_in_min,                  &
@@ -340,7 +339,7 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='PSI_LEAF_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-IF ( .NOT. l_som_rhizo_series .OR. l_som_plant_segments ) THEN
+IF ( l_som_plant_segments ) THEN
   ! (With l_som_plant_segments the segment solvers add the soil link
   ! themselves, at the start of their chain.)
   CALL plant_path( n_e_leaf, e_leaf, root_zone_psi, leaf_psi, leaf_k )

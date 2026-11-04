@@ -1193,12 +1193,11 @@ REAL(KIND=real_jlslsm) :: dq_opt(land_pts), r_bl_c(land_pts),                  &
                             ! stom_opt_mod (dq_opt the deficit used by the
                             ! optimisation also without it); zeros.
 REAL(KIND=real_jlslsm) :: gbw_sun_lt(land_pts), gbw_shd_lt(land_pts),          &
-                          ra_ca_lt(land_pts), ra_ca_prev(land_pts)
+                          ra_ca_lt(land_pts)
                             ! Two-leaf, coupled: the leaf boundary layer
                             ! conductance for water of each class (m/s, class
                             ! basis) and the canopy air resistance (s/m), from
-                            ! the last leaf energy balance; the last
-                            ! timestep's canopy air resistance (-1 if none).
+                            ! the last leaf energy balance.
 REAL(KIND=real_jlslsm) :: g_soil_c(land_pts)
                             ! Soil evaporation conductance beneath the
                             ! canopy (m/s), which shares the canopy air and
@@ -3839,7 +3838,7 @@ CASE ( 7 )
   IF ( l_som_coupled_e ) THEN
     CALL cpl_state_load( ft, land_pts, veg_pts, veg_index, lai, lai_sun_2l,    &
                          lai_shd_2l, gc, gl_sun, gl_shd, gbw_sun_lt,           &
-                         gbw_shd_lt, ra_ca_prev )
+                         gbw_shd_lt )
     IF ( l_leaf_temp ) THEN
       ! The leaves are in the level-1 air.
       ra_ca_lt(:) = 0.0
@@ -7368,16 +7367,15 @@ END SUBROUTINE coupled_inputs
 ! Give the coupled transpiration (l_som_coupled_e) of the two-leaf canopy
 ! its first guesses for the first pass of a timestep. Where there is a
 ! last timestep, they are its stomatal and boundary layer conductances of
-! the sunlit and shaded leaves and its canopy air resistance. Before
-! that, the canopy conductance gc is shared between sunlit and shaded
-! leaves by leaf area, the boundary layer conductances are 0 and the
-! canopy air resistance is -1 (unknown).
+! the sunlit and shaded leaves. Before that, the canopy conductance gc is
+! shared between sunlit and shaded leaves by leaf area, and the boundary
+! layer conductances are 0. (The saved canopy air resistance, slot 5 of
+! cpl_state, is kept in the dump but not read.)
 !
-! MDK, 24/10/26
+! MDK, 04/11/26
 !#############################################################################
 SUBROUTINE cpl_state_load( ft, land_pts, veg_pts, veg_index, lai, lai_sun,     &
-                           lai_shd, gc, gl_sun, gl_shd, gbw_sun, gbw_shd,      &
-                           ra_ca )
+                           lai_shd, gc, gl_sun, gl_shd, gbw_sun, gbw_shd )
 
 
 USE parkind1, ONLY: jprb, jpim
@@ -7388,8 +7386,7 @@ INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: lai(land_pts), lai_sun(land_pts),        &
                                       lai_shd(land_pts), gc(land_pts)
 REAL(KIND=real_jlslsm), INTENT(OUT) :: gl_sun(land_pts), gl_shd(land_pts),     &
-                                       gbw_sun(land_pts), gbw_shd(land_pts),   &
-                                       ra_ca(land_pts)
+                                       gbw_sun(land_pts), gbw_shd(land_pts)
 INTEGER :: l, m
 REAL(KIND=real_jlslsm) :: f_sun
 
@@ -7406,7 +7403,6 @@ gl_sun(:)  = 0.0
 gl_shd(:)  = 0.0
 gbw_sun(:) = 0.0
 gbw_shd(:) = 0.0
-ra_ca(:)   = -1.0
 DO m = 1,veg_pts
   l = veg_index(m)
   IF ( cpl_state(l,ft,1) >= 0.0 ) THEN
@@ -7414,7 +7410,6 @@ DO m = 1,veg_pts
     gl_shd(l)  = cpl_state(l,ft,2)
     gbw_sun(l) = cpl_state(l,ft,3)
     gbw_shd(l) = cpl_state(l,ft,4)
-    ra_ca(l)   = cpl_state(l,ft,5)
   ELSE
     f_sun = 0.5
     IF ( lai(l) > EPSILON(0.0) ) f_sun = lai_sun(l) / lai(l)
