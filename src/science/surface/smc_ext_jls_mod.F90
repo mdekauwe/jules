@@ -301,8 +301,6 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
   ! Note: This implementation does not use the root to stem conductance
   !       (equation A24) when calculating the below ground resistivity
   !       (equation A25) only the soil to root conductance (equation A23).
-  !
-  ! Jake Baguley 16/11/23
   ! ----------------------------------------------------------------------
 
   ! Calculat the soil moisture concentration limits

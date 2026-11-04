@@ -598,7 +598,7 @@ LOGICAL ::                                                                     &
       ! The hydraulic cost of either class is the whole plant's (shared
       ! root and stem, both classes' leaves together) at the whole
       ! canopy's flow, so the passes seek the joint optimum of the two
-      ! classes. Needs l_som_plant_segments, som_psi_solver = 2 and
+      ! classes. Needs l_som_plant_segments, som_psi_solver = 2 or 3 and
       ! som_ci_search = 2.
       !
       ! MDK, 30/10/26
@@ -983,7 +983,8 @@ INTEGER, PARAMETER ::                                                          &
     ! Hold gs: the hydraulic cost is the intact path's conductance at the
     ! (impaired) leaf psi, relative to the intact zero-flow conductance;
     ! E, psi and A on the impaired path at the chosen Ci. The damage lowers
-    ! psi_leaf at about the same gs and E (J. Baguley's scheme).
+    ! psi_leaf at about the same gs and E: the stomata do not respond to
+    ! the damage itself.
   ximpair_hold_psi = 1
     ! Hold leaf psi (Sperry et al. 2016, Plant Cell Environ 39: 2155, Fig. 3
     ! and their C++ code): the optimisation runs on the intact path and sets

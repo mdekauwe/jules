@@ -105,7 +105,7 @@ USE pftparm, ONLY:                                                             &
         kmax_pft, conductance_b_pft, conductance_c_pft, gcuticular,            &
         min_gl_pft, lai_ref_k   ! lai_ref_k: MDK, 21/10/26
 USE jules_vegetation_mod, ONLY:                                                &
-! imported model ids. JBaguley
+! imported model ids.
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
 ! imported parameters
     photo_collatz, photo_farquhar, photo_sox_collatz, photo_johnson,           &
@@ -330,8 +330,10 @@ TYPE(veg_state_type), INTENT(IN OUT) :: veg_state
 !-----------------------------------------------------------------------------
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
  el(land_pts)                                                                  &
-                            ! OUT Transpiration rate (mol m-2 s-1) from the
-                            !      stomatal optimisation model.
+                            ! OUT Canopy transpiration from the stomatal
+                            !     optimisation (mol H2O m-2 ground s-1). As
+                            !     a work array inside the multilayer layer
+                            !     loop it is summed over the layers.
 ,gpp(land_pts)                                                                 &
                             ! OUT Gross Primary Productivity
 !                                 !     (kg C/m2/s).
@@ -366,7 +368,9 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,cica_ratio(land_pts)                                                          &
                             ! OUT Ratio of intecellular and atmospheric CO2
 ,leaf_k(land_pts)                                                              &
-                            ! OUT Xylem conductance at leaf level (m/s).
+                            ! OUT Whole-path (soil-to-leaf) conductance,
+                            !     Kplant, per unit leaf area
+                            !     (mol H2O m-2 leaf s-1 Pa-1).
 ,lwp_c(land_pts)
                             ! OUT Canopy leaf water potential (MPa), SOX
 
@@ -400,13 +404,17 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
  gc(land_pts)                                                                  &
-                            ! INOUT Canopy resistance to H2O (m/s).
-                            ! The input value is only used if can_rad_mod=1.
+                            ! INOUT Canopy conductance to H2O (m/s).
+                            ! The input (last timestep's) value is used with
+                            ! can_rad_mod = 1 and by the two-leaf canopy
+                            ! (first pass, and the state it falls back on).
 ,f_nsc(land_pts)                                                               &
                             ! INOUT Non-structural carbohydrate mass fraction
                             !      (kgC/kgC)
 ,k_max(land_pts)                                                               &
-                            ! INOUT Maximum stomatal conductance (m/s).
+                            ! INOUT Maximum plant conductance with the xylem
+                            ! impairment (mol H2O m-2 leaf s-1 Pa-1, per
+                            ! unit leaf area).
 ,conductance_b(land_pts)                                                       &
                             ! INOUT Conductance curve parameter b for each land
                             ! point (Pa): the PFT's (never changed here).
@@ -442,8 +450,9 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ,hydraulic_cost(land_pts)                                                      &
                             ! Hydraulic cost for each leaf state
 ,gc_som(land_pts)
-                            ! Canopy resistance to H2O (m/s) for the stomatal
-                            ! optimisation model.
+                            ! Canopy conductance to H2O (m/s) of the stomatal
+                            ! optimisation: gc after the canopy switch, as
+                            ! the cuticular leak and the store set it.
 
 !New arguments replacing USE statements
 !crop_vars_mod (IN)
@@ -692,24 +701,37 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! WORK Canopy level CO2 pressure
 !                                 !      (Pa).
 ,gl(land_pts)                                                                  &
-                            ! WORK Leaf conductance for H2O
-!                                 !      (m/s).
+                            ! WORK Leaf conductance for H2O (m/s), per unit
+                            !      leaf area: of the top leaf in the big
+                            !      leaf canopy without the stomatal
+                            !      optimisation (gc = fpar gl), and of one
+                            !      layer in the multilayer canopies. The
+                            !      big leaf optimisation returns the canopy
+                            !      value (per unit ground area) in gc, and
+                            !      the two-leaf canopy uses gl_sun and
+                            !      gl_shd.
 ,gl_sun(land_pts)                                                              &
-                            ! WORK Leaf conductance for H2O of
-!                                 !      sunlit leaves (m/s).
+                            ! WORK Stomatal conductance for H2O of the
+                            !      sunlit leaves (m/s): per unit leaf area
+                            !      of a layer in the multilayer canopies;
+                            !      the class total per unit ground area in
+                            !      the two-leaf canopy.
 ,gl_shd(land_pts)                                                              &
-                            ! WORK Leaf conductance for H2O of
-!                                 !      shaded leaves (m/s).
+                            ! WORK As gl_sun, for the shaded leaves.
 ,el_sun(land_pts)                                                              &
-                            ! WORK Leaf transpiration
-!                                 !      shaded leaves (mol m-2 s-1)
+                            ! WORK Transpiration of the sunlit leaves
+                            !      (mol H2O m-2 s-1): per unit leaf area of
+                            !      a layer in the multilayer canopy; the
+                            !      class total per unit ground area in the
+                            !      two-leaf canopy.
 ,el_shd(land_pts)                                                              &
-                            ! WORK Leaf transpiration
-!                                 !      shaded leaves (mol m-2 s-1)
+                            ! WORK As el_sun, for the shaded leaves.
 ,leaf_k_sun(land_pts)                                                          &
-                            ! WORK Xylem conductance at leaf level (m/s).
+                            ! WORK Whole-path conductance of the sunlit
+                            !      leaves (mol H2O m-2 s-1 Pa-1, on the
+                            !      basis of gl_sun).
 ,leaf_k_shd(land_pts)                                                          &
-                            ! WORK Xylem conductance at leaf level (m/s).
+                            ! WORK As leaf_k_sun, for the shaded leaves.
 ,HC_sun(land_pts)                                                              &
                             ! WORK hydraulic cost for each leaf state
 ,HC_shd(land_pts)                                                              &
@@ -790,11 +812,10 @@ REAL(KIND=real_jlslsm) :: lam_sun(land_pts), lam_shd(land_pts)
                             !
                             ! MDK, 23/10/26
 REAL(KIND=real_jlslsm) :: kmax_per_lyr(land_pts), kcrit_per_lyr(land_pts)
-                            ! kcrit_per_lyr scales kcrit(ft) by the same
-                            ! fraction of whole-plant kmax that each layer
-                            ! received, so the critical-conductance
-                            ! threshold stays at (1 - kcrit_fractional_loss)
-                            ! of THAT layer's own capacity.
+                            ! Multilayer: kmax_pft and its critical
+                            ! conductance (kcrit_of_path), the canopy mean
+                            ! per unit leaf area that kmax_leaf_lyr and
+                            ! kcrit_leaf_lyr spread over the layers.
 REAL(KIND=real_jlslsm) :: kmax_leaf_lyr(land_pts), kcrit_leaf_lyr(land_pts)
 REAL(KIND=real_jlslsm) :: kleaf_prof, kleaf_mean, kleaf_a
                             ! Conductance profile through the canopy
@@ -1037,10 +1058,11 @@ REAL(KIND=real_jlslsm) :: a_oth_2l(land_pts), amax_sun_2l(land_pts),          &
                             !
                             ! MDK, 30/10/26
 REAL(KIND=real_jlslsm) :: e_sup_use(land_pts)
-                            ! The soil supply the two-leaf optimiser is
-                            ! capped by (kg m-2 s-1; < 0: no cap): e_supply,
-                            ! or with the capacitance store e_supply + q_f,
-                            ! as the soil supplies only E - q_f.
+                            ! The soil supply the optimiser is capped by, in
+                            ! every canopy (kg m-2 s-1; < 0: no cap):
+                            ! e_supply, or with the capacitance store
+                            ! e_supply + q_f, as the soil supplies only
+                            ! E - q_f.
 REAL(KIND=real_jlslsm) :: e_be(land_pts)
                             ! The capacitance store: the canopy E the
                             ! store's balance is taken at (mol H2O m-2 s-1).
@@ -1068,12 +1090,13 @@ REAL(KIND=real_jlslsm) :: k_be(land_pts)
 LOGICAL :: l_cap_store
                             ! The stomatal optimisation's plant capacitance
                             ! is on (l_som_capacitance_on: l_som_capacitance
-                            ! or l_som_cuticular_loss): the store sets the
-                            ! transpiration, the leak (if on) drains it, and
+                            ! or l_som_cuticular_loss): the optimiser sets
+                            ! the transpiration, seeing the store through
+                            ! its flow q_f, the leak (if on) drains it, and
                             ! the xylem impairment update is made after the
                             ! leak block, with the store's water potentials.
                             !
-                            ! MDK, 23/10/26
+                            ! MDK, 04/11/26
 LOGICAL :: in_imp_cut(land_pts)
                             ! Points already in the impairment update (the
                             ! lit points), so the leak's other points are
@@ -1205,8 +1228,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   lai_sun_2l(land_pts), lai_shd_2l(land_pts),                                  &
       ! Sunlit / shaded leaf area (m2 leaf m-2 ground).
   nw_sun_2l(land_pts), nw_shd_2l(land_pts),                                    &
-      ! Leaf area weighted by the relative leaf-N profile exp(-kpar*L),
-      ! i.e. the sunlit / shaded parts of the big-leaf fpar.
+      ! Leaf area weighted by the relative leaf-N profile exp(-knl L), the
+      ! sunlit / shaded N weights of the canopy.
   apar_sun_2l(land_pts), apar_shd_2l(land_pts),                                &
       ! Absorbed PAR by the sunlit / shaded leaves (W m-2 ground).
   acr_sun_2l(land_pts), acr_shd_2l(land_pts),                                  &
@@ -3384,7 +3407,7 @@ CASE ( 1 )
                                 zero_c, r_ca_c, g_soil_c )
        CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
-       ! Xylem impairment (JBaguley): k_max/conductance_b/conductance_c hold
+       ! Xylem impairment: k_max/conductance_b/conductance_c hold
        ! the (leaf-basis) impaired vulnerability curve for each point, so
        ! scale the impaired k_max by LAI in exactly the same way as
        ! kmax_pft above, keeping kmax_pft(ft) * LAI as the unimpaired
@@ -3479,13 +3502,12 @@ CASE ( 1 )
         ! it per unit leaf area, as the multilayer path does (kplant_pft).
         leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
 
-        ! Update the impairment state only once per timestep, on the final
-        ! pass of the humidity-deficit iteration (DO k = 1,iter): earlier
-        ! passes use an unconverged dqc, and the kmax model's weighted update
-        ! would otherwise be applied iter times per timestep. JBaguley
+        ! Update the impairment state once per timestep, on the final pass
+        ! of the humidity-deficit iteration (DO k = 1,iter), with the
+        ! converged state.
         IF (k == iter) THEN
 
-          ! Apply xylem imapairment to the vulnerability curve.
+          ! Apply the xylem impairment to the vulnerability curve.
           ! NOTE: open_index indexes veg_index, while update_xylem_impairment
           !       indexes the land arrays with it directly, so pass it the
           !       land points of the open stomata.
@@ -3642,7 +3664,8 @@ CASE ( 7 )
   !   kmax_sun = kmax_pft LAI N_sun / (N_sun + N_shd),
   !
   ! and likewise for the shaded leaf, so the canopy total is unchanged. Each
-  ! class draws from psi_root_zone on its own parallel path.
+  ! class draws from the source psi (psi_src) on its own path, or with
+  ! l_som_shared_stem through a root and stem shared with the other class.
   !
   ! l_leaf_temp: each leaf has its own temperature from a leaf energy
   ! balance (Penman-Monteith; Leuning et al., 1995; Wang & Leuning, 1998),
@@ -3655,7 +3678,7 @@ CASE ( 7 )
   ! temperatures: leaf_temp_iter passes, so no more stom_opt_mod calls than
   ! without l_leaf_temp (for leaf_temp_iter = iter).
   !
-  ! MDK, 03/11/26
+  ! MDK, 04/11/26
   !---------------------------------------------------------------------------
   IF ( leaf_flux_mod /= leaf_flux_stom_opt ) THEN
     errcode = 101  !  a hard error
@@ -3731,8 +3754,8 @@ CASE ( 7 )
     ! kplant_model = 1: root and stem per unit ground area, each class's
     ! path in series. One factor for both classes (so the shares are
     ! unchanged) and for the impaired, intact and critical conductances
-    ! (so the damage fraction is unchanged); the impairment update divides
-    ! it back out.
+    ! (so the damage fraction is unchanged). The impairment update gets the
+    ! unscaled k_max, so it never sees the factor.
     IF ( l_kscale ) THEN
       kmax_sun_2l(l)     = kmax_sun_2l(l)     * kplant_scale(l)
       kmax_shd_2l(l)     = kmax_shd_2l(l)     * kplant_scale(l)
@@ -4314,18 +4337,17 @@ END IF
 !   of the critical loss of conductance on the leaf (or PFT) curve,
 !   psi_fl_leaf (kcrit_fractional_loss, e.g. 0.95; store_cpl_leak_cut),
 !   so in a drought it keeps drying the plant down to that psi;
-! - the leak drains the capacitance store at the stem node (the carry loop
-!   below), psi_leaf follows it, and the impairment update is made after
-!   this block, so the leak drives the loss of conductance.
+! - the leak drains the capacitance store at the stem node, psi_leaf
+!   follows it, and the impairment update is made after this block, so the
+!   leak drives the loss of conductance.
 ! psi is not allowed below the psi of the critical loss of conductance
 ! (kcrit_fractional_loss, e.g. 0.95) on the PFT curve (or the leaf
 ! and stem segments), so where the path cannot carry the leak (no steady
 ! state without storage) psi does not fall to the solver's floor and the
-! memory does not go past that loss. The transpiration is uncoupled at
-! tstar (dqc), as the canopy flux in sf_evap; for a conductance this small
-! the canopy air resistance makes ~1 % difference.
+! memory does not go past that loss. The transpiration is the tile's flux
+! at tstar, as sf_evap takes it.
 !
-! MDK, 29/10/26
+! MDK, 04/11/26
 !-----------------------------------------------------------------------------
 IF ( l_cap_store ) THEN
   CALL cut_state_alloc( land_pts )
@@ -4356,7 +4378,10 @@ IF ( l_cap_store ) THEN
   ! temperatures weighted by leaf area, less q1; otherwise the air deficit,
   ! qs(tair) - q1. Not dqc, at tstar, which in a drought is the hot tile
   ! skin, up to 10 K above the leaves (leak ~2x too large). sf_evap takes
-  ! the flux at tstar, so gc is scaled by dq_cut / dqc to give it.
+  ! the flux at tstar, so gc is scaled by dq_cut / dqc. Through ra, shared
+  ! with the soil conductance, the tile then delivers slightly less than
+  ! gcuticular LAI dq_cut.
+
   CALL qsat(qs_air_cut, tair, pstar, land_pts)
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -5692,8 +5717,8 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
   ci_c(land_pts), anetl_c(land_pts), el_c(land_pts), flux_o3_c(land_pts),      &
   fo3_c(land_pts), gl_c(land_pts), psi_leaf_c(land_pts), cg_c(land_pts),       &
   hc_c(land_pts), leaf_k_c(land_pts)
-                            ! OUT from stom_opt_mod; IN OUT here so that
-                            ! points it does not set keep their values.
+                            ! OUT from stom_opt_mod, which sets them over
+                            ! the whole array.
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: psi_stem_c(land_pts)
                             ! The stem psi of this leaf's path (Pa; with
                             ! plant segments).
@@ -5776,7 +5801,7 @@ END SUBROUTINE ml_class
 ! the same fraction of the plant's intact conductance, now of the whole
 ! plant's root and stem.
 !
-! MDK, 30/10/26
+! MDK, 04/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE two_leaf_class( apar_c, lai_c, kmax_ref_c, qs_lt_c, dq_lt_c,        &
                            gbw_c, gbw_o, gl_o, t_lt_c, gl_max_c, acr_c,        &
@@ -5799,8 +5824,8 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
   ci_c(land_pts), anetl_c(land_pts), el_c(land_pts), flux_o3_c(land_pts),      &
   fo3_c(land_pts), gl_c(land_pts), psi_leaf_c(land_pts), cg_c(land_pts),       &
   hc_c(land_pts), leaf_k_c(land_pts), psi_stem_c(land_pts)
-                            ! OUT from stom_opt_mod; IN OUT here so that
-                            ! points it does not set keep their values.
+                            ! OUT from stom_opt_mod, which sets them over
+                            ! the whole array.
 REAL(KIND=real_jlslsm), INTENT(OUT) :: lam_c(land_pts)
                             ! dA/dE at the optimum (lambda_eff of
                             ! stom_opt_mod; 0 where not set).

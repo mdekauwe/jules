@@ -103,9 +103,9 @@ END FUNCTION xylem_f_bc
 ! Work out the plant's xylem conductance at each land point's water
 ! potential on the cumulative Weibull curve, for the hydraulic cost of
 ! the stomatal optimiser. It is floored at the critical conductance: it
-! returns MAX(k(psi), kcrit). JBaguley
+! returns MAX(k(psi), kcrit).
 !
-! MDK, 21/10/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE leaf_conductance_CW_jls( pft,                                       &
                                     land_pnts,                                 &
@@ -173,7 +173,7 @@ END SUBROUTINE leaf_conductance_CW_jls
 ! critical conductance: it returns MAX(k(psi), kcrit). The arrays hold
 ! only the points with open stomata.
 !
-! MDK, 23/10/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE xylem_conductance_CW_jls( pft,                                      &
                                      n_water_potentials,                       &
@@ -213,7 +213,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Conductance parameter b for each open point
                             ! (Pa). Per point rather than per PFT so an
                             ! impaired vulnerability curve can be used.
-                            ! JBaguley
 , conductance_c(open_pnts)
                             ! Conductance parameter c for each open point
                             ! (dimensionless).
@@ -276,7 +275,7 @@ END SUBROUTINE xylem_conductance_CW_jls
 ! With segments or a soil link in series this no longer holds, and those
 ! solvers carry dpsi_leaf/dE down the path.
 !
-! MDK, 25/10/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_CW_jls( pft,                                               &
                             n_e_leaf,                                          &
@@ -336,7 +335,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Conductance parameter b for each land point
                             ! (Pa). Per point rather than per PFT so an
                             ! impaired vulnerability curve can be used.
-                            ! JBaguley
 , conductance_c(land_pts)
                             ! Conductance parameter c for each land point
                             ! (dimensionless).
@@ -379,11 +377,8 @@ REAL(KIND=real_jlslsm) :: leaf_k_prev(n_e_leaf, open_pnts)
                             ! leaf_k from the previous Newton-Raphson
                             ! iteration, used for the convergence check.
 INTEGER, PARAMETER :: max_nr_iter = 4
-                            ! Cap on Newton-Raphson iterations. Checked
-                            ! against the exact (gamma-function) solution for
-                            ! root and leaf psi from -1 to -9.5 MPa: 4 is
-                            ! within ~0.003 MPa for every reachable case.
-                            ! Samples that do not converge (demand beyond what
+                            ! Cap on Newton-Raphson iterations. Samples
+                            ! that do not converge (demand beyond what
                             ! the curve can supply) end with k below kcrit
                             ! and are rejected by the feasibility mask.
 
@@ -578,7 +573,7 @@ END SUBROUTINE psi_leaf_CW_jls
 ! gamma(a, x) = integral( t^(a-1) * e^(-t) dt, 0, x)
 !
 ! It is based on Numerical Recipes in FORTRAN 90, page 211, and uses the
-! series form of the function. JBaguley
+! series form of the function.
 !
 ! The series (Numerical Recipes, section 6.2) is
 !
@@ -607,7 +602,7 @@ END SUBROUTINE psi_leaf_CW_jls
 ! supply integral levels off: past a point the path cannot carry more
 ! water however far psi_leaf falls.
 !
-! MDK, 23/10/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 FUNCTION incomplete_gamma_different_a( n_x, a, x ) RESULT( gamma )
 

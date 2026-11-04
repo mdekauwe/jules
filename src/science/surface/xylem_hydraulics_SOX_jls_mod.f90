@@ -40,7 +40,9 @@ CONTAINS
 ! Work out the plant's xylem conductance at each land point's water
 ! potential on the SOX curve (Eller CB et al. 2018), for the hydraulic
 ! cost of the stomatal optimiser, floored at the critical conductance:
-! it returns MAX(k(psi), kcrit). JBaguley
+! it returns MAX(k(psi), kcrit).
+!
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE leaf_conductance_SOX_jls( pft,                                      &
                                      land_pnts,                                &
@@ -106,6 +108,8 @@ END SUBROUTINE leaf_conductance_SOX_jls
 ! each candidate stomatal opening in the stomatal optimiser. It is floored at
 ! the critical conductance: it returns MAX(k(psi), kcrit). The arrays
 ! hold only the points with open stomata.
+!
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE xylem_conductance_SOX_jls( pft,                                     &
                                       n_water_potentials,                      &
@@ -147,7 +151,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Conductance parameter b for each open point
                             ! (Pa). Per point rather than per PFT so an
                             ! impaired vulnerability curve can be used.
-                            ! JBaguley
 , conductance_c(open_pnts)
                             ! Conductance parameter c for each open point.
 
@@ -159,8 +162,6 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ! Local variables
 INTEGER :: i, j
                             ! Water potential and open point.
-                            !
-                            ! MDK, 24/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -171,8 +172,6 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! k(psi) = kmax / (1 + (psi/b)^c), floored at kcrit (a double loop rather
 ! than SPREAD copies, as in xylem_conductance_CW_jls).
-!
-! MDK, 24/10/26
 DO j = 1, open_pnts
   DO i = 1, n_water_potentials
     xylem_conductance(i,j) = kmax(j)                                           &
@@ -206,7 +205,7 @@ END SUBROUTINE xylem_conductance_SOX_jls
 ! The conductance returned, leaf_k, is the curve at the leaf, k(psi_leaf),
 ! which for one curve is also -dE/dpsi_leaf.
 !
-! MDK, 25/10/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_SOX_jls( pft,                                              &
                              n_e_leaf,                                         &
@@ -267,7 +266,6 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Conductance parameter b for each land point
                             ! (Pa). Per point rather than per PFT so an
                             ! impaired vulnerability curve can be used.
-                            ! JBaguley
 , conductance_c(land_pts)
                             ! Conductance parameter c for each land point.
 
@@ -309,19 +307,8 @@ REAL(KIND=real_jlslsm) :: leaf_k_prev(n_e_leaf, open_pnts)
 INTEGER, PARAMETER :: max_nr_iter = 4
                             ! Cap on Newton-Raphson iterations, as in
                             ! psi_leaf_CW_jls (xylem_hydraulics_cumulative_
-                            ! weibull_jls_mod.f90): a fixed 2 iterations
-                            ! with no convergence check is inaccurate under
-                            ! water stress and does not correctly drive an
-                            ! infeasible sample's leaf_k below kcrit. Not
-                            ! independently numerically re-verified for
-                            ! this conductance model's
-                            ! k(psi) = kmax/(1+(psi/b)^c) form specifically -
-                            ! same value used on the assumption the same
-                            ! convergence behaviour holds, since the
-                            ! functional form is qualitatively the same
-                            ! shape (monotonic, collapsing to 0 as psi
-                            ! becomes very negative). Re-check numerically
-                            ! before relying on this if SOX is put into use.
+                            ! weibull_jls_mod.f90). Each sample stops
+                            ! earlier once its k has settled.
 
 INTEGER :: errcode
 
@@ -426,9 +413,7 @@ CASE(psi_solver_newton)
                        kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm)), .TRUE.)
 
     ! Iterate the water potential until converged, or until max_nr_iter is
-    ! reached. See the max_nr_iter comment above for why a fixed 2
-    ! iterations with no convergence check is not used. Each sample stops
-    ! when its own k has settled.
+    ! reached. Each sample stops when its own k has settled.
     l_nr_active(:) = .TRUE.
     DO i = 1, max_nr_iter
 
@@ -577,13 +562,14 @@ END SUBROUTINE psi_leaf_SOX_jls
 !         n - 1 + cf
 !
 ! Where Tn-1 is the previous term in the sum.
-! ---------------------------------------------------------------------
-FUNCTION SOX_2F1(n_xf, cf, xf) RESULT( f21 )
-
+!
 ! One cf for all values: the per-value series below (SOX_2F1_multiple_cf),
 ! as incomplete_gamma does.
 !
-! MDK, 24/10/26
+! MDK, 04/11/26
+! ---------------------------------------------------------------------
+FUNCTION SOX_2F1(n_xf, cf, xf) RESULT( f21 )
+
 
 INTEGER, INTENT(IN) :: n_xf ! Size of xf array
 
@@ -601,7 +587,8 @@ END FUNCTION SOX_2F1
 ! use to find the water a path can carry, with its own cf for each value
 ! (curves that differ between points, for example impaired ones). This
 ! routine sums the series.
-! JBaguley
+!
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 FUNCTION SOX_2F1_multiple_cf(n_xf, cf, xf) RESULT( f21 )
 
@@ -616,16 +603,12 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: xf(n_xf)
 REAL(KIND=real_jlslsm) :: f21(n_xf)
                             ! (Not named sum, which would hide the
                             ! intrinsic.)
-                            !
-                            ! MDK, 24/10/26
 
 ! Local variables
 REAL(KIND=real_jlslsm) :: current_term(n_xf)
 LOGICAL :: l_active(n_xf)
                             ! .TRUE. while this value's own series has not
                             ! converged (as incomplete_gamma).
-                            !
-                            ! MDK, 23/10/26
 REAL(KIND=real_jlslsm) :: z(n_xf)
 INTEGER :: i
 
@@ -642,8 +625,6 @@ INTEGER :: i
 ! c <= 2. This matters only with the series-based solvers; for SOX
 ! curves use the lookup table (som_psi_solver = psi_solver_lut), which
 ! integrates k(psi) directly.
-!
-! MDK, 23/10/26
 REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
 INTEGER, PARAMETER :: max_terms = 100
 
@@ -665,8 +646,6 @@ f21 = 1.0
 ! Tn = [n / (n-1+cf)] * z * Tn-1 (see the derivation above SOX_2F1),
 ! each value until its own remaining term is negligible relative to its
 ! running sum (as incomplete_gamma).
-!
-! MDK, 23/10/26
 l_active(:) = .TRUE.
 DO i = 1, max_terms
   WHERE ( l_active )

@@ -29,10 +29,18 @@ PRIVATE :: k_intact, antideriv, psi_at_k, ring_cond, ring_age, ring_steady,   &
            ring_q,                                                             &
            ring_sums
 
+! State of the memory model, held from one update to the next. ximpair_lock,
+! ximpair_repair_pend, ximpair_area_w (with l_veg_compete) and the ring
+! arrays are written to and read from dumps; ximpair_memory_alloc allocates
+! the first three.
+!
+! MDK, 04/11/26
+
 ! Locked-in loss of conductivity, 1 - k_cap/kmax, of each PFT at each land
-! point, kept for TRIFFID phenology (l_ximpair_leaf_loss). Not allocated
-! until the first update (none during spin-up), and then read as zero
-! where not yet set.
+! point. Read by TRIFFID phenology (l_ximpair_leaf_loss), hydraulic
+! mortality, TRIFFID and its NSC routines, and the initialisation, and
+! written to output. Not allocated until the first update
+! (none during spin-up), and then read as zero where not yet set.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock(:,:)
 
 ! Stem recovery by ring renewal (l_ximpair_rec_nsc): the share of the
@@ -40,23 +48,13 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock(:,:)
 ! TRIFFID step by triffid_nsc_ring_renewal and applied (then cleared) at
 ! the next update, where it dilutes the stem's loss (with
 ! l_nsc_ring_additive it is taken off the loss).
-!
-! MDK, 30/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_repair_pend(:,:)
-
-! ximpair_lock, ximpair_repair_pend and ximpair_area_w (with
-! l_veg_compete) are written to and read from dumps (ximpair_memory_alloc
-! allocates them).
-!
-! MDK, 30/10/26
 
 ! Factor (0-1) by which TRIFFID's gain of PFT area has diluted the stem
 ! damage (ximpair_dilute_area) since the last update, applied to the
 ! impaired kmax (kmax_impaired_pft, held by the surface code) at the next
 ! update and then reset to 1. In the dump, so a restart between a TRIFFID
-! step and the next update is exact (allocated by ximpair_memory_alloc).
-!
-! MDK, 25/10/26
+! step and the next update is exact.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_area_w(:,:)
 
 ! Ring cohorts of the sapwood (l_nsc_sapwood_rings): for each annual ring
@@ -66,8 +64,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_area_w(:,:)
 ! ring grows (< 0 = not yet set), which gives every ring's age in winters.
 ! Rings older than nsc_n_ring are merged into the last. In dumps;
 ! allocated only with the switch, with nsc_n_ring rings.
-!
-! MDK, 31/10/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_frac(:,:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_loss(:,:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_year(:,:)

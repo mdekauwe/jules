@@ -29,7 +29,9 @@ CONTAINS
 ! potential, which the stomatal optimiser uses as the reference for the
 ! hydraulic cost. It passes the call to the PFT's conductance model
 ! (cumulative Weibull or SOX), and the result is floored at the critical
-! conductance kcrit. JBaguley
+! conductance kcrit.
+!
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE leaf_conductance_jls( pft,                                          &
                                  land_pnts,                                    &
@@ -117,6 +119,8 @@ END SUBROUTINE leaf_conductance_jls
 ! stomatal optimiser. It passes the call to the PFT's conductance model
 ! (cumulative Weibull or SOX), and the result is floored at the critical
 ! conductance kcrit. The arrays hold only the points with open stomata.
+!
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE xylem_conductance_jls( pft,                                         &
                                   n_water_potentials,                          &
@@ -158,7 +162,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! (mol m-2 s-1 Pa-1).
 , conductance_b(open_pnts)                                                     &
                             ! Conductance parameter b for each open point
-                            ! (Pa). JBaguley
+                            ! (Pa).
 , conductance_c(open_pnts)
                             ! Conductance parameter c for each open point
                             ! (dimensionless).
@@ -242,7 +246,7 @@ END SUBROUTINE xylem_conductance_jls
 ! plant conductance at the root. With segments the segment solvers add
 ! the soil link themselves.
 !
-! MDK, 25/10/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_jls( pft,                                                  &
                          n_e_leaf,                                             &
@@ -305,7 +309,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! (mol m-2 s-1 Pa-1).
 , conductance_b(land_pts)                                                      &
                             ! Conductance parameter b for each land point
-                            ! (Pa). JBaguley
+                            ! (Pa).
 , conductance_c(land_pts)
                             ! Conductance parameter c for each land point
                             ! (dimensionless).

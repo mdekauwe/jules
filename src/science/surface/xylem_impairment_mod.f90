@@ -225,6 +225,8 @@ END SUBROUTINE leaf_conductance_impaired_jls
 !
 ! where k_leaf is the damaged plant's conductance at the leaf and k_in is
 ! its conductance where water enters the roots.
+!
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_impaired_jls( pft,                                         &
                                   n_e_leaf,                                    &
@@ -258,7 +260,6 @@ USE xylem_impairment_whole_trunk_mod, ONLY: psi_leaf_impaired_whole_trunk
 USE xylem_impairment_memory_mod, ONLY: psi_leaf_impaired_memory
 USE jules_vegetation_mod, ONLY: l_som_rhizo_series
 USE plant_hydraulic_path_mod, ONLY: ksr_path, som_psi_in_min
-                            ! MDK, 21/10/26
 
 USE um_types, ONLY: real_jlslsm
 
@@ -329,8 +330,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
 , psi_k(land_pnts)
                             ! Whole trunk: root-end potential the root-end
                             ! conductance is taken at (Pa).
-                            !
-                            ! MDK, 21/10/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -409,8 +408,6 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
           ! conductance is the unimpaired curve at the root's historic
           ! minimum (as psi_leaf_impaired_whole_trunk uses there), not the
           ! leaf's, which leaf_conductance_impaired_jls would use.
-          !
-          ! MDK, 21/10/26
           psi_k(:) = MIN(psi_in(:), psi_root_extreme(:))
           CALL leaf_conductance_jls( pft, land_pnts, psi_k, kmax, kcrit,       &
                                      conductance_b, conductance_c, k_inlet )
@@ -423,7 +420,6 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
         DO j = 1, open_pnts
           l = veg_index(open_index(j))
           k_s = ksr_path(l)
-                            ! MDK, 21/10/26
           leaf_psi(i,j) = psi1(1,j)
           IF ( ksr_path(l) < 0.0 ) THEN
             leaf_k(i,j) = k1(1,j)

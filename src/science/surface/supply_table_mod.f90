@@ -475,7 +475,7 @@ END FUNCTION table_s_at
 ! flow more than the table can carry puts psi_out at the bottom of the
 ! table.
 !
-! MDK, 31/10/26
+! MDK, 04/11/26
 ! *****************************************************************************
 FUNCTION table_psi( tab, psi_in, e_over_k ) RESULT( psi_out )
 
@@ -503,9 +503,12 @@ s_target = table_s_at(tab, psi_in) + e_over_k
 IF ( s_target >= tab%s(n) ) THEN
   psi_out = MIN(-(n - 1) * dpsi, psi_in)
 ELSE
-  ! S(lo) <= s_target < S(hi); S is strictly increasing.
+  ! S(lo) <= s_target < S(hi). S does not decrease with depth, but in
+  ! single precision it is flat over some cells deep in the tail (below
+  ! kcrit), so it is not strictly increasing. The cell is still unique (lo
+  ! the last node with S <= s_target), and S(hi) > S(lo) there.
   ! Search for that cell starting from psi_in's cell (the far end is never
-  ! wetter). S rises with depth, so the cell is unique. The bracket is first
+  ! wetter). The bracket is first
   ! widened from psi_in's cell in steps of 1, 2, 4, ... nodes, so a flow
   ! that takes the far end only a few cells down (most of them) needs a few
   ! steps on nearby nodes instead of about log2(n) = 12 across the table;
