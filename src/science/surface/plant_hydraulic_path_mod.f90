@@ -1213,6 +1213,9 @@ REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de,  &
 ! segment; with a flow back, the flow per unit kmax from psi_in up to psi_cap
 ! (< 0) and the flow per unit kmax.
 REAL(KIND=real_jlslsm) :: e_r, e_s, x_cap, x_s
+! The segment's intact conductance at its inlet and outlet (mol m-2 s-1
+! Pa-1).
+REAL(KIND=real_jlslsm) :: k_in_int, k_out_int
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -1296,18 +1299,10 @@ DO j = 1, open_pnts
           END IF
         END IF
         psi_out = MIN(psi_out, 0.0_real_jlslsm)
-        k_in  = MAX(MIN(kmx * EXP( -(MIN(psi_in, 0.0_real_jlslsm)/bs)**cs ),   &
-                        fr * kmx), k_floor * kmx)
-        k_out = MAX(MIN(kmx * EXP( -(MIN(psi_out, 0.0_real_jlslsm)/bs)**cs ),  &
-                        fr * kmx), k_floor * kmx)
       ELSE IF ( l_store_q_path .AND. e_s < 0.0 ) THEN
         ! A flow back on an intact segment (as above).
         psi_out = seg_lut_psi_back(pft, iseg, psi_in,                          &
                                    e_s / MAX(kmx, TINY(1.0_real_jlslsm)))
-        k_in  = MAX(kmx * EXP( -(MIN(psi_in, 0.0_real_jlslsm)/bs)**cs ),       &
-                    k_floor * kmx)
-        k_out = MAX(kmx * EXP( -(MIN(psi_out, 0.0_real_jlslsm)/bs)**cs ),      &
-                    k_floor * kmx)
       ELSE IF ( l_cap ) THEN
         ! Exact inversion of the capped integral (see above): the straight
         ! capped part down to psi_cap, then the intact table from psi_cap.
@@ -1326,26 +1321,31 @@ DO j = 1, open_pnts
           psi_out = seg_lut_psi(pft, iseg, psi_in,                             &
                                 e_pos / MAX(kmx, TINY(1.0_real_jlslsm)))
         END IF
-        k_in  = MAX(MIN(kmx * EXP( -(ABS(psi_in /bs))**cs ), fr * kmx),        &
-                    k_floor * kmx)
-        k_out = MAX(MIN(kmx * EXP( -(ABS(psi_out/bs))**cs ), fr * kmx),        &
-                    k_floor * kmx)
       ELSE
         psi_out = seg_lut_psi(pft, iseg, psi_in,                               &
                               e_s / MAX(kmx, TINY(1.0_real_jlslsm)))
-        k_in  = MAX(kmx * EXP( -(ABS(psi_in /bs))**cs ), k_floor * kmx)
-        k_out = MAX(kmx * EXP( -(ABS(psi_out/bs))**cs ), k_floor * kmx)
       END IF
+
+      ! The segment's intact conductance at its two ends, worked out once
+      ! for the search's chain (capped at fr kmax on a capped segment) and
+      ! the intact chain. Both are floored at k_floor kmax.
+      k_in_int  = kmx * EXP( -(MIN(psi_in, 0.0_real_jlslsm)/bs)**cs )
+      k_out_int = kmx * EXP( -(MIN(psi_out, 0.0_real_jlslsm)/bs)**cs )
+      IF ( l_cap ) THEN
+        k_in  = MAX(MIN(k_in_int, fr * kmx), k_floor * kmx)
+        k_out = MAX(MIN(k_out_int, fr * kmx), k_floor * kmx)
+      ELSE
+        k_in  = MAX(k_in_int, k_floor * kmx)
+        k_out = MAX(k_out_int, k_floor * kmx)
+      END IF
+      k_in_int  = MAX(k_in_int, k_floor * kmx)
+      k_out_int = MAX(k_out_int, k_floor * kmx)
 
       dpsi_de = ( k_in * dpsi_de - 1.0 ) / k_out
 
       ! The intact chain at the same water potentials (hydraulic cost).
       IF ( PRESENT(leaf_k_intact) )                                            &
-        dpsi_de_int = ( MAX(kmx * EXP( -(MIN(psi_in, 0.0_real_jlslsm)          &
-                                         / bs)**cs ), k_floor * kmx)           &
-                        * dpsi_de_int - 1.0 )                                  &
-                      / MAX(kmx * EXP( -(MIN(psi_out, 0.0_real_jlslsm)         &
-                                       / bs)**cs ), k_floor * kmx)
+        dpsi_de_int = ( k_in_int * dpsi_de_int - 1.0 ) / k_out_int
 
       psi_in  = psi_out
       IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(i,j) = psi_out
