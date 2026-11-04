@@ -370,7 +370,7 @@ USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, ksr_path,                &
                                     l_store_q_path, l_shared_stem_path,        &
-                                    l_shared_whole_path
+                                    l_shared_whole_path, grav_node_drop
 USE model_time_mod, ONLY: is_spinup
 
 LOGICAL, INTENT(IN) :: l_multilayer
@@ -767,7 +767,13 @@ el(:)      = 0.0
 flux_o3(:) = 0.0
 fo3(:)     = 0.0
 gl(:)      = min_gl_pft(pft)
+! The leaf at zero flow: the root zone's water potential, less the gravity
+! drop at the root-stem node where it is set (grav_node_drop).
 psi_leaf(:)= psi_root_zone(:)
+DO m = 1, veg_pts
+  l = veg_index(m)
+  psi_leaf(l) = psi_root_zone(l) - grav_node_drop(l)
+END DO
 
 ! Closed stomata: the whole-path conductance at zero flow (xylem at
 ! psi_root_zone, in series with the soil-to-root ksr_path), the same
@@ -800,7 +806,7 @@ ELSE
   END DO
 END IF
 
-IF (PRESENT(psi_stem)) psi_stem(:) = psi_root_zone(:)
+IF (PRESENT(psi_stem)) psi_stem(:) = psi_leaf(:)
 
 ! Default outputs for points with closed stomata. Overwritten below for
 ! points with open stomata. Set before the early return, so that a call
@@ -1592,6 +1598,8 @@ USE jules_surface_mod, ONLY: ratio
 
 USE c_rmol, ONLY: rmol
 
+USE plant_hydraulic_path_mod, ONLY: grav_node_drop
+
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -1751,7 +1759,7 @@ kl_hc_sample(:,:)   = 0.0
 DO j = 1, open_pts
   l = veg_index(open_index(j))
   ci_sample(0,j)  = ca(l)
-  psi_sample(0,j) = psi_root_zone(l)
+  psi_sample(0,j) = psi_root_zone(l) - grav_node_drop(l)
 
   DO i = 1, n_sample
     !NOTE: Array entry 1 is at ci_lo (hence i-1), and the last step is less
@@ -1858,9 +1866,10 @@ CALL som_path_psi( pft, 1, land_pts, open_pts, veg_index, open_index,          &
 
 ! Stem water potential samples (only when the caller asks for them): with
 ! xylem impairment on the segmented path, each Ci sample keeps the stem
-! (root-stem node) potential from its own path solve; otherwise there is no
-! separate stem node, so it is the root-zone potential. Entry 0 (closed, no
-! flow) is the root-zone potential either way.
+! (root-stem node) potential from its own path solve; otherwise it is the
+! stem at zero flow, the root-zone potential less the gravity drop at the
+! root-stem node (grav_node_drop, 0 without it). Entry 0 (closed, no flow)
+! is the stem at zero flow either way.
 DO j = 1, open_pts
   l = veg_index(open_index(j))
   al_sample(0,j)  = -rd(l)
@@ -1868,7 +1877,7 @@ DO j = 1, open_pts
   el_sample(0,j)  = 0.0
   kl_sample(0,j)  = kl_closed(1,j)
   kl_hc_sample(0,j) = kl_sample(0,j)
-  psi_sample(0,j) = psi_root_zone(l)
+  psi_sample(0,j) = psi_root_zone(l) - grav_node_drop(l)
 END DO
 
 IF (PRESENT(psi_stem_sample)) THEN
@@ -1877,9 +1886,9 @@ IF (PRESENT(psi_stem_sample)) THEN
     IF (l_xylem_impairment .AND. l_som_plant_segments) THEN
       psi_stem_sample(1:,j) = psi_stem_work(1:,j)
     ELSE
-      psi_stem_sample(1:,j) = psi_root_zone(l)
+      psi_stem_sample(1:,j) = psi_root_zone(l) - grav_node_drop(l)
     END IF
-    psi_stem_sample(0,j) = psi_root_zone(l)
+    psi_stem_sample(0,j) = psi_root_zone(l) - grav_node_drop(l)
   END DO
 END IF
 
@@ -2362,6 +2371,7 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 ximpair_hold_psi, l_som_coupled_e,             &
                                 photo_johnson
 USE plant_hydraulic_path_mod, ONLY: l_kscale
+USE plant_hydraulic_path_mod, ONLY: grav_node_drop
 USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kplant_scale,            &
                                     l_store_q_path, l_shared_stem_path,        &
                                     l_shared_whole_path, l_shared_gain_path,   &
@@ -2652,7 +2662,8 @@ CONTAINS
   ! ca - (ca - ccp) / n_top.
   !---------------------------------------------------------------------------
   SUBROUTINE point_setup()
-  IF ( PRESENT(psi_stem_g) ) psi_stem_g(j) = psi_root_zone(l)
+  IF ( PRESENT(psi_stem_g) )                                                   &
+    psi_stem_g(j) = psi_root_zone(l) - grav_node_drop(l)
   IF ( PRESENT(lambda_g) ) lambda_g(j) = 0.0
   idx1(1) = open_index(j)
   g_off = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
@@ -3286,7 +3297,7 @@ CONTAINS
       f_hi = 1.0
       g_hi = 1.0 - nsl_factor(psi_u)
       f_lo = 0.0
-      g_lo = -nsl_factor(psi_root_zone(l))
+      g_lo = -nsl_factor(psi_root_zone(l) - grav_node_drop(l))
       ! The same with the shared root and stem, where the other class's
       ! flow keeps the leaf below psi_root_zone.
       IF ( l_store_q_path .OR. l_shared_stem_path ) THEN
@@ -3910,7 +3921,7 @@ CONTAINS
   IF ( PRESENT(rd_g) ) rd_g(j) = rd(l)
   gl_g(j) = 0.0
   kl_g(j) = kl0(1,1)
-  psi_g(j) = psi_root_zone(l)
+  psi_g(j) = psi_root_zone(l) - grav_node_drop(l)
   el_g(j) = 0.0
   carbon_gain_g(j) = 0.0
   hydraulic_cost_g(j) = 0.0
@@ -3995,6 +4006,7 @@ USE pftparm, ONLY: sl_cica_well_watered, conductance_b_pft, conductance_c_pft
 USE jules_surface_mod, ONLY: ratio
 USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
+USE plant_hydraulic_path_mod, ONLY: grav_node_drop
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts, pft, open_pts, open_index(land_pts), pft_photo_model,              &
@@ -4090,7 +4102,7 @@ DO j = 1, open_pts
 
   ! E (mol m-2 s-1) = conv_e * gl (m s-1), as stom_opt_mod_ci.
   conv_e = e_of_g(1.0_real_jlslsm, dq(l), pstar(l), t_leaf(l))
-  p0 = psi_root_zone(l)
+  p0 = psi_root_zone(l) - grav_node_drop(l)
   k_fail = kcrit(l)
   IF ( sl_kfail_frac > 0.0 ) k_fail = sl_kfail_frac * kmax(l)
 
@@ -4414,7 +4426,7 @@ CONTAINS
   al_g(j) = -rd(l)
   gl_g(j) = 0.0
   kl_g(j) = k0c
-  psi_g(j) = psi_root_zone(l)
+  psi_g(j) = psi_root_zone(l) - grav_node_drop(l)
   el_g(j) = 0.0
   carbon_gain_g(j) = 0.0
   hydraulic_cost_g(j) = 0.0

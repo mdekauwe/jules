@@ -220,6 +220,8 @@ USE plant_hydraulic_path_mod, ONLY: set_store_q_path, clear_store_q_path,      &
                                        ! MDK, 24/10/26
 USE plant_hydraulic_path_mod, ONLY: psi_leaf_segments_lut_jls   ! MDK, 31/10/26
 USE plant_hydraulic_path_mod, ONLY: lut_seg_step, seg_kmax_fac
+USE plant_hydraulic_path_mod, ONLY: set_grav_drop, clear_grav_drop,            &
+                                    grav_node_drop
 USE supply_table_mod, ONLY: build_supply_lut_seg
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
                                        ! MDK, 04/11/26
@@ -746,7 +748,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,psi_stem(land_pts)                                                            &
                             ! WORK Stem water potential (Pa): the stem
                             !      segment's leaf-side end at the optimum (xylem
-                            !      impairment driver 4), else psi_src.
+                            !      impairment driver 4), else psi_zf.
 ,psi_stem_sun(land_pts), psi_stem_shd(land_pts)                                &
                             ! WORK psi_stem of the sunlit / shaded leaves.
 ,psi_leaf_sun(land_pts)                                                        &
@@ -866,7 +868,14 @@ REAL(KIND=real_jlslsm) :: psi_src(land_pts)
                             ! Water potential at the base of the plant path
                             ! seen by the stomatal optimisation (Pa):
                             ! psi_root_zone, less the gravitational drop
-                            ! rho_water g ht when l_som_gravity.
+                            ! rho_water g ht with l_som_gravity on a plant
+                            ! without segments.
+REAL(KIND=real_jlslsm) :: psi_zf(land_pts)
+                            ! Water potential of the stem and leaf at zero
+                            ! flow (Pa): psi_root_zone, less rho_water g ht
+                            ! with l_som_gravity.
+REAL(KIND=real_jlslsm) :: drop_grav(land_pts)
+                            ! The gravitational drop rho_water g ht (Pa).
 REAL(KIND=real_jlslsm) :: gl_leaf_cap
                             ! som_gl_max, or 0 (no cap) for the supply-loss
                             ! stomata (stomata_model = 9), which have none.
@@ -1342,14 +1351,26 @@ ra_ca_lt(:)   = 0.0
 
 !-----------------------------------------------------------------------------
 ! Gravity (l_som_gravity). Lifting water to the top of the canopy costs
-! rho_water g ht (0.01 MPa per m) on top of the frictional drop, so the
-! stomatal optimisation draws on psi_root_zone - rho_water g ht (Xu et al.
-! 2016, Eqn S2a). The whole canopy is put at the
-! canopy height, the conservative end for the multilayer scheme. Applied as
-! a shift of the source, the vulnerability curve is evaluated on the
-! shifted potentials, i.e. at the pressure in the upper xylem.
+!
+!   drop = rho_water g ht   (0.01 MPa per m)
+!
+! on top of the frictional drop (Xu et al. 2016, Eqn S2a). The whole
+! canopy is put at the canopy height, the conservative end for the
+! multilayer scheme. With segments (l_som_plant_segments) the drop is
+! taken at the node between the root and the stem (set_grav_drop): the
+! soil-to-root link and the root segment work at psi_root_zone, and the
+! stem and leaf segments start from the root's leaf-side water potential
+! less the drop, so their curves are evaluated at the pressure in the
+! upper xylem. Without segments there is no stem node, so the drop is
+! taken at the source (psi_src) and the whole-plant curve is evaluated on
+! the shifted potentials. Either way the stem and leaf at zero flow are at
+! psi_zf = psi_root_zone - drop.
+!
+! MDK, 04/11/26
 !-----------------------------------------------------------------------------
+CALL clear_grav_drop()
 psi_src(:) = psi_root_zone(:)
+psi_zf(:) = psi_root_zone(:)
 psi_stem(:) = psi_root_zone(:)
 ! Plant capacitance (the plant water store) of the stomatal optimisation
 ! (l_som_capacitance_on: l_som_capacitance or the cuticular loss) moves the
@@ -1362,13 +1383,20 @@ l_store_cpl = l_cap_store
 psi_stem_sun(:) = psi_root_zone(:)
 psi_stem_shd(:) = psi_root_zone(:)
 IF ( l_som_gravity .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
+  drop_grav(:) = 0.0
   DO m = 1,veg_pts
     l = veg_index(m)
-    psi_src(l) = psi_root_zone(l) - rho_water * g * MAX(ht(l), 0.0)
+    drop_grav(l) = rho_water * g * MAX(ht(l), 0.0)
+    psi_zf(l) = psi_root_zone(l) - drop_grav(l)
   END DO
-  psi_stem(:) = psi_src(:)
-  psi_stem_sun(:) = psi_src(:)
-  psi_stem_shd(:) = psi_src(:)
+  IF ( l_som_plant_segments ) THEN
+    CALL set_grav_drop( land_pts, veg_pts, veg_index, drop_grav )
+  ELSE
+    psi_src(:) = psi_zf(:)
+  END IF
+  psi_stem(:) = psi_zf(:)
+  psi_stem_sun(:) = psi_zf(:)
+  psi_stem_shd(:) = psi_zf(:)
 END IF
 
 ! Soil-water capacity factor of Vcmax/Jmax (l_som_vcmax_psi), once per
@@ -2817,7 +2845,7 @@ CASE ( 5, 6 )
                 IF ( l_som_plant_segments )                                    &
                   psi_stem(l) = psi_stem(l) / lai(l)
             ELSE IF ( l_som_plant_segments ) THEN
-                psi_stem(l) = psi_src(l)
+                psi_stem(l) = psi_zf(l)
             END IF
 
             ! gl-weighted canopy ci (as two-leaf); the LAI mean when no
@@ -4808,6 +4836,9 @@ IF ( l_fapar_diag ) THEN
   apar_diag(:) = fapar_diag(:) * ipar(:)
 END IF
 
+! The gravity drop at the root-stem node is this timestep's only.
+CALL clear_grav_drop()
+
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
 
@@ -5219,14 +5250,14 @@ REAL(KIND=real_jlslsm) :: psi_from(land_pts)
 IF ( PRESENT(l_sel) ) THEN
   WHERE ( l_sel(:) )
     q_be(:)      = 0.0
-    psi_st_be(:) = psi_src(:)
+    psi_st_be(:) = psi_zf(:)
     psi_l_be(:)  = psi_leaf(:)
     k_be(:)      = 0.0
     l_fl_hit(:)  = .FALSE.
   END WHERE
 ELSE
   q_be(:)      = 0.0
-  psi_st_be(:) = psi_src(:)
+  psi_st_be(:) = psi_zf(:)
   psi_l_be(:)  = psi_leaf(:)
   k_be(:)      = 0.0
   l_fl_hit(:)  = .FALSE.
@@ -5278,7 +5309,7 @@ DO m = 1,veg_pts
   psi_x0(l) = cut_w_store(l,ft) / cut_c_store(l,ft)
 
   ! The two ends of the search.
-  q_lo(l)   = c_p(l) * (psi_x0(l) - psi_src(l))
+  q_lo(l)   = c_p(l) * (psi_x0(l) - psi_zf(l))
   q_hi(l)   = e_c(l)
   n_be = n_be + 1
   idx_be(n_be) = m
@@ -5397,11 +5428,13 @@ END DO
 ! the leaf carries E from the stem, and the roots and stem carry nothing.
 ! Starting from the soil's water potential instead would, in a drought,
 ! give a far wetter leaf that conducts too well.
+! (The root carries nothing, so the chain starts at the stem psi plus the
+! gravity drop the root-stem node takes off.)
 IF ( ANY(l_only(veg_index(idx_be(1:n_be)))) ) THEN
   psi_from(:) = psi_src(:)
   DO j = 1,n_be
     l = veg_index(idx_be(j))
-    IF ( l_only(l) ) psi_from(l) = psi_st_be(l)
+    IF ( l_only(l) ) psi_from(l) = psi_st_be(l) + grav_node_drop(l)
   END DO
   CALL store_cpl_eval( n_be, idx_be, l_imp_be, l_ex, e_c, q_try, c_p, psi_x0,  &
                        kref_c, kmx_c, kcr_c, kcap_c, psi1, st1, f_try,         &

@@ -25,13 +25,16 @@ IMPLICIT NONE
 ! and shaded leaves set on the path while the stomatal optimiser
 ! searches.
 !
-! MDK, 30/10/26
+! MDK, 04/11/26
 PRIVATE
 
 CHARACTER(LEN=*),PARAMETER,PRIVATE :: ModuleName='PLANT_HYDRAULIC_PATH_MOD'
 
 PUBLIC :: set_ksr_path                                                         &
 ,         set_store_q_path                                                     &
+,         set_grav_drop                                                        &
+,         clear_grav_drop                                                      &
+,         grav_node_drop                                                       &
 ,         clear_store_q_path                                                   &
 ,         set_shared_stem                                                      &
 ,         clear_shared_stem                                                    &
@@ -170,6 +173,18 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: kplant_scale(:),                &
 ! set_k_ground_basis.
 LOGICAL, PUBLIC :: l_kscale = .FALSE.
 
+! Gravity (l_som_gravity) on a plant with segments: lifting water from the
+! roots to the canopy costs rho_water g ht, which is taken at the node
+! between the root and stem segments. The soil link and the root segment
+! work at the root zone's water potential, and the stem and leaf segments
+! start from the root's leaf-side water potential less the drop. The drop
+! does not change with E, so dpsi/dE carries on through the node as it is.
+!   grav_drop   : the drop (Pa, >= 0).
+!   l_grav_drop : .TRUE. while grav_drop applies (set by sf_stom with
+!                 set_grav_drop for the step, cleared by clear_grav_drop).
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: grav_drop(:)
+LOGICAL, PUBLIC :: l_grav_drop = .FALSE.
+
 ! Floor on the root water potential (Pa) with l_som_rhizo_series when
 ! the soil conductance is (near) zero.
 REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: som_psi_in_min = -1.0e9
@@ -275,6 +290,66 @@ IMPLICIT NONE
 l_store_q_path = .FALSE.
 
 END SUBROUTINE clear_store_q_path
+
+! *****************************************************************************
+! Set the drop in water potential from gravity at the node between the
+! root and stem segments for this timestep (l_som_gravity with segments),
+! drop = rho_water g MAX(ht, 0) (Pa) at each vegetated point, and switch
+! it on for the segment solvers and k_path_zero_flow.
+!
+! MDK, 04/11/26
+! *****************************************************************************
+SUBROUTINE set_grav_drop( land_pts, veg_pts, veg_index, drop )
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN) :: drop(land_pts)
+
+INTEGER :: l, m
+
+IF ( .NOT. ALLOCATED(grav_drop) ) ALLOCATE(grav_drop(land_pts))
+grav_drop(:) = 0.0
+DO m = 1,veg_pts
+  l = veg_index(m)
+  grav_drop(l) = MAX(drop(l), 0.0_real_jlslsm)
+END DO
+l_grav_drop = .TRUE.
+
+END SUBROUTINE set_grav_drop
+
+! *****************************************************************************
+! Stop applying the gravity drop at the root-stem node (set_grav_drop)
+! once sf_stom has finished with the timestep.
+!
+! MDK, 04/11/26
+! *****************************************************************************
+SUBROUTINE clear_grav_drop()
+
+IMPLICIT NONE
+
+l_grav_drop = .FALSE.
+
+END SUBROUTINE clear_grav_drop
+
+! *****************************************************************************
+! Return the gravity drop at the root-stem node at point l (Pa, >= 0): the
+! drop set by set_grav_drop while it applies, else 0. The stem and the
+! leaf at zero flow sit at the root zone's water potential less this.
+!
+! MDK, 04/11/26
+! *****************************************************************************
+FUNCTION grav_node_drop( l ) RESULT( drop )
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: l
+REAL(KIND=real_jlslsm) :: drop
+
+drop = 0.0
+IF ( l_grav_drop ) drop = grav_drop(l)
+
+END FUNCTION grav_node_drop
 
 ! *****************************************************************************
 ! Make the sunlit and shaded leaves of the two-leaf canopy draw their
@@ -523,6 +598,10 @@ END FUNCTION seg_kmax_fac
 !
 !   1 / K = 1 / ksr_path + sum over segments of 1 / k_s(psi_root)
 !
+! With the gravity drop at the root-stem node (set_grav_drop), the stem and
+! leaf segments are at psi_root - drop, as the solvers give them at E = 0,
+! unless l_plant_only is .TRUE.
+!
 ! This is what the solvers give at E = 0. stom_opt_mod uses it for points
 ! where the stomata are closed, for the zero-flow reference of the
 ! hydraulic cost, for SOX's k(psi_bar) and for CGain's k_max.
@@ -540,7 +619,8 @@ END FUNCTION seg_kmax_fac
 !     example from an impairment model), used in place of the curve;
 !   - the soil-to-root link ksr_path (l_som_rhizo_series, ksr_path >= 0),
 !     which set_ksr_path must have set for this path. It is left out when
-!     l_plant_only is .TRUE. (for example for CGain's k_max).
+!     l_plant_only is .TRUE. (for example for CGain's k_max), and so is the
+!     gravity drop: the plant alone, every segment at psi_root.
 !
 ! The result is 0 if any part has no conductance.
 !
@@ -563,11 +643,13 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: kmax, psi_root
 ! Curve parameters b (Pa) and c (dimensionless); the segment cap fraction
 ! (dimensionless); the known plant conductance at psi_root (mol m-2 s-1 Pa-1).
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: b, c, kcap_frac, kx
-! .TRUE.: leave out the soil-to-root link.
+! .TRUE.: leave out the soil-to-root link and the gravity drop.
 LOGICAL, INTENT(IN), OPTIONAL :: l_plant_only
 ! The result (mol m-2 s-1 Pa-1); the series resistance sum; an element's and the
 ! soil's conductance.
 REAL(KIND=real_jlslsm) :: k0, r, k_el, k_s
+! The water potential of the current segment (Pa).
+REAL(KIND=real_jlslsm) :: psi_s
 INTEGER :: iseg
 LOGICAL :: l_soil
 
@@ -583,7 +665,9 @@ IF ( PRESENT(kx) ) THEN
 ELSE IF ( l_som_plant_segments ) THEN
   r = 0.0
   DO iseg = 1, 3
-    k_el = kmax * seg_kmax_fac(pft,l,iseg) * seg_rel_k(pft, iseg, psi_root)
+    psi_s = psi_root
+    IF ( iseg >= 2 .AND. l_soil ) psi_s = psi_root - grav_node_drop(l)
+    k_el = kmax * seg_kmax_fac(pft,l,iseg) * seg_rel_k(pft, iseg, psi_s)
     ! The cap on the stem and leaf (and the root with l_som_seg_whole).
     IF ( PRESENT(kcap_frac) .AND. ( iseg >= 2 .OR. l_som_seg_whole ) )         &
       k_el = MIN(k_el, MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac),      &
@@ -657,6 +741,9 @@ END FUNCTION k_path_zero_flow
 ! refined by bisection (repeatedly halving the range that holds the
 ! answer), so it is exact also near the most the segment can carry; a
 ! larger flow is infeasible (leaf_psi = som_psi_in_min, leaf_k = 0).
+!
+! With the gravity drop set (set_grav_drop), the stem's root-side water
+! potential is the root's leaf-side one less the drop.
 !
 ! MDK, 04/11/26
 ! *****************************************************************************
@@ -976,7 +1063,10 @@ DO j = 1, open_pnts
     END IF
 
     ! Hand on to the next segment; keep the stem segment's leaf-side psi.
+    ! The gravity drop (set_grav_drop) is taken between the root and the
+    ! stem.
     psi_in(:)  = psi_out(:)
+    IF ( iseg == 1 ) psi_in(:) = psi_in(:) - grav_node_drop(l)
     IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(:,j) = psi_out(:)
     ! Keep the stem state of a class solve (l_rs_cache).
     IF ( iseg == 2 .AND. l_one .AND. .NOT. l_shared_whole_path ) THEN
@@ -1162,7 +1252,8 @@ END SUBROUTINE psi_leaf_segments_jls
 ! path is solved). E_r < 0, the store giving more than E, is a flow back
 ! towards the soil: it is found upwards in the table (seg_lut_psi_back)
 ! and stops at psi = 0, as in the Newton solver. Each segment's step is
-! lut_seg_step.
+! lut_seg_step. The gravity drop (set_grav_drop) is taken between the root
+! and the stem, as in the Newton solver.
 !
 ! MDK, 04/11/26
 ! *****************************************************************************
@@ -1307,7 +1398,9 @@ DO j = 1, open_pnts
       IF ( PRESENT(leaf_k_intact) )                                            &
         dpsi_de_int = ( k_in_int * dpsi_de_int - 1.0 ) / k_out_int
 
+      ! The gravity drop between the root and the stem (set_grav_drop).
       psi_in  = psi_out
+      IF ( iseg == 1 ) psi_in = psi_in - grav_node_drop(l)
       IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(i,j) = psi_out
     END DO
 
