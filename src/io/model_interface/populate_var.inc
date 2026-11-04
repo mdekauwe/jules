@@ -18,7 +18,6 @@ USE jules_fields_mod, ONLY: toppdm
 USE imgn_drive_mod, ONLY: imgn_drive
 USE imgn_vars_mod, ONLY: imgn_vars
 ! MDK, 30/10/26
-USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
     ximpair_repair_pend, ximpair_area_w
 USE trifctl, ONLY: asteps_since_triffid
@@ -2011,25 +2010,6 @@ CASE ( 'f_nsc' )
     CALL cube_get_data(cube_land, progs%f_nsc_pft(:,:))
   ELSE
     progs%f_nsc_pft(:,:) = const_val
-  END IF
-
-  ! DESICA state (Pa); 0 = start at the soil water potential.
-CASE ( 'psi_leaf_desica' )
-  CALL desica_alloc( land_pts )
-  IF ( PRESENT(cube) ) THEN
-    cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, psi_leaf_desica(:,:))
-  ELSE
-    psi_leaf_desica(:,:) = const_val
-  END IF
-
-CASE ( 'psi_stem_desica' )
-  CALL desica_alloc( land_pts )
-  IF ( PRESENT(cube) ) THEN
-    cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, psi_stem_desica(:,:))
-  ELSE
-    psi_stem_desica(:,:) = const_val
   END IF
 
   ! Xylem impairment state (see required_vars_for_configuration).

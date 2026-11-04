@@ -29,7 +29,6 @@ USE jules_fields_mod, ONLY: crop_vars, psparms, ainfo, trif_vars, progs,       &
 USE jules_fields_mod, ONLY: toppdm, soilecosse, trifctltype
 USE imgn_vars_mod, ONLY: imgn_vars
 ! MDK, 30/10/26
-USE desica_jls_mod, ONLY: desica_alloc, psi_leaf_desica, psi_stem_desica
 USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
     ximpair_repair_pend, ximpair_area_w
 USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
@@ -370,18 +369,6 @@ DO i = 1,nvars
   CASE ( 'f_nsc' )
     DO n = 1,npft
       CALL gather_land_field(progs%f_nsc_pft(:,n), global_data_2d(:,n))
-    END DO
-
-  CASE ( 'psi_leaf_desica' )
-    CALL desica_alloc( land_pts )
-    DO n = 1,npft
-      CALL gather_land_field(psi_leaf_desica(:,n), global_data_2d(:,n))
-    END DO
-
-  CASE ( 'psi_stem_desica' )
-    CALL desica_alloc( land_pts )
-    DO n = 1,npft
-      CALL gather_land_field(psi_stem_desica(:,n), global_data_2d(:,n))
     END DO
 
   CASE ( 'kmax_impaired' )
@@ -1443,7 +1430,6 @@ DO i = 1,nvars
       ! If it is a variable with one levels dimension, write the appropriate
       ! number of levels to global_data_2d.
     CASE ( 'canht', 'lai', 'years_since_harvest', 'harvest_doy', 'f_nsc',      &
-           'psi_leaf_desica', 'psi_stem_desica',                               &
            'kmax_impaired',                                                    &
            'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',             &
            'ximpair_kcap_leaf', 'ximpair_psi_stem', 'ximpair_area_w',          &

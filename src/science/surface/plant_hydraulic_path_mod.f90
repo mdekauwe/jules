@@ -183,8 +183,8 @@ CONTAINS
 ! kmax. It must come from the undamaged plant conductance, so that xylem
 ! impairment, which lowers the kmax given to the solver, leaves the soil
 ! link as it is. ksr_path < 0 means the path has no soil link. It is
-! called only on the profit-max and DESICA paths, where l_som_rhizo_series
-! is always .TRUE.
+! called only on the profit-max path, where l_som_rhizo_series is always
+! .TRUE.
 !
 ! MDK, 04/11/26
 ! *****************************************************************************

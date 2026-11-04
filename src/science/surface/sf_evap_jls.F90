@@ -53,10 +53,7 @@ USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 USE jules_surface_types_mod, ONLY: lake, npft, soil
 USE jules_hydrology_mod, ONLY: l_soil_evap_or
 USE soil_evap_or_mod, ONLY: w1_or
-USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica,               &
-                                l_som_cuticular_loss, leaf_flux_mod,           &
-                                leaf_flux_stom_opt, l_som_capacitance_on   ! MDK, 23/10/26
-USE desica_jls_mod, ONLY: desica_commit, desica_cut_uptake
+USE jules_vegetation_mod, ONLY: l_som_capacitance_on   ! MDK, 04/11/26
 USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_store_return,           &
                                     cut_wt_root, cut_w_soil, cut_w_root_avail
 USE ereport_mod, ONLY: ereport
@@ -211,17 +208,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,le_surft_old(land_pts,nsurft)                                                  &
 !                            ! Surf latent heat flux before adjustment.
 ,t_stom(land_pts,nsurft)                                                       &
-!                            ! DESICA and the cuticular-loss store:
-!                            ! stomatal transpiration (kg/m2/s).
-!                            !
-!                            ! MDK, 22/10/26
+!                            ! Cuticular-loss store: stomatal
+!                            ! transpiration (kg/m2/s).
 ,esoil_ext(land_pts,nsurft)                                                    &
 !                            ! Flux taken from soil moisture (kg/m2/s):
-!                            !     esoil_surft, except that for DESICA the
-!                            !     transpiration is replaced by the root
-!                            !     uptake.
-,q_ds(land_pts)                                                                &
-!                            ! DESICA root uptake of one PFT (kg/m2/s).
+!                            !     esoil_surft less the store's flow out.
+!                            !
+!                            ! MDK, 04/11/26
 ,des_or(land_pts,nsurft)
 !                            ! Or: soil evaporation removed by the CABLE
 !                            !     limit (kg/m2/s); taken off layer 1 only.
@@ -233,7 +226,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
 
 REAL(KIND=real_jlslsm) ::                                                      &
  sum_t, sum_q, excess, dq_cut
-                       ! DESICA soil-supply check on the uptake.
+                       ! Store's soil-supply check: the transpiration and
+                       ! refills over the tiles, the amount above the
+                       ! supply, and the cut on one tile (kg/m2/s).
+                       !
+                       ! MDK, 04/11/26
 REAL(KIND=real_jlslsm) ::                                                      &
  w_base, w_give, w_refill, f_lay, w_root
                        ! Store's refill check by soil layer: the layer's
@@ -243,8 +240,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
                        ! the roots can reach over the tiles (kg/m2).
                        !
                        ! MDK, 01/11/26
-LOGICAL :: l_desica
-                       ! DESICA is on (stomata_model = stomata_desica).
 LOGICAL :: l_cut_store
                        ! The plant water store of the cuticular loss under
                        ! the stomatal optimisation (cuticular_leak_state_mod).
@@ -286,19 +281,12 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='SF_EVAP'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-l_desica = ( stomata_model == stomata_desica )
 l_cut_store = l_som_capacitance_on   ! MDK, 23/10/26
 IF ( l_cut_store .AND. ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
   errcode = 101
   CALL ereport('sf_evap', errcode, 'The plant water store of the stomatal ' //&
                'optimisation is coded for nsoilt = 1, ' //                     &
                'no l_irrig_dmd and no l_aggregate')
-END IF
-IF ( l_desica .AND. ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
-  errcode = 101
-  CALL ereport('sf_evap', errcode, 'stomata_model = 8 (DESICA) water '     //  &
-               'accounting is coded for nsoilt = 1, no l_irrig_dmd and '   //  &
-               'no l_aggregate')
 END IF
 
 !$OMP PARALLEL                                                                 &
@@ -525,7 +513,7 @@ DO n = 1,nsurft
     ! (as upstream) is larger whenever there is a soil conductance, and can
     ! exceed esoil itself after the limits below.
     ! Nested, as Fortran need not short-circuit .AND.: resfs_stom is only
-    ! (1,1) when et_stom, DESICA and the Or limit are all off.
+    ! (1,1) when et_stom, the Or limit and the store are all off.
     IF ( sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft ) THEN
       IF ( n <= npft .AND. resfs(l,n) > EPSILON(1.0) ) THEN
         IF ( sf_diag%resfs_stom(l,n) < 1.0 )                                   &
@@ -819,63 +807,13 @@ END DO
 !$OMP END DO
 
 !-----------------------------------------------------------------------
-! DESICA: advance the plant water state with the actual transpiration and
-! take the root uptake Q from the soil in place of the transpiration T, so
-! that the plant store holds the difference (see desica_jls_mod). T is the
-! stomatal share of esoil (resfs_stom / resfs, as the et_stom diagnostic),
-! after the soil-supply cap above. If the soil cannot supply the uptake, it
-! is cut and the stem store pays.
+! The flux taken from soil moisture: esoil, less the flow out of the
+! plant water store when it is on (below).
+!
+! MDK, 04/11/26
 !-----------------------------------------------------------------------
 !$OMP SINGLE
 esoil_ext(:,:) = esoil_surft(:,:)
-IF ( l_desica ) THEN
-  DO n = 1,npft
-    DO k = 1,surft_pts(n)
-      l = surft_index(k,n)
-      IF ( resfs(l,n) > EPSILON(1.0) ) THEN
-        ! Stomatal share by conductance, g_stom / g_c (as et_stom and the
-        ! Or limit), before the Or limit (des_or).
-        IF ( sf_diag%resfs_stom(l,n) < 1.0 ) THEN
-          t_stom(l,n) = ( esoil_surft(l,n) + des_or(l,n) )                     &
-                        * MIN(1.0, sf_diag%resfs_stom(l,n) * (1.0 - resfs(l,n)) &
-                        / (resfs(l,n) * (1.0 - sf_diag%resfs_stom(l,n))))
-        ELSE
-          t_stom(l,n) = esoil_surft(l,n) + des_or(l,n)
-        END IF
-      END IF
-    END DO
-    CALL desica_commit( n, land_pts, surft_pts(n), surft_index(:,n),          &
-                        timestep, t_stom(:,n), q_ds )
-    DO k = 1,surft_pts(n)
-      l = surft_index(k,n)
-      esoil_ext(l,n) = esoil_surft(l,n) - t_stom(l,n) + q_ds(l)
-    END DO
-  END DO
-  ! Soil supply: the total taken must not exceed smc.
-  DO l = 1,land_pts
-    j = (land_index(l) - 1) / t_i_length + 1
-    i = land_index(l) - (j-1) * t_i_length
-    sum_t = 0.0
-    sum_q = 0.0
-    DO n = 1,npft
-      sum_t = sum_t + tile_frac(l,n) * t_stom(l,n)
-      sum_q = sum_q + tile_frac(l,n) * (esoil_ext(l,n) - esoil_surft(l,n)      &
-                                        + t_stom(l,n))
-    END DO
-    excess = (esoil_soilt(i,j,1) - sum_t + sum_q) - smc_soilt(l,1) / timestep
-    IF ( excess > 0.0 .AND. sum_q > 0.0 ) THEN
-      DO n = 1,npft
-        IF ( tile_frac(l,n) <= 0.0 ) CYCLE
-        dq_cut = MIN(excess / sum_q, 1.0)                                      &
-                 * (esoil_ext(l,n) - esoil_surft(l,n) + t_stom(l,n))
-        IF ( dq_cut > 0.0 ) THEN
-          CALL desica_cut_uptake( n, l, timestep, dq_cut )
-          esoil_ext(l,n) = esoil_ext(l,n) - dq_cut
-        END IF
-      END DO
-    END IF
-  END DO
-END IF
 
 ! Plant capacitance of the stomatal optimisation (l_som_capacitance, or
 ! l_som_cuticular_loss): the soil gives the transpiration less the store's
@@ -891,7 +829,7 @@ END IF
 ! evaporation from layer 1.
 !
 !   1. The store gives at most the transpiration T (the stomatal share of
-!      esoil, as for DESICA); what it cannot give stays in the store.
+!      esoil); what it cannot give stays in the store.
 !   2. The refills (q_store < 0) and the stomatal transpiration the soil
 !      still gives together take at most the water the roots can reach
 !      (cut_w_root_avail: the water above the closure point, weighted by the

@@ -47,7 +47,6 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 photo_acclim_model, photo_adapt,               &
                                 photo_acclim, photo_adapt_acclim,              &
                                 l_croprotate, l_trif_biocrop, l_sugar, l_red,  &
-                                stomata_model, stomata_desica,                 &
                                 l_ximpair_seg_memory, l_ximpair_rec_nsc,       &
                                 l_triffid_nsc, l_ximpair_rec_leaf_turn,        &
                                 l_phen_psi, l_nsc_wmax_norm,                   &
@@ -491,12 +490,6 @@ IF ( ANY(is_set(phen_bb_doy(:))) .OR. ANY(is_set(phen_bb_gdd(:))) ) THEN
   CALL add_to_list( 'phen_gdd', nvars, identifiers )
   CALL add_to_list( 'phen_bb_day', nvars, identifiers )
   CALL add_to_list( 'phen_dormant', nvars, identifiers )
-END IF
-
-IF ( stomata_model == stomata_desica ) THEN
-  ! DESICA leaf and stem water potentials are prognostic for all PFTs
-  CALL add_to_list( 'psi_leaf_desica', nvars, identifiers )
-  CALL add_to_list( 'psi_stem_desica', nvars, identifiers )
 END IF
 
 ! TOPMODEL variables.

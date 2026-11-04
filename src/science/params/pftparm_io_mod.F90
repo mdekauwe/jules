@@ -246,24 +246,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
   psi_vcmax_fmin_io(npft_max) = rmdi,                                          &
   soil_litter_depth_io(npft_max) = rmdi,                                       &
   or_z0soil_fac_io(npft_max) = rmdi,                                           &
-  ! DESICA (stomata_model = 8). Tuzet et al. (2003) closure
-  !
-  !   fw = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_leaf))),
-  !
-  ! with gs = g1 fw An / ca; defaults are the CABLE-DESICA evergreen
-  ! broadleaf values (De Kauwe et al. 2020). Capacitances per unit leaf
-  ! area (mmol H2O m-2 leaf MPa-1); leaf default from Xu et al. (2016)
-  ! Table S3 (1.5e-3 kg m-2 MPa-1), stem default ~Q. ilex (SurEau,
-  ! Ruffault 2022). psi_f_tuzet_io in MPa.
-  !
-  ! MDK, 25/10/26
-  g1_tuzet_io(npft_max) = 4.19,                                                &
-  sf_tuzet_io(npft_max) = 2.0,                                                 &
-  psi_f_tuzet_io(npft_max) = -2.05,                                            &
-  cap_leaf_io(npft_max) = 83.3,                                                &
-  ! cap_stem is also the size of the stomatal optimisation's plant
-  ! capacitance (l_som_capacitance): C = cap_stem x L_ref, mmol H2O m-2
-  ! leaf MPa-1 (3000 = 0.11 mm per MPa at LAI 2.1). For Q. ilex it lies
+  ! cap_stem is the size of the stomatal optimisation's plant capacitance
+  ! (l_som_capacitance), per unit leaf area: C = cap_stem x L_ref, mmol
+  ! H2O m-2 leaf MPa-1 (3000 = 0.11 mm per MPa at LAI 2.1). The default
+  ! is close to Q. ilex (SurEau, Ruffault et al. 2022). For Q. ilex it lies
   ! in 2100-4400 over DBH 4-13 cm: the whole-tree stem capacitance of
   ! Salomon et al. (2017, Plant Cell Environ. 40: 1379-1391,
   ! doi:10.1111/pce.12928, Fig. 6: refilling after the first autumn
@@ -276,7 +262,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   !
   !   LA = 0.091 DBH^1.875   (m2).
   !
-  ! MDK, 23/10/26
+  ! MDK, 04/11/26
   cap_stem_io(npft_max) = 3000.0,                                              &
   q10_leaf_io(npft_max) = rmdi,                                                &
   r_grow_io(npft_max) = rmdi,                                                  &
@@ -392,8 +378,7 @@ NAMELIST  / jules_pftparm/                                                     &
   sl_cica_well_watered_io,                                                     &
   fsmc_q_io,       psi_vcmax_f_io,   sf_vcmax_io,      psi_vcmax_fmin_io,      &
   soil_litter_depth_io, or_z0soil_fac_io,                                      &
-  g1_tuzet_io,     sf_tuzet_io,      psi_f_tuzet_io,                           &
-  cap_leaf_io,     cap_stem_io,                                                &
+  cap_stem_io,                                                                 &
   q10_leaf_io,      r_grow_io,                                                 &
   rmass_io,        rootd_ft_io,      sigl_io,                                  & !JBaguley
   tef_io,          tleaf_of_io,      tlow_io,                                  &
@@ -463,7 +448,7 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 179 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 175 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
@@ -592,10 +577,6 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: psi_vcmax_fmin_io(npft_max)
   REAL(KIND=real_jlslsm) :: soil_litter_depth_io(npft_max)
   REAL(KIND=real_jlslsm) :: or_z0soil_fac_io(npft_max)
-  REAL(KIND=real_jlslsm) :: g1_tuzet_io(npft_max)
-  REAL(KIND=real_jlslsm) :: sf_tuzet_io(npft_max)
-  REAL(KIND=real_jlslsm) :: psi_f_tuzet_io(npft_max)
-  REAL(KIND=real_jlslsm) :: cap_leaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: cap_stem_io(npft_max)
   REAL(KIND=real_jlslsm) :: seg_frac_stem_io(npft_max)
   REAL(KIND=real_jlslsm) :: seg_frac_leaf_io(npft_max)
@@ -797,10 +778,6 @@ IF (mype == 0) THEN
   my_nml % psi_vcmax_fmin_io = psi_vcmax_fmin_io
   my_nml % soil_litter_depth_io = soil_litter_depth_io
   my_nml % or_z0soil_fac_io = or_z0soil_fac_io
-  my_nml % g1_tuzet_io    = g1_tuzet_io
-  my_nml % sf_tuzet_io    = sf_tuzet_io
-  my_nml % psi_f_tuzet_io = psi_f_tuzet_io
-  my_nml % cap_leaf_io    = cap_leaf_io
   my_nml % cap_stem_io    = cap_stem_io
   my_nml % seg_frac_stem_io = seg_frac_stem_io
   my_nml % seg_frac_leaf_io = seg_frac_leaf_io
@@ -990,10 +967,6 @@ IF (mype /= 0) THEN
   psi_vcmax_fmin_io = my_nml % psi_vcmax_fmin_io
   soil_litter_depth_io = my_nml % soil_litter_depth_io
   or_z0soil_fac_io = my_nml % or_z0soil_fac_io
-  g1_tuzet_io     = my_nml % g1_tuzet_io
-  sf_tuzet_io     = my_nml % sf_tuzet_io
-  psi_f_tuzet_io  = my_nml % psi_f_tuzet_io
-  cap_leaf_io     = my_nml % cap_leaf_io
   cap_stem_io     = my_nml % cap_stem_io
   seg_frac_stem_io = my_nml % seg_frac_stem_io
   seg_frac_leaf_io = my_nml % seg_frac_leaf_io
@@ -1089,8 +1062,7 @@ USE pftparm, ONLY:                                                             &
   psi_vcmax_f,     sf_vcmax,         psi_vcmax_fmin,   soil_litter_depth,      &
   or_z0soil_fac,                                                               &
   sl_cica_well_watered,                                                        &
-  g1_tuzet,        sf_tuzet,                                                   &
-  psi_f_tuzet,     cap_leaf,         cap_stem,                                 &
+  cap_stem,                                                                    &
 #endif
   a_wl,            a_ws,             aef,                                      &
   act_jmax,        act_vcmax,        albsnc_max,                               &
@@ -1294,7 +1266,6 @@ CALL check_mpa('p88_leaf_io',        p88_leaf_io(1:npft))
 CALL check_mpa('psi_nsl_onset_io',   psi_nsl_onset_io(1:npft))
 CALL check_mpa('psi_nsl0_io',        psi_nsl0_io(1:npft))
 CALL check_mpa('psi_vcmax_f_io',     psi_vcmax_f_io(1:npft))
-CALL check_mpa('psi_f_tuzet_io',     psi_f_tuzet_io(1:npft))
 ! Already read in MPa; checked as the others.
 CALL check_mpa('nsc_psi_turg_full_io', nsc_psi_turg_full_io(1:npft))
 CALL check_mpa('nsc_psi_turg_zero_io', nsc_psi_turg_zero_io(1:npft))
@@ -1392,11 +1363,7 @@ IF ( l_nsc_sink_feedback .AND. ( ANY(nsc_sink_days(:) < 0.0) .OR.              &
                'l_nsc_sink_feedback needs nsc_sink_days_io >= 0 and '  //      &
                '0 <= nsc_sink_beta_min_io <= 1.')
 END IF
-g1_tuzet(:)         = g1_tuzet_io(1:npft)
-sf_tuzet(:)         = sf_tuzet_io(1:npft)
-psi_f_tuzet(:)      = mpa_to_pa(psi_f_tuzet_io(1:npft))
 ! mmol m-2 leaf MPa-1 -> mol m-2 leaf Pa-1, as for kmax_pft.
-cap_leaf(:)         = cap_leaf_io(1:npft) * 1.0e-9
 cap_stem(:)         = cap_stem_io(1:npft) * 1.0e-9
 ! The plant capacitance needs a store: with cap_stem = 0, psi = W / C is
 ! undefined.
@@ -2104,7 +2071,7 @@ DO i = 1, npft
                  'stomata_model = 4 (profit max) or 6 (CMax).')
   END IF
   ! A list of the models it works with, not of those it doesn't: Jacobs,
-  ! Medlyn, SOX-analytical and DESICA never see the impaired curve, so
+  ! Medlyn and SOX-analytical never see the impaired curve, so
   ! impairment would silently do nothing with them.
   !
   ! MDK, 22/10/26

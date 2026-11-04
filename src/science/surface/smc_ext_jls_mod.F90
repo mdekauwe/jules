@@ -34,7 +34,6 @@ USE pftparm, ONLY: calc_rz_psi, fsmc_mod, root_psi_crit
 USE hyd_psi_mod, ONLY: psi_from_sthu, bound_soil_psi
 USE jules_vegetation_mod, ONLY: fsmc_shape, leaf_flux_mod, leaf_flux_stom_opt, &
                                 stomata_model, stomata_sox_analytical,         &
-                                stomata_desica,                                &
                                 l_som_rhizo_series
 USE hyd_con_ic_mod, ONLY: hyd_con_ic
 USE jules_soil_mod, ONLY: l_bound_soil_wp, ds_psi, dzsoil
@@ -245,8 +244,7 @@ IF ( fsmc_mod(ft) == 1 ) THEN
   ! SOX (stomata_model = stomata_sox_analytical) also needs psi_root_zone.
   IF ( fsmc_shape == 1 .OR. leaf_flux_mod == leaf_flux_stom_opt                &
        .OR. calc_rz_psi(ft)                                                    &
-       .OR. stomata_model == stomata_sox_analytical                            &
-       .OR. stomata_model == stomata_desica ) THEN
+       .OR. stomata_model == stomata_sox_analytical ) THEN
 !$OMP PARALLEL DO                                                              &
 !$OMP SCHEDULE(STATIC)                                                         &
 !$OMP DEFAULT(NONE)                                                            &
@@ -452,14 +450,13 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
   ! normalised extraction weights wt_ext_n (sum to 1). With profit max
   ! (l_som_rhizo_series) the weights are the soil-to-root conductances,
   ! so this is the conductance-weighted source potential sum k psi /
-  ! sum k. Only computed for the stomatal optimisation, DESICA and PFTs
-  ! with calc_rz_psi set, which use it.
+  ! sum k. Only computed for the stomatal optimisation and PFTs with
+  ! calc_rz_psi set, which use it.
   !
-  ! MDK, 23/10/26
+  ! MDK, 04/11/26
   !---------------------------------------------------------------------
 
-  IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft)                &
-       .OR. stomata_model == stomata_desica ) THEN
+  IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft) ) THEN
     psi_root_zone = calc_weighted_mean(npnts, nshyd, surft_pts, surft_index,   &
                                        psi, wt_ext)
 
@@ -489,7 +486,7 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
 ELSE
 
   IF ( fsmc_shape == 1 .OR. leaf_flux_mod == leaf_flux_stom_opt                &
-       .OR. calc_rz_psi(ft) .OR. stomata_model == stomata_desica ) THEN
+       .OR. calc_rz_psi(ft) ) THEN
 !$OMP PARALLEL                                                                 &
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(j,i,n)                                                           &
@@ -544,8 +541,7 @@ ELSE
   ! fraction of the transpiration taken from each layer.
   !---------------------------------------------------------------------
 
-  IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft)                &
-       .OR. stomata_model == stomata_desica ) THEN
+  IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. calc_rz_psi(ft) ) THEN
     psi_root_zone = calc_weighted_mean(npnts, nshyd, surft_pts, surft_index,   &
                                        psi, wt_ext)
 

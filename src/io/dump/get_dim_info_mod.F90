@@ -160,7 +160,6 @@ CASE ( 'sthzw_soilt', 'zw_soilt' )
   dim_sizes(1:ndims) = [ global_land_pts, nsoilt ]
 
 CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
-       'psi_leaf_desica', 'psi_stem_desica',                                   &
        'kmax_impaired',                                                        &
        'psi_leaf_extreme', 'psi_root_extreme', 'ximpair_lock',                 &
        'ximpair_kcap_leaf', 'ximpair_psi_stem', 'ximpair_area_w',              &

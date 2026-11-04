@@ -109,7 +109,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
 ! imported parameters
     photo_collatz, photo_farquhar, photo_sox_collatz, photo_johnson,           &
-    stomata_medlyn, stomata_sox_analytical, stomata_desica,                    &
+    stomata_medlyn, stomata_sox_analytical,                                    &
     stomata_profit_max,                                                        &
     stomata_sox_opt, stomata_cmax, stomata_cgain,                              &
     stomata_supply_loss, stomata_cap, stomata_pm2,                             &
@@ -120,7 +120,7 @@ USE jules_vegetation_mod, ONLY:                                                &
     l_bvoc_emis, l_fapar_diag, l_trait_phys, l_stem_resp_fix, l_o3_damage,     &
     l_scale_resp_pm, photo_acclim_model, photo_model, stomata_model, l_sugar,  &
     som_gl_max, l_som_supply_limit,                                            &
-    l_som_cuticular_loss, l_som_gravity, l_red, l_som_rhizo_series,            &
+    l_som_cuticular_loss, l_som_gravity, l_red,                                &
     l_som_cuticular_day_only, l_som_shared_stem, l_som_shared_gain,            &
     l_som_coupled_e, l_som_capacitance_on,                                     &
     l_som_vcmax_psi, kplant_model, kplant_model_ground,                        &
@@ -170,8 +170,8 @@ USE sugar_mod, ONLY: sugar
 
 
 USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_eff_pft,                  &
-                            e_of_g, set_leaf_temp_ci, clear_leaf_temp_ci
-                            ! MDK, 24/10/26
+                            set_leaf_temp_ci, clear_leaf_temp_ci
+                            ! MDK, 04/11/26
 USE cuticular_leak_state_mod, ONLY: cut_w_store, cut_psi_stem,                 &
                                     cut_q_store, cut_c_store, cut_m_h2o,       &
                                     cut_state_alloc, cut_psi_unset,            &
@@ -201,11 +201,10 @@ USE canopy_diag_mod, ONLY: canopy_diag_alloc, gc_stomatal_pft, t_can_air_pft,  &
                            h_leaf_pts, le_leaf_pts   ! MDK, 24/10/26
 
 
-USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
 USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kcrit_of_path
-USE plant_hydraulic_path_mod, ONLY: set_ksr_path, ksr, set_k_ground_basis,     &
+USE plant_hydraulic_path_mod, ONLY: set_ksr_path, set_k_ground_basis,          &
                                     kplant_scale
-                                       ! MDK, 21/10/26
+                                       ! MDK, 04/11/26
 USE plant_hydraulic_path_mod, ONLY: l_kscale   ! MDK, 31/10/26
 USE jules_vegetation_mod, ONLY: l_nsc_k_sapwood   ! MDK, 31/10/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_k_area, nsc_k_area_frac
@@ -225,8 +224,6 @@ USE plant_hydraulic_path_mod, ONLY: set_shared_stem, clear_shared_stem,       &
 
 USE planet_constants_mod, ONLY: g, r
 USE water_constants_mod, ONLY: rho_water, Water_kg_per_mol
-USE desica_jls_mod, ONLY: desica_fw, desica_hydraulics, tuzet_fw,              &
-                          desica_store_inputs
 USE timestep_mod, ONLY: timestep
 
 
@@ -842,29 +839,10 @@ REAL(KIND=real_jlslsm) :: fsmc_unity(land_pts)
                             !
                             ! MDK, 24/10/26
 REAL(KIND=real_jlslsm) :: fsmc(land_pts)
-                            ! Soil water factor applied to the leaf fluxes:
-                            ! fsmc_in, or 1.0 for stomata_desica (stress acts
-                            ! through psi_leaf only).
-REAL(KIND=real_jlslsm) :: fsmc_lim(land_pts)
-                            ! fsmc passed to leaf_limits: fsmc, or the Tuzet
-                            ! factor fw for stomata_desica (leaf_limits sets
-                            ! ci from it).
-REAL(KIND=real_jlslsm) :: gl_cut_ds
-                            ! DESICA canopy cuticular conductance (m s-1).
-INTEGER, PARAMETER :: n_fw_bisect = 12
-                            ! DESICA bisection steps on fw (to 2.4e-4).
-INTEGER :: n_pass, i_pass
-                            ! Passes of the big-leaf flux calculation.
-REAL(KIND=real_jlslsm) :: ksr_ds(land_pts)
-                            ! DESICA: soil-to-root conductance in series
-                            ! (ksr, l_som_rhizo_series), < 0: none.
-REAL(KIND=real_jlslsm) :: fw_lo(land_pts), fw_hi(land_pts),                    &
-                          el_try(land_pts), psi_try(land_pts), k_try(land_pts),&
-                          el_hyd(land_pts)
-                            ! DESICA bisection bracket on fw, and the guessed
-                            ! transpiration (mol m-2 s-1), end-of-step
-                            ! psi_leaf (Pa) and plant conductance, and the
-                            ! transpiration the plant can deliver.
+                            ! Soil water factor applied to the leaf fluxes
+                            ! and passed to leaf_limits (fsmc_in).
+                            !
+                            ! MDK, 04/11/26
 REAL(KIND=real_jlslsm) :: f_vc(land_pts)
                             ! Soil-water capacity factor (l_som_vcmax_psi).
 REAL(KIND=real_jlslsm) :: beta_sink(land_pts)
@@ -961,14 +939,12 @@ REAL(KIND=real_jlslsm) :: gl_max_eff(land_pts), share_sup(land_pts)
                             ! share of e_supply that call may use.
                             !
                             ! MDK, 24/10/26
-REAL(KIND=real_jlslsm) :: gl_cut(land_pts), gl_cut_eff(land_pts),              &
-                          kmax_cut(land_pts), kcrit_cut(land_pts)
+REAL(KIND=real_jlslsm) :: gl_cut(land_pts), gl_cut_eff(land_pts)
                             ! Cuticular loss (l_som_cuticular_loss):
                             ! canopy floor conductance (m s-1) before and
-                            ! after the soil-supply cap, and the canopy
-                            ! kmax/kcrit (DESICA: to re-solve psi_leaf).
+                            ! after the soil-supply cap.
                             !
-                            ! MDK, 23/10/26
+                            ! MDK, 04/11/26
 REAL(KIND=real_jlslsm) :: lai_ref_kg(land_pts)
                             ! kplant_model = 1: reference LAI of the root
                             ! and stem conductances (lai_ref_k, or the
@@ -987,10 +963,6 @@ REAL(KIND=real_jlslsm) :: k_raw(land_pts), r_stem(land_pts), lai_sw
                             ! and the leaf area the sapwood can supply.
                             !
                             ! MDK, 01/11/26
-INTEGER, PARAMETER :: n_cut = 20
-                            ! Floor fluxes tried, E_floor * i / n_cut, to
-                            ! find the largest one the xylem can carry
-                            ! (DESICA).
 LOGICAL :: l_store_cpl
                             ! The capacitance store (with l_cap_store): the
                             ! optimiser sees the store, through its flow out
@@ -1175,15 +1147,11 @@ REAL(KIND=real_jlslsm), PARAMETER :: lai_cut_min = 0.01
                             ! meaning as C goes to 0.
                             !
                             ! MDK, 22/10/26
-REAL(KIND=real_jlslsm) :: e_cut(n_cut, land_pts), psi_cut(n_cut, land_pts),    &
-                          k_cut(n_cut, land_pts), el_cut(land_pts)
-                            ! Cuticular loss (DESICA): the floor fluxes
-                            ! tried and their psi_leaf and k, and the flux
-                            ! chosen (mol H2O m-2 s-1).
 LOGICAL :: l_cut(land_pts)
-                            ! Points where the floor applies.
+                            ! Points where the leak is cut back
+                            ! (store_cpl_leak_cut).
                             !
-                            ! MDK, 24/10/26
+                            ! MDK, 04/11/26
 REAL(KIND=real_jlslsm) :: dq_opt(land_pts), r_bl_c(land_pts),                  &
                           r_ca_c(land_pts), g_oth_c(land_pts), zero_c(land_pts)
                             ! Coupled transpiration (l_som_coupled_e): the
@@ -1202,8 +1170,6 @@ REAL(KIND=real_jlslsm) :: g_soil_c(land_pts)
                             ! Soil evaporation conductance beneath the
                             ! canopy (m/s), which shares the canopy air and
                             ! ra with the leaves.
-INTEGER :: i_cut
-                            ! Loop counter over the floor fluxes (n_cut).
                             !
                             ! MDK, 24/10/26
 
@@ -1315,10 +1281,6 @@ LOGICAL :: l_multilayer
                             ! fapar_dummy).
                             !
                             ! MDK, 24/10/26
-! veg_pts_index is the trivial (1,2,3,...) map into veg_index that makes
-! psi_leaf_jls's veg_index(open_index(j)) indexing select veg_index(j)
-! directly, i.e. every vegetated point.
-INTEGER :: veg_pts_index(land_pts)
 
 
 
@@ -1360,8 +1322,8 @@ ra_ca_lt(:)   = 0.0
 !-----------------------------------------------------------------------------
 ! Gravity (l_som_gravity). Lifting water to the top of the canopy costs
 ! rho_water g ht (0.01 MPa per m) on top of the frictional drop, so the
-! stomatal optimisation draws on psi_root_zone - rho_water g ht, as in
-! DESICA's psi_h (Xu et al. 2016, Eqn S2a). The whole canopy is put at the
+! stomatal optimisation draws on psi_root_zone - rho_water g ht (Xu et al.
+! 2016, Eqn S2a). The whole canopy is put at the
 ! canopy height, the conservative end for the multilayer scheme. Applied as
 ! a shift of the source, the vulnerability curve is evaluated on the
 ! shifted potentials, i.e. at the pressure in the upper xylem.
@@ -1862,17 +1824,8 @@ IF ( l_photo_diag ) THEN
   END DO
 END IF
 
-!-----------------------------------------------------------------------------
-! Soil water factor for the leaf fluxes. DESICA: no fsmc, the stomata close
-! on psi_leaf through the Tuzet factor, from psi_leaf of the last timestep.
-!-----------------------------------------------------------------------------
-IF ( stomata_model == stomata_desica ) THEN
-  CALL desica_fw( ft, land_pts, veg_pts, veg_index, psi_root_zone, fsmc_lim )
-  fsmc(:) = 1.0
-ELSE
-  fsmc(:)     = fsmc_in(:)
-  fsmc_lim(:) = fsmc_in(:)
-END IF
+! Soil water factor for the leaf fluxes.
+fsmc(:) = fsmc_in(:)
 
 !-----------------------------------------------------------------------------
 ! Leaf temperatures output: tstar unless l_leaf_temp (set in can_rad_mod 5,
@@ -2066,7 +2019,7 @@ CASE ( 4 )
       ! Calculate the limiting factors for leaf photosynthesis
       !-----------------------------------------------------------------------
       CALL leaf_limits (ft, land_pts, pft_photo_model ,veg_pts, veg_index      &
-,                       acr, apar, ca, ccp, dqc, fsmc_lim, je, kc, km, ko, oa  &
+,                       acr, apar, ca, ccp, dqc, fsmc, je, kc, km, ko, oa      &
 ,                       pstar, vcmax                                           &
 ,                       clos_pts, open_pts, clos_index, open_index             &
 ,                       ci, wcarb, wexpt, wlite )
@@ -3041,7 +2994,7 @@ ELSE
       ! Calculate the limiting factors for leaf photosynthesis
       !-----------------------------------------------------------------------
       CALL leaf_limits (ft, land_pts, pft_photo_model, veg_pts, veg_index      &
-  ,                       acr, apar, ca, ccp, dqc, fsmc_lim, je, kc, km, ko    &
+  ,                       acr, apar, ca, ccp, dqc, fsmc, je, kc, km, ko        &
   ,                       oa, pstar, vcmax                                     &
   ,                       clos_pts, open_pts, clos_index, open_index           &
   ,                       ci, wcarb, wexpt, wlite)
@@ -3214,20 +3167,6 @@ CASE ( 1 )
     CALL calc_electron_flux( land_pts, veg_pts, veg_index, i2, jmax, je)
   END IF
 
-  !---------------------------------------------------------------------------
-  ! DESICA: solve fw = Tuzet(psi_leaf at the end of the step, for the E that
-  ! fw gives) by bisection on fw in [0, 1], re-running the big-leaf fluxes
-  ! below for each guessed fw (see desica_jls_mod). Other models: one pass.
-  !---------------------------------------------------------------------------
-  n_pass = 1
-  IF ( stomata_model == stomata_desica ) THEN
-    n_pass = n_fw_bisect + 1
-    fw_lo(:) = 0.0
-    fw_hi(:) = 1.0
-    ksr_ds(:) = -1.0
-    IF ( l_som_rhizo_series ) ksr_ds(:) = ksr(:)
-  END IF
-
   ! The store coupled to the optimiser (the capacitance store), big leaf:
   ! the store's flow out the first pass sees, last step's, and the soil
   ! supply cap with it (as the two-leaf canopy). e_sup_use is e_supply
@@ -3239,12 +3178,6 @@ CASE ( 1 )
     ! (It needs iter >= 2: iter is fixed at 3.)
     CALL store_cpl_first_q()
     CALL store_cpl_supply()
-  END IF
-
-  DO i_pass = 1,n_pass
-
-  IF ( stomata_model == stomata_desica ) THEN
-    fsmc_lim(:) = 0.5 * (fw_lo(:) + fw_hi(:))
   END IF
 
   !---------------------------------------------------------------------------
@@ -3281,7 +3214,7 @@ CASE ( 1 )
           ! Calculate the limiting factors for leaf photosynthesis.
           !-------------------------------------------------------------------
           CALL leaf_limits (ft, land_pts, pft_photo_model, veg_pts, veg_index  &
-          ,                 acr, apar, ca, ccp, dqc, fsmc_lim, je, kc, km, ko  &
+          ,                 acr, apar, ca, ccp, dqc, fsmc, je, kc, km, ko      &
           ,                 oa, pstar, vcmax                                   &
           ,                 clos_pts, open_pts, clos_index, open_index         &
           ,                 ci, wcarb, wexpt, wlite)
@@ -3588,32 +3521,6 @@ CASE ( 1 )
         END IF
       END DO
   END SELECT
-
-  IF ( stomata_model == stomata_desica .AND. i_pass < n_pass ) THEN
-    DO m = 1,veg_pts
-      l = veg_index(m)
-      ! Guessed E for this fw, with the cuticular floor if it is on (here
-      ! without its supply/xylem bounds, which only act near closure).
-      gl_cut_ds = 0.0
-      IF ( l_som_cuticular_loss ) gl_cut_ds = gcuticular(ft) * 1.0e-3 * rmol   &
-                                               * tstar(l) / pstar(l) * lai(l)
-      el_try(l) = e_of_g(MAX(gc(l), gl_cut_ds), MAX(dqc(l), 0.0), pstar(l),    &
-                         tstar(l))
-    END DO
-    CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,        &
-                            lai, ht, psi_root_zone, ksr_ds, el_try, .FALSE.,   &
-                            psi_try, k_try, el_hyd )
-    DO m = 1,veg_pts
-      l = veg_index(m)
-      IF ( fsmc_lim(l) > tuzet_fw(ft, psi_try(l)) ) THEN
-        fw_hi(l) = fsmc_lim(l)
-      ELSE
-        fw_lo(l) = fsmc_lim(l)
-      END IF
-    END DO
-  END IF
-
-  END DO  ! i_pass (DESICA bisection)
 
   ! The canopy's stomatal transpiration for the next step's first pass.
   IF ( l_store_cpl ) CALL store_cpl_e_prev( el )
@@ -4212,101 +4119,6 @@ IF ( leaf_flux_mod == leaf_flux_stom_opt ) gc_som(:) = gc(:)
 IF ( .NOT. l_leaf_temp ) gc_stomatal_pft(:,ft) = gc(:)
 
 !-----------------------------------------------------------------------------
-! DESICA: as the stomatal optimisation, no stomatal loss with no light
-! (gc = min_gl_pft, as stom_opt_mod's closed points), and the canopy
-! transpiration (as in stom_opt_mod_ci) for the cuticular floor below and
-! the plant hydraulics after it. psi_leaf/leaf_k here are only the
-! steady-state values the floor block expects; desica_hydraulics replaces
-! them.
-!-----------------------------------------------------------------------------
-IF ( stomata_model == stomata_desica ) THEN
-  DO m = 1,veg_pts
-    l = veg_index(m)
-    IF ( apar(l) == 0.0 ) gc(l) = min_gl_pft(ft)
-    el(l)       = e_of_g(gc(l), MAX(dqc(l), 0.0), pstar(l), tstar(l))
-    psi_leaf(l) = psi_root_zone(l)
-    leaf_k(l)   = kmax_pft(ft)   ! per unit leaf area, as the other paths
-  END DO
-END IF
-
-!-----------------------------------------------------------------------------
-! Cuticular loss (l_som_cuticular_loss). Water still leaks through the
-! cuticle once the stomata have (nearly) shut, whatever the carbon: the
-! canopy conductance is not allowed below gcuticular * LAI. This is applied
-! after the optimisation, so it is not traded against carbon (A is
-! unchanged), but it is charged to the plant water: the soil-supply cap
-! still bounds it and psi_leaf / leaf_k are re-solved for the total flux.
-!
-! DESICA (here): applies at night too (closed points), and the flux is cut
-! to the largest the xylem can carry with k > kcrit.
-!
-! The stomatal optimisation: see the next block.
-!
-! MDK, 22/10/26
-!-----------------------------------------------------------------------------
-IF ( l_som_cuticular_loss .AND. stomata_model == stomata_desica ) THEN
-  DO m = 1,veg_pts
-    l = veg_index(m)
-    ! mmol m-2 leaf s-1 -> m s-1, times LAI for the canopy.
-    gl_cut(l) = gcuticular(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
-    share_sup(l) = 1.0
-    veg_pts_index(m) = m
-  END DO
-  CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,             &
-                           share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
-  CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
-  ! Without plant water storage the leak must also pass the xylem: try
-  ! E_floor * i / n_cut and keep the largest flux with k > kcrit (the
-  ! feasibility rule of stom_opt_mod), so psi_leaf cannot run away in a
-  ! drought once the soil is near root_psi_crit.
-  DO m = 1,veg_pts
-    l = veg_index(m)
-    kmax_cut(l)  = MAX(k_max(l) * lai(l), TINY(1.0_real_jlslsm))
-    kcrit_cut(l) = kcrit_of_path(ft, kmax_pft(ft) * lai(l))
-    IF ( l_kscale ) THEN
-      kmax_cut(l)  = kmax_cut(l)  * kplant_scale(l)
-      kcrit_cut(l) = kcrit_cut(l) * kplant_scale(l)
-    END IF
-    l_cut(l) = gl_cut(l) > 0.0 .AND. gc(l) < gl_cut_eff(l)
-    ! Canopy transpiration (mol H2O m-2 s-1) at the floor, as in
-    ! stom_opt_mod_ci.
-    el_cut(l) = 0.0
-    IF ( l_cut(l) ) el_cut(l) = e_of_g(gl_cut_eff(l), MAX(dqc(l), 0.0),        &
-                                       pstar(l), tstar(l))
-    DO i_cut = 1,n_cut
-      e_cut(i_cut,m) = el_cut(l) * REAL(i_cut) / REAL(n_cut)
-    END DO
-  END DO
-  IF ( ANY(l_cut(veg_index(1:veg_pts))) ) THEN
-    CALL psi_leaf_jls( ft, n_cut, land_pts, veg_pts, veg_index,                &
-                       veg_pts_index, e_cut, psi_src,                          &
-                       kmax_cut, kcrit_cut, conductance_b, conductance_c,      &
-                     ! OUT
-                       psi_cut, k_cut )
-    DO m = 1,veg_pts
-      l = veg_index(m)
-      IF ( .NOT. l_cut(l) ) CYCLE
-      DO i_cut = n_cut,1,-1
-        IF ( k_cut(i_cut,m) > kcrit_cut(l) .AND.                               &
-             psi_cut(i_cut,m) <= psi_src(l) ) EXIT
-      END DO
-      ! Only raise the flux: the stomatal optimum itself was feasible.
-      IF ( i_cut >= 1 ) THEN
-        IF ( gl_cut_eff(l) * REAL(i_cut) / REAL(n_cut) > gc(l) ) THEN
-          gc(l)       = gl_cut_eff(l) * REAL(i_cut) / REAL(n_cut)
-          gc_som(l)   = gc(l)
-          ! el is mol H2O m-2 s-1 and leaf_k per unit leaf area here.
-          el(l)       = e_cut(i_cut,m)
-          psi_leaf(l) = psi_cut(i_cut,m)
-          ! k_cut is canopy scale (kmax_cut); leaf_k is per unit leaf area.
-          leaf_k(l)   = k_cut(i_cut,m) / MAX(lai(l), TINY(1.0_real_jlslsm))
-        END IF
-      END IF
-    END DO
-  END IF
-END IF
-
-!-----------------------------------------------------------------------------
 ! Cuticular loss under the stomatal optimisation (l_som_cuticular_loss).
 ! What it represents (Choat et al. 2018, Nature 558: 531-539, Fig. 2):
 ! stomata close in a drought before significant cavitation, but the plant
@@ -4327,8 +4139,7 @@ END IF
 ! is raised to gcuticular * LAI. There is no carbon trade at that point, so
 ! A is unchanged; the leak goes into the transpiration (and so ET and LE)
 ! through gc. Its water comes from the capacitance store and the soil (the
-! soil-supply cap applies: no water is taken that is not there). Unlike
-! DESICA:
+! soil-supply cap applies: no water is taken that is not there). In detail:
 ! - day and night: at night and in dim light the closed canopy
 !   (gc = min_gl_pft) is raised to the leak as by day; with
 !   l_som_cuticular_day_only only at lit points with apar >= apar_cut_min;
@@ -4570,35 +4381,6 @@ IF ( l_cap_store ) THEN
             k_max, psi_leaf_extreme, psi_root_extreme,                         &
           ! IN (recovery)
             lai, canht, anetc )
-END IF
-
-!-----------------------------------------------------------------------------
-! DESICA: project psi_leaf and psi_stem for this timestep's transpiration
-! (including any cuticular floor). Where the plant cannot deliver it
-! without psi_stem or psi_leaf passing their lower bounds, gc is cut to the
-! transpiration it can deliver (A is not re-solved: by then the Tuzet
-! factor has shut the stomata). The state is advanced in sf_evap, with the
-! actual transpiration; here the step's inputs are stored for that.
-!-----------------------------------------------------------------------------
-IF ( stomata_model == stomata_desica ) THEN
-  CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,          &
-                          lai, ht, psi_root_zone, ksr_ds, el, .FALSE.,         &
-                          psi_try, k_try, el_hyd )
-  DO m = 1,veg_pts
-    l = veg_index(m)
-    IF ( el_hyd(l) < el(l) ) THEN
-      gc(l) = gc(l) * el_hyd(l) / el(l)
-      el(l) = el_hyd(l)
-    END IF
-  END DO
-  CALL desica_hydraulics( ft, land_pts, veg_pts, veg_index, timestep,          &
-                          lai, ht, psi_root_zone, ksr_ds, el, .FALSE.,         &
-                          psi_leaf, leaf_k, el_hyd )
-  ! desica_hydraulics returns Kplant (soil-to-leaf) per m2 ground; per unit
-  ! leaf area, as the other paths (kplant_pft).
-  leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
-  CALL desica_store_inputs( ft, land_pts, veg_pts, veg_index, lai, ht,         &
-                            psi_root_zone, ksr_ds )
 END IF
 
 !-----------------------------------------------------------------------------

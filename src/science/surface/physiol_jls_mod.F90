@@ -120,8 +120,7 @@ USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                        &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
-  l_som_rhizo_series, stomata_model, stomata_desica,                           &
-  l_som_capacitance_on   ! MDK, 23/10/26
+  l_som_rhizo_series, l_som_capacitance_on   ! MDK, 04/11/26
 USE plant_hydraulic_path_mod, ONLY: ksr
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: fsmc_mod
@@ -1706,7 +1705,6 @@ DO n = 1,npft
   !   - the et_stom diagnostics (transpiration alone);
   !   - the Or soil-evaporation limit (l_soil_evap_or), which caps soil
   !     evaporation using the transpiration share;
-  !   - DESICA, which takes its transpiration from that share;
   !   - the plant capacitance (l_som_capacitance_on), whose store gives
   !     water to the transpiration share in sf_evap.
   ! so it is filled whenever any of them is on, not only for diagnostics.
@@ -1717,7 +1715,7 @@ DO n = 1,npft
   ! MDK, 04/11/26
   !-----------------------------------------------------------------------
   IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR. l_soil_evap_or       &
-      .OR. stomata_model == stomata_desica .OR. l_som_capacitance_on) THEN
+      .OR. l_som_capacitance_on) THEN
     IF (l_aggregate) THEN
       DO l = 1,land_pts
         gc_stom_surft(l,1) = gs_type(l,1)

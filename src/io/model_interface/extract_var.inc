@@ -66,9 +66,6 @@ USE canopy_diag_mod, ONLY: psi_leaf_sun_pft, psi_leaf_shd_pft
 USE stom_opt_jls_mod, ONLY: som_lambda_eff_pft
 USE jules_vegetation_mod, ONLY: l_ximpair_seg_memory
 USE pftparm, ONLY: seg_kfac, seg_rel_k
-USE desica_jls_mod, ONLY: psi_leaf_desica, psi_stem_desica, flux_root_desica,  &
-                          flux_sap_desica, dw_plant_desica
-USE jules_vegetation_mod, ONLY: stomata_model, stomata_desica
 USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 USE jules_vegetation_mod, ONLY: xylem_impairment_none
@@ -3742,15 +3739,7 @@ CASE ( 'psi_root_zone_pft' )
   ! The 1.0e-6 is to convert from Pa to MPa
 CASE ( 'psi_leaf_pft', 'psi_canopy_pft' )
   ! psi_canopy_pft is the same as psi_leaf_pft.
-  ! DESICA: the state advanced with the actual transpiration (sf_evap),
-  ! not sf_stom's projection.
-  !
-  ! MDK, 24/10/26
-  IF ( stomata_model == stomata_desica .AND. ALLOCATED(psi_leaf_desica) ) THEN
-    cube_land = cube_from_array(psi_leaf_desica(:,:)*1.0e-6)
-  ELSE
-    cube_land = cube_from_array(psparms%psi_leaf_pft(:,:)*1.0e-6)
-  END IF
+  cube_land = cube_from_array(psparms%psi_leaf_pft(:,:)*1.0e-6)
   cube = map_from_land(cube_land)
 
   ! Transpiration rate calculated in the stomatal optimisation JBaguley
@@ -3878,28 +3867,14 @@ CASE ('lambda_eff_pft')
   END IF
   cube = map_from_land(cube_land)
 
-  ! DESICA (stomata_model = 8) stem water potential (Pa -> MPa) and root
-  ! uptake / sap flow (kg m-2 s-1); zero when DESICA is not in use.
+  ! Stem water potential (Pa -> MPa) of the per-segment xylem memory: the
+  ! stem outlet psi at the last damage update; zero without it.
+  !
+  ! MDK, 04/11/26
 CASE ( 'psi_stem_pft' )
   workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(psi_stem_desica) ) THEN
-    workspace_pft(:,:) = psi_stem_desica * 1.0e-6
-  ELSE IF ( ALLOCATED(ximpair_psi_stem) ) THEN
-    ! Per-segment xylem memory: the stem outlet psi at the last damage update.
+  IF ( ALLOCATED(ximpair_psi_stem) )                                           &
     workspace_pft(:,:) = ximpair_psi_stem * 1.0e-6
-  END IF
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
-CASE ( 'psi_leaf_desica' )
-  workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(psi_leaf_desica) ) workspace_pft(:,:) = psi_leaf_desica
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
-CASE ( 'psi_stem_desica' )
-  workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(psi_stem_desica) ) workspace_pft(:,:) = psi_stem_desica
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
@@ -4417,24 +4392,6 @@ CASE ( 'hydmort_plc_peak' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-CASE ( 'root_uptake_pft' )
-  workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(flux_root_desica) ) workspace_pft(:,:) = flux_root_desica
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
-CASE ( 'dw_plant_pft' )
-  workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(dw_plant_desica) ) workspace_pft(:,:) = dw_plant_desica
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
-CASE ( 'sapflow_pft' )
-  workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(flux_sap_desica) ) workspace_pft(:,:) = flux_sap_desica
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
 CASE ( 'kplant_pft' )
   ! leaf_k_pft is the solver's -dE/dpsi_leaf for the whole path: with
   ! l_som_rhizo_series it includes the soil-to-root conductance Ksr in series
@@ -4450,16 +4407,10 @@ CASE ('PLC_pft', 'PLC_canopy_pft')
   ! the soil-to-root conductance, so would count soil drying as embolism.
   ! No impairment model: the PFT vulnerability curve. With one: the point's
   ! impaired curve (leaf_conductance_impaired_jls, as the damage update).
-  ! DESICA: the state psi_leaf, as psi_leaf_pft.
   !
-  ! MDK, 24/10/26
+  ! MDK, 04/11/26
   DO i = 1, npft
-    IF ( stomata_model == stomata_desica .AND.                                 &
-         ALLOCATED(psi_leaf_desica) ) THEN
-      DO l = 1, land_pts
-        workspace_pft(l,i) = 100.0 * (1.0 - xylem_f(i, psi_leaf_desica(l,i)))
-      END DO
-    ELSE IF ( pft_xylem_impairment_model(i) == xylem_impairment_none ) THEN
+    IF ( pft_xylem_impairment_model(i) == xylem_impairment_none ) THEN
       DO l = 1, land_pts
         workspace_pft(l,i) = 100.0                                             &
                              * (1.0 - xylem_f(i, psparms%psi_leaf_pft(l,i)))

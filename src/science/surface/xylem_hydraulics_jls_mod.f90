@@ -232,7 +232,8 @@ END SUBROUTINE xylem_conductance_jls
 ! conductance model.
 !
 ! With a soil-to-root link in series (l_som_rhizo_series, always on in
-! the profit max and DESICA) and no segments, each sample has its own root water potential,
+! the profit max) and no segments, each sample has its own root water
+! potential,
 !
 !   psi_in = psi_src - E / K_s
 !

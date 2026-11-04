@@ -561,17 +561,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Floor of that down-regulation (-): f = fmin + (1 - fmin)
                  ! f_Zhou, so capacity never falls below fmin (0 = none, as
                  ! in De Kauwe et al. 2015; the floor is an adjustment).
-,g1_tuzet(:)                                                                   &
-                 ! DESICA (stomata_model = 8): slope of gs = g1 fw An / ca (-).
-,sf_tuzet(:)                                                                   &
-                 ! DESICA: sensitivity of the Tuzet closure (MPa-1).
-,psi_f_tuzet(:)                                                                &
-                 ! DESICA: reference leaf water potential of the Tuzet
-                 ! closure, ~50% closure (Pa).
-,cap_leaf(:)                                                                   &
 ,cap_stem(:)                                                                   &
-                 ! DESICA: leaf and stem water capacitance per unit leaf area
-                 ! (mol H2O m-2 leaf Pa-1).
+                 ! Plant water capacitance of the stomatal optimisation's
+                 ! store, per unit leaf area (mol H2O m-2 leaf Pa-1).
 ,kcrit_fractional_loss(:)                                                      &
                  ! Critical fractional loss of xylem conductance.
 ,kcrit(:)                                                                      &
@@ -1188,10 +1180,6 @@ ALLOCATE( sf_vcmax(npft))
 ALLOCATE( psi_vcmax_fmin(npft))
 ALLOCATE( soil_litter_depth(npft))
 ALLOCATE( or_z0soil_fac(npft))
-ALLOCATE( g1_tuzet(npft))
-ALLOCATE( sf_tuzet(npft))
-ALLOCATE( psi_f_tuzet(npft))
-ALLOCATE( cap_leaf(npft))
 ALLOCATE( cap_stem(npft))
 ALLOCATE( conductance_b_seg(npft,3))
 ALLOCATE( conductance_c_seg(npft,3))
@@ -1267,10 +1255,6 @@ sf_vcmax(:) = 2.0
 psi_vcmax_fmin(:) = 0.0
 soil_litter_depth(:) = 0.0
 or_z0soil_fac(:) = 1.0
-g1_tuzet(:) = 4.19
-sf_tuzet(:) = 2.0
-psi_f_tuzet(:) = -2.05e6
-cap_leaf(:) = 83.3e-9
 cap_stem(:) = 3000.0e-9
 conductance_b_seg(:,:) = 1.0
 conductance_c_seg(:,:) = 1.0
@@ -1608,14 +1592,6 @@ WRITE(lineBuffer,*)' soil_litter_depth = ',soil_litter_depth
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' or_z0soil_fac = ',or_z0soil_fac
 CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' g1_tuzet = ',g1_tuzet
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' sf_tuzet = ',sf_tuzet
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' psi_f_tuzet = ',psi_f_tuzet
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' cap_leaf = ',cap_leaf
-CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' cap_stem = ',cap_stem
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' seg_kfac = ',seg_kfac
@@ -1725,7 +1701,7 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  stomata_jacobs, stomata_medlyn,              &
                                  stomata_sox_analytical,                      &
                                  stomata_model, l_spec_veg_z0, l_sugar,        &
-                                 l_scale_resp_pm, stomata_desica,              &
+                                 l_scale_resp_pm,                              &
                                  som_psi_solver, psi_solver_lut,               &
                                  l_ximpair_seg_memory, l_som_plant_segments,   &
                                  l_som_seg_whole,                              &
@@ -2401,9 +2377,9 @@ END IF
 ! curve is inverted exactly from the intact PFT table (the cap is a
 ! straight line above the psi where the intact curve meets it). The whole
 ! trunk model (2) changes b and c, which the table (keyed by PFT) cannot
-! follow. DESICA uses the intact PFT curve.
+! follow.
 !
-! MDK, 25/10/26
+! MDK, 04/11/26
 !-----------------------------------------------------------------------------
 IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   IF ( som_psi_solver == psi_solver_lut .AND.                                 &
@@ -2414,12 +2390,6 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
     CALL ereport(routinename, ERROR,                                           &
     'with som_psi_solver = 3 xylem impairment is only '                    // &
     'coded for the memory model (pft_xylem_impairment_model = 3)')
-  END IF
-  IF ( stomata_model == stomata_desica ) THEN
-    ERROR = 1
-    CALL ereport(routinename, ERROR,                                           &
-    'xylem impairment (pft_xylem_impairment_model /= 0) is not coded for '  // &
-    'DESICA (stomata_model=8)')
   END IF
   IF ( ANY( pft_xylem_impairment_model(1:npft) == 1 .OR.                      &
             pft_xylem_impairment_model(1:npft) == 4 ) ) THEN

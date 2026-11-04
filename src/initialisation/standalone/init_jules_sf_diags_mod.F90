@@ -114,8 +114,7 @@ USE jules_soil_mod, ONLY: sm_levels
 USE sf_diags_mod, ONLY: sf_diag
 
 USE theta_field_sizes, ONLY: t_i_length, t_j_length
-USE jules_vegetation_mod, ONLY: leaf_flux_mod, leaf_flux_stom_opt,           &
-                                stomata_model, stomata_desica
+USE jules_vegetation_mod, ONLY: leaf_flux_mod, leaf_flux_stom_opt
 USE jules_hydrology_mod, ONLY: l_soil_evap_or
 
 ! Non-science modules.
@@ -705,15 +704,14 @@ END IF
 !-----------------------------------------------------------------------------
 ! Transpiration fluxes.
 ! et_stom_surft is also used with et_stom_ij.
-! The stomatal optimisation (canopy_impaired_psi_jls, from et_stom_surft),
-! DESICA and the Or soil-evaporation cap (sf_evap, from resfs_stom) need
-! them whether or not they are output; without this they would be (1,1)
-! but indexed by point and tile (bounds error at -O0, garbage at -O3).
+! The stomatal optimisation (canopy_impaired_psi_jls, from et_stom_surft)
+! and the Or soil-evaporation cap (sf_evap, from resfs_stom) need them
+! whether or not they are output; without this they would be (1,1) but
+! indexed by point and tile (bounds error at -O0, garbage at -O3).
 !
-! MDK, 21/10/26
+! MDK, 04/11/26
 !-----------------------------------------------------------------------------
-IF ( leaf_flux_mod == leaf_flux_stom_opt .OR.                                 &
-     stomata_model == stomata_desica .OR. l_soil_evap_or )                    &
+IF ( leaf_flux_mod == leaf_flux_stom_opt .OR. l_soil_evap_or )                &
   sf_diag % l_et_stom_surft = .TRUE.
 IF ( sf_diag % l_et_stom .OR. sf_diag % l_et_stom_surft ) THEN
   ALLOCATE( sf_diag%et_stom_surft(land_pts,nsurft), STAT = ERROR )

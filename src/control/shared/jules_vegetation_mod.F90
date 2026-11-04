@@ -144,11 +144,6 @@ INTEGER, PARAMETER ::                                                          &
     ! the profit max's hydraulic cost in absolute carbon units (varpi,
     ! cgain_varpi_io) instead of the gain normalised by the instantaneous
     ! A_max; see stom_opt_jls_mod.
-  stomata_desica = 8,                                                          &
-    ! DESICA (De Kauwe et al. 2020): Tuzet et al. (2003) stomatal closure on
-    ! leaf water potential, with leaf and stem water potentials (and stem
-    ! storage) from the plant hydraulics of Xu et al. (2016),
-    ! doi: 10.1111/nph.14009 (Notes S1). See desica_jls_mod.
   stomata_supply_loss = 9,                                                     &
     ! Carbon-coupled demand (ci = sl_cica_well_watered ca: Medlyn with D
     ! fixed, so VPD acts only through the hydraulics, not twice) regulated
@@ -569,10 +564,9 @@ LOGICAL ::                                                                     &
       ! store's balance, and cut where the leaf would end below the psi of
       ! the critical loss of conductance (kcrit_fractional_loss); the xylem
       ! impairment update is made after the leak, at the leak's points as
-      ! well as the lit ones, so it drives the loss of conductance. DESICA:
-      ! its own leak, at night too, cut to the largest flux with k > kcrit.
+      ! well as the lit ones, so it drives the loss of conductance.
       !
-      ! MDK, 29/10/26
+      ! MDK, 04/11/26
 
 LOGICAL ::                                                                     &
   l_som_cuticular_day_only = .FALSE.
@@ -648,7 +642,8 @@ LOGICAL ::                                                                     &
       ! When .TRUE., the stomatal optimisation (stomata_model = 4 to 7) takes
       ! the gravitational drop rho_water g h to the canopy height h off the
       ! root zone water potential, so the plant path starts from
-      ! psi_root_zone - rho_water g h (0.01 MPa per m), as DESICA's psi_h.
+      ! psi_root_zone - rho_water g h (0.01 MPa per m), as psi_h of Xu et
+      ! al. (2016, Eqn S2a).
 
 LOGICAL ::                                                                     &
   l_som_coupled_e = .TRUE.
@@ -810,7 +805,7 @@ LOGICAL ::                                                                     &
 LOGICAL ::                                                                     &
   l_som_rhizo_series = .FALSE.
       ! Not a namelist switch: set .TRUE. in check_jules_vegetation for the
-      ! profit max and DESICA. The plant hydraulic path then includes the
+      ! profit max. The plant hydraulic path then includes the
       ! soil-to-root (rhizosphere) conductance ksr in series with the plant,
       ! as in SPA, MAESPA (KTOT = 1/(TOTSOILRES + 1/PLANTK)) and Bonan et al.
       ! (2014): ksr is soil_to_root_k summed over the layers (parallel; soil
@@ -821,8 +816,8 @@ LOGICAL ::                                                                     &
       ! their share of the undamaged plant conductance (set_ksr_path); the
       ! marginal conductance used by the hydraulic cost and kcrit is that of the
       ! whole soil-to-leaf path (with l_som_plant_segments the soil link comes
-      ! ahead of the root segment). DESICA: ksr is in series with the root-side
-      ! conductance. Root (radial), stem and leaf resistance stay in kmax, so
+      ! ahead of the root segment). Root (radial), stem and leaf resistance
+      ! stay in kmax, so
       ! nothing is counted twice. psi_root_zone is the conductance-weighted soil
       ! psi (smc_ext), and the layer extraction weights are k_i (psi_i -
       ! psi_root) at the actual root potential (physiol). Applied for PFTs with
@@ -1166,17 +1161,10 @@ LOGICAL ::                                                                     &
       ! i.e. turning it on changes results, not just speed.
 
 REAL(KIND=real_jlslsm) ::                                                      &
-  som_hc_negligible_tol = 0.01,                                                &
+  som_hc_negligible_tol = 0.01
       ! Threshold (as a fraction of the kmax-kcrit range) below which
       ! hydraulic cost at the most water-demanding candidate Ci is treated
       ! as negligible by l_som_skip_search_wellwatered.
-  som_leaf_resist_frac = 0.5
-      ! DESICA only (stomata_desica): fraction of whole-plant hydraulic
-      ! resistance (1/kmax_pft) placed in the leaf segment, the remaining
-      ! (1 - som_leaf_resist_frac) in the root-side segment. The two
-      ! segments are in series, so each gets conductance kmax/frac and
-      ! kmax/(1-frac) respectively, keeping the total root-to-leaf
-      ! resistance equal to 1/kmax. Must be strictly between 0 and 1.
 
 REAL(KIND=real_jlslsm) ::                                                      &
   som_gl_max = 0.02
@@ -1348,7 +1336,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_capacitance,                                                         &
     l_som_gravity,                                                             &
     l_som_rhizo_mfp,                                                           &
-    som_leaf_resist_frac, som_gl_max, light_curvature_fvcb,                    &
+    som_gl_max, light_curvature_fvcb,                                          &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,     &
     discrimination_model,                                                      &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
@@ -1460,8 +1448,7 @@ CASE ( stomata_profit_max, stomata_sox_opt, stomata_cmax, stomata_cgain,       &
   ELSE
     som_profit_model = sox_opt_profit_model
   END IF
-CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical,                 &
-       stomata_desica )
+CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical )
   IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
     ! The form leaf_flux_mod = 2 with som_profit_model is retired.
     !
@@ -1619,14 +1606,6 @@ IF (som_hc_negligible_tol < 0.0 .OR. som_hc_negligible_tol > 1.0) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'som_hc_negligible_tol should be between 0 and 1')
-END IF
-
-! Check that som_leaf_resist_frac is strictly between 0 and 1 (both
-! segments need a finite conductance).
-IF (som_leaf_resist_frac <= 0.0 .OR. som_leaf_resist_frac >= 1.0) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'som_leaf_resist_frac should be strictly between 0 and 1')
 END IF
 
 ! Retired inputs: setting l_som_fast or som_psi_aprox_method stops the run.
@@ -1997,28 +1976,23 @@ END IF  !  photo_model == photo_farquhar or photo_johnson
 
 ! Check that the stomatal conductance model is reasonable.
 SELECT CASE ( stomata_model )
-CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical, stomata_desica, &
+CASE ( stomata_jacobs, stomata_medlyn, stomata_sox_analytical,                 &
        stomata_profit_max, stomata_sox_opt, stomata_cmax, stomata_cgain,       &
        stomata_supply_loss, stomata_cap, stomata_pm2 )
   ! These are valid, so nothing to do.
+CASE ( 8 )
+  ! RETIRED: DESICA.
+  !
+  ! MDK, 04/11/26
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+     'stomata_model = 8 (DESICA) was removed: its code is on git ' //          &
+     'branch desica (at fbaa865)')
 CASE DEFAULT
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                "Invalid value for stomata_model" )
 END SELECT
-
-! DESICA sets ci from the Tuzet closure in leaf_limits, i.e. it uses the
-! fsmc (leaf_flux_mod = 1) leaf path. Stress acts through psi_leaf only
-! (fsmc is not applied).
-IF ( stomata_model == stomata_desica ) THEN
-  ! The within-step gs-psi_leaf solve (bisection on fw) is coded for the
-  ! big leaf only.
-  IF ( can_rad_mod /= 1 ) THEN
-    errcode = 101
-    CALL ereport("check_jules_vegetation", errcode,                            &
-                 "stomata_model = 8 (DESICA) requires can_rad_mod = 1")
-  END IF
-END IF
 
 IF ( l_triffid .AND. ( .NOT. l_phenol ) ) THEN
   errcode = -105 ! warning
@@ -2152,9 +2126,9 @@ IF ( kplant_model == kplant_model_ground .AND.                                 &
 END IF
 
 ! kplant_model 1 needs the segments (which imply the profit-max path and
-! not can_rad_mod 4, checked above; DESICA has no segments).
+! not can_rad_mod 4, checked above).
 !
-! MDK, 21/10/26
+! MDK, 04/11/26
 IF ( ( kplant_model /= kplant_model_param .AND.                                &
        kplant_model /= kplant_model_ground ) .OR.                              &
      ( kplant_model == kplant_model_ground .AND.                               &
@@ -2231,19 +2205,15 @@ IF ( l_som_capacitance_on ) THEN
 END IF
 
 ! The stomatal optimisation's leak also runs with the multilayer canopy
-! (can_rad_mod 5, 6); DESICA's with big leaf and two-leaf only.
+! (can_rad_mod 5, 6).
 !
-! MDK, 23/10/26
+! MDK, 04/11/26
 IF ( l_som_cuticular_loss .AND.                                                &
-     ( ( leaf_flux_mod /= leaf_flux_stom_opt .AND.                             &
-         stomata_model /= stomata_desica ) .OR.                                &
-       ( leaf_flux_mod == leaf_flux_stom_opt .AND. can_rad_mod == 4 ) .OR.     &
-       ( stomata_model == stomata_desica .AND.                                 &
-         can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) ) THEN
+     ( leaf_flux_mod /= leaf_flux_stom_opt .OR. can_rad_mod == 4 ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_cuticular_loss requires stomata_model=4 to 9, ' //       &
-               'and can_rad_mod=1, 5, 6 or 7 (1 for DESICA)')
+               'l_som_cuticular_loss requires the stomatal optimisation ' //   &
+               '(stomata_model=4 to 7 or 9 to 11) and can_rad_mod=1, 5, 6 or 7')
 END IF
 
 ! The daytime-only leak is that of the stomatal optimisation.
@@ -2255,7 +2225,7 @@ IF ( l_som_cuticular_day_only .AND.                                            &
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_som_cuticular_day_only requires l_som_cuticular_loss ' //    &
-               'and the stomatal optimisation (not DESICA)')
+               'and the stomatal optimisation')
 END IF
 
 ! The shared root and stem: the two-leaf canopy under the stomatal
@@ -2287,8 +2257,7 @@ END IF
 IF ( l_som_gravity .AND. leaf_flux_mod /= leaf_flux_stom_opt ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_gravity requires stomata_model=4 to 7 or 9 (DESICA ' //  &
-               'always includes gravity)')
+               'l_som_gravity requires stomata_model=4 to 7 or 9')
 END IF
 
 IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
@@ -2308,9 +2277,8 @@ IF ( l_som_root_supply ) THEN
 END IF
 
 ! The soil-to-root conductance in series (see l_som_rhizo_series) is part of
-! the plant hydraulics of the profit max and DESICA.
-l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt .OR.                &
-                       stomata_model == stomata_desica )
+! the plant hydraulics of the profit max.
+l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt )
 ! l_som_rhizo_mfp is retired (see its declaration).
 !
 ! MDK, 23/10/26
@@ -2843,9 +2811,6 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' som_hc_negligible_tol = ', som_hc_negligible_tol
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' som_leaf_resist_frac = ', som_leaf_resist_frac
-CALL jules_print('jules_vegetation_mod',lineBuffer)
-
 WRITE(lineBuffer,*) ' som_gl_max = ', som_gl_max
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -2971,8 +2936,8 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 26
                                   ! The INTEGER items of my_namelist.
-INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
-                                  ! The REAL items: 20 scalars and the five
+INTEGER, PARAMETER :: n_real = 19 + (n_photo_coef * 5)
+                                  ! The REAL items: 19 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
 INTEGER, PARAMETER :: n_log = 62 + npft_max
                                   ! The LOGICAL items: 62 scalars and
@@ -3025,7 +2990,6 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: n_day_photo_acclim
   REAL(KIND=real_jlslsm) :: stanton_leaf
   REAL(KIND=real_jlslsm) :: som_hc_negligible_tol
-  REAL(KIND=real_jlslsm) :: som_leaf_resist_frac
   REAL(KIND=real_jlslsm) :: som_gl_max
   REAL(KIND=real_jlslsm) :: sl_kfail_frac
   REAL(KIND=real_jlslsm) :: light_curvature_fvcb
@@ -3151,7 +3115,6 @@ IF (mype == 0) THEN
   my_nml % n_day_photo_acclim = n_day_photo_acclim
   my_nml % stanton_leaf    = stanton_leaf
   my_nml % som_hc_negligible_tol = som_hc_negligible_tol
-  my_nml % som_leaf_resist_frac = som_leaf_resist_frac
   my_nml % som_gl_max = som_gl_max
   my_nml % sl_kfail_frac = sl_kfail_frac
   my_nml % light_curvature_fvcb = light_curvature_fvcb
@@ -3271,7 +3234,6 @@ IF (mype /= 0) THEN
   n_day_photo_acclim = my_nml % n_day_photo_acclim
   stanton_leaf    = my_nml % stanton_leaf
   som_hc_negligible_tol = my_nml % som_hc_negligible_tol
-  som_leaf_resist_frac = my_nml % som_leaf_resist_frac
   som_gl_max = my_nml % som_gl_max
   sl_kfail_frac = my_nml % sl_kfail_frac
   light_curvature_fvcb = my_nml % light_curvature_fvcb
