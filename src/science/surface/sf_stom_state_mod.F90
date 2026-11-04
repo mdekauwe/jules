@@ -23,7 +23,7 @@ MODULE sf_stom_state_mod
 ! Both are negative until first set, meaning "not yet set". A dump without
 ! them gives the same.
 !
-! MDK, 01/11/26
+! MDK, 04/11/26
 
 USE um_types, ONLY: real_jlslsm
 
@@ -45,9 +45,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cpl_state(:,:,:)
 ! two-leaf: the shaded leaves' transpiration of the last timestep
 ! (mol H2O m-2 s-1), the flow the sunlit leaves' search puts on the
 ! shared root and stem in a timestep's first pass. Allocated and set to
-! 0 by sf_stom. It is deliberately not in the dump, so it is 0 after a
-! restart, which changes nothing for a dump written at night (no
-! transpiration).
+! 0 by sf_stom or the dump reading; in the dump, so a restart in daylight
+! starts from the same first guess as a continuous run.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: shared_e_shd_prev(:,:)
 ! (land_pts, npft) The same for the shaded leaves' A at their hydraulic
 ! edge (mol CO2 m-2 s-1), for the whole-plant gain (l_som_shared_gain).
@@ -56,8 +55,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: shared_amax_shd_prev(:,:)
 ! search: the last timestep's stomatal transpiration of the sunlit and
 ! shaded leaves together (mol H2O m-2 s-1, >= 0; 0 where the canopy was
 ! shut). Where it is 0, the first pass does not use the last step's store
-! refill. Allocated and set to 0 by sf_stom. Not in the dump: after a
-! restart the store's flow (cut_q_store) is also 0.
+! refill. Allocated and set to 0 by sf_stom or the dump reading; in the
+! dump with the store's flow (cut_q_store).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_e_prev(:,:)
 
 CONTAINS

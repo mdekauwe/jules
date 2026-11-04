@@ -19,7 +19,7 @@ PRIVATE
 PUBLIC :: ximpair_ring_init, ximpair_ring_mean,                                &
           ximpair_ring_grow, ximpair_ring_repair, ximpair_ring_functional,     &
           ximpair_ring_damaged, ximpair_ring_working,                          &
-          ximpair_ring_cweight, ximpair_ring_cref
+          ximpair_ring_cweight, ximpair_ring_cref, ximpair_ring_next_year
 PUBLIC :: ximpair_memory_alloc, ximpair_dilute_area,                           &
           leaf_conductance_impaired_memory_jls,                                &
           psi_leaf_impaired_memory,                                            &
@@ -67,6 +67,15 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_area_w(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_frac(:,:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_loss(:,:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_year(:,:)
+
+! Ring cohorts: the highest loss of conductance (0-1) that the water
+! potential has imposed on the rings since the last TRIFFID step, the
+! damage the drought would put back at once. Xylem repair (the Trugman
+! response) restores only the damage above it, and triffid_nsc_ring_renewal
+! resets it to 0 after the repair. In dumps; allocated with the rings.
+!
+! MDK, 04/11/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_peak(:,:)
 
 CONTAINS
 
@@ -214,9 +223,11 @@ IF (l_nsc_sapwood_rings .AND. .NOT. ALLOCATED(ximpair_ring_frac)) THEN
   ALLOCATE(ximpair_ring_frac(n_land_pts, npft, nsc_n_ring))
   ALLOCATE(ximpair_ring_loss(n_land_pts, npft, nsc_n_ring))
   ALLOCATE(ximpair_ring_year(n_land_pts, npft))
+  ALLOCATE(ximpair_ring_peak(n_land_pts, npft))
   ximpair_ring_frac(:,:,:) = -1.0
   ximpair_ring_loss(:,:,:) = 0.0
   ximpair_ring_year(:,:)   = -1.0
+  ximpair_ring_peak(:,:)   = 0.0
 END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -231,32 +242,24 @@ END SUBROUTINE ximpair_memory_alloc
 ! the youngest ring grown as far as the season has gone (ring_q), and
 ! every ring starts with the stem's loss of conductance loss0 (0-1). The
 ! youngest ring grows in the current calendar year, or in the next one
-! if the set-up falls in the second half of the year (it is then empty).
+! if the set-up falls after this year's ring year has ended (it is then
+! empty; ximpair_ring_next_year).
 !
-! MDK, 01/11/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_ring_init( l, pft, loss0 )
 
 USE jules_vegetation_mod, ONLY: nsc_n_ring
-USE model_time_mod, ONLY: current_time
-USE datetime_utils_mod, ONLY: day_of_year, days_in_year
-USE time_info_mod, ONLY: l_360, l_leap
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, pft
 ! The stem's loss of conductance (0-1).
 REAL(KIND=real_jlslsm), INTENT(IN) :: loss0
 
-! Day of year.
-INTEGER :: doy
 ! Steady-state ring shares (not normalised).
 REAL(KIND=real_jlslsm) :: s(nsc_n_ring)
 
-doy = day_of_year(current_time%year, current_time%month, current_time%day,   &
-                  l_360, l_leap)
-ximpair_ring_year(l,pft) = REAL(current_time%year)
-IF (2 * doy > days_in_year(current_time%year, l_360, l_leap))                  &
-  ximpair_ring_year(l,pft) = REAL(current_time%year + 1)
+ximpair_ring_year(l,pft) = REAL(ximpair_ring_next_year(pft))
 
 CALL ring_steady(pft, ring_q(l, pft), s)
 ximpair_ring_frac(l,pft,:) = s(:) / SUM(s)
@@ -285,10 +288,11 @@ END SUBROUTINE ximpair_ring_init
 ! up to a total of 1 / (k_h + g_t), the last of them part full. The
 ! youngest ring (j = 1) has the share q, the part of this year's ring
 ! grown so far (0-1). Rings beyond nsc_n_ring are merged into the last,
-! as ximpair_ring_grow does. Without turnover there are 1 / k_h rings of
+! as ximpair_ring_grow does, so the last ring holds all the wood older
+! than nsc_n_ring - 1 years. Without turnover there are 1 / k_h rings of
 ! equal carbon.
 !
-! MDK, 01/11/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ring_steady( pft, q, s )
 
@@ -310,7 +314,7 @@ INTEGER :: j
 REAL(KIND=real_jlslsm) :: g_t, rest, full
 
 g_t  = MAX(g_wood(pft), 0.0)
-rest = 1.0 / MAX(nsc_heartwood_rate(pft) + g_t, 1.0 / REAL(nsc_n_ring))
+rest = 1.0 / MAX(nsc_heartwood_rate(pft) + g_t, 1.0e-6)
 s(:) = 0.0
 s(1) = q
 DO j = 2, nsc_n_ring
@@ -326,6 +330,43 @@ ELSE
 END IF
 
 END SUBROUTINE ring_steady
+
+! ---------------------------------------------------------------------
+! Return the calendar year in which a ring started today grows: next
+! year once this year's ring year has ended (on or after day
+! nsc_grow_end_doy or, without it, the last day of the year), otherwise
+! this year. At the TRIFFID step that holds the ring year's end this is
+! next year, or this year when the step has run on into a new calendar
+! year.
+!
+! MDK, 04/11/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_next_year( pft ) RESULT( year )
+
+USE pftparm, ONLY: is_set, nsc_grow_end_doy
+USE model_time_mod, ONLY: current_time
+USE datetime_utils_mod, ONLY: day_of_year, days_in_year
+USE time_info_mod, ONLY: l_360, l_leap
+
+! PFT.
+INTEGER, INTENT(IN) :: pft
+! Calendar year.
+INTEGER :: year
+
+! Day of year, days in this year and the ring year's end day.
+INTEGER :: doy, n_days, doy_end
+
+n_days  = days_in_year(current_time%year, l_360, l_leap)
+doy     = day_of_year(current_time%year, current_time%month,                  &
+                      current_time%day, l_360, l_leap)
+doy_end = n_days
+IF (is_set(nsc_grow_end_doy(pft)))                                             &
+  doy_end = MIN(NINT(nsc_grow_end_doy(pft)), n_days)
+
+year = current_time%year
+IF (doy >= doy_end) year = year + 1
+
+END FUNCTION ximpair_ring_next_year
 
 ! ---------------------------------------------------------------------
 ! Return the part (0-1) of the youngest sapwood ring that a stand in
@@ -769,19 +810,22 @@ END SUBROUTINE ximpair_ring_grow
 ! ---------------------------------------------------------------------
 ! Xylem impairment, memory model: replace damaged sapwood with new xylem in
 ! the annual rings (Trugman response). With X the sapwood (kg C m-2),
-! X_i = f_i X ring i's carbon and L_i its loss of conductance, the damaged
-! sapwood is
+! X_i = f_i X ring i's carbon, L_i its loss of conductance and L_p the
+! highest loss imposed since the last TRIFFID step (ximpair_ring_peak),
+! the damaged sapwood that repair can restore is
 !
-!   D = SUM_i X_i L_i.
+!   D = SUM_i X_i MAX(L_i - L_p, 0).
 !
-! Up to r_max of new xylem (kg C m-2), and at most D, replaces damaged
-! wood in place: ring i gets m_i = r X_i L_i / D of it, so its loss
-! becomes
+! Damage at or below L_p is left, as the drought would put it back at
+! the next time step. Up to r_max of new xylem (kg C m-2), and at most D,
+! replaces damaged wood in place: ring i gets m_i = r d_i / D of it, with
+! d_i = X_i MAX(L_i - L_p, 0), so its loss becomes
 !
-!   L_i -> (X_i L_i - m_i) / X_i.
+!   L_i -> L_i - m_i / X_i,
 !
-! No ring changes size, so the sapwood keeps its age structure and a ring
-! conducts at most as well as it did undamaged. r is returned.
+! at least L_p. No ring changes size, so the sapwood keeps its age
+! structure and a ring conducts at most as well as it did undamaged. r is
+! returned; r_max - r is claimed but not used.
 !
 ! MDK, 04/11/26
 ! ---------------------------------------------------------------------
@@ -798,7 +842,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: r
 
 ! Ring counter.
 INTEGER :: i
-! Each ring's carbon and damaged carbon, and the damaged sapwood (kg C
+! Each ring's carbon and repairable damaged carbon, and their sum (kg C
 ! m-2).
 REAL(KIND=real_jlslsm) :: a(nsc_n_ring), d(nsc_n_ring), d_tot
 
@@ -807,27 +851,32 @@ IF (x_s <= 0.0 .OR. r_max <= 0.0) RETURN
 IF (ximpair_ring_frac(l,pft,1) < 0.0) RETURN
 
 a(:) = MAX(ximpair_ring_frac(l,pft,:), 0.0) * x_s
-d(:) = a(:) * ximpair_ring_loss(l,pft,:)
+d(:) = a(:) * MAX(ximpair_ring_loss(l,pft,:) - ximpair_ring_peak(l,pft), 0.0)
 d_tot = SUM(d)
 IF (d_tot <= 0.0) RETURN
 r = MIN(r_max, d_tot)
 
-! Each ring's damaged wood is replaced in proportion to its damaged carbon.
+! Each ring's repairable damage is replaced in proportion to its share.
 DO i = 1, nsc_n_ring
   IF (d(i) <= 0.0 .OR. a(i) <= 0.0) CYCLE
-  ximpair_ring_loss(l,pft,i) = MIN(MAX((d(i) - r * d(i) / d_tot) / a(i),     &
-                                       0.0), 1.0)
+  ximpair_ring_loss(l,pft,i) = MIN(MAX(ximpair_ring_loss(l,pft,i)             &
+                                       - r * d(i) / (d_tot * a(i)),            &
+                                       ximpair_ring_peak(l,pft)), 1.0)
 END DO
 
 END SUBROUTINE ximpair_ring_repair
 
 ! ---------------------------------------------------------------------
-! Return the share of the sapwood carbon that is damaged (0-1),
+! Return the share of the sapwood carbon whose damage repair could
+! restore (0-1),
 !
-!   SUM_i f_i L_i,
+!   SUM_i f_i MAX(L_i - L_p, 0),
 !
-! with f_i ring i's share of the sapwood and L_i its loss of conductance;
-! 0 where the rings are not yet set.
+! with f_i ring i's share of the sapwood, L_i its loss of conductance and
+! L_p the highest loss the water potential has imposed since the last
+! TRIFFID step (ximpair_ring_peak): damage at or below L_p would come
+! back at once while the drought lasts. 0 where the rings are not yet
+! set.
 !
 ! MDK, 04/11/26
 ! ---------------------------------------------------------------------
@@ -835,13 +884,14 @@ FUNCTION ximpair_ring_damaged( l, pft ) RESULT( share )
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, pft
-! Damaged share of the sapwood carbon (0-1).
+! Repairable damaged share of the sapwood carbon (0-1).
 REAL(KIND=real_jlslsm) :: share
 
 share = 0.0
 IF (.NOT. ALLOCATED(ximpair_ring_frac)) RETURN
 IF (ximpair_ring_frac(l,pft,1) < 0.0) RETURN
-share = SUM(MAX(ximpair_ring_frac(l,pft,:), 0.0) * ximpair_ring_loss(l,pft,:))
+share = SUM(MAX(ximpair_ring_frac(l,pft,:), 0.0)                              &
+            * MAX(ximpair_ring_loss(l,pft,:) - ximpair_ring_peak(l,pft), 0.0))
 share = MIN(MAX(share, 0.0), 1.0)
 
 END FUNCTION ximpair_ring_damaged
@@ -1325,8 +1375,9 @@ USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_seg_state_alloc
 USE triffid_hydmort_mod, ONLY: hydmort_accumulate
 USE jules_surface_types_mod, ONLY: npft
-USE model_time_mod, ONLY: current_time, timestep_len
+USE model_time_mod, ONLY: current_time, timestep_len, is_spinup
 USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
+USE logging_mod, ONLY: log_warn
 
 USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
@@ -1380,6 +1431,10 @@ REAL(KIND=real_jlslsm), PARAMETER :: sec_per_year = 365.25 * 86400.0
 ! kcrit.
 REAL(KIND=real_jlslsm), PARAMETER :: kcap_crit_margin = 1.0e-3
 
+LOGICAL, SAVE :: l_ring_year_warned = .FALSE.
+                            ! The warning that the rings' year was reset
+                            ! has been given.
+
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -1411,14 +1466,27 @@ b_pts(:)     = conductance_b_pft(pft)
 c_pts(:)     = conductance_c_pft(pft)
 
 ! Ring cohorts: set at the first update, all rings with the stem's loss;
-! rings from a dump without their year grow from the current year.
+! rings from a dump without their year grow from the current year. The
+! youngest ring grows this year or next, so outside spin-up a year after
+! that (rings from a dump written later than the run's start) would give
+! the rings negative ages: their ages are then counted from today.
 IF (l_nsc_sapwood_rings) THEN
   CALL ximpair_memory_alloc( n_land_pts )
   DO l = 1, n_land_pts
     IF (ximpair_ring_frac(l,pft,1) < 0.0)                                      &
       CALL ximpair_ring_init(l, pft, MAX(1.0 - kcap(l) / kmax_pts(l), 0.0))
-    IF (ximpair_ring_year(l,pft) < 0.0)                                        &
+    IF (ximpair_ring_year(l,pft) < 0.0) THEN
       ximpair_ring_year(l,pft) = REAL(current_time%year)
+    ELSE IF (.NOT. is_spinup .AND.                                             &
+             NINT(ximpair_ring_year(l,pft)) > current_time%year + 1) THEN
+      IF (.NOT. l_ring_year_warned)                                            &
+        CALL log_warn(RoutineName,                                             &
+                      "The sapwood rings' year is after next year " //         &
+                      "(a dump from a later date?): the ring ages are " //     &
+                      "counted from today.")
+      l_ring_year_warned = .TRUE.
+      ximpair_ring_year(l,pft) = REAL(ximpair_ring_next_year(pft))
+    END IF
   END DO
 END IF
 
@@ -1516,7 +1584,10 @@ IF (ximpair_reset_mmdd(pft) > 0) THEN
     kcap(:) = kmax_pts(:)
     IF (l_ximpair_seg_memory) ximpair_kcap_leaf(:,pft) = 1.0
     ! The ring cohorts' losses too, or the rings would restore the loss.
-    IF (l_nsc_sapwood_rings) ximpair_ring_loss(:,pft,:) = 0.0
+    IF (l_nsc_sapwood_rings) THEN
+      ximpair_ring_loss(:,pft,:) = 0.0
+      ximpair_ring_peak(:,pft)   = 0.0
+    END IF
   END IF
 END IF
 
@@ -1586,12 +1657,14 @@ CONTAINS
 !   MIN(loss_imp, 1 - kcrit / kmax),
 !
 ! where loss_imp (0-1) is the loss this step's water potential gives and
-! the second term is the loss at the lowest conductance allowed.
+! the second term is the loss at the lowest conductance allowed. The
+! highest such loss since the last TRIFFID step is kept
+! (ximpair_ring_peak).
 !
 ! A youngest ring that does not conduct yet (not grown, or a ring-porous
 ! tree's new ring before its vessels conduct) is not damaged.
 !
-! MDK, 31/10/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ring_damage( l, loss_imp )
 
@@ -1604,6 +1677,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: loss_imp
 REAL(KIND=real_jlslsm) :: loss_max
 
 loss_max = 1.0 - kcrit_pts(l) / kmax_pts(l)
+ximpair_ring_peak(l,pft) = MAX(ximpair_ring_peak(l,pft),                       &
+                               MIN(loss_imp, loss_max))
 IF (ring_age(l, pft, 1) < 0 .OR.                                               &
     ring_cond(pft, ring_age(l, pft, 1), 0) <= 0.0 .AND.                        &
     ring_age(l, pft, 1) == 0) THEN

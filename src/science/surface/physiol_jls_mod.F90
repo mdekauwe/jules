@@ -1706,16 +1706,18 @@ DO n = 1,npft
   !   - the et_stom diagnostics (transpiration alone);
   !   - the Or soil-evaporation limit (l_soil_evap_or), which caps soil
   !     evaporation using the transpiration share;
-  !   - DESICA, which takes its transpiration from that share.
+  !   - DESICA, which takes its transpiration from that share;
+  !   - the plant capacitance (l_som_capacitance_on), whose store gives
+  !     water to the transpiration share in sf_evap.
   ! so it is filled whenever any of them is on, not only for diagnostics.
   !
   ! With l_aggregate there is one aggregated surface tile (index 1);
   ! otherwise each surface type n has its own tile.
   !
-  ! MDK, 23/10/26
+  ! MDK, 04/11/26
   !-----------------------------------------------------------------------
   IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR. l_soil_evap_or       &
-      .OR. stomata_model == stomata_desica) THEN
+      .OR. stomata_model == stomata_desica .OR. l_som_capacitance_on) THEN
     IF (l_aggregate) THEN
       DO l = 1,land_pts
         gc_stom_surft(l,1) = gs_type(l,1)

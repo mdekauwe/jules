@@ -176,10 +176,12 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
-           'ximpair_ring_year',                                                &
+           'ximpair_ring_year', 'ximpair_ring_peak',                           &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
            'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &
+           'cut_q_store', 'store_e_prev',                                      &
+           'shared_e_shd_prev', 'shared_amax_shd_prev',                        &
            't_leaf_sun_pft', 't_leaf_shd_pft' )
   ndims = 2
   dim_names(1:ndims) = [ land_dim_name, pft_dim_name ]

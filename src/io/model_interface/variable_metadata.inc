@@ -10948,8 +10948,78 @@ DATA metadata(845) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Xylem repair: damaged sapwood replaced from the spreading carbon",        &
+    "Xylem repair: damaged sapwood replaced from the claimed release",         &
 ! Units
     "kg m-2 per 360days"                                                       &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_ring_peak and nsc_repair_claim
+!
+! MDK, 04/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(846) / var_metadata(                                             &
+! String identifier
+    'ximpair_ring_peak',                                                       &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ring cohorts: highest imposed loss since the last TRIFFID step",          &
+! Units
+    "1"                                                                        &
+  ) /
+DATA metadata(847) / var_metadata(                                             &
+! String identifier
+    'nsc_repair_claim',                                                        &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Xylem repair: release claimed from the store for repair",                 &
+! Units
+    "kg m-2 per 360days"                                                       &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for the capacitance store's flow and last transpiration (dump)
+!
+! MDK, 04/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(848) / var_metadata(                                             &
+! String identifier
+    'cut_q_store',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Capacitance store flow out of the last timestep (dump)",                  &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /
+DATA metadata(849) / var_metadata(                                             &
+! String identifier
+    'store_e_prev',                                                            &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Capacitance store: canopy transpiration of the last timestep (dump)",     &
+! Units
+    "mol m-2 s-1"                                                              &
+  ) /
+DATA metadata(850) / var_metadata(                                             &
+! String identifier
+    'shared_e_shd_prev',                                                       &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Shared stem: shaded leaves' E of the last timestep (dump)",               &
+! Units
+    "mol m-2 s-1"                                                              &
+  ) /
+DATA metadata(851) / var_metadata(                                             &
+! String identifier
+    'shared_amax_shd_prev',                                                    &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Shared stem: shaded leaves' A of the last timestep (dump)",               &
+! Units
+    "mol m-2 s-1"                                                              &
   ) /
 #endif

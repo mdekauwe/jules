@@ -25,7 +25,9 @@ USE trifctl, ONLY: asteps_since_triffid
 USE trifctl, ONLY: asteps_phen
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
 USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
-                                    cut_psi_stem, cut_c_store
+                                    cut_psi_stem, cut_c_store, cut_q_store
+USE sf_stom_state_mod, ONLY: store_e_prev, shared_e_shd_prev,                &
+                             shared_amax_shd_prev
 USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
                              phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
@@ -37,7 +39,7 @@ USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
 USE triffid_nsc_mod, ONLY: nsc_cmax_pft, nsc_wpot_pft, nsc_resp_pft,          &
                            nsc_tseas_acc
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
@@ -2151,6 +2153,58 @@ CASE ( 'cut_c_store' )
     cut_c_store(:,:) = const_val
   END IF
 
+! The store's flow and the canopy transpiration of the last timestep.
+!
+! MDK, 04/11/26
+CASE ( 'cut_q_store' )
+  CALL cut_state_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, cut_q_store(:,:))
+  ELSE
+    cut_q_store(:,:) = const_val
+  END IF
+
+CASE ( 'store_e_prev' )
+  IF ( .NOT. ALLOCATED(store_e_prev) ) THEN
+    ALLOCATE( store_e_prev(land_pts, npft) )
+    store_e_prev(:,:) = 0.0
+  END IF
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, store_e_prev(:,:))
+  ELSE
+    store_e_prev(:,:) = const_val
+  END IF
+
+CASE ( 'shared_e_shd_prev' )
+  IF ( .NOT. ALLOCATED(shared_e_shd_prev) ) THEN
+    ALLOCATE( shared_e_shd_prev(land_pts, npft) )
+    ALLOCATE( shared_amax_shd_prev(land_pts, npft) )
+    shared_e_shd_prev(:,:) = 0.0
+    shared_amax_shd_prev(:,:) = 0.0
+  END IF
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, shared_e_shd_prev(:,:))
+  ELSE
+    shared_e_shd_prev(:,:) = const_val
+  END IF
+
+CASE ( 'shared_amax_shd_prev' )
+  IF ( .NOT. ALLOCATED(shared_e_shd_prev) ) THEN
+    ALLOCATE( shared_e_shd_prev(land_pts, npft) )
+    ALLOCATE( shared_amax_shd_prev(land_pts, npft) )
+    shared_e_shd_prev(:,:) = 0.0
+    shared_amax_shd_prev(:,:) = 0.0
+  END IF
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, shared_amax_shd_prev(:,:))
+  ELSE
+    shared_amax_shd_prev(:,:) = const_val
+  END IF
+
 ! Leaf temperatures of the last timestep (l_leaf_temp; 0 = not yet set).
 !
 ! MDK, 24/10/26
@@ -2359,6 +2413,19 @@ CASE ( 'ximpair_ring_year' )
     CALL cube_get_data(cube_land, ximpair_ring_year(:,:))
   ELSE
     ximpair_ring_year(:,:) = const_val
+  END IF
+
+! MDK, 04/11/26
+CASE ( 'ximpair_ring_peak' )
+  IF ( .NOT. l_nsc_sapwood_rings )                                             &
+    CALL log_fatal("populate_var",                                             &
+                   "ximpair_ring_peak needs l_nsc_sapwood_rings=T")
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_ring_peak(:,:))
+  ELSE
+    ximpair_ring_peak(:,:) = const_val
   END IF
 
 CASE ( 'phen_psi_acc' )

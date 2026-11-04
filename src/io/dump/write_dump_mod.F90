@@ -18,7 +18,9 @@ USE trifctl, ONLY: asteps_since_triffid   ! MDK, 24/10/26
 USE trifctl, ONLY: asteps_phen
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
 USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
-                                    cut_psi_stem, cut_c_store
+                                    cut_psi_stem, cut_c_store, cut_q_store
+USE sf_stom_state_mod, ONLY: store_e_prev, shared_e_shd_prev,                &
+                             shared_amax_shd_prev
 USE jules_fields_mod, ONLY: crop_vars, psparms, ainfo, trif_vars, progs,       &
                             fluxes, lake_vars, rivers, water_resources
 
@@ -41,7 +43,7 @@ USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
@@ -493,6 +495,43 @@ DO i = 1,nvars
     DO n = 1,npft
       CALL gather_land_field(cut_c_store(:,n), global_data_2d(:,n))
     END DO
+  ! The store's flow and the canopy transpiration of the last timestep
+  ! (MDK, 04/11/26).
+  CASE ( 'cut_q_store' )
+    CALL cut_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(cut_q_store(:,n), global_data_2d(:,n))
+    END DO
+  CASE ( 'store_e_prev' )
+    IF ( .NOT. ALLOCATED(store_e_prev) ) THEN
+      ALLOCATE( store_e_prev(land_pts, npft) )
+      store_e_prev(:,:) = 0.0
+    END IF
+    DO n = 1,npft
+      CALL gather_land_field(store_e_prev(:,n), global_data_2d(:,n))
+    END DO
+  ! The shaded leaves' transpiration and A of the last timestep
+  ! (MDK, 04/11/26).
+  CASE ( 'shared_e_shd_prev' )
+    IF ( .NOT. ALLOCATED(shared_e_shd_prev) ) THEN
+      ALLOCATE( shared_e_shd_prev(land_pts, npft) )
+      ALLOCATE( shared_amax_shd_prev(land_pts, npft) )
+      shared_e_shd_prev(:,:) = 0.0
+      shared_amax_shd_prev(:,:) = 0.0
+    END IF
+    DO n = 1,npft
+      CALL gather_land_field(shared_e_shd_prev(:,n), global_data_2d(:,n))
+    END DO
+  CASE ( 'shared_amax_shd_prev' )
+    IF ( .NOT. ALLOCATED(shared_e_shd_prev) ) THEN
+      ALLOCATE( shared_e_shd_prev(land_pts, npft) )
+      ALLOCATE( shared_amax_shd_prev(land_pts, npft) )
+      shared_e_shd_prev(:,:) = 0.0
+      shared_amax_shd_prev(:,:) = 0.0
+    END IF
+    DO n = 1,npft
+      CALL gather_land_field(shared_amax_shd_prev(:,n), global_data_2d(:,n))
+    END DO
   ! Leaf temperatures of the last timestep (l_leaf_temp).
   !
   ! MDK, 24/10/26
@@ -590,6 +629,13 @@ DO i = 1,nvars
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(ximpair_ring_year(:,n), global_data_2d(:,n))
+    END DO
+
+  ! MDK, 04/11/26
+  CASE ( 'ximpair_ring_peak' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(ximpair_ring_peak(:,n), global_data_2d(:,n))
     END DO
 
   CASE ( 'phen_psi_acc' )
@@ -1413,10 +1459,12 @@ DO i = 1,nvars
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
-           'ximpair_ring_year',                                                &
+           'ximpair_ring_year', 'ximpair_ring_peak',                           &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
            'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &
+           'cut_q_store', 'store_e_prev',                                      &
+           'shared_e_shd_prev', 'shared_amax_shd_prev',                        &
            't_leaf_sun_pft', 't_leaf_shd_pft' )
       CALL file_write_var(FILE, var_ids(i), global_data_2d(:,1:npft))
 

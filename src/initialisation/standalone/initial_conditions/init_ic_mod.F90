@@ -1074,6 +1074,11 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
   CASE ( 'ximpair_ring_loss' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  ! The xylem repair's peak imposed loss: none yet.
+  !
+  ! MDK, 04/11/26
+  CASE ( 'ximpair_ring_peak' )
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
   ! TRIFFID's timer at the start of a run (as init_time) and empty sums.
   !
   ! MDK, 24/10/26
@@ -1133,6 +1138,12 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   CASE ( 'cut_c_store' )
     ! Cuticular-loss store: C not yet set.
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  CASE ( 'cut_q_store', 'store_e_prev', 'shared_e_shd_prev',                  &
+         'shared_amax_shd_prev' )
+    ! Capacitance store and shared stem: no flow and no transpiration yet.
+    !
+    ! MDK, 04/11/26
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'nsc_ft_mean' )
     ! Not yet set: 1 at the first step.

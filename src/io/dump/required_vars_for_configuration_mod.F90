@@ -38,6 +38,7 @@ USE pftparm, ONLY: pft_xylem_impairment_model, nsc_psi_turg_zero,              &
 
 USE jules_vegetation_mod, ONLY: l_trif_hydmort   ! MDK, 25/10/26
 USE jules_vegetation_mod, ONLY: l_leaf_temp
+USE jules_vegetation_mod, ONLY: l_som_shared_stem   ! MDK, 04/11/26
 USE jules_vegetation_mod, ONLY: xylem_impairment_memory
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_triffid, l_phenol, l_veg_compete,            &
@@ -56,6 +57,7 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_som_capacitance_on   ! MDK, 24/10/26
 ! MDK, 01/11/26
 USE jules_vegetation_mod, ONLY: l_nsc_sink_feedback
+USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -262,18 +264,26 @@ END IF
 !
 ! MDK, 22/10/26
 IF ( l_som_vcmax_psi ) CALL add_to_list( 'fvcmax_psi_state', nvars, identifiers )
-! The cuticular-loss store (its water and stem psi), so a restart
-! reproduces a continuous run. Its flow out (cut_q_store) is left out on
-! purpose: see sf_stom (the store coupled to the optimiser), where it
-! starts at 0, which changes nothing for a dump written at midnight.
-! (l_som_capacitance_on: with the stomatal optimisation only, and
-! l_som_plant_store folded in by check_jules_vegetation.)
+! The capacitance store (its water, stem psi and capacitance), and its
+! flow and the canopy transpiration of the last timestep, which the next
+! step's first pass starts from, so a restart reproduces a continuous run
+! (l_som_capacitance_on: with the stomatal optimisation only).
 !
-! MDK, 24/10/26
+! MDK, 04/11/26
 IF ( l_som_capacitance_on ) THEN
   CALL add_to_list( 'cut_w_store', nvars, identifiers )
   CALL add_to_list( 'cut_psi_stem', nvars, identifiers )
   CALL add_to_list( 'cut_c_store', nvars, identifiers )
+  CALL add_to_list( 'cut_q_store', nvars, identifiers )
+  CALL add_to_list( 'store_e_prev', nvars, identifiers )
+END IF
+! The shared root and stem (two-leaf): the shaded leaves' transpiration
+! and A of the last timestep, the next step's first guess.
+!
+! MDK, 04/11/26
+IF ( l_som_shared_stem .AND. can_rad_mod == 7 ) THEN
+  CALL add_to_list( 'shared_e_shd_prev', nvars, identifiers )
+  CALL add_to_list( 'shared_amax_shd_prev', nvars, identifiers )
 END IF
 IF ( l_som_coupled_e .AND. can_rad_mod == 7 ) THEN
   CALL add_to_list( 'cpl_gl_sun', nvars, identifiers )
@@ -451,6 +461,11 @@ IF ( l_triffid_nsc ) THEN
     CALL add_to_list( 'ximpair_ring_frac', nvars, identifiers )
     CALL add_to_list( 'ximpair_ring_loss', nvars, identifiers )
     CALL add_to_list( 'ximpair_ring_year', nvars, identifiers )
+    ! The period's peak imposed loss, which limits the xylem repair.
+    !
+    ! MDK, 04/11/26
+    IF ( nsc_damage_response == nsc_damage_trugman )                           &
+      CALL add_to_list( 'ximpair_ring_peak', nvars, identifiers )
   END IF
 END IF
 ! Drought leaf shedding: daily water-status memory and the leaf factor.

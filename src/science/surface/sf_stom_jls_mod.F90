@@ -4992,11 +4992,8 @@ END SUBROUTINE store_commit
 ! 0 as between the passes, so leaves that open now are not searched with
 ! their root flow raised by last night's refill.
 !
-! cut_q_store is deliberately not in the dump, so it is 0 after a restart.
-! That changes nothing for a dump written at midnight: q_f is used only at
-! lit points, and the night steps set cut_q_store before the first of
-! them. Only a dump written in daylight would differ, in its first step's
-! first pass.
+! cut_q_store and store_e_prev are in the dump, so a restart in daylight
+! starts its first pass from the same flow as a continuous run.
 !
 ! MDK, 04/11/26
 !-----------------------------------------------------------------------------

@@ -148,7 +148,7 @@ USE jules_vegetation_mod, ONLY: l_veg_compete, l_ht_compete,                   &
 
 ! MDK, 17/10/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_store, triffid_nsc_area, nsc_dc_pft
-USE triffid_nsc_mod, ONLY: nsc_repair_c   ! MDK, 04/11/26
+USE triffid_nsc_mod, ONLY: nsc_repair_claim   ! MDK, 04/11/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_ring_renewal   ! MDK, 25/10/26
 USE xylem_impairment_memory_mod, ONLY: ximpair_dilute_area   ! MDK, 25/10/26
 ! MDK, 21/10/26
@@ -743,7 +743,7 @@ DO t = 1,trif_pts
   !
   ! MDK, 04/11/26
   IF ( l_triffid_nsc ) cnsrv_veg_flux(l) = cnsrv_veg_flux(l)                  &
-    + SUM(nsc_repair_c(l,1:nnpft) * frac(l,1:nnpft)) / r_gamma
+    + SUM(nsc_repair_claim(l,1:nnpft) * frac(l,1:nnpft)) / r_gamma
 
   cnsrv_prod_flux(l) = 0.0
 
@@ -762,7 +762,7 @@ DO t = 1,trif_pts
     cnsrv_carbon_flux(l) = SUM(npp(l,1:npft) * frac(l,1:npft)) / r_gamma
     ! MDK, 04/11/26
     IF ( l_triffid_nsc ) cnsrv_carbon_flux(l) = cnsrv_carbon_flux(l)          &
-      + SUM(nsc_repair_c(l,1:nnpft) * frac(l,1:nnpft)) / r_gamma
+      + SUM(nsc_repair_claim(l,1:nnpft) * frac(l,1:nnpft)) / r_gamma
   END IF  !  4-pool soil C
 
 END DO
@@ -938,7 +938,7 @@ DO n = 1,nnpft
     !
     ! MDK, 04/11/26
     IF ( l_triffid_nsc .AND. n <= nnpft )                                      &
-      resp_p_actual_pft(l,n) = resp_p_actual_pft(l,n) - nsc_repair_c(l,n)
+      resp_p_actual_pft(l,n) = resp_p_actual_pft(l,n) - nsc_repair_claim(l,n)
 
   END DO  !  trif_pts
 END DO  !  PFTs
@@ -1273,7 +1273,7 @@ DO t = 1,trif_pts
     !
     ! MDK, 04/11/26
     IF ( l_triffid_nsc .AND. n <= nnpft )                                      &
-      lit_c(l,n) = lit_c(l,n) + frac(l,n) * nsc_repair_c(l,n)
+      lit_c(l,n) = lit_c(l,n) + frac(l,n) * nsc_repair_claim(l,n)
 
     !-------------------------------------------------------------------------
     ! Harvest crop carbon

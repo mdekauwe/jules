@@ -1177,6 +1177,7 @@ USE jules_vegetation_mod, ONLY: l_nsc_sapwood_pool   ! MDK, 29/10/26
 USE jules_vegetation_mod, ONLY: l_nsc_sink_feedback   ! MDK, 31/10/26
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
                                 ! MDK, 31/10/26
+USE jules_vegetation_mod, ONLY: l_nsc_pipe_target   ! MDK, 04/11/26
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1696,6 +1697,22 @@ IF ( l_nsc_sapwood_pool ) THEN
     CALL ereport(RoutineName, errcode,                                         &
                  'l_nsc_sapwood_pool needs nsc_heartwood_rate_io > 0 '    //   &
                  '(per year) for the memory-model PFTs.')
+  END IF
+END IF
+! Pipe-model target: TRIFFID's live stemwood is the wood / a_ws, so with
+! a_ws below 1 the target exceeds the wood, is capped there and leaves no
+! heartwood. Lowering eta_sl_io alone changes the balanced LAI and the
+! wood; scale a_ws_io up by the same factor to keep a_ws_io * eta_sl_io.
+!
+! MDK, 04/11/26
+IF ( l_nsc_pipe_target ) THEN
+  IF ( ANY(pft_xylem_impairment_model(1:npft) == xylem_impairment_memory      &
+           .AND. a_ws(1:npft) < 1.0) ) THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'l_nsc_pipe_target with a_ws_io < 1 for a memory-model '  //  &
+                 'PFT: the target exceeds the wood. Lower eta_sl_io and '  //  &
+                 'raise a_ws_io by the same factor.')
   END IF
 END IF
 ! Ring cohorts: the conductivity's e-folding (in rings) is > 0 if set. With

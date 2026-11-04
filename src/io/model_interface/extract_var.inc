@@ -26,7 +26,8 @@ USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf, ximpair_psi_stem
 USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_area_w
 USE trifctl, ONLY: asteps_since_triffid
 USE trifctl, ONLY: asteps_phen
-USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state
+USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state, store_e_prev,          &
+                             shared_e_shd_prev, shared_amax_shd_prev
 USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_w_store,                  &
                                     cut_psi_stem, cut_m_h2o,                   &
                                     cut_psi_unset, cut_c_store,                &
@@ -49,9 +50,10 @@ USE triffid_nsc_mod, ONLY: nsc_lai_peak, nsc_lai_peak_prev
 USE triffid_nsc_mod, ONLY: nsc_k_area_frac
 USE triffid_nsc_mod, ONLY: nsc_k_area_raw, nsc_lai_sap_cap,                    &
                            nsc_xylem_renew_cw, nsc_heartwood_factor,           &
-                           nsc_xt_cap_count, nsc_xylem_repair_pft
+                           nsc_xt_cap_count, nsc_xylem_repair_pft,          &
+                           nsc_repair_claim
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_functional
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
@@ -4124,6 +4126,33 @@ CASE ( 'cut_c_store' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
+! MDK, 04/11/26
+CASE ( 'cut_q_store' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(cut_q_store) ) workspace_pft(:,:) = cut_q_store(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'store_e_prev' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(store_e_prev) ) workspace_pft(:,:) = store_e_prev(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'shared_e_shd_prev' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(shared_e_shd_prev) )                                          &
+    workspace_pft(:,:) = shared_e_shd_prev(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'shared_amax_shd_prev' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(shared_amax_shd_prev) )                                       &
+    workspace_pft(:,:) = shared_amax_shd_prev(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
 ! Transpiration through the leak (kg m-2 s-1; part of TVeg): the PFT
 ! tile's final transpiration (et_stom_surft, after sf_evap's soil-supply and
 ! coupling corrections) where the leak set the conductance this step
@@ -4226,6 +4255,13 @@ CASE ( 'ximpair_ring_year' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
+! MDK, 04/11/26
+CASE ( 'ximpair_ring_peak' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(ximpair_ring_peak) ) workspace_pft(:,:) = ximpair_ring_peak
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
 CASE ( 'nsc_heartwood' )
   workspace_pft(:,:) = -1.0
   IF ( ALLOCATED(nsc_heartwood) ) workspace_pft(:,:) = nsc_heartwood
@@ -4285,6 +4321,13 @@ CASE ( 'nsc_xylem_repair' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(nsc_xylem_repair_pft) )                                       &
     workspace_pft(:,:) = nsc_xylem_repair_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! MDK, 04/11/26
+CASE ( 'nsc_repair_claim' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_repair_claim) ) workspace_pft(:,:) = nsc_repair_claim
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

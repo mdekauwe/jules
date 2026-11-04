@@ -769,11 +769,14 @@ INTEGER ::                                                                     &
       !     leaf area it is kmax L_A / LAI and shedding leaves raises the
       !     supply per remaining leaf (at most k_ground_ratio_max times);
       !   - repairing damaged xylem has first call on the store's
-      !     release, ahead of growth: at most the damaged sapwood
-      !     SUM_i X_i L_i is restored in place, in proportion to each
-      !     ring's damaged carbon, so no ring conducts better than it did
-      !     undamaged; TRIFFID grows from the rest of the release (output
-      !     nsc_xylem_repair).
+      !     release for growth, under the same growth limits: at most the
+      !     damaged sapwood above the highest loss imposed since the last
+      !     TRIFFID step, SUM_i X_i MAX(L_i - L_p, 0), is restored in place,
+      !     in proportion to each ring's repairable damaged carbon, so no
+      !     ring conducts better than it did undamaged; TRIFFID grows from
+      !     the rest of the release, so the claim comes out of growth by
+      !     lambda_g and out of the spreading carbon by the rest (outputs
+      !     nsc_repair_claim and nsc_xylem_repair).
       !
       ! MDK, 04/11/26
 
@@ -1200,12 +1203,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
 INTEGER ::                                                                     &
   nsc_n_ring = 100
       ! Ring cohorts (l_nsc_sapwood_rings): the most rings followed in the
-      ! conducting sapwood (1-200; the size of the ring dimension of
+      ! conducting sapwood (2-200; the size of the ring dimension of
       ! the ring outputs and dumps). The oldest two rings merge when a new
-      ! ring starts, so it should exceed the rings in the sapwood,
-      ! 1 / nsc_heartwood_rate.
+      ! ring starts, so it should exceed the years of wood in the sapwood,
+      ! 1 / (nsc_heartwood_rate + g_wood). With fewer rings the last ring
+      ! holds all the older wood and conducts as a ring nsc_n_ring - 1
+      ! years old.
       !
-      ! MDK, 30/10/26
+      ! MDK, 04/11/26
 
 INTEGER ::                                                                     &
   ignition_method = 1,                                                         &
@@ -2579,10 +2584,14 @@ IF ( nsc_damage_response == nsc_damage_trugman .AND.                           &
                'l_nsc_pipe_target=T, l_phenol=T, l_veg_compete=F, '        //  &
                'l_nsc_k_sapwood=T and kplant_model=1')
 END IF
-IF ( nsc_n_ring < 1 .OR. nsc_n_ring > 200 ) THEN
+! Ring ages need at least two rings: the new ring starts empty at the end
+! of the ring year while last year's ring still conducts.
+!
+! MDK, 04/11/26
+IF ( nsc_n_ring < 2 .OR. nsc_n_ring > 200 ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'nsc_n_ring (number of ring cohorts) must be 1 to 200')
+               'nsc_n_ring (number of ring cohorts) must be 2 to 200')
 END IF
 IF ( l_phen_psi .AND. .NOT. l_phenol ) THEN
   errcode = 101

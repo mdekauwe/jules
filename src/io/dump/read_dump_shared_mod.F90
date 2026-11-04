@@ -274,6 +274,15 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts " //       &
              "'not yet set' (restart not exact).")
+        CASE ( 'ximpair_ring_peak' )
+          ! Xylem repair's peak imposed loss: dumps written without it
+          ! start at 0, so the first TRIFFID step's repair is not limited
+          ! by the drought (restart not exact).
+          !
+          ! MDK, 04/11/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts at 0 " //  &
+             "(restart not exact).")
         CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss' )
           ! Ring cohorts: dumps written without them start them at the
           ! first update, all rings with the stem's loss.
@@ -292,6 +301,17 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts " //       &
              "'not yet set' (restart not exact).")
+        CASE ( 'cut_q_store', 'store_e_prev', 'shared_e_shd_prev',            &
+               'shared_amax_shd_prev' )
+          ! The capacitance store's flow and the canopy transpiration of
+          ! the last timestep, and the shared stem's shaded-leaf flow and
+          ! A: dumps written without them start at 0 (restart not exact
+          ! when the dump falls in daylight).
+          !
+          ! MDK, 04/11/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts at 0 " //  &
+             "(restart not exact in daylight).")
         CASE ( 'cut_w_store', 'cut_psi_stem', 'cut_c_store' )
           ! Cuticular-loss store: dumps written without it start it full
           ! (the restart is then not exact).
