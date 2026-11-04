@@ -1302,7 +1302,7 @@ END SUBROUTINE psi_leaf_impaired_memory
 ! is stored for TRIFFID and, with l_trif_hydmort, for hydraulic
 ! mortality.
 !
-! MDK, 30/10/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment_memory ( n_land_pts                         &
 ,                                           n_open_pts                         &
@@ -1380,6 +1380,9 @@ REAL(KIND=real_jlslsm) :: frac_crit
                             ! cap).
 
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_year = 365.25 * 86400.0
+! Fraction of kmax - kcrit by which the whole-plant cap is held above
+! kcrit.
+REAL(KIND=real_jlslsm), PARAMETER :: kcap_crit_margin = 1.0e-3
 
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -1558,6 +1561,14 @@ ELSE
 END IF
 
 kcap(:) = MAX(MIN(kcap(:), kmax_pts(:)), kcrit_pts(:))
+
+! On the whole-plant curve the cap is held just above kcrit: at kcrit
+! every transpiration, E = 0 included, gives k = kcrit, which fails the
+! optimiser's k > kcrit test, so the plant would stay shut until
+! recovery. (With per-segment memory the root keeps the path above kcrit.)
+IF (.NOT. l_ximpair_seg_memory)                                                &
+  kcap(:) = MAX(kcap(:), kcrit_pts(:) + kcap_crit_margin                       &
+                                        * (kmax_pts(:) - kcrit_pts(:)))
 
 IF (.NOT. ALLOCATED(ximpair_lock)) THEN
   ALLOCATE(ximpair_lock(n_land_pts, npft))

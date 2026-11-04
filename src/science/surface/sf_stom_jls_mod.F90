@@ -2219,12 +2219,10 @@ CASE ( 5, 6 )
           ! (It needs at least 2 passes: iter and leaf_temp_iter are both
           ! fixed at 3.)
           share_one(:) = 1.0
-          q_f(:)       = 0.0
           e_ml_prev(:) = 0.0
+          CALL store_cpl_first_q()
           DO m = 1,veg_pts
             l = veg_index(m)
-            IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min )        &
-              q_f(l) = cut_q_store(l,ft) / cut_m_h2o
             kref_cpl(l) = kmax_pft(ft) * lai(l)
             kmx_cpl(l)  = kref_cpl(l) * ml_kfrac(l)
             kcr_cpl(l)  = kcrit_of_path(ft, kref_cpl(l))
@@ -2804,6 +2802,10 @@ CASE ( 5, 6 )
 
         END DO                   ! K-ITER (whole canopy)
 
+        ! The canopy's stomatal transpiration for the next step's first
+        ! pass.
+        IF ( l_store_cpl ) CALL store_cpl_e_prev( el )
+
         ! Calculate canopy mean properties
         DO m = 1, veg_pts
             l = veg_index(m)
@@ -3213,12 +3215,7 @@ CASE ( 1 )
   e_sup_use(:) = e_supply(:)
   IF ( l_store_cpl ) THEN
     ! (It needs iter >= 2: iter is fixed at 3.)
-    q_f(:) = 0.0
-    DO m = 1,veg_pts
-      l = veg_index(m)
-      IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min )              &
-        q_f(l) = cut_q_store(l,ft) / cut_m_h2o
-    END DO
+    CALL store_cpl_first_q()
     CALL store_cpl_supply()
   END IF
 
@@ -3597,6 +3594,9 @@ CASE ( 1 )
 
   END DO  ! i_pass (DESICA bisection)
 
+  ! The canopy's stomatal transpiration for the next step's first pass.
+  IF ( l_store_cpl ) CALL store_cpl_e_prev( el )
+
 
 CASE ( 7 )
 
@@ -3827,37 +3827,14 @@ CASE ( 7 )
 
   !---------------------------------------------------------------------------
   ! The soil supply cap of the optimiser, and with the store coupled to it
-  ! (the capacitance store) the store's flow out it sees in the first pass:
-  ! last step's (0 where the store is not set). Where the canopy was shut on
-  ! the last step (no stomatal transpiration, e.g. the night before the
-  ! first lit step) that flow is a refill (< 0), floored at 0 as between the
-  ! passes, so leaves that open now are not searched with their root flow
-  ! raised by last night's refill.
+  ! (the capacitance store) the store's flow out it sees in the first pass
+  ! (store_cpl_first_q).
   !
-  ! cut_q_store is deliberately not in the dump, so it is 0 after a restart.
-  ! That changes nothing for a dump written at midnight: q_f is used only at
-  ! lit points, and the night steps set cut_q_store before the first of
-  ! them. Only a dump written in daylight would differ, in its first step's
-  ! first pass.
-  !
-  ! MDK, 01/11/26
+  ! MDK, 04/11/26
   !---------------------------------------------------------------------------
   e_sup_use(:) = e_supply(:)
   IF ( l_store_cpl ) THEN
-!$OMP CRITICAL (som_store_e_prev_alloc)
-    IF ( .NOT. ALLOCATED(store_e_prev) ) THEN
-      ALLOCATE( store_e_prev(land_pts, npft) )
-      store_e_prev(:,:) = 0.0
-    END IF
-!$OMP END CRITICAL (som_store_e_prev_alloc)
-    q_f(:) = 0.0
-    DO m = 1,veg_pts
-      l = veg_index(m)
-      IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min ) THEN
-        q_f(l) = cut_q_store(l,ft) / cut_m_h2o
-        IF ( store_e_prev(l,ft) <= 0.0 ) q_f(l) = MAX(q_f(l), 0.0)
-      END IF
-    END DO
+    CALL store_cpl_first_q()
     CALL store_cpl_supply()
   END IF
   share_one(:) = 1.0
@@ -4047,12 +4024,7 @@ CASE ( 7 )
   ! The canopy's stomatal transpiration for the next step's first pass.
   !
   ! MDK, 01/11/26
-  IF ( l_store_cpl ) THEN
-    DO m = 1,veg_pts
-      l = veg_index(m)
-      store_e_prev(l,ft) = MAX(el_sun(l) + el_shd(l), 0.0)
-    END DO
-  END IF
+  IF ( l_store_cpl ) CALL store_cpl_e_prev( el_sun + el_shd )
 
   ! The shared root and stem (l_som_shared_stem): the shaded leaves' flow
   ! (and A at their edge) for the next timestep's first pass, and one stem
@@ -4988,6 +4960,68 @@ cut_w_store(l_c,ft) = c_s * psi_x1
 END SUBROUTINE store_commit
 
 !-----------------------------------------------------------------------------
+! The plant capacitance store coupled to the optimiser: the store's flow
+! out (q_f, mol H2O m-2 s-1) that the first pass of the step sees, in all
+! three canopies. It is last step's (0 where the store is not set). Where
+! the canopy was shut on the last step (no stomatal transpiration, e.g. the
+! night before the first lit step) that flow is a refill (< 0), floored at
+! 0 as between the passes, so leaves that open now are not searched with
+! their root flow raised by last night's refill.
+!
+! cut_q_store is deliberately not in the dump, so it is 0 after a restart.
+! That changes nothing for a dump written at midnight: q_f is used only at
+! lit points, and the night steps set cut_q_store before the first of
+! them. Only a dump written in daylight would differ, in its first step's
+! first pass.
+!
+! MDK, 04/11/26
+!-----------------------------------------------------------------------------
+SUBROUTINE store_cpl_first_q()
+
+IMPLICIT NONE
+
+INTEGER :: l, m
+
+!$OMP CRITICAL (som_store_e_prev_alloc)
+IF ( .NOT. ALLOCATED(store_e_prev) ) THEN
+  ALLOCATE( store_e_prev(land_pts, npft) )
+  store_e_prev(:,:) = 0.0
+END IF
+!$OMP END CRITICAL (som_store_e_prev_alloc)
+
+q_f(:) = 0.0
+DO m = 1,veg_pts
+  l = veg_index(m)
+  IF ( cut_w_store(l,ft) <= 0.0 .AND. lai(l) >= lai_cut_min ) THEN
+    q_f(l) = cut_q_store(l,ft) / cut_m_h2o
+    IF ( store_e_prev(l,ft) <= 0.0 ) q_f(l) = MAX(q_f(l), 0.0)
+  END IF
+END DO
+
+END SUBROUTINE store_cpl_first_q
+
+!-----------------------------------------------------------------------------
+! Keep the canopy's stomatal transpiration e_c (mol H2O m-2 s-1, ground) for
+! the next step's first pass (store_cpl_first_q).
+!
+! MDK, 04/11/26
+!-----------------------------------------------------------------------------
+SUBROUTINE store_cpl_e_prev( e_c )
+
+IMPLICIT NONE
+
+REAL(KIND=real_jlslsm), INTENT(IN) :: e_c(land_pts)
+
+INTEGER :: l, m
+
+DO m = 1,veg_pts
+  l = veg_index(m)
+  store_e_prev(l,ft) = MAX(e_c(l), 0.0)
+END DO
+
+END SUBROUTINE store_cpl_e_prev
+
+!-----------------------------------------------------------------------------
 ! Plant capacitance: the most the canopy may transpire this step is what
 ! the soil can supply plus what the stem store gives.
 !
@@ -5637,7 +5671,9 @@ END SUBROUTINE store_cpl_eval
 !
 ! The leaves' transpiration and CO2 uptake go through their boundary
 ! layer r_bl_x (s m-1, leaf area; 0 without l_leaf_temp), in series with
-! the stomata, in the optimisation and in the supply cap.
+! the stomata, in the optimisation and in the supply cap. The leaves work
+! per unit leaf area, so the CMax and CGain costs take a leaf area of 1
+! (lai_cost), not the layer's N-profile share of kmax.
 !
 ! MDK, 04/11/26
 !-----------------------------------------------------------------------------
@@ -5705,7 +5741,8 @@ CALL stom_opt_mod (                                                            &
     ! OUT
     ci_c, anetl_c, el_c, flux_o3_c, fo3_c,                                     &
     gl_c, psi_leaf_c, cg_c, hc_c, leaf_k_c,                                    &
-    psi_stem = psi_stem_c                                                      &
+    psi_stem = psi_stem_c,                                                     &
+    lai_cost = ones_c                                                          &
 )
 IF ( l_store_cpl ) CALL clear_store_q_path()
 

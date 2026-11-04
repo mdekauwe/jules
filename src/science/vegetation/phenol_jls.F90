@@ -313,10 +313,12 @@ DO j = 1,veg_pts
   END IF
 
   ! Leaf renewal (l_ximpair_rec_leaf_turn): leaves regrown after shedding
-  ! arrive intact, so the leaf segment's loss falls by their share.
+  ! arrive intact, so the leaf segment's loss falls by their share. Not in
+  ! spin-up, where the damage is held.
   !
-  ! MDK, 18/10/26
-  IF (l_ximpair_rec_leaf_turn .AND. dphen > 0.0 .AND. phen(l) > 0.0) THEN
+  ! MDK, 04/11/26
+  IF (l_ximpair_rec_leaf_turn .AND. .NOT. is_spinup .AND. dphen > 0.0 .AND.   &
+      phen(l) > 0.0) THEN
     IF (ALLOCATED(ximpair_kcap_leaf))                                          &
       ximpair_kcap_leaf(l,n) = 1.0 - (1.0 - ximpair_kcap_leaf(l,n))            &
                                * (1.0 - MIN(dphen / phen(l), 1.0))

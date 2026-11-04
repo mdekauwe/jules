@@ -1732,6 +1732,17 @@ IF ( stomata_model == stomata_supply_loss .AND.                                &
   CALL ereport("check_jules_vegetation", errcode,                              &
                'stomata_model = 9 (supply-loss) requires som_base_parm = 1')
 END IF
+! Supply-loss stomata do not take the leaf boundary layer that the
+! multilayer leaf energy balance gives the other stomatal optimisations.
+!
+! MDK, 04/11/26
+IF ( stomata_model == stomata_supply_loss .AND. l_leaf_temp .AND.              &
+     ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'stomata_model = 9 (supply-loss) with l_leaf_temp needs ' //    &
+               'can_rad_mod = 7')
+END IF
 ! The loss rule needs the supply function and its slope k = -dE/dpsi_leaf
 ! consistently.
 IF ( stomata_model == stomata_supply_loss .AND.                                &

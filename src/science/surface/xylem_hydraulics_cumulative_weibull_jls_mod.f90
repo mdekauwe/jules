@@ -696,10 +696,16 @@ END FUNCTION incomplete_gamma
 ! max_terms = 40 is enough wherever the conductance is above kcrit. The
 ! terms shrink once n > x, and at the critical conductance
 ! x = (psi/b)^c = -ln(kcrit / kmax) for any b and c (about 3 for a 95 %
-! loss), so a few tens of terms converge there. Only samples far below
-! kcrit need more, and those are rejected by the k > kcrit test.
+! loss), so a few tens of terms converge there.
 !
-! MDK, 30/10/26
+! Far down the curve (x >= x_full) the integral equals the complete gamma
+! function Gamma(a) to single precision (the rest, about exp(-x), is below
+! 1e-8 of it), and that is returned. The series would be cut short there,
+! then fall to 0 once exp(-x) underflows and give NaN (Inf x 0) beyond
+! about x = 140, which samples far below kcrit (the Newton clamp) and very
+! dry soil reach.
+!
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 ELEMENTAL FUNCTION incomplete_gamma_1( a, x ) RESULT( gamma )
 
@@ -716,6 +722,14 @@ INTEGER :: i
 
 REAL(KIND=real_jlslsm), PARAMETER :: series_tol = 1.0e-8
 INTEGER, PARAMETER :: max_terms = 40
+
+! Above this x the result is Gamma(a) (dimensionless).
+REAL(KIND=real_jlslsm), PARAMETER :: x_full = 20.0
+
+IF ( x >= x_full ) THEN
+  gamma = EXP(LOG_GAMMA(a))
+  RETURN
+END IF
 
 step  = 1/a
 gamma = step
