@@ -1921,7 +1921,7 @@ IF ( l_nsc_k_sapwood ) THEN
       l = veg_index(m)
       k_area(l) = nsc_k_area(l, ft, k_raw(l))
       IF ( nsc_damage_response == nsc_damage_trugman ) THEN
-        lai_sw = nsc_lai_sapwood(l, ft, ht(l), .FALSE.)
+        lai_sw = nsc_lai_sapwood(l, ft, ht(l))
         IF ( lai_sw >= 0.0 )                                                   &
           r_stem(l) = MIN(MAX(lai_sw / MAX(lai(l), TINY(1.0_real_jlslsm)),     &
                               nsc_f_a_min), k_ground_ratio_max)

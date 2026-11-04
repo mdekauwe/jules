@@ -33,8 +33,7 @@ USE jules_vegetation_mod, ONLY: l_nitrogen, l_ximpair_leaf_loss,               &
                                 ! TEMP RED
                                 l_red
 USE triffid_nsc_mod, ONLY: phen_fbleaf, nsc_pft, nsc_regrow_acc
-USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_lai_sapwood,                &
-                           nsc_lai_sap_cap
+USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_lai_sap_cap
 USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman
 USE model_time_mod, ONLY: is_spinup
                            ! MDK, 01/11/26
@@ -48,6 +47,7 @@ USE datetime_utils_mod, ONLY: day_of_year, days_in_year
 USE time_info_mod, ONLY: l_360, l_leap
 USE jules_surface_mod, ONLY: cmass
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_working   ! MDK, 04/11/26
 USE trif, ONLY: g_grow
 USE phen_budburst_mod, ONLY: phen_bb_on, phen_bb_blocked, phen_bb_day,         &
                              phen_dormant, phen_bb_in_leaf
@@ -197,12 +197,11 @@ IF (l_phen_psi .AND. is_set(phen_psi_tlp(n)) .AND.                             &
   END DO
 END IF
 
-! Canopy limited by the sapwood (the Trugman response to damage,
-! nsc_damage_response = 1): the canopy is also capped at the leaf area its
-! functional sapwood can supply under the pipe model (nsc_lai_sapwood,
-! with the drought damage), so leaves above it are shed as below and
-! regrow as the sapwood recovers. No cap in spin-up or before the sapwood
-! is set.
+! Canopy limited by the working xylem (the Trugman response to damage,
+! nsc_damage_response = 1): the canopy is also capped at the share of the
+! sapwood's conductance that still works (ximpair_ring_working), so
+! leaves are shed as below in step with the damage and regrow as the
+! xylem recovers. No cap in spin-up or before the rings are set.
 !
 ! MDK, 04/11/26
 IF (nsc_damage_response == nsc_damage_trugman) THEN
@@ -210,10 +209,12 @@ IF (nsc_damage_response == nsc_damage_trugman) THEN
   DO j = 1,veg_pts
     l = veg_index(j)
     lai_cap = -1.0
-    IF (.NOT. is_spinup) lai_cap = nsc_lai_sapwood(l, n, ht(l), .TRUE.)
+    IF (.NOT. is_spinup) lai_cap = ximpair_ring_working(l, n)
+    IF (lai_cap >= 0.0) THEN
+      phen_max(l) = MIN(phen_max(l), MAX(lai_cap, 0.01))
+      lai_cap     = lai_cap * lai_bal(l)
+    END IF
     nsc_lai_sap_cap(l,n) = lai_cap
-    IF (lai_cap >= 0.0 .AND. lai_bal(l) > 0.0)                                 &
-      phen_max(l) = MIN(phen_max(l), MAX(lai_cap / lai_bal(l), 0.01))
   END DO
 END IF
 

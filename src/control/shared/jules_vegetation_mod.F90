@@ -757,20 +757,23 @@ INTEGER ::                                                                     &
       !   rebuilds the xylem first. Needs the ring cohorts, the pipe-model
       !   target, l_phenol, fixed cover (l_veg_compete off), the
       !   sapwood-area factor (l_nsc_k_sapwood) and kplant_model = 1:
-      !   - the phenological LAI is at most the leaf area the undamaged
-      !     sapwood can supply, L_A = X_s SUM_i f_i c_i (1 - L_i) / (c_ref
-      !     eta_sl h); leaves above it are shed as leaf litter at the rate
-      !     of phenological leaf drop and regrow as the sapwood recovers
-      !     (output nsc_lai_sap_cap);
+      !   - the canopy sheds the share of its leaves that matches the
+      !     share of the sapwood's conductance lost: the phenological LAI
+      !     is at most the balanced LAI times SUM_i f_i c_i (1 - L_i) /
+      !     SUM_i f_i c_i, so an undamaged stem never caps it; leaves above
+      !     the cap are shed as leaf litter at the rate of phenological
+      !     leaf drop and regrow as the xylem recovers (output
+      !     nsc_lai_sap_cap);
       !   - the stem's conductance per unit ground area follows its
       !     sapwood, kmax L_A with L_A on the whole sapwood, so per unit
       !     leaf area it is kmax L_A / LAI and shedding leaves raises the
       !     supply per remaining leaf (at most k_ground_ratio_max times);
-      !   - the carbon TRIFFID would spend on spreading, which goes to
-      !     litter with fixed cover, first replaces damaged sapwood in
-      !     place: at most the damaged sapwood SUM_i X_i L_i, in proportion
-      !     to each ring's damaged carbon, so no ring conducts better than
-      !     it did undamaged (output nsc_xylem_repair).
+      !   - repairing damaged xylem has first call on the store's
+      !     release, ahead of growth: at most the damaged sapwood
+      !     SUM_i X_i L_i is restored in place, in proportion to each
+      !     ring's damaged carbon, so no ring conducts better than it did
+      !     undamaged; TRIFFID grows from the rest of the release (output
+      !     nsc_xylem_repair).
       !
       ! MDK, 04/11/26
 

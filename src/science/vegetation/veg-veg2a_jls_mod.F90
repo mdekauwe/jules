@@ -70,6 +70,7 @@ USE jules_vegetation_mod, ONLY: frac_min, l_crop,                              &
                                 l_inferno, l_trif_fire, l_triffid_nsc
 ! MDK, 17/10/26
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_resp_pft, nsc_dc_pft
+USE triffid_nsc_mod, ONLY: nsc_repair_c   ! MDK, 04/11/26
 
 USE veg_param, ONLY: litc_norm, agric
 
@@ -881,6 +882,12 @@ IF (l_triffid .AND.                                                            &
           IF ( l_triffid_nsc .AND. ALLOCATED(nsc_dc_pft) )                     &
             npp_ac(l,n) = npp_ac(l,n) + ratio * (nsc_dc_pft(l,n)               &
                           + nsc_resp_pft(l,n)) / gam_trif
+          ! The release claimed for xylem repair (Trugman response) was
+          ! used too: it replaced damaged wood, which went to litter.
+          !
+          ! MDK, 04/11/26
+          IF ( l_triffid_nsc .AND. ALLOCATED(nsc_repair_c) )                   &
+            npp_ac(l,n) = npp_ac(l,n) + ratio * nsc_repair_c(l,n) / gam_trif
           resp_w_ac(l,n) = ratio * (resp_w_dr(l,n) - resp_w_dr_out(l,n))       &
                          / gam_trif
         ELSE

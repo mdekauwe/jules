@@ -261,22 +261,31 @@ MODULE triffid_nsc_mod
 ! with lasting stem damage matches its leaves to its working xylem and
 ! rebuilds the xylem first, as in the optimal allocation of Trugman et
 ! al. (2018):
-!   - The phenological LAI is at most the leaf area the functional
-!     sapwood can supply, L_A with X_A = X_s SUM_i f_i c_i (1 - L_i) /
-!     c_ref, the f_A sapwood less its damage. phenol sheds the leaves
-!     above the cap as leaf litter, at the rate of phenological leaf drop,
-!     and the canopy regrows by the usual phenology as the sapwood
-!     recovers. The cap is an output (nsc_lai_sap_cap).
+!   - The canopy loses the share of its leaves that matches the share
+!     of the sapwood's conductance lost: the phenological LAI is at most
+!     the balanced LAI times
+!       SUM_i f_i c_i (1 - L_i) / SUM_i f_i c_i,
+!     so an undamaged stem never caps the canopy, whatever its sapwood
+!     (the heartwood rule sets that). Trugman et al. tie leaves to the
+!     working xylem, and their allocation keeps the two in ratio; TRIFFID's
+!     is fixed, so the cap is taken against the tree's undamaged state.
+!     phenol sheds the leaves above the cap as leaf litter, at the rate of
+!     phenological leaf drop, and the canopy regrows by the usual
+!     phenology as the xylem recovers. The cap (LAI) is an output
+!     (nsc_lai_sap_cap).
 !   - The stem conducts through its whole sapwood (section 9), so the
 !     supply per remaining leaf rises when leaves are shed.
-!   - The carbon TRIFFID would spend on spreading, which goes to litter
-!     when the cover is fixed, replaces damaged sapwood in place: at each
-!     TRIFFID step up to that carbon, and at most the damaged sapwood
-!     SUM_i X_i L_i, restores damaged xylem in the rings in proportion to
-!     their damaged carbon. No ring changes size, so a ring conducts at
-!     most as well as it did undamaged; the sapwood and TRIFFID's wood
-!     carbon do not change, and the litter flux is as without the
-!     response (output nsc_xylem_repair).
+!   - Repairing damaged xylem has first call on the store's release,
+!     ahead of TRIFFID's growth (as u, the share of the release to xylem,
+!     in Trugman et al. eqn 5): at each store step up to the release, and
+!     at most the damaged sapwood SUM_i X_i L_i, restores damaged xylem in
+!     the rings in place, in proportion to their damaged carbon. TRIFFID
+!     grows from the rest, so repair competes with growth; with the
+!     growth limits it waits for growth to be allowed. No ring changes
+!     size, so a ring conducts at most as well as it did undamaged. The
+!     damaged wood replaced goes to litter, so the sapwood and TRIFFID's
+!     wood carbon do not change (output nsc_xylem_repair; the claim is
+!     nsc_repair_c).
 ! The target is set on the leaf area the climate allows (section 8), so
 ! the leaves shed for damage do not shrink the sapwood as well.
 !
@@ -303,7 +312,7 @@ PUBLIC :: nsc_heartwood, nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
 PUBLIC :: nsc_k_area_frac, nsc_k_area
 PUBLIC :: nsc_k_area_raw, nsc_lai_sapwood, nsc_lai_sap_cap
 PUBLIC :: nsc_xylem_renew_cw, nsc_heartwood_factor, nsc_xt_cap_count
-PUBLIC :: nsc_xylem_repair_pft
+PUBLIC :: nsc_xylem_repair_pft, nsc_repair_c
 PUBLIC :: nsc_f_a_min
 
 ! Smallest sapwood-area factor on kmax (and on the stem with
@@ -397,6 +406,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_renew_cw(:,:)
 ! spreading carbon at the last TRIFFID step (kg C m-2 of the PFT per 360
 ! days). A diagnostic.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_repair_pft(:,:)
+! Trugman response: the release claimed for xylem repair at the last
+! store step (kg C m-2 of the PFT per 360 days), taken from the release
+! before TRIFFID grows; triffid adds it to the vegetation's input and, as
+! the damaged wood it replaces, to the litter.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_repair_c(:,:)
 ! Pipe-model target: the heartwood factor g of the last TRIFFID step, and
 ! the number of TRIFFID steps since the start (or restart) at which the
 ! target was capped at the wood. Diagnostics.
@@ -538,6 +552,10 @@ IF (.NOT. ALLOCATED(nsc_xylem_repair_pft)) THEN
   ALLOCATE(nsc_xylem_repair_pft(n_land_pts, npft))
   nsc_xylem_repair_pft(:,:) = 0.0
 END IF
+IF (.NOT. ALLOCATED(nsc_repair_c)) THEN
+  ALLOCATE(nsc_repair_c(n_land_pts, npft))
+  nsc_repair_c(:,:) = 0.0
+END IF
 IF (.NOT. ALLOCATED(nsc_heartwood_factor)) THEN
   ALLOCATE(nsc_heartwood_factor(n_land_pts, npft))
   ALLOCATE(nsc_xt_cap_count(n_land_pts, npft))
@@ -617,8 +635,10 @@ END SUBROUTINE triffid_nsc_alloc
 !   5. Sends carbon above C_max to growth, less the share
 !      nsc_overflow_resp, which is respired, and sets the starvation
 !      disturbance for lotka.
+!   6. With the Trugman response, gives repairing damaged xylem first
+!      call on the release (nsc_repair_c); TRIFFID grows from the rest.
 !
-! MDK, 03/11/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,         &
                               leafc, rootc, npp, pft_only )
@@ -635,6 +655,9 @@ USE pftparm, ONLY: g_leaf_0,                                                   &
                    nsc_cmax, nsc_flush_start_doy, nsc_flush_days
 USE pftparm, ONLY: nsc_grow_thresh
 USE model_time_mod, ONLY: current_time
+USE model_time_mod, ONLY: is_spinup
+USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_damaged
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -863,6 +886,24 @@ DO n = n1,n2
       c_acc = MAX(nsc_pft(l,n) - c_res, 0.0)
       nsc_starv_pft(l,n) = nsc_g_starv(n)                                      &
                            * MAX(1.0 - c_acc / (nsc_kc(n) * c_max), 0.0)
+    END IF
+
+    ! Trugman response: repairing damaged xylem has first call on the
+    ! release, ahead of TRIFFID's growth. The claim is at most the step's
+    ! release and the damaged sapwood X_s SUM_i f_i L_i; TRIFFID grows from
+    ! the rest, so repair competes with growth (with the store's growth
+    ! limits, it waits for growth to be allowed). Not in spin-up or before
+    ! the rings and the sapwood are set.
+    nsc_repair_c(l,n) = 0.0
+    IF (nsc_damage_response == nsc_damage_trugman .AND. .NOT. is_spinup      &
+        .AND. .NOT. PRESENT(pft_only) .AND. w > 0.0) THEN
+      IF (ALLOCATED(nsc_sapwood)) THEN
+        IF (nsc_sapwood(l,n) > 0.0) THEN
+          nsc_repair_c(l,n) = MIN(w, nsc_sapwood(l,n)                         &
+                                     * ximpair_ring_damaged(l, n) / dt)
+          w = w - nsc_repair_c(l,n)
+        END IF
+      END IF
     END IF
 
     npp(l,n)            = w
@@ -1396,35 +1437,26 @@ END FUNCTION nsc_k_area
 !   L_A = X_A / (eta_sl h),
 !
 ! the inverse of the pipe-model target (live_stemwood), with h the canopy
-! height (m) and X_A (kg C m-2) the sapwood that counts:
-!
-!   without the damage (l_dam false),  X_A = X_s SUM_i f_i c_i / c_ref,
-!   with it (l_dam true),               X_A = X_s SUM_i f_i c_i (1 - L_i)
-!                                                 / c_ref,
-!
-! as in f_A (nsc_k_area) before the MIN, with L_i each ring's loss of
-! conductance. Without the rings X_A = X_s, or X_s (1 - L) with the
-! damage, L the stem's loss. A stand at its target with a full canopy and
-! no damage has L_A = the LAI the target was set on. Returns -1 when the
-! sapwood, its target or the pipe model is not set (in spin-up and before
-! the first ring step).
+! height (m) and X_A = X_s SUM_i f_i c_i / c_ref (kg C m-2) the sapwood
+! weighted by how well its rings conduct, as in f_A (nsc_k_area) before
+! the MIN; without the rings X_A = X_s. Drought damage is not taken off.
+! A stand at its target with a full canopy has L_A = the LAI the target
+! was set on. Returns -1 when the sapwood, its target or the pipe model is
+! not set (in spin-up and before the first ring step).
 !
 ! MDK, 04/11/26
 ! ---------------------------------------------------------------------
-FUNCTION nsc_lai_sapwood( l, n, ht, l_dam ) RESULT( lai_s )
+FUNCTION nsc_lai_sapwood( l, n, ht ) RESULT( lai_s )
 
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
 USE pftparm, ONLY: eta_sl
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_year,  &
-                                       ximpair_ring_cweight, ximpair_ring_cref, &
-                                       ximpair_ring_functional, ximpair_lock
+                                       ximpair_ring_cweight, ximpair_ring_cref
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, n
 ! Canopy height (m).
 REAL(KIND=real_jlslsm), INTENT(IN) :: ht
-! Take the drought damage off the sapwood.
-LOGICAL, INTENT(IN) :: l_dam
 ! Leaf area index the sapwood can supply (m2 m-2; -1 = not set).
 REAL(KIND=real_jlslsm) :: lai_s
 
@@ -1444,13 +1476,7 @@ IF (l_nsc_sapwood_rings .AND. ALLOCATED(ximpair_ring_frac)) THEN
     RETURN
   c_ref = ximpair_ring_cref(l, n)
   IF (c_ref <= 0.0) RETURN
-  IF (l_dam) THEN
-    x_a = x_a * ximpair_ring_functional(l, n) / c_ref
-  ELSE
-    x_a = x_a * ximpair_ring_cweight(l, n) / c_ref
-  END IF
-ELSE IF (l_dam .AND. ALLOCATED(ximpair_lock)) THEN
-  x_a = x_a * (1.0 - MIN(MAX(ximpair_lock(l,n), 0.0), 1.0))
+  x_a = x_a * ximpair_ring_cweight(l, n) / c_ref
 END IF
 
 lai_s = x_a / (eta_sl(n) * ht)
@@ -1489,8 +1515,9 @@ END FUNCTION nsc_lai_sapwood
 !      becomes heartwood, and the heartwood is the rest of the wood. The
 !      target is at most the wood; the steps at which this cap binds are
 !      counted.
-!   6. With the Trugman response, the step's spreading carbon replaces
-!      damaged sapwood in the rings (ximpair_ring_repair).
+!   6. With the Trugman response, the release the store step claimed
+!      for repair replaces damaged sapwood in the rings
+!      (ximpair_ring_repair).
 !   7. At the end of the ring year, the year's net wood growth S settles
 !      the deficit D, a net loss of wood also comes off the sapwood, and
 !      with the pipe-model target this ring year's peak LAI becomes last
@@ -1500,7 +1527,7 @@ END FUNCTION nsc_lai_sapwood
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
                                      r_gamma, ht, lai_bal, lai, woodc, dwood,  &
-                                     wood_litc, pc_s )
+                                     wood_litc )
 
 USE jules_surface_types_mod, ONLY: npft, nnpft
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory
@@ -1550,10 +1577,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   ! Wood increment of the step (kg C m-2).
   dwood(land_pts,npft),                                                        &
   ! Wood turnover of the step, g_wood C_W (kg C m-2 per 360 days).
-  wood_litc(land_pts,npft),                                                    &
-  ! Carbon available for spreading (kg C m-2 per 360 days), which goes to
-  ! litter with fixed cover.
-  pc_s(land_pts,npft)
+  wood_litc(land_pts,npft)
 
 INTEGER :: n, t, l
 ! Gross wood production (kg C m-2 per 360 days); conducting sapwood
@@ -1792,15 +1816,14 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
                            * EXP(-(rate_h + g_turn) / r_gamma)                 &
                            + g_wood_prod / r_gamma
 
-      ! Xylem repair (the Trugman response, fixed cover): the step's
-      ! spreading carbon, which would go to litter, first replaces damaged
-      ! sapwood in place, at most all of it, so neither the sapwood nor
-      ! TRIFFID's wood changes.
+      ! Xylem repair (the Trugman response): the release the store step
+      ! claimed for repair replaces damaged sapwood in place, so neither
+      ! the sapwood nor TRIFFID's wood changes.
       nsc_xylem_repair_pft(l,n) = 0.0
       IF (nsc_damage_response == nsc_damage_trugman .AND.                      &
           l_nsc_sapwood_rings) THEN
         CALL ximpair_ring_repair(l, n, nsc_sapwood(l,n),                       &
-                                 MAX(pc_s(l,n), 0.0) / r_gamma, r_rep)
+                                 nsc_repair_c(l,n) / r_gamma, r_rep)
         nsc_xylem_repair_pft(l,n) = r_rep * r_gamma
       END IF
 

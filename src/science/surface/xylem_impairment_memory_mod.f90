@@ -18,6 +18,7 @@ PRIVATE
 
 PUBLIC :: ximpair_ring_init, ximpair_ring_mean,                                &
           ximpair_ring_grow, ximpair_ring_repair, ximpair_ring_functional,     &
+          ximpair_ring_damaged, ximpair_ring_working,                          &
           ximpair_ring_cweight, ximpair_ring_cref
 PUBLIC :: ximpair_memory_alloc, ximpair_dilute_area,                           &
           leaf_conductance_impaired_memory_jls,                                &
@@ -823,6 +824,62 @@ DO i = 1, nsc_n_ring
 END DO
 
 END SUBROUTINE ximpair_ring_repair
+
+! ---------------------------------------------------------------------
+! Return the share of the sapwood carbon that is damaged (0-1),
+!
+!   SUM_i f_i L_i,
+!
+! with f_i ring i's share of the sapwood and L_i its loss of conductance;
+! 0 where the rings are not yet set.
+!
+! MDK, 04/11/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_damaged( l, pft ) RESULT( share )
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! Damaged share of the sapwood carbon (0-1).
+REAL(KIND=real_jlslsm) :: share
+
+share = 0.0
+IF (.NOT. ALLOCATED(ximpair_ring_frac)) RETURN
+IF (ximpair_ring_frac(l,pft,1) < 0.0) RETURN
+share = SUM(MAX(ximpair_ring_frac(l,pft,:), 0.0) * ximpair_ring_loss(l,pft,:))
+share = MIN(MAX(share, 0.0), 1.0)
+
+END FUNCTION ximpair_ring_damaged
+
+! ---------------------------------------------------------------------
+! Return the share of the sapwood's conductance that still works (0-1),
+!
+!   SUM_i f_i c_i (1 - L_i) / SUM_i f_i c_i,
+!
+! with f_i ring i's share of the sapwood, c_i how well it conducts
+! (ring_cond) and L_i its loss of conductance; 1 when no ring conducts
+! and -1 where the rings are not yet set.
+!
+! MDK, 04/11/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_working( l, pft ) RESULT( share )
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! Working share of the conductance (0-1; -1 = not set).
+REAL(KIND=real_jlslsm) :: share
+
+! The ring sums (ring_sums).
+REAL(KIND=real_jlslsm) :: sw, swl, swf
+
+share = -1.0
+IF (.NOT. ALLOCATED(ximpair_ring_frac)) RETURN
+IF (ximpair_ring_frac(l,pft,1) < 0.0 .OR. ximpair_ring_year(l,pft) < 0.0)     &
+  RETURN
+CALL ring_sums(l, pft, .FALSE., sw, swl, swf)
+share = 1.0
+IF (sw > 0.0) share = MIN(MAX(swf / sw, 0.0), 1.0)
+
+END FUNCTION ximpair_ring_working
 
 ! *********************************************************************
 ! Xylem impairment, memory model (pft_xylem_impairment_model = 3).
