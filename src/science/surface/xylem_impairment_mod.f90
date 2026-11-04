@@ -501,10 +501,13 @@ END SUBROUTINE psi_leaf_impaired_jls
 !
 ! The whole trunk model updates the driest leaf and root water potentials
 ! met so far. The memory model updates its conductance cap (recovery, then
-! new damage). Nothing is recorded during spin-up or with no impairment
-! model. The shape of the vulnerability curve is chosen elsewhere.
+! new damage); with per-segment memory and the two-leaf canopy's leaf
+! classes (psi_leaf_cls, w_cls) the leaf segment is damaged by the
+! classes' weighted mean conductance. Nothing is recorded during spin-up
+! or with no impairment model. The shape of the vulnerability curve is
+! chosen elsewhere.
 !
-! MDK, 24/10/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment ( n_land_pts                                &
 ,                                    n_open_pts                                &
@@ -519,6 +522,8 @@ SUBROUTINE update_xylem_impairment ( n_land_pts                                &
 ,                                    lai                                       &
 ,                                    canht                                     &
 ,                                    anetc                                     &
+,                                    psi_leaf_cls                              &
+,                                    w_cls                                     &
                                    )
 
 USE model_time_mod, ONLY: is_spinup
@@ -571,6 +576,14 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Canopy net photosynthesis (mol CO2 m-2 s-1)
                             ! (lai, canht and anetc are not used.)
 
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
+  psi_leaf_cls(n_land_pts,2)                                                   &
+                            ! Leaf water potential of the sunlit (1) and
+                            ! shaded (2) leaves of the two-leaf canopy (Pa;
+                            ! memory model, leaf segment only)
+, w_cls(n_land_pts,2)
+                            ! Their shares of the leaf area (sum 1)
+
 INTEGER :: errcode
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -609,7 +622,9 @@ SELECT CASE (pft_xylem_impairment_model(pft))
                                          psi_leaf,                             &
                                          psi_root,                             &
                                          psi_stem,                             &
-                                         impaired_k_max                        &
+                                         impaired_k_max,                       &
+                                         psi_leaf_cls = psi_leaf_cls,          &
+                                         w_cls = w_cls                         &
                                        )
 
   CASE DEFAULT

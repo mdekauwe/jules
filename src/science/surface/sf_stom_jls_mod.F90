@@ -217,6 +217,10 @@ USE plant_hydraulic_path_mod, ONLY: set_store_q_path, clear_store_q_path,      &
                                     psi_leaf_segments_jls
                                        ! MDK, 24/10/26
 USE plant_hydraulic_path_mod, ONLY: psi_leaf_segments_lut_jls   ! MDK, 31/10/26
+USE plant_hydraulic_path_mod, ONLY: lut_seg_step, seg_kmax_fac
+USE supply_table_mod, ONLY: build_supply_lut_seg
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
+                                       ! MDK, 04/11/26
 USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_lut   ! MDK, 31/10/26
 USE plant_hydraulic_path_mod, ONLY: set_shared_stem, clear_shared_stem,       &
                                     shared_amax_self
@@ -1067,6 +1071,13 @@ LOGICAL :: l_cap_store
                             ! its flow q_f, the leak (if on) drains it, and
                             ! the xylem impairment update is made after the
                             ! leak block, with the store's water potentials.
+                            !
+                            ! MDK, 04/11/26
+REAL(KIND=real_jlslsm) :: psi_leaf_cls(land_pts,2), w_cls(land_pts,2)
+                            ! Two-leaf canopy: the leaf water potential of
+                            ! the sunlit (1) and shaded (2) leaves (Pa) and
+                            ! their shares of the leaf area, for the leaf
+                            ! segment's damage (update_xylem_impairment).
                             !
                             ! MDK, 04/11/26
 LOGICAL :: in_imp_cut(land_pts)
@@ -4065,6 +4076,16 @@ CASE ( 7 )
     psi_leaf_sun_pft(l,ft) = psi_leaf_sun(l)
     psi_leaf_shd_pft(l,ft) = psi_leaf_shd(l)
 
+    ! The classes' leaf water potentials and shares of the leaf area, for
+    ! the leaf segment's damage (the store commit below may reset the
+    ! potentials).
+    !
+    ! MDK, 04/11/26
+    psi_leaf_cls(l,1) = psi_leaf_sun(l)
+    psi_leaf_cls(l,2) = psi_leaf_shd(l)
+    w_cls(l,1)        = f_sun_2l
+    w_cls(l,2)        = 1.0 - f_sun_2l
+
     IF ( l_leaf_temp ) THEN
       ! Leaf temperatures used and the transpiration-equivalent gc
       ! (lt_finish, shared with the multilayer scheme).
@@ -4080,7 +4101,12 @@ CASE ( 7 )
   ! Xylem impairment state update, once per timestep (after the humidity
   ! iteration, cf. k == iter in the big-leaf path), driven by the canopy
   ! (leaf-area-weighted) psi_leaf: both classes share the one plant, so
-  ! there is a single damage state per point, as for the big leaf.
+  ! there is a single damage state per point, as for the big leaf. With
+  ! per-segment memory the leaf segment's damage is the leaf-area-weighted
+  ! mean of the classes' relative conductances at their own leaf psi
+  ! (psi_leaf_cls, w_cls).
+  !
+  ! MDK, 04/11/26
   n_lit = 0
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -4099,7 +4125,9 @@ CASE ( 7 )
           ! IN OUT
             k_max, psi_leaf_extreme, psi_root_extreme,                         &
           ! IN (recovery)
-            lai, canht, anetc )
+            lai, canht, anetc,                                                 &
+          ! IN (leaf classes)
+            psi_leaf_cls = psi_leaf_cls, w_cls = w_cls )
   END IF
 
 CASE DEFAULT
@@ -4337,6 +4365,11 @@ IF ( l_cap_store ) THEN
     ! The store set: its balance at the final E, and kplant without the
     ! store's shift, per unit leaf area as leaf_k.
     IF ( cut_w_store(l,ft) <= 0.0 ) THEN
+      ! Two-leaf canopy: each class's leaf psi from the committed stem psi
+      ! (store_cpl_cls_psi), where the store's balance was solved.
+      !
+      ! MDK, 04/11/26
+      IF ( can_rad_mod == 7 .AND. c_cut > 0.0 ) CALL store_cpl_cls_psi( l )
       psi0_store = cut_w_store(l,ft) / c_cut
       CALL store_commit( l, c_cut, psi0_store, psi_st_be(l) )
       cut_psi_stem(l,ft) = psi_st_be(l)
@@ -4373,7 +4406,23 @@ IF ( l_cap_store ) THEN
       open_land_index(n_lit) = l
     END IF
   END DO
-  CALL update_xylem_impairment(                                                &
+  ! The two-leaf canopy also gives its classes' leaf psi, for the leaf
+  ! segment's damage.
+  !
+  ! MDK, 04/11/26
+  IF ( can_rad_mod == 7 ) THEN
+    CALL update_xylem_impairment(                                              &
+          ! IN
+            land_pts, n_lit, open_land_index, ft, psi_leaf, psi_src,           &
+            psi_stem,                                                          &
+          ! IN OUT
+            k_max, psi_leaf_extreme, psi_root_extreme,                         &
+          ! IN (recovery)
+            lai, canht, anetc,                                                 &
+          ! IN (leaf classes)
+            psi_leaf_cls = psi_leaf_cls, w_cls = w_cls )
+  ELSE
+    CALL update_xylem_impairment(                                              &
           ! IN
             land_pts, n_lit, open_land_index, ft, psi_leaf, psi_src,           &
             psi_stem,                                                          &
@@ -4381,6 +4430,7 @@ IF ( l_cap_store ) THEN
             k_max, psi_leaf_extreme, psi_root_extreme,                         &
           ! IN (recovery)
             lai, canht, anetc )
+  END IF
 END IF
 
 !-----------------------------------------------------------------------------
@@ -5361,6 +5411,86 @@ IF ( l_ex ) THEN
 END IF
 
 END SUBROUTINE store_cpl_q
+
+!-----------------------------------------------------------------------------
+! Plant capacitance, two-leaf canopy: the leaf water potential of the
+! sunlit and of the shaded leaves at point l (psi_leaf_cls) once the
+! store's balance is committed (store_cpl_q), for the leaf segment's
+! damage (update_xylem_impairment).
+!
+! Each class's leaf segment draws from the committed stem psi psi_st_be
+! and carries its share of the canopy flow the commit used, e_be (the
+! stomatal flow, or the leak's after its cut),
+!
+!   E_c = s_c e_be,   s_sun = E_sun / (E_sun + E_shd),   s_shd = 1 - s_sun,
+!
+! with E_sun and E_shd the classes' stomatal transpiration (el_sun,
+! el_shd), or s_sun = f_sun, the sunlit share of the leaf area, where they
+! do not transpire (the night leak). The class's leaf segment has the
+! maximum conductance the optimiser gives it, kmax_c seg_kmax_fac, with
+! kmax_c the class's share of the canopy conductance by N-weighted leaf
+! area (kmax_ref_sun_2l, kmax_ref_shd_2l), and under xylem impairment the
+! canopy leaf segment's cap (ximpair_seg_frac), as in store_cpl_eval. It
+! is solved by one step of the lookup-table chain (lut_seg_step), with
+! either som_psi_solver (the tables are built here when needed), and
+! floored as the canopy leaf psi is in store_cpl_q. Where E_c / kmax_c is
+! the same for both classes, both get the canopy leaf psi psi_l_be.
+!
+! MDK, 04/11/26
+!-----------------------------------------------------------------------------
+SUBROUTINE store_cpl_cls_psi( l )
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: l
+                            ! Land point.
+
+INTEGER :: ic
+LOGICAL :: l_cap_c
+                            ! The leaf segment is capped.
+REAL(KIND=real_jlslsm) :: s_c(2), kmx_c(2)
+                            ! Each class's share of e_be, and its leaf
+                            ! segment's maximum conductance.
+REAL(KIND=real_jlslsm) :: e_t, fr_c
+                            ! The classes' stomatal transpiration (mol m-2
+                            ! s-1); the leaf segment's cap fraction.
+
+CALL build_supply_lut_seg( ft )
+
+e_t = MAX(el_sun(l), 0.0) + MAX(el_shd(l), 0.0)
+IF ( e_t > 0.0 ) THEN
+  s_c(1) = MAX(el_sun(l), 0.0) / e_t
+ELSE
+  s_c(1) = w_cls(l,1)
+END IF
+s_c(2) = 1.0 - s_c(1)
+
+! The intact conductance with the cap, or without impairment the
+! conductance the optimiser used (as store_cpl_eval).
+fr_c    = 1.0
+l_cap_c = .FALSE.
+IF ( .NOT. is_spinup .AND.                                                     &
+     pft_xylem_impairment_model(ft) /= xylem_impairment_none ) THEN
+  kmx_c(1) = kmax_ref_sun_2l(l)
+  kmx_c(2) = kmax_ref_shd_2l(l)
+  fr_c     = MIN(MAX(ximpair_seg_frac(ft, l, 3, kmx_cpl(l)                     &
+                     / MAX(kref_cpl(l), TINY(1.0_real_jlslsm))), 1.0e-12),     &
+                 1.0)
+  l_cap_c  = fr_c < 1.0 - 1.0e-6
+ELSE
+  kmx_c(1) = kmax_sun_2l(l)
+  kmx_c(2) = kmax_shd_2l(l)
+END IF
+
+DO ic = 1,2
+  psi_leaf_cls(l,ic) = lut_seg_step( ft, 3, psi_st_be(l), s_c(ic) * e_be(l),   &
+                                     kmx_c(ic) * seg_kmax_fac(ft, l, 3), fr_c, &
+                                     l_cap_c, .FALSE. )
+  psi_leaf_cls(l,ic) = MAX(psi_leaf_cls(l,ic),                                 &
+                           MIN(psi_fl_leaf, psi_st_be(l)))
+END DO
+
+END SUBROUTINE store_cpl_cls_psi
 
 !-----------------------------------------------------------------------------
 ! Plant capacitance: one guess of the search in store_cpl_q. For a guessed

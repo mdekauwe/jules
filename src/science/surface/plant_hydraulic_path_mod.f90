@@ -40,6 +40,7 @@ PUBLIC :: set_ksr_path                                                         &
 ,         psi_leaf_segments_jls                                                &
 ,         psi_leaf_segments_lut_jls                                            &
 ,         lut_seg_step                                                         &
+,         seg_kmax_fac                                                         &
 ,         kcrit_of_path
 
 ! Soil-to-root (rhizosphere) conductance Ksr for l_som_rhizo_series, a

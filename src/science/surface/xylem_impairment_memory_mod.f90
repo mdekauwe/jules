@@ -1342,7 +1342,15 @@ END SUBROUTINE psi_leaf_impaired_memory
 ! damaged by the water potential at its leaf end on its own curve: the
 ! stem by psi_stem and the leaf by psi_leaf (ximpair_psi_driver is not
 ! used). The leaf's damage then fades within a few years, while the stem
-! keeps its damage until new rings renew it.
+! keeps its damage until new rings renew it. With the leaf classes of the
+! two-leaf canopy (psi_leaf_cls and w_cls present) the leaf's cap is
+! lowered to their leaf-area-weighted mean relative conductance,
+!
+!   k_leaf = sum over c of w_c f_leaf(psi_leaf_c),
+!
+! with w_c the class's share of leaf area and f_leaf the leaf segment's
+! intact curve, so the sunlit and shaded leaves each lose conductance at
+! their own water potential. The stem is damaged by psi_stem as before.
 !
 ! k_cap is kept between kcrit and kmax. The stem's loss, 1 - k_cap / kmax,
 ! is stored for TRIFFID and, with l_trif_hydmort, for hydraulic
@@ -1358,6 +1366,8 @@ SUBROUTINE update_xylem_impairment_memory ( n_land_pts                         &
 ,                                           psi_root                           &
 ,                                           psi_stem                           &
 ,                                           kcap                               &
+,                                           psi_leaf_cls                       &
+,                                           w_cls                              &
                                           )
 
 USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
@@ -1407,8 +1417,20 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
                             ! Conductance cap, kmax_pft * (1 - PLC_mem)
                             ! (leaf basis).
 
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
+  psi_leaf_cls(n_land_pts,2)                                                   &
+                            ! Leaf water potential of the sunlit (1) and
+                            ! shaded (2) leaves of the two-leaf canopy (Pa)
+, w_cls(n_land_pts,2)
+                            ! Their shares of the leaf area (sum 1)
+
 ! Local variables
 INTEGER :: j, l, errcode
+LOGICAL :: l_cls
+                            ! The leaf classes are given.
+REAL(KIND=real_jlslsm) :: f_leaf
+                            ! Relative intact conductance of the leaf
+                            ! segment at this step's leaf water potential.
 REAL(KIND=real_jlslsm) :: rep_l
                             ! Queued ring share at one point.
 
@@ -1597,7 +1619,9 @@ END IF
 !-----------------------------------------------------------------------------
 IF (l_ximpair_seg_memory) THEN
   ! Per segment: the stem by psi_stem on the stem curve, the leaf by
-  ! psi_leaf on the leaf curve (the segments' intact Weibull curves).
+  ! psi_leaf on the leaf curve (the segments' intact Weibull curves), or
+  ! with the leaf classes by the weighted mean of their conductances.
+  l_cls = PRESENT(psi_leaf_cls) .AND. PRESENT(w_cls)
   DO j = 1, n_open_pts
     l = open_index(j)
     IF (l_nsc_sapwood_rings) THEN
@@ -1607,8 +1631,13 @@ IF (l_ximpair_seg_memory) THEN
     ELSE
       kcap(l) = MIN(kcap(l), kmax_pts(l) * seg_rel_k(pft, 2, psi_stem(l)))
     END IF
-    ximpair_kcap_leaf(l,pft) = MIN(ximpair_kcap_leaf(l,pft),                   &
-                                   seg_rel_k(pft, 3, psi_leaf(l)))
+    IF (l_cls) THEN
+      f_leaf = w_cls(l,1) * seg_rel_k(pft, 3, psi_leaf_cls(l,1))               &
+               + w_cls(l,2) * seg_rel_k(pft, 3, psi_leaf_cls(l,2))
+    ELSE
+      f_leaf = seg_rel_k(pft, 3, psi_leaf(l))
+    END IF
+    ximpair_kcap_leaf(l,pft) = MIN(ximpair_kcap_leaf(l,pft), f_leaf)
   END DO
   frac_crit = kcrit(pft) / MAX(kmax_pft(pft), TINY(1.0_real_jlslsm))
   ximpair_kcap_leaf(:,pft) = MAX(MIN(ximpair_kcap_leaf(:,pft), 1.0), frac_crit)
