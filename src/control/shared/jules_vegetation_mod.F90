@@ -1110,15 +1110,16 @@ LOGICAL ::                                                                     &
   l_nsc_pipe_target = .FALSE.,                                                 &
       ! Sapwood pool (l_nsc_sapwood_pool) with a pipe-model target: the
       ! target sapwood X_t is the pipe model on last ring year's peak LAI
-      ! (the balanced LAI until a ring year has ended) and the height
-      ! (nsc_la_sa, nsc_wood_density), at most TRIFFID's wood C_W, and
+      ! (the balanced LAI until a ring year has ended) and the height,
+      ! X_t = eta_sl h L_pk (TRIFFID's live stemwood; eta_sl from LA:SA,
+      ! form factor and wood density), at most TRIFFID's wood C_W, and
       ! heartwood forms at nsc_heartwood_rate times g = (X_s / X_t)^gamma
       ! (gamma = nsc_pipe_gamma; g at most 10; drought damage does not
       ! change g). The pool starts at the target and is at most C_W; the
       ! heartwood is the rest of the wood (nsc_heartwood, an output). With
       ! or without the ring cohorts. See triffid_nsc_mod.
       !
-      ! MDK, 01/11/26
+      ! MDK, 04/11/26
   l_nsc_k_sapwood = .FALSE.,                                                   &
       ! Pipe-model target (l_nsc_pipe_target) with the plant's conductance
       ! from its conducting sapwood area: kmax is scaled by
@@ -1135,15 +1136,14 @@ LOGICAL ::                                                                     &
       ! through its sapwood area, whatever the leaf area. The stem's
       ! conductance per unit ground area is kmax L_A, with L_A the leaf
       ! area the sapwood can supply under the pipe model,
-      !   L_A = X_s (SUM_i f_i c_i / c_ref) nsc_la_sa
-      !         / (h nsc_stem_form nsc_wood_density cmass),
+      !   L_A = X_s (SUM_i f_i c_i / c_ref) / (eta_sl h),
       ! so per unit leaf area it is kmax L_A / LAI, which can exceed kmax
       ! when leaves are shed (at most k_ground_ratio_max times, the bound
       ! of the ground basis as LAI -> 0). The root keeps its ground basis
       ! at the reference LAI. Output nsc_k_area_frac is then L_A / LAI.
       ! .FALSE.: the stem has kmax f_A per unit leaf area (f_A <= 1).
       !
-      ! MDK, 01/11/26
+      ! MDK, 04/11/26
   l_nsc_sapwood_canopy = .FALSE.,                                              &
       ! Pipe-model target (l_nsc_pipe_target) with the canopy limited by
       ! its functional sapwood: the phenological LAI is at most the leaf

@@ -11,14 +11,14 @@ USE um_types, ONLY: real_jlslsm
 IMPLICIT NONE
 
 PUBLIC calc_c_comps_triffid, lai_bal_from_ht, ht_from_lai_bal, ht_from_wood,  &
-       live_stemwood, sapwood_c
+       live_stemwood
 
-! The TRIFFID allometry in one place: balanced LAI and height, live
-! (respiring) stemwood, and the conducting sapwood of the store. Each
-! function keeps the arithmetic order of the expressions it stands for, so
-! the answers do not change to the bit.
+! The TRIFFID allometry in one place: balanced LAI and height, and the
+! live stemwood (the sapwood of the pipe model). Each function keeps the
+! arithmetic order of the expressions it stands for, so the answers do not
+! change to the bit.
 !
-! MDK, 20/10/26
+! MDK, 04/11/26
 
 !-----------------------------------------------------------------------------
 ! Description:
@@ -148,12 +148,23 @@ ht = wood / (a_ws(n) * eta_sl(n)) * (a_wl(n) / wood)**(1.0 / b_wl(n))
 END FUNCTION ht_from_wood
 
 !-----------------------------------------------------------------------------
-! Live (respiring) stemwood carbon (kg C m-2), eta_sl h LAI, the standard
-! JULES stem (1 / a_ws of the wood at the balanced LAI). Used for stem
-! nitrogen and respiration and for the conducting wood that xylem
-! recovery renews.
+! Live stemwood carbon (kg C m-2), the sapwood of the pipe model:
 !
-! MDK, 20/10/26
+!   stemc = eta_sl h LAI,
+!
+! with eta_sl (kg C m-2 per m of height per unit LAI) the sapwood carbon
+! per unit leaf area and height. In pipe-model terms
+!
+!   eta_sl = F rho cmass / LA:SA,
+!
+! with LA:SA the leaf area per sapwood area, F the stem form factor (volume
+! over basal area x height) and rho the wood density, so eta_sl can be set
+! from data; the wood at the balanced LAI is a_ws times this, and lai_bal
+! and the wood depend on the product a_ws eta_sl only. Used for stem
+! nitrogen and respiration, and as the sapwood the ring renewal and the
+! pipe-model target of the TRIFFID store use (triffid_nsc_mod).
+!
+! MDK, 04/11/26
 !-----------------------------------------------------------------------------
 ELEMENTAL FUNCTION live_stemwood(n, ht, lai) RESULT(stemc)
 
@@ -169,42 +180,5 @@ REAL(KIND=real_jlslsm) :: stemc                ! Live stemwood (kg C m-2).
 stemc = eta_sl(n) * ht * lai
 
 END FUNCTION live_stemwood
-
-!-----------------------------------------------------------------------------
-! Conducting sapwood carbon (kg C m-2), the xylem X of the TRIFFID store:
-! with nsc_la_sa > 0 the pipe model on the balanced leaf area (sapwood area
-! LAI_bal / nsc_la_sa times height, form factor, wood density and carbon
-! fraction), as in FATES,
-!
-!   X = LAI_bal / nsc_la_sa h nsc_stem_form nsc_wood_density cmass;
-!
-! otherwise the fraction nsc_sapwood_frac of the wood carbon (Trugman et
-! al. 2018, Table S2).
-!
-! MDK, 01/11/26
-!-----------------------------------------------------------------------------
-ELEMENTAL FUNCTION sapwood_c(n, ht, lai_bal, wood) RESULT(x_s)
-
-USE pftparm, ONLY: nsc_la_sa, nsc_sapwood_frac, nsc_wood_density,             &
-                   nsc_stem_form
-
-USE jules_surface_mod, ONLY: cmass
-
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: n                       ! PFT number.
-REAL(KIND=real_jlslsm), INTENT(IN) :: ht       ! Canopy height (m).
-REAL(KIND=real_jlslsm), INTENT(IN) :: lai_bal  ! Balanced LAI (m2 m-2).
-REAL(KIND=real_jlslsm), INTENT(IN) :: wood     ! Wood carbon (kg C m-2).
-REAL(KIND=real_jlslsm) :: x_s                  ! Sapwood carbon (kg C m-2).
-
-IF (nsc_la_sa(n) > 0.0) THEN
-  x_s = lai_bal / nsc_la_sa(n) * ht * nsc_stem_form(n)                        &
-        * nsc_wood_density(n) * cmass
-ELSE
-  x_s = nsc_sapwood_frac(n) * wood
-END IF
-
-END FUNCTION sapwood_c
 
 END MODULE calc_c_comps_triffid_mod

@@ -198,6 +198,14 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 !                    woody biomass to the leaf area index.
 ,eta_sl(:)                                                                     &
                  ! Live stemwood coefficient (kg C m-1 (m2 leaf)-1)
+                 ! The pipe model: live stemwood (sapwood) eta_sl h LAI,
+                 !  eta_sl = F rho cmass / LA:SA from the leaf area per
+                 !  sapwood area, stem form factor and wood density. It is
+                 !  also the sapwood of the TRIFFID store's ring renewal
+                 !  and pipe-model target. lai_bal and the wood depend on
+                 !  a_ws eta_sl only.
+                 !
+                 !  MDK, 04/11/26
 ,sigl(:)
                  ! Specific density of leaf carbon
 !                    (kg C/m2 leaf).
@@ -617,16 +625,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  near the pre-drought value.
 ,nsc_wmax_fac(:)                                                              &
                  ! W_max = nsc_wmax_fac * running-mean NPP (>= 0).
-,nsc_sapwood_frac(:)                                                           &
-                 ! Conducting xylem X renewed by the rings (stem recovery,
-                 !  l_ximpair_rec_nsc, with nsc_la_sa = 0), as a fraction
-                 !  of the wood carbon: X = nsc_sapwood_frac woodc
-                 !  (Trugman et al. Table S2, healthy sapwood cross-sectional
-                 !  area fraction SA = 0.6, applied to the stem biomass).
-                 !  1 / a_ws gives the JULES live (respiring) stemwood,
-                 !  eta_sl h LAI_bal.
-                 !
-                 !  MDK, 26/10/26
 ,nsc_g_starv(:)                                                               &
                  ! Carbon-starvation mortality (per 360 days, an area
                  !  disturbance added to g_area in lotka), at the full rate
@@ -653,22 +651,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  stand mortality curve starts from 0 there.
                  !
                  !  MDK, 21/10/26
-,nsc_la_sa(:)                                                                 &
-                 ! Leaf area per sapwood area (m2 m-2; the inverse Huber
-                 !  value). > 0: the conducting xylem the rings renew is
-                 !  from the pipe model on the balanced leaf area, as in
-                 !  FATES: X = LAI_bal / nsc_la_sa h nsc_wood_density cmass
-                 !  (sapwood area x height, area-preserving branching, no
-                 !  taper). 0: X = nsc_sapwood_frac woodc. With stem
-                 !  recovery (l_ximpair_rec_nsc) X is the denominator of the
-                 !  ring's share of the conductance (G dt / X), so it sets
-                 !  the stem's recovery time directly: nsc_la_sa (and
-                 !  nsc_wood_density) must then be measured values. X does
-                 !  not set kmax.
-                 !
-                 !  MDK, 26/10/26
-,nsc_wood_density(:)                                                         &
-                 ! Wood density (kg dry matter m-3) for the pipe-model xylem.
 ,nsc_psi_turg_full(:)                                                         &
 ,nsc_psi_turg_zero(:)                                                         &
                  ! Turgor-limited growth sink (MPa): the store releases
@@ -813,21 +795,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  X_s the sapwood. 0: heartwood at nsc_heartwood_rate
                  !  (the target then sets only the pool's start and the cap
                  !  at the wood). Default 1.
-                 !
-                 !  MDK, 01/11/26
-,nsc_stem_form(:)                                                              &
-                 ! Pipe model (nsc_la_sa > 0): the form factor of the wood,
-                 !  its volume over basal area x canopy height (-). It
-                 !  multiplies the sapwood carbon of the pipe model,
-                 !  X = LAI / nsc_la_sa h nsc_stem_form nsc_wood_density
-                 !  cmass, and the leaf area the sapwood supplies. 1 = a
-                 !  cylinder of the canopy height (default). JULES wood is
-                 !  one pool, so the volume is all the above-ground wood.
-                 !  FR-Pue: about 0.71-0.78, from the Rambal et al. (2004)
-                 !  allometries (above-ground woody dry mass 10.7 kg m-2 at
-                 !  basal area 30.5 m2 ha-1) over basal area x height
-                 !  (5.3-5.95 m) x wood density 830 kg m-3; an inference
-                 !  from the allometries, not a measured stem form.
                  !
                  !  MDK, 01/11/26
 ,nsc_ring_c_old(:)                                                             &
@@ -1245,13 +1212,10 @@ ALLOCATE( nsc_kc(npft))
 ALLOCATE( nsc_reserve_frac(npft))
 ALLOCATE( nsc_tau_load(npft))
 ALLOCATE( nsc_wmax_fac(npft))
-ALLOCATE( nsc_sapwood_frac(npft))
 ALLOCATE( nsc_g_starv(npft))
 ALLOCATE( hydmort_mu(npft))
 ALLOCATE( hydmort_width(npft))
 ALLOCATE( hydmort_plc_bg(npft))
-ALLOCATE( nsc_la_sa(npft))
-ALLOCATE( nsc_wood_density(npft))
 ALLOCATE( nsc_psi_turg_full(npft))
 ALLOCATE( nsc_psi_turg_zero(npft))
 ALLOCATE( nsc_t_grow_zero(npft))
@@ -1269,7 +1233,6 @@ ALLOCATE( nsc_sink_days(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_sink_beta_min(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_ring_cond_efold(npft))   ! MDK, 30/10/26
 ALLOCATE( nsc_pipe_gamma(npft))   ! MDK, 30/10/26
-ALLOCATE( nsc_stem_form(npft))   ! MDK, 01/11/26
 ALLOCATE( nsc_ring_c_old(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_ring_func_doy(npft))   ! MDK, 31/10/26
 ALLOCATE( phen_psi_tlp(npft))
@@ -1329,13 +1292,10 @@ nsc_kc(:) = 0.02
 nsc_reserve_frac(:) = 0.1
 nsc_tau_load(:) = 5.0
 nsc_wmax_fac(:) = 1.0
-nsc_sapwood_frac(:) = 0.6
 nsc_g_starv(:) = 0.0
 hydmort_mu(:) = 0.88
 hydmort_width(:) = 0.08
 hydmort_plc_bg(:) = 0.1
-nsc_la_sa(:) = 0.0
-nsc_wood_density(:) = 600.0
 nsc_psi_turg_full(:) = -1.0e30
 nsc_psi_turg_zero(:) = -1.0e30
 nsc_t_grow_zero(:) = -1.0e30
@@ -1353,7 +1313,6 @@ nsc_sink_days(:) = 240.0   ! MDK, 31/10/26
 nsc_sink_beta_min(:) = 0.8   ! MDK, 31/10/26
 nsc_ring_cond_efold(:) = -1.0e30   ! MDK, 30/10/26
 nsc_pipe_gamma(:) = 1.0   ! MDK, 30/10/26
-nsc_stem_form(:) = 1.0   ! MDK, 01/11/26
 nsc_ring_c_old(:) = 0.0   ! MDK, 31/10/26
 nsc_ring_func_doy(:) = -1.0e30   ! MDK, 31/10/26
 phen_psi_tlp(:) = -1.0e30
@@ -1692,8 +1651,6 @@ WRITE(lineBuffer,*)' nsc_tau_load = ',nsc_tau_load
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_wmax_fac = ',nsc_wmax_fac
 CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_sapwood_frac = ',nsc_sapwood_frac
-CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_g_starv = ',nsc_g_starv
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' hydmort_mu = ',hydmort_mu
@@ -1701,10 +1658,6 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' hydmort_width = ',hydmort_width
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' hydmort_plc_bg = ',hydmort_plc_bg
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_la_sa = ',nsc_la_sa
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_wood_density = ',nsc_wood_density
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_psi_turg_full = ',nsc_psi_turg_full
 CALL jules_print('pftparm',lineBuffer)
@@ -1739,8 +1692,6 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_ring_cond_efold = ',nsc_ring_cond_efold
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_pipe_gamma = ',nsc_pipe_gamma
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_stem_form = ',nsc_stem_form
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_ring_c_old = ',nsc_ring_c_old
 CALL jules_print('pftparm',lineBuffer)

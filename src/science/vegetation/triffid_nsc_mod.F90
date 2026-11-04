@@ -108,9 +108,9 @@ MODULE triffid_nsc_mod
 !   rho = nsc_xylem_cond_ratio G dt / X,    L -> MAX(L - rho, 0),
 !
 ! with dt the TRIFFID step (360-day years) and X the conducting sapwood
-! (kg C m-2). X is the sapwood pool (section 6) or, without it, sapwood_c:
-! nsc_sapwood_frac of the wood, or with nsc_la_sa > 0 the pipe model, in
-! which the sapwood area is proportional to the leaf area it supplies.
+! (kg C m-2). X is the sapwood pool (section 6) or, without it, TRIFFID's
+! live stemwood eta_sl h LAI_bal (section 8), the pipe model, in which the
+! sapwood area is proportional to the leaf area it supplies.
 ! No carbon is drawn from the store for the ring: the store
 ! sets its pace through W. The ring replaces damaged xylem first
 ! (l_nsc_ring_additive); with that off the ring dilutes the
@@ -187,17 +187,22 @@ MODULE triffid_nsc_mod
 ! leaf area it supplied, last ring year's peak LAI L_pk (the balanced LAI
 ! until the first ring year has ended), and on the canopy height h (m):
 !
-!   X_t = (L_pk / nsc_la_sa) h F nsc_wood_density cmass   (kg C m-2),
+!   X_t = eta_sl h L_pk   (kg C m-2),
 !
-! with nsc_la_sa the leaf area per unit sapwood area, F = nsc_stem_form
-! the form factor of the wood (its volume over basal area x height),
-! nsc_wood_density the wood density and cmass the carbon fraction of dry
-! mass (sapwood_c; or nsc_sapwood_frac C_W without nsc_la_sa). X_t is at
-! most the wood C_W. This cap guards against inputs that do not fit
-! together: a warning names the point and the form factor that would fit
-! the first time it binds, and nsc_xt_cap_count (an output) counts the
-! TRIFFID steps at which it bound. Heartwood forms at k_h scaled by how
-! far the sapwood is from its target:
+! TRIFFID's live stemwood (live_stemwood) on the peak LAI. eta_sl is the
+! sapwood carbon per unit leaf area and height,
+!
+!   eta_sl = F rho cmass / LA:SA,
+!
+! with LA:SA the leaf area per unit sapwood area, F the form factor of the
+! wood (its volume over basal area x height), rho the wood density and
+! cmass the carbon fraction of dry mass, so it is set from data (with a_ws
+! scaled to keep a_ws eta_sl, which TRIFFID's growth depends on). X_t is
+! at most the wood C_W, so a_ws should be at least 1. This cap guards
+! against inputs that do not fit together: a warning names the point and
+! the eta_sl that would fit the first time it binds, and nsc_xt_cap_count
+! (an output) counts the TRIFFID steps at which it bound. Heartwood forms
+! at k_h scaled by how far the sapwood is from its target:
 !
 !   dX_hw/dt = g k_h X_s,   g = MIN((X_s / X_t)^gamma, g_max),
 !
@@ -233,7 +238,7 @@ MODULE triffid_nsc_mod
 ! through its sapwood area, whatever the leaf area. The leaf area the
 ! sapwood can supply (nsc_lai_sapwood),
 !
-!   L_A = X_A nsc_la_sa / (h F nsc_wood_density cmass),
+!   L_A = X_A / (eta_sl h),
 !   X_A = X_s SUM_i f_i c_i / c_ref,
 !
 ! sets the stem's conductance per unit ground area, kmax L_A, so its
@@ -255,7 +260,7 @@ MODULE triffid_nsc_mod
 ! wood carbon from the prescribed canopy height. The release leaves the
 ! store, as there is no growth to feed, and there is no stem recovery.
 !
-! MDK, 01/11/26
+! MDK, 04/11/26
 !-----------------------------------------------------------------------------
 
 USE um_types, ONLY: real_jlslsm
@@ -1353,10 +1358,10 @@ END FUNCTION nsc_k_area
 ! Return the leaf area index the sapwood of PFT n at land point l can
 ! supply under the pipe model (l_nsc_k_sapwood_gain, l_nsc_sapwood_canopy),
 !
-!   L_A = X_A nsc_la_sa / (h F nsc_wood_density cmass),
+!   L_A = X_A / (eta_sl h),
 !
-! with h the canopy height (m), F = nsc_stem_form and X_A (kg C m-2) the
-! sapwood that counts:
+! the inverse of the pipe-model target (live_stemwood), with h the canopy
+! height (m) and X_A (kg C m-2) the sapwood that counts:
 !
 !   without the damage (l_dam false),  X_A = X_s SUM_i f_i c_i / c_ref,
 !   with it (l_dam true),               X_A = X_s SUM_i f_i c_i (1 - L_i)
@@ -1369,13 +1374,12 @@ END FUNCTION nsc_k_area
 ! sapwood, its target or the pipe model is not set (in spin-up and before
 ! the first ring step).
 !
-! MDK, 01/11/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 FUNCTION nsc_lai_sapwood( l, n, ht, l_dam ) RESULT( lai_s )
 
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
-USE pftparm, ONLY: nsc_la_sa, nsc_wood_density, nsc_stem_form
-USE jules_surface_mod, ONLY: cmass
+USE pftparm, ONLY: eta_sl
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_year,  &
                                        ximpair_ring_cweight, ximpair_ring_cref, &
                                        ximpair_ring_functional, ximpair_lock
@@ -1397,7 +1401,7 @@ lai_s = -1.0
 IF (.NOT. ALLOCATED(nsc_sapwood) .OR. .NOT. ALLOCATED(nsc_sapwood_target))     &
   RETURN
 IF (nsc_sapwood(l,n) < 0.0 .OR. nsc_sapwood_target(l,n) <= 0.0) RETURN
-IF (nsc_la_sa(n) <= 0.0 .OR. ht <= 0.0) RETURN
+IF (eta_sl(n) <= 0.0 .OR. ht <= 0.0) RETURN
 
 x_a = nsc_sapwood(l,n)
 IF (l_nsc_sapwood_rings .AND. ALLOCATED(ximpair_ring_frac)) THEN
@@ -1414,8 +1418,7 @@ ELSE IF (l_dam .AND. ALLOCATED(ximpair_lock)) THEN
   x_a = x_a * (1.0 - MIN(MAX(ximpair_lock(l,n), 0.0), 1.0))
 END IF
 
-lai_s = x_a * nsc_la_sa(n)                                                     &
-        / (ht * nsc_stem_form(n) * nsc_wood_density(n) * cmass)
+lai_s = x_a / (eta_sl(n) * ht)
 
 END FUNCTION nsc_lai_sapwood
 
@@ -1455,7 +1458,7 @@ END FUNCTION nsc_lai_sapwood
 !      with the pipe-model target this ring year's peak LAI becomes last
 !      year's.
 !
-! MDK, 01/11/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
                                      r_gamma, ht, lai_bal, lai, woodc, dwood,  &
@@ -1466,9 +1469,9 @@ USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_pool
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, l_nsc_pipe_target
 USE pftparm, ONLY: pft_xylem_impairment_model, nsc_xylem_cond_ratio
-USE pftparm, ONLY: nsc_pipe_gamma, nsc_stem_form
+USE pftparm, ONLY: nsc_pipe_gamma, eta_sl
 USE pftparm, ONLY: is_set, nsc_grow_end_doy, nsc_heartwood_rate
-USE calc_c_comps_triffid_mod, ONLY: sapwood_c
+USE calc_c_comps_triffid_mod, ONLY: live_stemwood
 USE model_time_mod, ONLY: is_spinup
 USE model_time_mod, ONLY: current_time
 USE datetime_utils_mod, ONLY: day_of_year, days_in_year
@@ -1601,14 +1604,15 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       !
       !   X_s = C_W g_t / (k_h + g_t),   g_t = wood_litc / C_W,
       !
-      ! or with the pipe-model target at the target. The allometry is the
-      ! pipe-model target X_t, at most the wood.
-      x_s = sapwood_c(n, ht(l,n), lai_ref, wood_old)
+      ! or with the pipe-model target at the target. TRIFFID's live
+      ! stemwood on lai_ref is the pipe-model target X_t, at most the wood.
+      x_s = live_stemwood(n, ht(l,n), lai_ref)
       x_t = x_s
       IF (l_nsc_pipe_target .AND. x_t > wood_old) THEN
-        ! The cap is a guard: the inputs (LA:SA, height, form factor,
-        ! density) give more sapwood than the wood. The first time, say
-        ! by how much and what form factor would fit; count every step.
+        ! The cap is a guard: eta_sl (from LA:SA, form factor and wood
+        ! density) and the height give more sapwood than the wood, so a_ws
+        ! is below 1. The first time, say by how much and what eta_sl
+        ! would fit; count every step.
         IF (.NOT. nsc_xt_warned(l,n))                                          &
           CALL log_warn(RoutineName,                                           &
                         "Pipe-model target capped at the wood carbon " //      &
@@ -1616,8 +1620,8 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
                         TRIM(to_string(l)) // ", PFT " //                      &
                         TRIM(to_string(n)) // ": X_t / C_W = " //              &
                         TRIM(to_string(x_t / MAX(wood_old, 1.0e-12))) //       &
-                        "; nsc_stem_form_io at most " //                       &
-                        TRIM(to_string(nsc_stem_form(n) * MAX(wood_old, 0.0)   &
+                        "; eta_sl_io at most " //                              &
+                        TRIM(to_string(eta_sl(n) * MAX(wood_old, 0.0)          &
                                        / x_t)) // " would fit.")
         nsc_xt_warned(l,n) = .TRUE.
         nsc_xt_cap_count(l,n) = nsc_xt_cap_count(l,n) + 1.0

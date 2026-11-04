@@ -305,13 +305,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_reserve_frac_io(npft_max) = rmdi,                                        &
   nsc_tau_load_io(npft_max) = rmdi,                                            &
   nsc_wmax_fac_io(npft_max) = rmdi,                                            &
-  nsc_sapwood_frac_io(npft_max) = rmdi,                                        &
   nsc_g_starv_io(npft_max) = rmdi,                                             &
   hydmort_mu_io(npft_max) = rmdi,                                              &
   hydmort_width_io(npft_max) = rmdi,                                           &
   hydmort_plc_bg_io(npft_max) = rmdi,                                          &
-  nsc_la_sa_io(npft_max) = rmdi,                                               &
-  nsc_wood_density_io(npft_max) = rmdi,                                        &
   nsc_psi_turg_full_io(npft_max) = rmdi,                                       &
   nsc_psi_turg_zero_io(npft_max) = rmdi,                                       &
   nsc_t_grow_zero_io(npft_max) = rmdi,                                         &
@@ -329,7 +326,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_sink_beta_min_io(npft_max) = rmdi,                                       &
   nsc_ring_cond_efold_io(npft_max) = rmdi,                                     &
   nsc_pipe_gamma_io(npft_max) = rmdi,                                          &
-  nsc_stem_form_io(npft_max) = rmdi,                                           &
   nsc_ring_c_old_io(npft_max) = rmdi,                                          &
   nsc_ring_func_doy_io(npft_max) = rmdi,                                       &
   phen_psi_tlp_io(npft_max) = rmdi,                                            &
@@ -410,10 +406,9 @@ NAMELIST  / jules_pftparm/                                                     &
   ximpair_reset_mmdd_io,             ximpair_leaf_sens_io,                     &
   ximpair_tau_leaf_io,                                                         &
   nsc_flush_io,    nsc_kc_io,        nsc_reserve_frac_io,                      &
-  nsc_tau_load_io, nsc_wmax_fac_io,  nsc_sapwood_frac_io,                      &
+  nsc_tau_load_io, nsc_wmax_fac_io,                                            &
   nsc_g_starv_io,                                                              &
   hydmort_mu_io, hydmort_width_io, hydmort_plc_bg_io,                          &
-  nsc_la_sa_io, nsc_wood_density_io,                                           &
   nsc_psi_turg_full_io, nsc_psi_turg_zero_io, nsc_t_grow_zero_io,              &
   nsc_t_grow_full_io, nsc_overflow_resp_io,                                    &
   nsc_grow_start_doy_io, nsc_grow_end_doy_io, nsc_flush_start_doy_io,         &
@@ -422,7 +417,7 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_xylem_cond_ratio_io,                                                     &
   nsc_heartwood_rate_io, nsc_grow_thresh_io,                                   &
   nsc_sink_days_io, nsc_sink_beta_min_io,                                      &
-  nsc_ring_cond_efold_io, nsc_pipe_gamma_io, nsc_stem_form_io,                 &
+  nsc_ring_cond_efold_io, nsc_pipe_gamma_io,                                   &
   nsc_ring_c_old_io, nsc_ring_func_doy_io,                                     &
   phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io,                         &
   phen_bb_doy_io, phen_bb_gdd_io, phen_bb_tbase_io, phen_bb_min_days_io
@@ -469,14 +464,14 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 184 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 180 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
                                              ! hydmort; count the REAL
                                              ! declarations of the type)
                                              !
-                                             ! MDK, 30/10/26
+                                             ! MDK, 04/11/26
 
 TYPE :: my_namelist
   SEQUENCE
@@ -637,13 +632,10 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_reserve_frac_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_tau_load_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_wmax_fac_io(npft_max)
-  REAL(KIND=real_jlslsm) :: nsc_sapwood_frac_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_g_starv_io(npft_max)
   REAL(KIND=real_jlslsm) :: hydmort_mu_io(npft_max)
   REAL(KIND=real_jlslsm) :: hydmort_width_io(npft_max)
   REAL(KIND=real_jlslsm) :: hydmort_plc_bg_io(npft_max)
-  REAL(KIND=real_jlslsm) :: nsc_la_sa_io(npft_max)
-  REAL(KIND=real_jlslsm) :: nsc_wood_density_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_psi_turg_full_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_psi_turg_zero_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_t_grow_zero_io(npft_max)
@@ -661,7 +653,6 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_sink_beta_min_io(npft_max)   ! MDK, 31/10/26
   REAL(KIND=real_jlslsm) :: nsc_ring_cond_efold_io(npft_max)   ! MDK, 30/10/26
   REAL(KIND=real_jlslsm) :: nsc_pipe_gamma_io(npft_max)   ! MDK, 30/10/26
-  REAL(KIND=real_jlslsm) :: nsc_stem_form_io(npft_max)   ! MDK, 01/11/26
   REAL(KIND=real_jlslsm) :: nsc_ring_c_old_io(npft_max)   ! MDK, 31/10/26
   REAL(KIND=real_jlslsm) :: nsc_ring_func_doy_io(npft_max)   ! MDK, 31/10/26
   REAL(KIND=real_jlslsm) :: phen_psi_tlp_io(npft_max)
@@ -847,13 +838,10 @@ IF (mype == 0) THEN
   my_nml % nsc_reserve_frac_io = nsc_reserve_frac_io
   my_nml % nsc_tau_load_io = nsc_tau_load_io
   my_nml % nsc_wmax_fac_io = nsc_wmax_fac_io
-  my_nml % nsc_sapwood_frac_io = nsc_sapwood_frac_io
   my_nml % nsc_g_starv_io = nsc_g_starv_io
   my_nml % hydmort_mu_io = hydmort_mu_io
   my_nml % hydmort_width_io = hydmort_width_io
   my_nml % hydmort_plc_bg_io = hydmort_plc_bg_io
-  my_nml % nsc_la_sa_io = nsc_la_sa_io
-  my_nml % nsc_wood_density_io = nsc_wood_density_io
   my_nml % nsc_psi_turg_full_io = nsc_psi_turg_full_io
   my_nml % nsc_psi_turg_zero_io = nsc_psi_turg_zero_io
   my_nml % nsc_t_grow_zero_io = nsc_t_grow_zero_io
@@ -871,7 +859,6 @@ IF (mype == 0) THEN
   my_nml % nsc_sink_beta_min_io = nsc_sink_beta_min_io   ! MDK, 31/10/26
   my_nml % nsc_ring_cond_efold_io = nsc_ring_cond_efold_io   ! MDK, 30/10/26
   my_nml % nsc_pipe_gamma_io = nsc_pipe_gamma_io   ! MDK, 30/10/26
-  my_nml % nsc_stem_form_io = nsc_stem_form_io   ! MDK, 01/11/26
   my_nml % nsc_ring_c_old_io = nsc_ring_c_old_io   ! MDK, 31/10/26
   my_nml % nsc_ring_func_doy_io = nsc_ring_func_doy_io   ! MDK, 31/10/26
   my_nml % phen_psi_tlp_io = phen_psi_tlp_io
@@ -1045,13 +1032,10 @@ IF (mype /= 0) THEN
   nsc_reserve_frac_io = my_nml % nsc_reserve_frac_io
   nsc_tau_load_io = my_nml % nsc_tau_load_io
   nsc_wmax_fac_io = my_nml % nsc_wmax_fac_io
-  nsc_sapwood_frac_io = my_nml % nsc_sapwood_frac_io
   nsc_g_starv_io = my_nml % nsc_g_starv_io
   hydmort_mu_io = my_nml % hydmort_mu_io
   hydmort_width_io = my_nml % hydmort_width_io
   hydmort_plc_bg_io = my_nml % hydmort_plc_bg_io
-  nsc_la_sa_io = my_nml % nsc_la_sa_io
-  nsc_wood_density_io = my_nml % nsc_wood_density_io
   nsc_psi_turg_full_io = my_nml % nsc_psi_turg_full_io
   nsc_psi_turg_zero_io = my_nml % nsc_psi_turg_zero_io
   nsc_t_grow_zero_io = my_nml % nsc_t_grow_zero_io
@@ -1069,7 +1053,6 @@ IF (mype /= 0) THEN
   nsc_sink_beta_min_io = my_nml % nsc_sink_beta_min_io   ! MDK, 31/10/26
   nsc_ring_cond_efold_io = my_nml % nsc_ring_cond_efold_io   ! MDK, 30/10/26
   nsc_pipe_gamma_io = my_nml % nsc_pipe_gamma_io   ! MDK, 30/10/26
-  nsc_stem_form_io = my_nml % nsc_stem_form_io   ! MDK, 01/11/26
   nsc_ring_c_old_io = my_nml % nsc_ring_c_old_io   ! MDK, 31/10/26
   nsc_ring_func_doy_io = my_nml % nsc_ring_func_doy_io   ! MDK, 31/10/26
   phen_psi_tlp_io = my_nml % phen_psi_tlp_io
@@ -1161,10 +1144,9 @@ USE pftparm, ONLY:                                                             &
   ximpair_psi_driver,                ximpair_reset_mmdd,                       &
   ximpair_leaf_sens,                 ximpair_tau_leaf,                         &
   nsc_flush,       nsc_kc,           nsc_reserve_frac,                         &
-  nsc_tau_load,    nsc_wmax_fac,     nsc_sapwood_frac,                         &
+  nsc_tau_load,    nsc_wmax_fac,                                              &
   nsc_g_starv,                                                                 &
   hydmort_mu,      hydmort_width,    hydmort_plc_bg,                         &
-  nsc_la_sa,       nsc_wood_density,                                          &
   nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero, nsc_t_grow_full,      &
   nsc_overflow_resp,                                                           &
   nsc_grow_start_doy, nsc_grow_end_doy, nsc_flush_start_doy, nsc_flush_days,  &
@@ -1172,7 +1154,7 @@ USE pftparm, ONLY:                                                             &
   nsc_xylem_cond_ratio,                                                       &
   nsc_heartwood_rate, nsc_grow_thresh, nsc_ring_cond_efold,                   &
   nsc_sink_days, nsc_sink_beta_min,                                            &
-  nsc_pipe_gamma, nsc_ring_c_old, nsc_ring_func_doy, nsc_stem_form,            &
+  nsc_pipe_gamma, nsc_ring_c_old, nsc_ring_func_doy,                           &
   phen_bb_doy, phen_bb_gdd, phen_bb_tbase, phen_bb_min_days
 
 
@@ -1530,8 +1512,6 @@ DO i = 1, npft
     nsc_tau_load(i) = nsc_tau_load_io(i)
   IF (ABS(nsc_wmax_fac_io(i) - rmdi) > EPSILON(1.0))                           &
     nsc_wmax_fac(i) = nsc_wmax_fac_io(i)
-  IF (ABS(nsc_sapwood_frac_io(i) - rmdi) > EPSILON(1.0))                       &
-    nsc_sapwood_frac(i) = nsc_sapwood_frac_io(i)
   IF (ABS(nsc_g_starv_io(i) - rmdi) > EPSILON(1.0))                            &
     nsc_g_starv(i) = nsc_g_starv_io(i)
   IF (ABS(hydmort_mu_io(i) - rmdi) > EPSILON(1.0))                             &
@@ -1540,10 +1520,6 @@ DO i = 1, npft
     hydmort_width(i) = hydmort_width_io(i)
   IF (ABS(hydmort_plc_bg_io(i) - rmdi) > EPSILON(1.0))                         &
     hydmort_plc_bg(i) = hydmort_plc_bg_io(i)
-  IF (ABS(nsc_la_sa_io(i) - rmdi) > EPSILON(1.0))                              &
-    nsc_la_sa(i) = nsc_la_sa_io(i)
-  IF (ABS(nsc_wood_density_io(i) - rmdi) > EPSILON(1.0))                       &
-    nsc_wood_density(i) = nsc_wood_density_io(i)
   IF (ABS(nsc_psi_turg_full_io(i) - rmdi) > EPSILON(1.0))                      &
     nsc_psi_turg_full(i) = nsc_psi_turg_full_io(i)
   IF (ABS(nsc_psi_turg_zero_io(i) - rmdi) > EPSILON(1.0))                      &
@@ -1583,8 +1559,6 @@ DO i = 1, npft
     nsc_ring_cond_efold(i) = nsc_ring_cond_efold_io(i)
   IF (ABS(nsc_pipe_gamma_io(i) - rmdi) > EPSILON(1.0))                         &
     nsc_pipe_gamma(i) = nsc_pipe_gamma_io(i)
-  IF (ABS(nsc_stem_form_io(i) - rmdi) > EPSILON(1.0))                          &
-    nsc_stem_form(i) = nsc_stem_form_io(i)
   IF (ABS(nsc_ring_c_old_io(i) - rmdi) > EPSILON(1.0))                         &
     nsc_ring_c_old(i) = nsc_ring_c_old_io(i)
   IF (ABS(nsc_ring_func_doy_io(i) - rmdi) > EPSILON(1.0))                      &
@@ -1624,22 +1598,17 @@ END IF
 
 ! TRIFFID store (l_triffid_nsc): parameter ranges and switch consistency.
 !
-! MDK, 17/10/26
+! MDK, 04/11/26
 IF ( l_triffid_nsc ) THEN
   IF ( ANY(nsc_flush(:) <= 0.0) .OR. ANY(nsc_kc(:) <= 0.0) .OR.               &
        ANY(nsc_reserve_frac(:) < 0.0) .OR. ANY(nsc_reserve_frac(:) >= 1.0) .OR. &
        ANY(nsc_tau_load(:) <= 0.0) .OR. ANY(nsc_wmax_fac(:) < 0.0) .OR.       &
-       ANY(nsc_sapwood_frac(:) <= 0.0) .OR. ANY(nsc_sapwood_frac(:) > 1.0) .OR. &
-       ANY(nsc_g_starv(:) < 0.0) .OR. ANY(nsc_cmax(:) < 0.0) .OR.             &
-       ANY(nsc_la_sa(:) < 0.0) .OR. ANY(nsc_wood_density(:) <= 0.0) ) THEN
+       ANY(nsc_g_starv(:) < 0.0) .OR. ANY(nsc_cmax(:) < 0.0) ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'l_triffid_nsc needs nsc_flush_io, nsc_kc_io, '            // &
                  'nsc_tau_load_io > 0, 0 <= nsc_reserve_frac_io < 1, '      // &
-                 '0 < nsc_sapwood_frac_io <= 1 and nsc_wmax_fac_io, '       // &
-                 'nsc_g_starv_io, '                                        // &
-                 'nsc_cmax_io >= 0, '                                      // &
-                 'nsc_la_sa_io >= 0 and nsc_wood_density_io > 0.')
+                 'nsc_wmax_fac_io, nsc_g_starv_io and nsc_cmax_io >= 0.')
   END IF
   IF ( ANY(nsc_g_starv(:) > 0.0) .AND. .NOT. l_veg_compete ) THEN
     errcode = -101
@@ -1761,14 +1730,6 @@ IF ( ANY(nsc_pipe_gamma(1:npft) < 0.0) ) THEN
   errcode = 101
   CALL ereport(RoutineName, errcode,                                           &
                'nsc_pipe_gamma_io must be >= 0.')
-END IF
-! The stem form factor of the pipe model is > 0.
-!
-! MDK, 01/11/26
-IF ( ANY(nsc_stem_form(1:npft) <= 0.0) ) THEN
-  errcode = 101
-  CALL ereport(RoutineName, errcode,                                           &
-               'nsc_stem_form_io must be > 0.')
 END IF
 ! Ring cohorts by age and season: the old rings' conductivity is 0-1 and
 ! the ring-porous day of year 1-366 if set.
