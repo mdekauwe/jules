@@ -39,6 +39,7 @@ PUBLIC :: set_ksr_path                                                         &
 ,         k_path_zero_flow                                                     &
 ,         psi_leaf_segments_jls                                                &
 ,         psi_leaf_segments_lut_jls                                            &
+,         lut_seg_step                                                         &
 ,         kcrit_of_path
 
 ! Soil-to-root (rhizosphere) conductance Ksr for l_som_rhizo_series, a
@@ -1159,7 +1160,8 @@ END SUBROUTINE psi_leaf_segments_jls
 ! transpiration, and the leaf carries E (plus E_o when the whole-plant
 ! path is solved). E_r < 0, the store giving more than E, is a flow back
 ! towards the soil: it is found upwards in the table (seg_lut_psi_back)
-! and stops at psi = 0, as in the Newton solver.
+! and stops at psi = 0, as in the Newton solver. Each segment's step is
+! lut_seg_step.
 !
 ! MDK, 04/11/26
 ! *****************************************************************************
@@ -1205,14 +1207,12 @@ REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
 INTEGER :: i, j, l, iseg
 LOGICAL :: l_cap, l_impair
 REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de,  &
-                          k_s, fr, psi_cap, e_cap, e_pos, dpsi_de_int
-      ! fr, psi_cap: the segment's cap fraction and where the intact curve
-      ! meets it; e_cap the flow the capped part above psi_cap carries;
-      ! e_pos the flow (>= 0); dpsi_de_int d(psi)/dE on the intact segments.
+                          k_s, fr, dpsi_de_int
+      ! fr: the segment's cap fraction; dpsi_de_int d(psi)/dE on the intact
+      ! segments.
 ! The flow of the soil link, root and stem (E_r) and of the current
-! segment; with a flow back, the flow per unit kmax from psi_in up to psi_cap
-! (< 0) and the flow per unit kmax.
-REAL(KIND=real_jlslsm) :: e_r, e_s, x_cap, x_s
+! segment.
+REAL(KIND=real_jlslsm) :: e_r, e_s
 ! The segment's intact conductance at its inlet and outlet (mol m-2 s-1
 ! Pa-1).
 REAL(KIND=real_jlslsm) :: k_in_int, k_out_int
@@ -1282,49 +1282,8 @@ DO j = 1, open_pnts
         l_cap = fr < 1.0 - 1.0e-6
       END IF
 
-      IF ( l_cap .AND. l_store_q_path .AND. e_s < 0.0 ) THEN
-        ! A flow back towards the soil on a capped segment: up the intact
-        ! curve to psi_cap, then up the straight capped part, to at most
-        ! psi = 0.
-        psi_cap = bs * (-LOG(fr))**(1.0 / cs)
-        x_s = e_s / MAX(kmx, TINY(1.0_real_jlslsm))
-        IF ( psi_in >= psi_cap ) THEN
-          psi_out = psi_in - e_s / MAX(fr * kmx, TINY(1.0_real_jlslsm))
-        ELSE
-          x_cap = seg_lut_s(pft, iseg, psi_cap) - seg_lut_s(pft, iseg, psi_in)
-          IF ( x_s >= x_cap ) THEN
-            psi_out = seg_lut_psi_back(pft, iseg, psi_in, x_s)
-          ELSE
-            psi_out = psi_cap - (x_s - x_cap) / fr
-          END IF
-        END IF
-        psi_out = MIN(psi_out, 0.0_real_jlslsm)
-      ELSE IF ( l_store_q_path .AND. e_s < 0.0 ) THEN
-        ! A flow back on an intact segment (as above).
-        psi_out = seg_lut_psi_back(pft, iseg, psi_in,                          &
-                                   e_s / MAX(kmx, TINY(1.0_real_jlslsm)))
-      ELSE IF ( l_cap ) THEN
-        ! Exact inversion of the capped integral (see above): the straight
-        ! capped part down to psi_cap, then the intact table from psi_cap.
-        psi_cap = bs * (-LOG(fr))**(1.0 / cs)
-        e_pos   = MAX(e_s, 0.0)
-        IF ( psi_in > psi_cap ) THEN
-          e_cap = fr * kmx * (psi_in - psi_cap)
-          IF ( e_pos <= e_cap ) THEN
-            psi_out = psi_in - e_pos / MAX(fr * kmx, TINY(1.0_real_jlslsm))
-          ELSE
-            psi_out = seg_lut_psi(pft, iseg, psi_cap,                          &
-                                  (e_pos - e_cap)                              &
-                                  / MAX(kmx, TINY(1.0_real_jlslsm)))
-          END IF
-        ELSE
-          psi_out = seg_lut_psi(pft, iseg, psi_in,                             &
-                                e_pos / MAX(kmx, TINY(1.0_real_jlslsm)))
-        END IF
-      ELSE
-        psi_out = seg_lut_psi(pft, iseg, psi_in,                               &
-                              e_s / MAX(kmx, TINY(1.0_real_jlslsm)))
-      END IF
+      psi_out = lut_seg_step( pft, iseg, psi_in, e_s, kmx, fr, l_cap,          &
+                              l_store_q_path )
 
       ! The segment's intact conductance at its two ends, worked out once
       ! for the search's chain (capped at fr kmax on a capped segment) and
@@ -1374,6 +1333,101 @@ END DO
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE psi_leaf_segments_lut_jls
+
+! *****************************************************************************
+! Return the water potential at the leaf-side end of one segment (Pa) of
+! the lookup-table chain, given the water potential psi_in at its
+! root-side end and the flow e_s it carries (the units of kmx * psi).
+! Segment iseg (1 root, 2 stem, 3 leaf) of PFT pft has maximum conductance
+! kmx and its own supply table, so
+!
+!   S_s(psi_out) = S_s(psi_in) + e_s / kmx
+!
+! With l_cap the segment is capped at fr kmx (the memory model of xylem
+! impairment), and the capped integral is inverted exactly, as described
+! for psi_leaf_segments_lut_jls: the straight capped part down to psi_cap,
+! where the intact curve meets the cap, then the intact table from psi_cap.
+! With l_back (the plant capacitance store applies) a flow e_s < 0 runs
+! back towards the soil: it is found upwards in the table and stops at
+! psi = 0. psi_leaf_segments_lut_jls uses it for each segment of its
+! chain, and sf_stom for the leaf segment of each two-leaf class.
+! build_supply_lut_seg(pft) must have been called.
+!
+! MDK, 04/11/26
+! *****************************************************************************
+FUNCTION lut_seg_step( pft, iseg, psi_in, e_s, kmx, fr, l_cap, l_back )        &
+         RESULT( psi_out )
+
+USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
+
+IMPLICIT NONE
+
+! Plant functional type and segment.
+INTEGER, INTENT(IN) :: pft, iseg
+! Water potential at the root-side end (Pa), the flow and the segment's
+! maximum conductance (intact) and cap fraction.
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_in, e_s, kmx, fr
+! .TRUE.: the segment is capped at fr kmx.
+LOGICAL, INTENT(IN) :: l_cap
+! .TRUE.: a flow e_s < 0 runs back towards the soil.
+LOGICAL, INTENT(IN) :: l_back
+! Water potential at the leaf-side end (Pa).
+REAL(KIND=real_jlslsm) :: psi_out
+
+REAL(KIND=real_jlslsm) :: bs, cs
+! Where the intact curve meets the cap (Pa), the flow the capped part
+! above it carries, and the flow (>= 0).
+REAL(KIND=real_jlslsm) :: psi_cap, e_cap, e_pos
+! With a flow back, the flow per unit kmax from psi_in up to psi_cap (< 0)
+! and the flow per unit kmax.
+REAL(KIND=real_jlslsm) :: x_cap, x_s
+
+bs = conductance_b_seg(pft,iseg)
+cs = conductance_c_seg(pft,iseg)
+
+IF ( l_cap .AND. l_back .AND. e_s < 0.0 ) THEN
+  ! A flow back towards the soil on a capped segment: up the intact curve
+  ! to psi_cap, then up the straight capped part, to at most psi = 0.
+  psi_cap = bs * (-LOG(fr))**(1.0 / cs)
+  x_s = e_s / MAX(kmx, TINY(1.0_real_jlslsm))
+  IF ( psi_in >= psi_cap ) THEN
+    psi_out = psi_in - e_s / MAX(fr * kmx, TINY(1.0_real_jlslsm))
+  ELSE
+    x_cap = seg_lut_s(pft, iseg, psi_cap) - seg_lut_s(pft, iseg, psi_in)
+    IF ( x_s >= x_cap ) THEN
+      psi_out = seg_lut_psi_back(pft, iseg, psi_in, x_s)
+    ELSE
+      psi_out = psi_cap - (x_s - x_cap) / fr
+    END IF
+  END IF
+  psi_out = MIN(psi_out, 0.0_real_jlslsm)
+ELSE IF ( l_back .AND. e_s < 0.0 ) THEN
+  ! A flow back on an intact segment (as above).
+  psi_out = seg_lut_psi_back(pft, iseg, psi_in,                                &
+                             e_s / MAX(kmx, TINY(1.0_real_jlslsm)))
+ELSE IF ( l_cap ) THEN
+  ! Exact inversion of the capped integral: the straight capped part down
+  ! to psi_cap, then the intact table from psi_cap.
+  psi_cap = bs * (-LOG(fr))**(1.0 / cs)
+  e_pos   = MAX(e_s, 0.0)
+  IF ( psi_in > psi_cap ) THEN
+    e_cap = fr * kmx * (psi_in - psi_cap)
+    IF ( e_pos <= e_cap ) THEN
+      psi_out = psi_in - e_pos / MAX(fr * kmx, TINY(1.0_real_jlslsm))
+    ELSE
+      psi_out = seg_lut_psi(pft, iseg, psi_cap,                                &
+                            (e_pos - e_cap) / MAX(kmx, TINY(1.0_real_jlslsm)))
+    END IF
+  ELSE
+    psi_out = seg_lut_psi(pft, iseg, psi_in,                                   &
+                          e_pos / MAX(kmx, TINY(1.0_real_jlslsm)))
+  END IF
+ELSE
+  psi_out = seg_lut_psi(pft, iseg, psi_in,                                     &
+                        e_s / MAX(kmx, TINY(1.0_real_jlslsm)))
+END IF
+
+END FUNCTION lut_seg_step
 
 ! *****************************************************************************
 ! Return the critical conductance of a leaf path (mol m-2 s-1 Pa-1, the
