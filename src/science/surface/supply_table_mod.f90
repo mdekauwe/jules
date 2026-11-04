@@ -551,10 +551,14 @@ END FUNCTION table_psi
 !
 !   S(p1) = S(p0) + dpsi / 6 (f(p0) + 4 f(pm) + f(p1))
 !
-! with dpsi the grid spacing (Pa) and pm the cell's midpoint. f > 0, so S
-! rises at every step as psi falls, which the search in table_psi needs.
+! with dpsi the grid spacing (Pa) and pm the cell's midpoint. The sum and
+! f are worked out in double precision and each S rounded once to the
+! table's precision, so the error does not build up along the table. f > 0,
+! so S never falls as psi falls, which the search in table_psi needs (deep
+! in the tail, where a cell adds less than S's last digit, neighbouring
+! entries can be equal).
 !
-! MDK, 23/10/26
+! MDK, 04/11/26
 ! *****************************************************************************
 SUBROUTINE table_build( tab, b, c, l_sox, f_floor, f_need )
 
@@ -562,33 +566,40 @@ TYPE(supply_table), INTENT(IN OUT) :: tab
 REAL(KIND=real_jlslsm), INTENT(IN) :: b, c, f_floor, f_need
 LOGICAL, INTENT(IN) :: l_sox
 
+! Kind of the double-precision sum.
+INTEGER, PARAMETER :: r8 = SELECTED_REAL_KIND(15, 307)
+
 INTEGER :: i, n
-REAL(KIND=real_jlslsm) :: dpsi, p0, pm, p1
+REAL(KIND=real_jlslsm) :: dpsi
+REAL(KIND=r8) :: dpsi8, p0, pm, p1, s_sum
 
 CALL lut_grid( b, c, l_sox, f_floor, f_need, dpsi, n )
 tab%dpsi = dpsi
 tab%n = n
 ALLOCATE( tab%s(n) )
 tab%s(1) = 0.0
+dpsi8 = REAL(dpsi, r8)
+s_sum = 0.0_r8
 DO i = 2, n
-  p0 = -(i - 2) * dpsi
-  p1 = -(i - 1) * dpsi
-  pm = 0.5 * (p0 + p1)
-  tab%s(i) = tab%s(i-1) + dpsi / 6.0 * ( f_of(p0) + 4.0 * f_of(pm) + f_of(p1) )
+  p0 = -REAL(i - 2, r8) * dpsi8
+  p1 = -REAL(i - 1, r8) * dpsi8
+  pm = 0.5_r8 * (p0 + p1)
+  s_sum = s_sum + dpsi8 / 6.0_r8 * ( f_of(p0) + 4.0_r8 * f_of(pm) + f_of(p1) )
+  tab%s(i) = REAL(s_sum, real_jlslsm)
 END DO
 
 CONTAINS
 
   ! Return the fraction of the maximum conductance left at water potential
   ! p (Pa), f = k / kmax, on the curve being tabulated (as supply_lut_f),
-  ! for the integration that fills the table.
-  REAL(KIND=real_jlslsm) FUNCTION f_of(p)
+  ! for the integration that fills the table, in double precision.
+  REAL(KIND=r8) FUNCTION f_of(p)
   ! Water potential (Pa, <= 0).
-  REAL(KIND=real_jlslsm), INTENT(IN) :: p
+  REAL(KIND=r8), INTENT(IN) :: p
   IF ( l_sox ) THEN
-    f_of = 1.0 / (1.0 + (ABS(p / b))**c)
+    f_of = 1.0_r8 / (1.0_r8 + (ABS(p / REAL(b, r8)))**REAL(c, r8))
   ELSE
-    f_of = EXP(-(ABS(p / b))**c)
+    f_of = EXP(-(ABS(p / REAL(b, r8)))**REAL(c, r8))
   END IF
   END FUNCTION f_of
 
