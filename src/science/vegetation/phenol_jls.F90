@@ -35,7 +35,7 @@ USE jules_vegetation_mod, ONLY: l_nitrogen, l_ximpair_leaf_loss,               &
 USE triffid_nsc_mod, ONLY: phen_fbleaf, nsc_pft, nsc_regrow_acc
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_lai_sapwood,                &
                            nsc_lai_sap_cap
-USE jules_vegetation_mod, ONLY: l_nsc_sapwood_canopy
+USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman
 USE model_time_mod, ONLY: is_spinup
                            ! MDK, 01/11/26
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
@@ -124,7 +124,7 @@ REAL(KIND=real_jlslsm) :: doy
     ! Day of the year.
 
 REAL(KIND=real_jlslsm) :: lai_cap
-    ! Largest LAI the functional sapwood can supply (l_nsc_sapwood_canopy;
+    ! Largest LAI the functional sapwood can supply (Trugman response;
     ! < 0 = no cap).
     !
     ! MDK, 01/11/26
@@ -197,14 +197,15 @@ IF (l_phen_psi .AND. is_set(phen_psi_tlp(n)) .AND.                             &
   END DO
 END IF
 
-! Canopy limited by the sapwood (l_nsc_sapwood_canopy): the canopy is also
-! capped at the leaf area its functional sapwood can supply under the pipe
-! model (nsc_lai_sapwood, with the drought damage), so leaves above it are
-! shed as below and regrow as the sapwood recovers. No cap in spin-up or
-! before the sapwood is set.
+! Canopy limited by the sapwood (the Trugman response to damage,
+! nsc_damage_response = 1): the canopy is also capped at the leaf area its
+! functional sapwood can supply under the pipe model (nsc_lai_sapwood,
+! with the drought damage), so leaves above it are shed as below and
+! regrow as the sapwood recovers. No cap in spin-up or before the sapwood
+! is set.
 !
-! MDK, 01/11/26
-IF (l_nsc_sapwood_canopy) THEN
+! MDK, 04/11/26
+IF (nsc_damage_response == nsc_damage_trugman) THEN
   CALL triffid_nsc_alloc( land_pts )
   DO j = 1,veg_pts
     l = veg_index(j)

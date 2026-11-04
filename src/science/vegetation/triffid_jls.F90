@@ -844,7 +844,7 @@ END DO  !  PFTs
 ! impairment model. No carbon moves (before the height update: the
 ! sapwood is the one the store saw). The current LAI is passed for the
 ! pipe-model target's peak LAI, and the spreading carbon for the xylem
-! repair (l_nsc_xylem_repair).
+! repair of the Trugman response (nsc_damage_response).
 !
 ! MDK, 04/11/26
 !-----------------------------------------------------------------------------

@@ -181,21 +181,15 @@ MODULE triffid_nsc_mod
 ! EXP(-g_t m), as many rings as hold G / (k_h + g_t) of new wood, and the
 ! youngest ring holds the part of this year's ring grown so far.
 !
-! With l_nsc_xylem_repair (fixed cover), a damaged tree puts its carbon
-! into xylem first, as in the optimal allocation of Trugman et al. (2018).
-! The carbon TRIFFID would spend on spreading, which goes to litter when
-! the cover is fixed, replaces damaged sapwood: at each TRIFFID step up to
-! that carbon, and at most the damaged sapwood SUM_i X_i L_i, joins the
-! youngest ring intact, and the same mass of damaged wood leaves the rings
-! in proportion to their damaged carbon. The sapwood and TRIFFID's wood
-! carbon do not change, and the litter flux is as without the switch
-! (output nsc_xylem_repair).
-!
 ! 8. Pipe-model target (l_nsc_pipe_target, with the sapwood pool)
 !
 ! The conducting sapwood has a target size from the pipe model, on the
 ! leaf area it supplied, last ring year's peak LAI L_pk (the balanced LAI
-! until the first ring year has ended), and on the canopy height h (m):
+! until the first ring year has ended), and on the canopy height h (m).
+! With the pipe heartwood rule or the Trugman response (section 10), L_pk
+! is the peak of the leaf area the climate allows, the balanced LAI less
+! drought leaf shedding (l_phen_psi), so leaves shed for damage do not
+! lower the target:
 !
 !   X_t = eta_sl h L_pk   (kg C m-2),
 !
@@ -211,16 +205,21 @@ MODULE triffid_nsc_mod
 ! at most the wood C_W, so a_ws should be at least 1. This cap guards
 ! against inputs that do not fit together: a warning names the point and
 ! the eta_sl that would fit the first time it binds, and nsc_xt_cap_count
-! (an output) counts the TRIFFID steps at which it bound. Heartwood forms
-! at k_h scaled by how far the sapwood is from its target:
+! (an output) counts the TRIFFID steps at which it bound.
 !
-!   dX_hw/dt = g k_h X_s,   g = MIN((X_s / X_t)^gamma, g_max),
+! nsc_heartwood_model sets how the sapwood turns to heartwood. With the
+! pipe rule (1, default) the pipe model is kept, as in LPJ (Sitch et al.
+! 2003): the sapwood above the target becomes heartwood at once, oldest
+! rings first, and below it heartwood forms at k_h. Over a TRIFFID step,
+! with X' the sapwood after TRIFFID's turnover,
 !
-! with gamma = nsc_pipe_gamma (gamma = 0 gives g = 1; g is an output,
-! nsc_heartwood_factor). Sapwood above the target becomes heartwood
-! faster, and a small sapwood keeps its old rings longer. Drought damage
-! does not change g. The pool starts at the target. The sapwood is at most
-! the wood, and the heartwood is the rest,
+!   H = MAX(X' (1 - EXP(-k_h dt)), X' - X_t).
+!
+! TRIFFID's allocation is fixed, so a sapwood below its target is not
+! grown faster. With the fixed rate (0) heartwood forms at k_h whatever
+! the target. The heartwood rate over k_h is an output
+! (nsc_heartwood_factor). The pool starts at the target. The sapwood is
+! at most the wood, and the heartwood is the rest,
 !
 !   H = C_W - X_s   (nsc_heartwood, an output).
 !
@@ -244,9 +243,9 @@ MODULE triffid_nsc_mod
 ! through the impairment memory. The ratio before the MIN is an output
 ! (nsc_k_area_raw).
 !
-! With l_nsc_k_sapwood_gain (and kplant_model = 1) the stem conducts
-! through its sapwood area, whatever the leaf area. The leaf area the
-! sapwood can supply (nsc_lai_sapwood),
+! With the Trugman response (section 10) the stem conducts through its
+! sapwood area, whatever the leaf area. The leaf area the sapwood can
+! supply (nsc_lai_sapwood),
 !
 !   L_A = X_A / (eta_sl h),
 !   X_A = X_s SUM_i f_i c_i / c_ref,
@@ -255,14 +254,31 @@ MODULE triffid_nsc_mod
 ! conductance per unit leaf area is kmax L_A / LAI and rises when leaves
 ! are shed. At the target and a full canopy L_A = LAI.
 !
-! 10. Canopy limited by the sapwood (l_nsc_sapwood_canopy)
+! 10. Response to damage (nsc_damage_response)
 !
-! The phenological LAI is at most the leaf area the functional sapwood can
-! supply, L_A with X_A = X_s SUM_i f_i c_i (1 - L_i) / c_ref (or
-! X_s (1 - L) without the rings), the f_A sapwood less its damage. phenol
-! sheds the leaves above the cap as leaf litter, at the rate of
-! phenological leaf drop, and the canopy regrows by the usual phenology
-! as the sapwood recovers. The cap is an output (nsc_lai_sap_cap).
+! With the Trugman response (1; needs the rings, the pipe-model target,
+! l_phenol, fixed cover, l_nsc_k_sapwood and kplant_model = 1), a tree
+! with lasting stem damage matches its leaves to its working xylem and
+! rebuilds the xylem first, as in the optimal allocation of Trugman et
+! al. (2018):
+!   - The phenological LAI is at most the leaf area the functional
+!     sapwood can supply, L_A with X_A = X_s SUM_i f_i c_i (1 - L_i) /
+!     c_ref, the f_A sapwood less its damage. phenol sheds the leaves
+!     above the cap as leaf litter, at the rate of phenological leaf drop,
+!     and the canopy regrows by the usual phenology as the sapwood
+!     recovers. The cap is an output (nsc_lai_sap_cap).
+!   - The stem conducts through its whole sapwood (section 9), so the
+!     supply per remaining leaf rises when leaves are shed.
+!   - The carbon TRIFFID would spend on spreading, which goes to litter
+!     when the cover is fixed, replaces damaged sapwood in place: at each
+!     TRIFFID step up to that carbon, and at most the damaged sapwood
+!     SUM_i X_i L_i, restores damaged xylem in the rings in proportion to
+!     their damaged carbon. No ring changes size, so a ring conducts at
+!     most as well as it did undamaged; the sapwood and TRIFFID's wood
+!     carbon do not change, and the litter flux is as without the
+!     response (output nsc_xylem_repair).
+! The target is set on the leaf area the climate allows (section 8), so
+! the leaves shed for damage do not shrink the sapwood as well.
 !
 ! 11. Without TRIFFID (l_triffid off)
 !
@@ -291,7 +307,7 @@ PUBLIC :: nsc_xylem_repair_pft
 PUBLIC :: nsc_f_a_min
 
 ! Smallest sapwood-area factor on kmax (and on the stem with
-! l_nsc_k_sapwood_gain), so the plant keeps a conducting path.
+! the Trugman response), so the plant keeps a conducting path.
 REAL(KIND=real_jlslsm), PARAMETER :: nsc_f_a_min = 0.01
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,                     &
           nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft,  &
@@ -369,7 +385,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_k_area_frac(:,:)
 ! The sapwood-area ratio before the MIN of f_A of the last step (can
 ! exceed 1; 1 until set). A diagnostic, set by sf_stom.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_k_area_raw(:,:)
-! Canopy limited by the sapwood (l_nsc_sapwood_canopy): the largest LAI
+! Canopy limited by the sapwood (Trugman response): the largest LAI
 ! the functional sapwood can supply at the last phenology step (< 0 = no
 ! cap). A diagnostic, set by phenol.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_lai_sap_cap(:,:)
@@ -377,7 +393,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_lai_sap_cap(:,:)
 ! the share of the stem's loss it dilutes, of the last TRIFFID step (per
 ! 360 days). A diagnostic.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_renew_cw(:,:)
-! Xylem repair (l_nsc_xylem_repair): damaged sapwood replaced from the
+! Xylem repair (Trugman response): damaged sapwood replaced from the
 ! spreading carbon at the last TRIFFID step (kg C m-2 of the PFT per 360
 ! days). A diagnostic.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_repair_pft(:,:)
@@ -1375,7 +1391,7 @@ END FUNCTION nsc_k_area
 
 ! ---------------------------------------------------------------------
 ! Return the leaf area index the sapwood of PFT n at land point l can
-! supply under the pipe model (l_nsc_k_sapwood_gain, l_nsc_sapwood_canopy),
+! supply under the pipe model (the Trugman response to damage),
 !
 !   L_A = X_A / (eta_sl h),
 !
@@ -1468,12 +1484,13 @@ END FUNCTION nsc_lai_sapwood
 !   4. With the ring cohorts nothing is queued: the new wood joins the
 !      youngest ring, the turnover takes from all rings alike and
 !      heartwood takes the oldest rings first.
-!   5. With the pipe-model target, heartwood forms at g k_h X_s, with g
-!      from the sapwood against its target on last ring year's peak leaf
-!      area, and the heartwood is the rest of the wood. The target is at
-!      most the wood; the steps at which this cap binds are counted.
-!   6. With xylem repair, the step's spreading carbon replaces damaged
-!      sapwood in the rings (ximpair_ring_repair).
+!   5. With the pipe-model target and the pipe heartwood rule, the
+!      sapwood above the target (on last ring year's peak leaf area)
+!      becomes heartwood, and the heartwood is the rest of the wood. The
+!      target is at most the wood; the steps at which this cap binds are
+!      counted.
+!   6. With the Trugman response, the step's spreading carbon replaces
+!      damaged sapwood in the rings (ximpair_ring_repair).
 !   7. At the end of the ring year, the year's net wood growth S settles
 !      the deficit D, a net loss of wood also comes off the sapwood, and
 !      with the pipe-model target this ring year's peak LAI becomes last
@@ -1489,9 +1506,11 @@ USE jules_surface_types_mod, ONLY: npft, nnpft
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_pool
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, l_nsc_pipe_target
-USE jules_vegetation_mod, ONLY: l_nsc_xylem_repair
+USE jules_vegetation_mod, ONLY: nsc_heartwood_model, nsc_heartwood_pipe,      &
+                                nsc_damage_response, nsc_damage_trugman,       &
+                                l_phen_psi
 USE pftparm, ONLY: pft_xylem_impairment_model, nsc_xylem_cond_ratio
-USE pftparm, ONLY: nsc_pipe_gamma, eta_sl
+USE pftparm, ONLY: eta_sl, phen_psi_tlp
 USE pftparm, ONLY: is_set, nsc_grow_end_doy, nsc_heartwood_rate
 USE calc_c_comps_triffid_mod, ONLY: live_stemwood
 USE model_time_mod, ONLY: is_spinup
@@ -1554,19 +1573,22 @@ INTEGER :: g_year
 ! This step ends the ring year (it holds the end of the growing season
 ! or, without one, the last day of the year).
 LOGICAL :: l_ring_end
-! The leaf area the sapwood serves, the pipe-model target sapwood (kg C
-! m-2), the sapwood against it (X_s / X_t), the heartwood factor g and
-! the heartwood rate (per 360 days).
-REAL(KIND=real_jlslsm) :: lai_ref, x_t, ratio, g_hw, rate_h
+! The leaf area the sapwood serves and that the target is set on, the
+! pipe-model target sapwood (kg C m-2), the heartwood rate (per 360
+! days), the sapwood after TRIFFID's turnover and the heartwood of the
+! step (kg C m-2).
+REAL(KIND=real_jlslsm) :: lai_ref, lai_pot, x_t, rate_h, x_turn, h_step
+! The target is set on the leaf area the climate allows (pipe heartwood
+! rule or Trugman response).
+LOGICAL :: l_pot
 ! The new ring's share of the conductance weight.
 REAL(KIND=real_jlslsm) :: w_cw
 ! Xylem repair: damaged sapwood replaced at this step (kg C m-2).
 REAL(KIND=real_jlslsm) :: r_rep
 
-! Largest heartwood factor g: a sapwood far above a small target is
-! retired at most g_max times faster than k_h, so it cannot be emptied
-! in one step.
-REAL(KIND=real_jlslsm), PARAMETER :: g_max = 10.0
+! Share of the sapwood the pipe heartwood rule always leaves after a
+! step, so a target far below the sapwood cannot empty it.
+REAL(KIND=real_jlslsm), PARAMETER :: h_keep = 1.0e-3
 
 ! Minimum conducting xylem (kg C m-2): a smaller sapwood renews
 ! nothing.
@@ -1595,6 +1617,9 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
   g_year  = current_time%year
   IF (2 * doy_now > n_days) g_year = g_year + 1
 
+  l_pot = nsc_heartwood_model == nsc_heartwood_pipe .OR.                      &
+          nsc_damage_response == nsc_damage_trugman
+
   DO n = 1,nnpft
     IF (pft_xylem_impairment_model(n) /= xylem_impairment_memory) CYCLE
 
@@ -1618,10 +1643,20 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
 
       ! The leaf area the sapwood serves: the balanced LAI, or with the
       ! pipe-model target last ring year's peak LAI (the balanced LAI until
-      ! the first ring year has ended). This ring year's peak so far.
+      ! the first ring year has ended). This ring year's peak so far: of
+      ! the LAI, or with the pipe heartwood rule or the Trugman response of
+      ! the leaf area the climate allows, the balanced LAI less drought
+      ! leaf shedding (l_phen_psi), so leaves shed for damage do not lower
+      ! the target.
       lai_ref = lai_bal(l,n)
       IF (l_nsc_pipe_target) THEN
-        nsc_lai_peak(l,n) = MAX(nsc_lai_peak(l,n), lai(l,n))
+        lai_pot = lai(l,n)
+        IF (l_pot) THEN
+          lai_pot = lai_bal(l,n)
+          IF (l_phen_psi .AND. is_set(phen_psi_tlp(n)))                       &
+            lai_pot = lai_pot * MIN(MAX(phen_fbleaf(l,n), 0.01), 1.0)
+        END IF
+        nsc_lai_peak(l,n) = MAX(nsc_lai_peak(l,n), lai_pot)
         IF (nsc_lai_peak_prev(l,n) >= 0.0) lai_ref = nsc_lai_peak_prev(l,n)
       END IF
 
@@ -1668,22 +1703,30 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
         x_s = nsc_sapwood(l,n)
       END IF
 
-      ! Pipe-model target: heartwood forms at g k_h, with g from the
-      ! sapwood against the target, g = (X_s / X_t)^gamma, on both sides of
-      ! the target; drought damage does not change it. gamma = 0 leaves
-      ! k_h.
+      ! Heartwood. With the pipe heartwood rule (and the pipe-model target)
+      ! the sapwood above the target becomes heartwood at once, and below
+      ! it heartwood forms at k_h. Over the step, with X' the sapwood after
+      ! TRIFFID's turnover,
+      !
+      !   H = MAX(X' (1 - EXP(-k_h dt)), X' - X_t),
+      !
+      ! taken oldest rings first; rate_h is the rate that removes H over
+      ! the step, and the heartwood factor (an output) is rate_h / k_h.
+      ! Otherwise heartwood forms at k_h.
       rate_h = nsc_heartwood_rate(n)
       IF (l_nsc_pipe_target) THEN
         nsc_sapwood_target(l,n)   = x_t
         nsc_heartwood_factor(l,n) = 1.0
-        IF (nsc_pipe_gamma(n) > 0.0) THEN
-          g_hw = g_max
-          IF (x_t > x_min) THEN
-            ratio = x_s / x_t
-            g_hw  = MIN(ratio**nsc_pipe_gamma(n), g_max)
+        IF (nsc_heartwood_model == nsc_heartwood_pipe) THEN
+          x_turn = x_s * EXP(-g_turn / r_gamma)
+          IF (x_turn > x_min) THEN
+            h_step = MAX(x_turn * (1.0 - EXP(-rate_h / r_gamma)),              &
+                         x_turn - x_t)
+            h_step = MIN(h_step, x_turn * (1.0 - h_keep))
+            rate_h = -LOG(1.0 - h_step / x_turn) * r_gamma
+            IF (nsc_heartwood_rate(n) > 0.0)                                   &
+              nsc_heartwood_factor(l,n) = rate_h / nsc_heartwood_rate(n)
           END IF
-          rate_h = rate_h * g_hw
-          nsc_heartwood_factor(l,n) = g_hw
         END IF
       END IF
 
@@ -1749,12 +1792,13 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
                            * EXP(-(rate_h + g_turn) / r_gamma)                 &
                            + g_wood_prod / r_gamma
 
-      ! Xylem repair (l_nsc_xylem_repair, fixed cover): the step's
+      ! Xylem repair (the Trugman response, fixed cover): the step's
       ! spreading carbon, which would go to litter, first replaces damaged
-      ! sapwood, at most all of it; the same mass of damaged wood leaves
-      ! the rings, so neither the sapwood nor TRIFFID's wood changes.
+      ! sapwood in place, at most all of it, so neither the sapwood nor
+      ! TRIFFID's wood changes.
       nsc_xylem_repair_pft(l,n) = 0.0
-      IF (l_nsc_xylem_repair .AND. l_nsc_sapwood_rings) THEN
+      IF (nsc_damage_response == nsc_damage_trugman .AND.                      &
+          l_nsc_sapwood_rings) THEN
         CALL ximpair_ring_repair(l, n, nsc_sapwood(l,n),                       &
                                  MAX(pc_s(l,n), 0.0) / r_gamma, r_rep)
         nsc_xylem_repair_pft(l,n) = r_rep * r_gamma

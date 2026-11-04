@@ -210,9 +210,10 @@ USE plant_hydraulic_path_mod, ONLY: l_kscale   ! MDK, 31/10/26
 USE jules_vegetation_mod, ONLY: l_nsc_k_sapwood   ! MDK, 31/10/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_k_area, nsc_k_area_frac
                            ! MDK, 31/10/26
-USE jules_vegetation_mod, ONLY: l_nsc_k_sapwood_gain, k_ground_ratio_max
+USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman,       &
+                                k_ground_ratio_max
 USE triffid_nsc_mod, ONLY: nsc_k_area_raw, nsc_lai_sapwood, nsc_f_a_min
-                           ! MDK, 01/11/26
+                           ! MDK, 04/11/26
 USE plant_hydraulic_path_mod, ONLY: set_store_q_path, clear_store_q_path,      &
                                     psi_leaf_segments_jls
                                        ! MDK, 24/10/26
@@ -953,7 +954,7 @@ REAL(KIND=real_jlslsm) :: k_area(land_pts)
 REAL(KIND=real_jlslsm) :: k_raw(land_pts), r_stem(land_pts), lai_sw
                             ! l_nsc_k_sapwood: the sapwood-area ratio before
                             ! the MIN, the stem's factor from its sapwood
-                            ! area (l_nsc_k_sapwood_gain; < 0 = not set)
+                            ! area (Trugman response; < 0 = not set)
                             ! and the leaf area the sapwood can supply.
                             !
                             ! MDK, 01/11/26
@@ -1904,14 +1905,14 @@ ELSE
 END IF
 ! Conductance from the sapwood area (l_nsc_k_sapwood): the factor f_A on
 ! kmax, its intact reference and kcrit (the stem segment's with segments),
-! 1 in spin-up. With l_nsc_k_sapwood_gain the stem's factor is the leaf
-! area its sapwood can supply over the LAI, L_A / LAI, held between
-! nsc_f_a_min and k_ground_ratio_max (the ground basis's bound as
-! LAI -> 0), so the stem's conductance per unit ground area follows its
-! sapwood and shedding leaves raises the supply per unit leaf area;
-! nsc_k_area_frac is then that factor.
+! 1 in spin-up. With the Trugman response to damage (nsc_damage_response
+! = 1) the stem's factor is the leaf area its sapwood can supply over the
+! LAI, L_A / LAI, held between nsc_f_a_min and k_ground_ratio_max (the
+! ground basis's bound as LAI -> 0), so the stem's conductance per unit
+! ground area follows its sapwood and shedding leaves raises the supply
+! per unit leaf area; nsc_k_area_frac is then that factor.
 !
-! MDK, 01/11/26
+! MDK, 04/11/26
 IF ( l_nsc_k_sapwood ) THEN
   CALL triffid_nsc_alloc( land_pts )
   k_area(:) = 1.0
@@ -1921,7 +1922,7 @@ IF ( l_nsc_k_sapwood ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
       k_area(l) = nsc_k_area(l, ft, k_raw(l))
-      IF ( l_nsc_k_sapwood_gain ) THEN
+      IF ( nsc_damage_response == nsc_damage_trugman ) THEN
         lai_sw = nsc_lai_sapwood(l, ft, ht(l), .FALSE.)
         IF ( lai_sw >= 0.0 )                                                   &
           r_stem(l) = MIN(MAX(lai_sw / MAX(lai(l), TINY(1.0_real_jlslsm)),     &
@@ -1931,7 +1932,7 @@ IF ( l_nsc_k_sapwood ) THEN
   END IF
   nsc_k_area_frac(:,ft) = k_area(:)
   nsc_k_area_raw(:,ft)  = k_raw(:)
-  IF ( l_nsc_k_sapwood_gain ) THEN
+  IF ( nsc_damage_response == nsc_damage_trugman ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
       IF ( r_stem(l) > 0.0 ) nsc_k_area_frac(l,ft) = r_stem(l)
