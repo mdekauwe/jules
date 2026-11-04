@@ -843,14 +843,15 @@ END DO  !  PFTs
 ! is the new xylem ring, which dilutes the stem damage of the memory
 ! impairment model. No carbon moves (before the height update: the
 ! sapwood is the one the store saw). The current LAI is passed for the
-! pipe-model target's peak LAI.
+! pipe-model target's peak LAI, and the spreading carbon for the xylem
+! repair (l_nsc_xylem_repair).
 !
-! MDK, 31/10/26
+! MDK, 04/11/26
 !-----------------------------------------------------------------------------
 IF ( l_triffid_nsc )                                                           &
   CALL triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index, r_gamma,      &
                                  ht, lai_bal_pft, lai, woodc_pft, dwood_pft,   &
-                                 wood_litc_pft )
+                                 wood_litc_pft, pc_s_pft )
 
 !-----------------------------------------------------------------------------
 ! Diagnose the new value of Canopy Height, Leaf Area Index and Total

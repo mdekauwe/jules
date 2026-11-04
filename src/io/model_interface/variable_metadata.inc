@@ -10937,4 +10937,19 @@ DATA metadata(844) / var_metadata(                                             &
 ! Units
     "1"                                                                        &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_xylem_repair
+!
+! MDK, 04/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(845) / var_metadata(                                             &
+! String identifier
+    'nsc_xylem_repair',                                                        &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Xylem repair: damaged sapwood replaced from the spreading carbon",        &
+! Units
+    "kg m-2 per 360days"                                                       &
+  ) /
 #endif

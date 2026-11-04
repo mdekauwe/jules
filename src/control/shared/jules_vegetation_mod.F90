@@ -1155,6 +1155,19 @@ LOGICAL ::                                                                     &
       ! nsc_lai_sap_cap. Needs l_phenol.
       !
       ! MDK, 01/11/26
+  l_nsc_xylem_repair = .FALSE.,                                                &
+      ! Ring cohorts (l_nsc_sapwood_rings) with fixed cover (l_veg_compete
+      ! off): the carbon TRIFFID would spend on spreading, which goes to
+      ! litter when the cover is fixed, first replaces damaged sapwood. At
+      ! each TRIFFID step up to that carbon, and at most the damaged
+      ! sapwood SUM_i X_i L_i, joins the youngest ring intact, and the same
+      ! mass of damaged wood leaves the rings in proportion to their
+      ! damaged carbon, so the sapwood and TRIFFID's wood carbon do not
+      ! change (Trugman et al. 2018: a damaged tree puts its carbon into
+      ! xylem first). .FALSE.: the rings renew only with TRIFFID's wood
+      ! growth.
+      !
+      ! MDK, 04/11/26
   l_som_fast = .FALSE.
       ! RETIRED input: .TRUE. stops the run; use som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table). Still read so namelists that
@@ -1337,7 +1350,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_nsc_wmax_norm, l_trif_hydmort,                                           &
     l_nsc_sapwood_pool, l_nsc_ring_additive, l_nsc_sapwood_rings,              &
     l_nsc_pipe_target, l_nsc_k_sapwood,                                        &
-    l_nsc_k_sapwood_gain, l_nsc_sapwood_canopy,                                &
+    l_nsc_k_sapwood_gain, l_nsc_sapwood_canopy, l_nsc_xylem_repair,            &
     nsc_n_ring,                                                                &
     l_nsc_sink_feedback,                                                       &
     ximpair_stomatal_response,                                                 &
@@ -2584,6 +2597,17 @@ IF ( l_nsc_k_sapwood_gain .AND.                                                &
                'kplant_model=1 (root and stem per unit ground area, '      //  &
                'with l_som_plant_segments=T)')
 END IF
+! Xylem repair from the spreading carbon needs the ring cohorts and fixed
+! cover (with competition that carbon spreads the PFT).
+!
+! MDK, 04/11/26
+IF ( l_nsc_xylem_repair .AND.                                                  &
+     ( .NOT. l_nsc_sapwood_rings .OR. l_veg_compete ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_xylem_repair needs l_nsc_sapwood_rings=T and '       //  &
+               'l_veg_compete=F')
+END IF
 IF ( l_nsc_sapwood_canopy .AND.                                                &
      ( .NOT. l_nsc_pipe_target .OR. .NOT. l_phenol ) ) THEN
   errcode = 101
@@ -2834,6 +2858,8 @@ WRITE(lineBuffer,*) ' l_nsc_k_sapwood_gain = ', l_nsc_k_sapwood_gain
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_sapwood_canopy = ', l_nsc_sapwood_canopy
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_xylem_repair = ', l_nsc_xylem_repair
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' ximpair_stomatal_response = ', ximpair_stomatal_response
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2981,11 +3007,11 @@ INTEGER, PARAMETER :: n_int = 25
 INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! The REAL items: 20 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 65 + npft_max
-                                  ! The LOGICAL items: 65 scalars and
+INTEGER, PARAMETER :: n_log = 66 + npft_max
+                                  ! The LOGICAL items: 66 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
-                                  ! MDK, 01/11/26
+                                  ! MDK, 04/11/26
 
 TYPE :: my_namelist
   SEQUENCE
@@ -3073,6 +3099,7 @@ TYPE :: my_namelist
   LOGICAL :: l_nsc_k_sapwood   ! MDK, 31/10/26
   LOGICAL :: l_nsc_k_sapwood_gain   ! MDK, 01/11/26
   LOGICAL :: l_nsc_sapwood_canopy   ! MDK, 01/11/26
+  LOGICAL :: l_nsc_xylem_repair   ! MDK, 04/11/26
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_rhizo_mfp
   LOGICAL :: l_nrun_mid_trif
@@ -3205,6 +3232,7 @@ IF (mype == 0) THEN
   my_nml % l_nsc_k_sapwood = l_nsc_k_sapwood   ! MDK, 31/10/26
   my_nml % l_nsc_k_sapwood_gain = l_nsc_k_sapwood_gain   ! MDK, 01/11/26
   my_nml % l_nsc_sapwood_canopy = l_nsc_sapwood_canopy   ! MDK, 01/11/26
+  my_nml % l_nsc_xylem_repair = l_nsc_xylem_repair   ! MDK, 04/11/26
   my_nml % nsc_n_ring = nsc_n_ring   ! MDK, 30/10/26
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
@@ -3327,6 +3355,7 @@ IF (mype /= 0) THEN
   l_nsc_k_sapwood = my_nml % l_nsc_k_sapwood   ! MDK, 31/10/26
   l_nsc_k_sapwood_gain = my_nml % l_nsc_k_sapwood_gain   ! MDK, 01/11/26
   l_nsc_sapwood_canopy = my_nml % l_nsc_sapwood_canopy   ! MDK, 01/11/26
+  l_nsc_xylem_repair = my_nml % l_nsc_xylem_repair   ! MDK, 04/11/26
   nsc_n_ring = my_nml % nsc_n_ring   ! MDK, 30/10/26
   l_som_gravity = my_nml % l_som_gravity
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp

@@ -181,6 +181,16 @@ MODULE triffid_nsc_mod
 ! EXP(-g_t m), as many rings as hold G / (k_h + g_t) of new wood, and the
 ! youngest ring holds the part of this year's ring grown so far.
 !
+! With l_nsc_xylem_repair (fixed cover), a damaged tree puts its carbon
+! into xylem first, as in the optimal allocation of Trugman et al. (2018).
+! The carbon TRIFFID would spend on spreading, which goes to litter when
+! the cover is fixed, replaces damaged sapwood: at each TRIFFID step up to
+! that carbon, and at most the damaged sapwood SUM_i X_i L_i, joins the
+! youngest ring intact, and the same mass of damaged wood leaves the rings
+! in proportion to their damaged carbon. The sapwood and TRIFFID's wood
+! carbon do not change, and the litter flux is as without the switch
+! (output nsc_xylem_repair).
+!
 ! 8. Pipe-model target (l_nsc_pipe_target, with the sapwood pool)
 !
 ! The conducting sapwood has a target size from the pipe model, on the
@@ -277,6 +287,7 @@ PUBLIC :: nsc_heartwood, nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
 PUBLIC :: nsc_k_area_frac, nsc_k_area
 PUBLIC :: nsc_k_area_raw, nsc_lai_sapwood, nsc_lai_sap_cap
 PUBLIC :: nsc_xylem_renew_cw, nsc_heartwood_factor, nsc_xt_cap_count
+PUBLIC :: nsc_xylem_repair_pft
 PUBLIC :: nsc_f_a_min
 
 ! Smallest sapwood-area factor on kmax (and on the stem with
@@ -366,6 +377,10 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_lai_sap_cap(:,:)
 ! the share of the stem's loss it dilutes, of the last TRIFFID step (per
 ! 360 days). A diagnostic.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_renew_cw(:,:)
+! Xylem repair (l_nsc_xylem_repair): damaged sapwood replaced from the
+! spreading carbon at the last TRIFFID step (kg C m-2 of the PFT per 360
+! days). A diagnostic.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_repair_pft(:,:)
 ! Pipe-model target: the heartwood factor g of the last TRIFFID step, and
 ! the number of TRIFFID steps since the start (or restart) at which the
 ! target was capped at the wood. Diagnostics.
@@ -502,6 +517,10 @@ END IF
 IF (.NOT. ALLOCATED(nsc_xylem_renew_cw)) THEN
   ALLOCATE(nsc_xylem_renew_cw(n_land_pts, npft))
   nsc_xylem_renew_cw(:,:) = 0.0
+END IF
+IF (.NOT. ALLOCATED(nsc_xylem_repair_pft)) THEN
+  ALLOCATE(nsc_xylem_repair_pft(n_land_pts, npft))
+  nsc_xylem_repair_pft(:,:) = 0.0
 END IF
 IF (.NOT. ALLOCATED(nsc_heartwood_factor)) THEN
   ALLOCATE(nsc_heartwood_factor(n_land_pts, npft))
@@ -1453,7 +1472,9 @@ END FUNCTION nsc_lai_sapwood
 !      from the sapwood against its target on last ring year's peak leaf
 !      area, and the heartwood is the rest of the wood. The target is at
 !      most the wood; the steps at which this cap binds are counted.
-!   6. At the end of the ring year, the year's net wood growth S settles
+!   6. With xylem repair, the step's spreading carbon replaces damaged
+!      sapwood in the rings (ximpair_ring_repair).
+!   7. At the end of the ring year, the year's net wood growth S settles
 !      the deficit D, a net loss of wood also comes off the sapwood, and
 !      with the pipe-model target this ring year's peak LAI becomes last
 !      year's.
@@ -1462,12 +1483,13 @@ END FUNCTION nsc_lai_sapwood
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
                                      r_gamma, ht, lai_bal, lai, woodc, dwood,  &
-                                     wood_litc )
+                                     wood_litc, pc_s )
 
 USE jules_surface_types_mod, ONLY: npft, nnpft
 USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_pool
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, l_nsc_pipe_target
+USE jules_vegetation_mod, ONLY: l_nsc_xylem_repair
 USE pftparm, ONLY: pft_xylem_impairment_model, nsc_xylem_cond_ratio
 USE pftparm, ONLY: nsc_pipe_gamma, eta_sl
 USE pftparm, ONLY: is_set, nsc_grow_end_doy, nsc_heartwood_rate
@@ -1480,7 +1502,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend,                    &
                                        ximpair_memory_alloc
 USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_area_w,           &
                                        ximpair_ring_frac, ximpair_ring_init,   &
-                                       ximpair_ring_grow
+                                       ximpair_ring_grow, ximpair_ring_repair
 USE logging_mod, ONLY: log_warn
 USE string_utils_mod, ONLY: to_string
 
@@ -1509,7 +1531,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   ! Wood increment of the step (kg C m-2).
   dwood(land_pts,npft),                                                        &
   ! Wood turnover of the step, g_wood C_W (kg C m-2 per 360 days).
-  wood_litc(land_pts,npft)
+  wood_litc(land_pts,npft),                                                    &
+  ! Carbon available for spreading (kg C m-2 per 360 days), which goes to
+  ! litter with fixed cover.
+  pc_s(land_pts,npft)
 
 INTEGER :: n, t, l
 ! Gross wood production (kg C m-2 per 360 days); conducting sapwood
@@ -1535,6 +1560,8 @@ LOGICAL :: l_ring_end
 REAL(KIND=real_jlslsm) :: lai_ref, x_t, ratio, g_hw, rate_h
 ! The new ring's share of the conductance weight.
 REAL(KIND=real_jlslsm) :: w_cw
+! Xylem repair: damaged sapwood replaced at this step (kg C m-2).
+REAL(KIND=real_jlslsm) :: r_rep
 
 ! Largest heartwood factor g: a sapwood far above a small target is
 ! retired at most g_max times faster than k_h, so it cannot be emptied
@@ -1721,6 +1748,17 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
         nsc_sapwood(l,n) = nsc_sapwood(l,n)                                    &
                            * EXP(-(rate_h + g_turn) / r_gamma)                 &
                            + g_wood_prod / r_gamma
+
+      ! Xylem repair (l_nsc_xylem_repair, fixed cover): the step's
+      ! spreading carbon, which would go to litter, first replaces damaged
+      ! sapwood, at most all of it; the same mass of damaged wood leaves
+      ! the rings, so neither the sapwood nor TRIFFID's wood changes.
+      nsc_xylem_repair_pft(l,n) = 0.0
+      IF (l_nsc_xylem_repair .AND. l_nsc_sapwood_rings) THEN
+        CALL ximpair_ring_repair(l, n, nsc_sapwood(l,n),                       &
+                                 MAX(pc_s(l,n), 0.0) / r_gamma, r_rep)
+        nsc_xylem_repair_pft(l,n) = r_rep * r_gamma
+      END IF
 
       ! End of the ring year: its net production S settles the count,
       !

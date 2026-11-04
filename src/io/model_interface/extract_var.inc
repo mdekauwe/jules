@@ -49,7 +49,7 @@ USE triffid_nsc_mod, ONLY: nsc_lai_peak, nsc_lai_peak_prev
 USE triffid_nsc_mod, ONLY: nsc_k_area_frac
 USE triffid_nsc_mod, ONLY: nsc_k_area_raw, nsc_lai_sap_cap,                    &
                            nsc_xylem_renew_cw, nsc_heartwood_factor,           &
-                           nsc_xt_cap_count
+                           nsc_xt_cap_count, nsc_xylem_repair_pft
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_functional
@@ -4278,6 +4278,13 @@ CASE ( 'nsc_k_area_raw' )
 CASE ( 'nsc_lai_sap_cap' )
   workspace_pft(:,:) = -1.0
   IF ( ALLOCATED(nsc_lai_sap_cap) ) workspace_pft(:,:) = nsc_lai_sap_cap
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'nsc_xylem_repair' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_xylem_repair_pft) )                                       &
+    workspace_pft(:,:) = nsc_xylem_repair_pft
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

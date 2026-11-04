@@ -17,7 +17,7 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_IMPAIRMENT_MEMORY_MOD'
 PRIVATE
 
 PUBLIC :: ximpair_ring_init, ximpair_ring_mean,                                &
-          ximpair_ring_grow, ximpair_ring_functional,                          &
+          ximpair_ring_grow, ximpair_ring_repair, ximpair_ring_functional,     &
           ximpair_ring_cweight, ximpair_ring_cref
 PUBLIC :: ximpair_memory_alloc, ximpair_dilute_area,                           &
           leaf_conductance_impaired_memory_jls,                                &
@@ -768,6 +768,71 @@ IF (l_shift) THEN
 END IF
 
 END SUBROUTINE ximpair_ring_grow
+
+! ---------------------------------------------------------------------
+! Xylem impairment, memory model: replace damaged sapwood with new wood in
+! the annual rings (l_nsc_xylem_repair). With X the sapwood (kg C m-2),
+! X_i = f_i X ring i's carbon and L_i its loss of conductance, the damaged
+! sapwood is
+!
+!   D = SUM_i X_i L_i.
+!
+! Up to r_max of new wood (kg C m-2), and at most D, replaces damaged wood:
+! ring i gives up m_i = r X_i L_i / D of its damaged carbon, so its loss
+! becomes (X_i L_i - m_i) / (X_i - m_i), and the r of new wood joins the
+! youngest ring intact. The sapwood X does not change. r is returned.
+!
+! MDK, 04/11/26
+! ---------------------------------------------------------------------
+SUBROUTINE ximpair_ring_repair( l, pft, x_s, r_max, r )
+
+USE jules_vegetation_mod, ONLY: nsc_n_ring
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! Sapwood and the most new wood the repair may use (kg C m-2).
+REAL(KIND=real_jlslsm), INTENT(IN) :: x_s, r_max
+! New wood used to replace damaged wood (kg C m-2).
+REAL(KIND=real_jlslsm), INTENT(OUT) :: r
+
+! Ring counter.
+INTEGER :: i
+! Each ring's carbon and damaged carbon (kg C m-2), the damaged sapwood,
+! the damaged carbon a ring gives up, and the youngest ring's carbon
+! before the new wood.
+REAL(KIND=real_jlslsm) :: a(nsc_n_ring), d(nsc_n_ring), d_tot, m, a1
+
+r = 0.0
+IF (x_s <= 0.0 .OR. r_max <= 0.0) RETURN
+IF (ximpair_ring_frac(l,pft,1) < 0.0) RETURN
+
+a(:) = MAX(ximpair_ring_frac(l,pft,:), 0.0) * x_s
+d(:) = a(:) * ximpair_ring_loss(l,pft,:)
+d_tot = SUM(d)
+IF (d_tot <= 0.0) RETURN
+r = MIN(r_max, d_tot)
+
+! Damaged wood leaves each ring in proportion to its damaged carbon.
+DO i = 1, nsc_n_ring
+  IF (d(i) <= 0.0) CYCLE
+  m = r * d(i) / d_tot
+  a(i) = a(i) - m
+  IF (a(i) > 0.0) THEN
+    ximpair_ring_loss(l,pft,i) = MIN(MAX((d(i) - m) / a(i), 0.0), 1.0)
+  ELSE
+    a(i) = 0.0
+    ximpair_ring_loss(l,pft,i) = 0.0
+  END IF
+END DO
+
+! The new wood joins the youngest ring intact.
+a1 = a(1)
+a(1) = a(1) + r
+ximpair_ring_loss(l,pft,1) = ximpair_ring_loss(l,pft,1) * a1 / a(1)
+
+ximpair_ring_frac(l,pft,:) = a(:) / SUM(a)
+
+END SUBROUTINE ximpair_ring_repair
 
 ! *********************************************************************
 ! Xylem impairment, memory model (pft_xylem_impairment_model = 3).
