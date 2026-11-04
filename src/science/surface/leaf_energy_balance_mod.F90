@@ -10,18 +10,17 @@ MODULE leaf_energy_balance_mod
 
 !-----------------------------------------------------------------------------
 ! Leaf energy balance (l_leaf_temp): the temperature of the sunlit and
-! shaded leaves, and of the air inside the canopy, from the light they
-! absorb, the heat they lose and the water they transpire. sf_stom calls
-! these routines:
+! shaded leaves from the light they absorb, the heat they lose and the
+! water they transpire. The leaves exchange heat and water with the air
+! of the first atmospheric level, as in MAESPA. sf_stom calls these
+! routines:
 !
-!   - leaf_aero_geom: the canopy's shape as it affects the wind and the
-!     exchange of heat between the canopy air and the air above;
 !   - leaf_temp_setup: the radiation and wind terms of each set of leaves
 !     that stay the same on every pass of the stomatal optimisation;
-!   - leaf_temp_update and leaf_temp_update_n: the leaf and canopy air
-!     temperatures for the stomatal conductances of the last pass.
+!   - leaf_temp_update and leaf_temp_update_n: the leaf temperatures for
+!     the stomatal conductances of the last pass.
 !
-! MDK, 24/10/26
+! MDK, 04/11/26
 !-----------------------------------------------------------------------------
 
 USE um_types, ONLY: real_jlslsm
@@ -31,116 +30,9 @@ IMPLICIT NONE
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='LEAF_ENERGY_BALANCE_MOD'
 
 PRIVATE
-PUBLIC :: leaf_aero_geom, leaf_temp_setup, leaf_temp_update,                  &
-          leaf_temp_update_n
+PUBLIC :: leaf_temp_setup, leaf_temp_update, leaf_temp_update_n
 
 CONTAINS
-
-! Work out how the canopy's shape affects the wind inside it and the
-! exchange of heat between the canopy air and the air above, as in CABLE
-! (cable_roughness; Raupach, 1994, BLM 71: 211-216; Raupach et al., 1997,
-! CSIRO SCAM). The leaf energy balance uses these terms with CABLE's
-! canopy aerodynamics (l_leaf_temp, leaf_aero_model = 1).
-!
-! From the leaf area and canopy height it gives:
-!
-!   - the roughness length z0m (m), and the reference height zref (m),
-!     measured above the displacement height d (the height at which the
-!     canopy appears to absorb momentum). z1, the height of the first
-!     atmospheric level, is taken as height above the ground;
-!   - usuh, the ratio of the friction velocity to the wind speed at the
-!     canopy top;
-!   - coexp, the rate at which the wind falls into the canopy;
-!   - the parts of the resistance between the canopy air and zref (rt1)
-!     that do not depend on stability: rt1ab, inside the canopy and the
-!     roughness sublayer just above it (times 1/u*, s m-1 after division
-!     by the friction velocity u*), and zrd, the top of that sublayer
-!     above d (m), with usc = 1 if zref lies above the sublayer and 0
-!     otherwise. leaf_temp_update_n adds the stability-dependent part.
-!
-! coexp is used per unit of leaf area above. By default it is CABLE's
-! value, used per unit leaf area as CABLE's gbhu does. With
-! l_leaf_coexp_lai it is divided by the leaf area, which gives the wind
-! profile as it is derived, per unit of normalised height.
-!
-! Points with less than 0.01 m2 m-2 of leaf or no height get zref = 0 and
-! are skipped by the energy balance.
-!
-! MDK, 24/10/26
-SUBROUTINE leaf_aero_geom( land_pts, veg_pts, veg_index, lai, canht, z1,       &
-                           z0m, zref, rt1ab, zrd, usc, usuh, coexp )
-
-USE jules_vegetation_mod, ONLY: l_leaf_coexp_lai
-
-USE parkind1, ONLY: jprb, jpim
-USE yomhook, ONLY: lhook, dr_hook
-
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts)
-REAL(KIND=real_jlslsm), INTENT(IN) :: lai(land_pts), canht(land_pts),          &
-                                      z1(land_pts)
-REAL(KIND=real_jlslsm), INTENT(OUT) :: z0m(land_pts), zref(land_pts),          &
-                                       rt1ab(land_pts), zrd(land_pts),         &
-                                       usc(land_pts), usuh(land_pts),          &
-                                       coexp(land_pts)
-
-REAL(KIND=real_jlslsm), PARAMETER ::                                           &
-  ! CABLE physical constants (cable_data).
-  vonk = 0.40, a33 = 1.25, csw = 0.50, ctl = 0.40, crd = 0.3, csd = 0.003,     &
-  ccd = 15.0, ccw_c = 2.0, usuhm = 0.3
-
-REAL(KIND=real_jlslsm) :: xx, dh, disp, h, lai_h, term2, term3, term5, zruffs
-INTEGER :: l, m
-
-INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
-INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
-REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_AERO_GEOM'
-
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
-
-z0m(:)   = 1.0
-zref(:)  = 0.0
-rt1ab(:) = 0.0
-zrd(:)   = 1.0
-usc(:)   = 0.0
-usuh(:)  = usuhm
-coexp(:) = 0.0
-
-DO m = 1,veg_pts
-  l = veg_index(m)
-  h = canht(l)
-  IF ( lai(l) < 0.01 .OR. h <= 0.0 ) CYCLE
-  lai_h = 0.5 * lai(l)
-
-  usuh(l)  = MIN( SQRT( csd + crd * lai_h ), usuhm )
-  xx       = SQRT( ccd * MAX( lai_h, 0.0005 ) )
-  dh       = 1.0 - ( 1.0 - EXP( -xx ) ) / xx
-  disp     = dh * h
-  z0m(l)   = ( (1.0 - dh) * EXP( LOG( ccw_c ) - 1.0 + 1.0 / ccw_c              &
-                                 - vonk / usuh(l) ) ) * h
-  zref(l)  = MAX( 3.5 + z0m(l), z1(l) - disp, h - disp )
-  coexp(l) = usuh(l) / ( vonk * ccw_c * ( 1.0 - dh ) )
-  IF ( l_leaf_coexp_lai ) coexp(l) = coexp(l) / lai(l)
-
-  term2    = EXP( 2.0 * csw * lai(l) * ( 1.0 - disp / h ) )
-  term3    = a33**2 * ctl * 2.0 * csw * lai(l)
-  term5    = MAX( (2.0 / 3.0) * h / disp, 1.0 )
-  zruffs   = disp + h * a33**2 * ctl / vonk / term5
-  rt1ab(l) = term5 * ( term2 - 1.0 ) / term3                                   &
-             + MAX( term5 * ( MIN( zref(l) + disp, zruffs ) - h )              &
-                    / ( a33**2 * ctl * h ), 0.0 )
-  zrd(l)   = MAX( zruffs - disp, z0m(l) )
-  IF ( zref(l) + disp > zruffs ) usc(l) = 1.0
-END DO
-
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-
-END SUBROUTINE leaf_aero_geom
-
-!#############################################################################
-!#############################################################################
 
 ! Work out the radiation and wind terms of the leaf energy balance
 ! (l_leaf_temp) once per timestep, before the stomatal optimisation, since
@@ -165,9 +57,9 @@ END SUBROUTINE leaf_aero_geom
 !     xi / 2), for heat loss to the wind (Wang and Leuning, 1998; CABLE).
 !     It is the leaf area when wind_ext = 0.
 !
-! With the optional arguments (multilayer canopy with ml_leaf_temp_model
-! = 2), the same terms are also given for the sunlit and shaded leaves of
-! every layer: the sunlit leaves of layer n in position 2n-1, the shaded
+! With the optional arguments (multilayer canopy), the same terms are
+! also given for the sunlit and shaded leaves of every layer: the sunlit
+! leaves of layer n in position 2n-1, the shaded
 ! in 2n. Their PAR comes from each layer's own absorbed PAR
 ! (fapar_*_vis), and lai_c gives their leaf area. The layer terms add up
 ! to the canopy ones.
@@ -302,20 +194,16 @@ END SUBROUTINE leaf_temp_setup
 !#############################################################################
 
 ! Work out the sunlit and shaded leaf temperatures of the two-leaf
-! canopy, and the canopy air temperature and humidity, from the leaf
-! energy balance (l_leaf_temp) for the stomatal conductances of the last
-! pass. It packs the
-! sunlit and shaded leaves into arrays of two and calls
-! leaf_temp_update_n.
+! canopy from the leaf energy balance (l_leaf_temp) for the stomatal
+! conductances of the last pass. It packs the sunlit and shaded leaves
+! into arrays of two and calls leaf_temp_update_n.
 !
-! MDK, 24/10/26
+! MDK, 04/11/26
 SUBROUTINE leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
-                             ra, lw_down, u_wind, lai_sun, lai_shd,            &
+                             lw_down, u_wind, lai_sun, lai_shd,                &
                              sw_sun, sw_shd, wlw_sun, wlw_shd, wlws_sun,       &
                              wlws_shd, frad_sun, frad_shd, ff_sun, ff_shd,     &
-                             z0m_a, zref_a, rt1ab_a, zrd_a, usc_a, usuh_a,     &
-                             gl_sun, gl_shd, g_soil, qs_soil, zeta_a, t_sun,   &
-                             t_shd, t_c, q_c, gbw_sun, gbw_shd, ra_out,        &
+                             gl_sun, gl_shd, t_sun, t_shd, gbw_sun, gbw_shd,   &
                              n_clamp, lt_a, lt_b )
 
 USE parkind1, ONLY: jprb, jpim
@@ -325,17 +213,14 @@ IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
-  tair(land_pts), q1(land_pts), pstar(land_pts), ra(land_pts),                 &
+  tair(land_pts), q1(land_pts), pstar(land_pts),                               &
   lw_down(land_pts), u_wind(land_pts), lai_sun(land_pts), lai_shd(land_pts),   &
   sw_sun(land_pts), sw_shd(land_pts), wlw_sun(land_pts), wlw_shd(land_pts),    &
   wlws_sun(land_pts), wlws_shd(land_pts), frad_sun(land_pts),                  &
   frad_shd(land_pts), ff_sun(land_pts), ff_shd(land_pts), gl_sun(land_pts),    &
-  gl_shd(land_pts), z0m_a(land_pts), zref_a(land_pts), rt1ab_a(land_pts),      &
-  zrd_a(land_pts), usc_a(land_pts), usuh_a(land_pts), g_soil(land_pts),        &
-  qs_soil(land_pts)
+  gl_shd(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
-  zeta_a(land_pts), t_sun(land_pts), t_shd(land_pts), t_c(land_pts),           &
-  q_c(land_pts), gbw_sun(land_pts), gbw_shd(land_pts), ra_out(land_pts),       &
+  t_sun(land_pts), t_shd(land_pts), gbw_sun(land_pts), gbw_shd(land_pts),      &
   n_clamp(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN OUT), OPTIONAL ::                            &
   ! The sunlit (1) and shaded (2) leaves' temperature as a linear
@@ -375,10 +260,8 @@ gbw_x(:,1)  = gbw_sun(:)
 gbw_x(:,2)  = gbw_shd(:)
 
 CALL leaf_temp_update_n( land_pts, veg_pts, veg_index, 2, tair, q1, pstar,     &
-                         ra, lw_down, u_wind, lai_x, sw_x, wlw_x, wlws_x,      &
-                         frad_x, ff_x, z0m_a, zref_a, rt1ab_a, zrd_a, usc_a,   &
-                         usuh_a, gl_x, g_soil, qs_soil, zeta_a, t_x, t_c,      &
-                         q_c, gbw_x, ra_out, n_clamp, lt_a, lt_b )
+                         lw_down, u_wind, lai_x, sw_x, wlw_x, wlws_x,          &
+                         frad_x, ff_x, gl_x, t_x, gbw_x, n_clamp, lt_a, lt_b )
 
 t_sun(:)   = t_x(:,1)
 t_shd(:)   = t_x(:,2)
@@ -392,63 +275,38 @@ END SUBROUTINE leaf_temp_update
 !#############################################################################
 !#############################################################################
 
-! Work out the leaf temperatures, and the canopy air temperature and
-! humidity, of nc sets of leaves that share one canopy air space, by
-! solving the leaf energy balance (l_leaf_temp) for the stomatal
-! conductances of the last pass. The sets
-! are the sunlit and shaded leaves (nc = 2) of the two-leaf canopy or of
-! the multilayer canopy taken as a whole, or the sunlit and shaded leaves
-! of every layer of the multilayer canopy (nc = 2 x ilayers;
-! ml_leaf_temp_model = 2, as in MAESPA).
+! Work out the leaf temperatures of nc sets of leaves by solving the leaf
+! energy balance (l_leaf_temp) for the stomatal conductances of the last
+! pass. The sets are the sunlit and shaded leaves (nc = 2) of the
+! two-leaf canopy, or the sunlit and shaded leaves of every layer of the
+! multilayer canopy (nc = 2 x ilayers, as in MAESPA).
 !
-! Each set of leaves exchanges heat and water with the canopy air (at
-! temperature t_c and humidity q_c) through its leaf boundary layer, as
-! one big leaf. Its latent heat follows Penman-Monteith with the net
-! radiation it would have at the canopy air temperature, linearised about
-! t_c (Leuning et al., 1995, App. E; Wang and Leuning, 1998), as in De
-! Kauwe's two-leaf model (two_leaf_at_WTC):
+! Each set of leaves exchanges heat and water through its leaf boundary
+! layer with the air of the first atmospheric level (temperature tair,
+! humidity q1), as one big leaf, as in MAESPA and MAESTRA. Its latent
+! heat follows Penman-Monteith with the net radiation it would have at
+! the air temperature (Leuning et al., 1995, App. E; Wang and Leuning,
+! 1998), as in De Kauwe's two-leaf model (two_leaf_at_WTC):
 !
 !   LE = (s Rn + D gh cp) / (s + gamma gh / gw)
-!   T  = t_c + (Rn - LE) / (cp gh)
+!   T  = tair + (Rn - LE) / (cp gh)
 !   gh = 2 gbH + grn
 !
 ! where LE is the latent heat (W m-2), Rn the net radiation, s the slope
 ! of saturation humidity with temperature, D the humidity deficit of the
-! canopy air, gamma the psychrometric constant, cp the heat capacity of
-! air, gw the conductance for water (stomata and boundary layer in
-! series) and T the leaf temperature. gh is the conductance for heat:
-! twice the boundary layer conductance gbH (both sides of the leaf) plus
-! the radiative conductance grn. gbH has a part from the wind (per unit
-! leaf area at the canopy-top wind, divided by leaf_shelter, times the
+! air, gamma the psychrometric constant, cp the heat capacity of air, gw
+! the conductance for water (stomata and boundary layer in series) and T
+! the leaf temperature. gh is the conductance for heat: twice the
+! boundary layer conductance gbH (both sides of the leaf) plus the
+! radiative conductance grn. gbH has a part from the wind (per unit leaf
+! area at the level-1 wind, divided by leaf_shelter, times the
 ! wind-weighted leaf area ff) and a part from rising warm air (times the
-! leaf area).
+! leaf area). Each leaf temperature is kept within dt_leaf of tair.
 !
-! The canopy air is coupled to the first atmospheric level through a
-! resistance ra (s m-1), set by leaf_aero_model: 0, no resistance, so
-! t_c = tair and q_c = q1; 1, CABLE's rt1; 2, JULES's ra. Then
-!
-!   q_c = q1 + ra (sum of the leaves' LE + LE_soil) / (rho L)
-!   t_c = tair + ra (sum of the leaves' H) / (rho cp)
-!
-! where rho is the air density, L the latent heat of vaporisation at t_c,
-! H the sensible heat and LE_soil = rho L g_soil (qs_soil - q_c) the soil
-! evaporation into the canopy air, as in CABLE. The soil's sensible heat
-! is left out, since vegetated tiles have no soil surface temperature
-! apart from tstar.
-!
-! LE is linear in q_c, so q_c follows directly for a given t_c. t_c is
-! found by a bracketed search (regula falsi) within dt_can of tair, at
-! once when ra = 0. Each leaf temperature is kept within dt_leaf of t_c.
-! With CABLE's aerodynamics, the resistance and the canopy-top wind
-! depend on the stability of the air, and the solution is repeated with
-! the stability from the leaves' heat fluxes.
-!
-! MDK, 24/10/26
+! MDK, 04/11/26
 SUBROUTINE leaf_temp_update_n( land_pts, veg_pts, veg_index, nc, tair, q1,     &
-                               pstar, ra, lw_down, u_wind, lai_c, sw_c, wlw_c, &
-                               wlws_c, frad_c, ff_c, z0m_a, zref_a, rt1ab_a,   &
-                               zrd_a, usc_a, usuh_a, gl_c, g_soil, qs_soil,    &
-                               zeta_a, t_cls, t_c, q_c, gbw_c, ra_out,         &
+                               pstar, lw_down, u_wind, lai_c, sw_c, wlw_c,     &
+                               wlws_c, frad_c, ff_c, gl_c, t_cls, gbw_c,       &
                                n_clamp, lt_a_c, lt_b_c )
 
 USE conversions_mod, ONLY: zerodegc
@@ -457,7 +315,7 @@ USE csigma, ONLY: sbcon
 USE canopy_diag_mod, ONLY: h_leaf_pts, le_leaf_pts
 USE planet_constants_mod, ONLY: cp, r, repsilon
 USE water_constants_mod, ONLY: lc, Water_kg_per_mol
-USE jules_vegetation_mod, ONLY: leaf_width, leaf_shelter, leaf_aero_model
+USE jules_vegetation_mod, ONLY: leaf_width, leaf_shelter
 USE qsat_mod, ONLY: qsat
 
 USE parkind1, ONLY: jprb, jpim
@@ -474,53 +332,31 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   ! leaf area, absorbed short-wave, long-wave weights, radiative
   ! conductance scalar, wind-weighted leaf area and stomatal
   ! conductance (m s-1, ground).
-  tair(land_pts), q1(land_pts), pstar(land_pts), ra(land_pts),                 &
+  tair(land_pts), q1(land_pts), pstar(land_pts),                               &
   lw_down(land_pts), u_wind(land_pts),                                         &
   lai_c(land_pts,nc), sw_c(land_pts,nc), wlw_c(land_pts,nc),                   &
   wlws_c(land_pts,nc), frad_c(land_pts,nc), ff_c(land_pts,nc),                 &
-  gl_c(land_pts,nc),                                                           &
-  ! CABLE canopy geometry (leaf_aero_model = 1; see leaf_aero_geom).
-  z0m_a(land_pts), zref_a(land_pts), rt1ab_a(land_pts), zrd_a(land_pts),       &
-  usc_a(land_pts), usuh_a(land_pts),                                           &
-  ! Soil evaporation conductance into the canopy air (m s-1, ground
-  ! area) and the saturated humidity it evaporates at (kg kg-1).
-  g_soil(land_pts), qs_soil(land_pts)
+  gl_c(land_pts,nc)
 
 REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
-  ! zref/L (leaf_aero_model = 1): the start of the Monin-Obukhov
-  ! iteration, and the last iterate on output, so successive passes in
-  ! a timestep continue the iteration (0 for the first).
-  zeta_a(land_pts),                                                            &
   ! t_cls: leaf temperature of each class.
-  t_cls(land_pts,nc), t_c(land_pts), q_c(land_pts)
-
-REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
+  t_cls(land_pts,nc),                                                          &
   ! Leaf boundary layer conductance for water of each class (m/s, class
-  ! basis; 0 without leaf area) and the canopy air resistance (s/m) of
-  ! the balance found, for l_som_coupled_e. Points not solved keep
-  ! their values.
-  gbw_c(land_pts,nc), ra_out(land_pts)
+  ! basis; 0 without leaf area).
+  gbw_c(land_pts,nc)
 
 ! Number of leaf classes (0-nc) whose temperature was held at dt_leaf
-! from the canopy air in the balance found.
+! from the air.
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: n_clamp(land_pts)
 
 REAL(KIND=real_jlslsm), INTENT(IN OUT), OPTIONAL ::                            &
   ! Each class's leaf temperature as a linear function of its
-  ! transpiration E (mol m-2 s-1, ground) at the canopy air of the
-  ! balance found, T_leaf = lt_a - lt_b E, i.e. lt_a = t_c + Rn / (cp gh)
-  ! (K) and lt_b = lambda / (cp gh) (K per mol m-2 s-1); lt_b = 0
-  ! without leaf area (l_leaf_temp_ci). Points not solved keep their
-  ! values.
+  ! transpiration E (mol m-2 s-1, ground), T_leaf = lt_a - lt_b E, i.e.
+  ! lt_a = tair + Rn / (cp gh) (K) and lt_b = lambda / (cp gh) (K per
+  ! mol m-2 s-1); lt_b = 0 without leaf area (l_leaf_temp_ci).
   lt_a_c(land_pts,nc), lt_b_c(land_pts,nc)
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
-  ! CABLE constants: von Karman, gravity, limits on zref/L, minimum rt1.
-  vonk = 0.40, grav = 9.81, zetneg = -15.0, zetpos = 1.0, rt_min = 5.0,        &
-  ! CABLE constants: minimum wind at zref for u* (m s-1), Pohlhausen
-  ! coefficient (single-sided plate), Prandtl number, minimum
-  ! boundary-layer conductance of the top leaf (mol m-2 s-1).
-  umin_cable = 1.0, apol = 0.70, prandt = 0.71, gbv_min = 0.05,                &
   ! Leaf emissivity (Wang & Leuning, 1998, Table 3).
   eps_leaf = 0.96,                                                             &
   ! Soil emissivity (Wang & Leuning, 1998, Table 3).
@@ -533,28 +369,14 @@ REAL(KIND=real_jlslsm), PARAMETER ::                                           &
   m_h2o = Water_kg_per_mol,                                                    &
   ! Minimum wind speed for forced convection (m s-1).
   u_min = 0.1,                                                                 &
-  ! Limits on leaf - canopy air and canopy air - tair (K).
-  dt_leaf = 15.0, dt_can = 10.0
-
-! Maximum evaluations of the canopy balance in the t_c search.
-INTEGER, PARAMETER :: n_solve = 8
-! Tolerance on t_c (K).
-REAL(KIND=real_jlslsm), PARAMETER :: tol_tc = 0.01
-
-! Monin-Obukhov iterations for leaf_aero_model = 1 (CABLE niter).
-INTEGER, PARAMETER :: n_mo_cable = 4
+  ! Limit on leaf - air temperature (K).
+  dt_leaf = 15.0
 
 REAL(KIND=real_jlslsm) ::                                                      &
-  ! ncl_last: classes held at dt_leaf in the last canopy_balance call.
-  ! tx_v, gbw_last: of each class.
-  t_lo(veg_pts), t_hi(veg_pts), r_lo(veg_pts), r_hi(veg_pts), t_try(veg_pts),  &
-  t_try1(veg_pts), p_v(veg_pts), qs0_v(veg_pts), qs1_v(veg_pts),               &
-  tx_v(nc,veg_pts), qc_v(veg_pts), h_v(veg_pts), le_v(veg_pts),                &
-  hb_v(veg_pts), leb_v(veg_pts), res, ra_m(land_pts),                          &
-  u_m(land_pts), us, rt1usc, zr, gbw_last(nc), ncl_last, lta_last(nc),       &
-  ltb_last(nc)
-LOGICAL :: l_done(veg_pts)
-INTEGER :: l, m, it, side(veg_pts), it_mo, n_mo
+  ! Air temperature and 0.1 K above it, and the saturated humidity at
+  ! each (kg kg-1), for the slope s.
+  t0_v(veg_pts), t1_v(veg_pts), p_v(veg_pts), qs0_v(veg_pts), qs1_v(veg_pts)
+INTEGER :: l, m
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -563,240 +385,45 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_TEMP_UPDATE_N'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-IF ( leaf_aero_model == 1 ) THEN
-  n_mo = n_mo_cable
-ELSE
-  n_mo = 1
-END IF
-ra_m(:) = ra(:)
-u_m(:)  = u_wind(:)
-
-DO it_mo = 1,n_mo
-
-IF ( leaf_aero_model == 1 ) THEN
-  !---------------------------------------------------------------------------
-  ! CABLE (comp_friction_vel, cable_canopy): u* from the wind at zref with
-  ! the stability functions, the canopy-top wind u_h = u* / (u*/u_h), and
-  ! rt1 = (rt1usa + rt1usb + rt1usc) / u*, rt1usc being the stability-
-  ! corrected log profile above the roughness sublayer.
-  !---------------------------------------------------------------------------
-  DO m = 1,veg_pts
-    l = veg_index(m)
-    IF ( zref_a(l) <= 0.0 ) CYCLE          ! no canopy: keep ra, u_wind
-    us = vonk * MAX(u_wind(l), umin_cable)                                     &
-         / ( LOG(zref_a(l) / z0m_a(l)) - psim(zeta_a(l))                       &
-             + psim(zeta_a(l) * z0m_a(l) / zref_a(l)) )
-    us = MIN(MAX(1.0e-6, us), 10.0)
-    zr = zrd_a(l)
-    rt1usc = usc_a(l) * ( LOG(zref_a(l) / zr) - psis(zeta_a(l))                &
-                          + psis(zeta_a(l) * zr / zref_a(l)) ) / vonk
-    ra_m(l) = MAX(rt_min, ( rt1ab_a(l) + rt1usc ) / us)
-    u_m(l)  = us / usuh_a(l)
-  END DO
-END IF
-
-!-----------------------------------------------------------------------------
-! Find t_c with res(t_c) = 0 by regula falsi (Illinois) in the bracket
-! [tair - dt_can, tair + dt_can]; res increases with t_c. Start from the
-! bracket ends; points whose root is outside it take the nearer end.
-!-----------------------------------------------------------------------------
 DO m = 1,veg_pts
   l = veg_index(m)
   p_v(m)  = pstar(l)
-  t_lo(m) = tair(l) - dt_can
-  t_hi(m) = tair(l) + dt_can
-  side(m) = 0
+  t0_v(m) = tair(l)
+  t1_v(m) = t0_v(m) + 0.1
 END DO
-
-DO it = 1,2
-  DO m = 1,veg_pts
-    IF ( it == 1 ) THEN
-      t_try(m) = t_lo(m)
-    ELSE
-      t_try(m) = t_hi(m)
-    END IF
-    t_try1(m) = t_try(m) + 0.1
-  END DO
-  CALL qsat(qs0_v, t_try, p_v, veg_pts)
-  CALL qsat(qs1_v, t_try1, p_v, veg_pts)
-  DO m = 1,veg_pts
-    l = veg_index(m)
-    CALL canopy_balance( l, t_try(m), qs0_v(m), qs1_v(m), res, tx_v(:,m),      &
-                         qc_v(m), hb_v(m), leb_v(m) )
-    IF ( it == 1 ) THEN
-      r_lo(m) = res
-      ! Root below the bracket: keep the lower end.
-      l_done(m) = ( res >= 0.0 )
-      IF ( l_done(m) ) CALL set_out( l, m, t_try(m), qc_v(m) )
-    ELSE
-      r_hi(m) = res
-      IF ( .NOT. l_done(m) .AND. res <= 0.0 ) THEN
-        ! Root above the bracket: keep the upper end.
-        l_done(m) = .TRUE.
-        CALL set_out( l, m, t_try(m), qc_v(m) )
-      END IF
-    END IF
-  END DO
-END DO
-
-DO it = 1,n_solve
-  IF ( ALL(l_done) ) EXIT
-  DO m = 1,veg_pts
-    IF ( l_done(m) ) THEN
-      t_try(m) = t_lo(m)
-    ELSE
-      t_try(m) = t_hi(m) - r_hi(m) * ( t_hi(m) - t_lo(m) )                     &
-                 / ( r_hi(m) - r_lo(m) )
-    END IF
-    t_try1(m) = t_try(m) + 0.1
-  END DO
-  CALL qsat(qs0_v, t_try, p_v, veg_pts)
-  CALL qsat(qs1_v, t_try1, p_v, veg_pts)
-  DO m = 1,veg_pts
-    IF ( l_done(m) ) CYCLE
-    l = veg_index(m)
-    CALL canopy_balance( l, t_try(m), qs0_v(m), qs1_v(m), res, tx_v(:,m),      &
-                         qc_v(m), hb_v(m), leb_v(m) )
-    IF ( ABS(res) < tol_tc .OR. it == n_solve ) THEN
-      l_done(m) = .TRUE.
-      CALL set_out( l, m, t_try(m), qc_v(m) )
-    ELSE IF ( res > 0.0 ) THEN
-      t_hi(m) = t_try(m)
-      r_hi(m) = res
-      IF ( side(m) == 1 ) r_lo(m) = 0.5 * r_lo(m)
-      side(m) = 1
-    ELSE
-      t_lo(m) = t_try(m)
-      r_lo(m) = res
-      IF ( side(m) == -1 ) r_hi(m) = 0.5 * r_hi(m)
-      side(m) = -1
-    END IF
-  END DO
-END DO
-
-! Stability for the next iteration (CABLE): zref/L from the canopy sensible
-! heat and the buoyancy of the latent heat,
-!
-!   zref/L = -k g zref (H + 0.07 LE) / (rho cp T u*^3).
-!
-! Only the leaves' fluxes: the soil's sensible heat is not known here (nor
-! is its latent heat added). Also after the last iteration, for the next
-! pass to start from.
-IF ( leaf_aero_model == 1 ) THEN
-  DO m = 1,veg_pts
-    l = veg_index(m)
-    IF ( zref_a(l) <= 0.0 ) CYCLE
-    us = u_m(l) * usuh_a(l)
-    zeta_a(l) = -vonk * grav * zref_a(l) * ( h_v(m) + 0.07 * le_v(m) )         &
-              / ( pstar(l) / ( r * tair(l) ) * cp * tair(l) * us**3 )
-    zeta_a(l) = MIN(MAX(zeta_a(l), zetneg), zetpos)
-  END DO
-END IF
-
-END DO   ! it_mo
+CALL qsat(qs0_v, t0_v, p_v, veg_pts)
+CALL qsat(qs1_v, t1_v, p_v, veg_pts)
 
 DO m = 1,veg_pts
   l = veg_index(m)
-  ra_out(l) = ra_m(l)
+  CALL leaf_balance( l, qs0_v(m), qs1_v(m) )
 END DO
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 CONTAINS
 
-! Store the solution at point l: the canopy air temperature and humidity,
-! and the leaf temperatures, boundary layer conductances and fluxes from
-! the canopy_balance call just made for this point.
-SUBROUTINE set_out( l, m, tc, qc )
-INTEGER, INTENT(IN) :: l, m
-REAL(KIND=real_jlslsm), INTENT(IN) :: tc, qc
-t_c(l)   = tc
-t_cls(l,:) = tx_v(:,m)
-q_c(l)   = qc
-! (gbw_last is from the canopy_balance call just made for this point.)
-gbw_c(l,:) = gbw_last(:)
-h_v(m)   = hb_v(m)
-le_v(m)  = leb_v(m)
-
-! For the canopy diagnostics (canopy_diag_mod).
-IF ( ALLOCATED(h_leaf_pts) ) THEN
-  h_leaf_pts(l)  = hb_v(m)
-  le_leaf_pts(l) = leb_v(m)
-END IF
-
-! ncl_last is from that call too, and so are lta_last and ltb_last
-! (l_leaf_temp_ci).
-n_clamp(l) = ncl_last
-IF ( PRESENT(lt_a_c) ) lt_a_c(l,:) = lta_last(:)
-IF ( PRESENT(lt_b_c) ) lt_b_c(l,:) = ltb_last(:)
-END SUBROUTINE set_out
-
-! Return CABLE's stability correction to the wind profile (psim,
-! cable_canopy), which adjusts the friction velocity above the canopy
-! for the stability of the air. zeta = zref / L_ob,
-! where L_ob is the Obukhov length (zeta < 0 for unstable air, > 0 for
-! stable air).
-ELEMENTAL FUNCTION psim( zeta_in ) RESULT( r_psi )
-REAL(KIND=real_jlslsm), INTENT(IN) :: zeta_in
-REAL(KIND=real_jlslsm) :: r_psi, x
-REAL(KIND=real_jlslsm), PARAMETER :: gu = 16.0, a = 1.0, b = 0.667, xc = 5.0,  &
-                                     d = 0.35, pi_c = 3.14159265
-IF ( zeta_in >= 0.0 ) THEN
-  r_psi = -a * zeta_in - b * (zeta_in - xc / d) * EXP(-d * zeta_in) - b * xc / d
-ELSE
-  x     = (1.0 + gu * ABS(zeta_in))**0.25
-  r_psi = LOG((1.0 + x * x) * (1.0 + x)**2 / 8.0) - 2.0 * ATAN(x) + pi_c * 0.5
-END IF
-END FUNCTION psim
-
-! Return CABLE's stability correction to the profiles of heat and water
-! vapour (psis, cable_canopy), which adjusts the resistance between the
-! canopy air and the air above for the stability of the air, as a
-! function of zeta = zref / L_ob.
-ELEMENTAL FUNCTION psis( zeta_in ) RESULT( r_psi )
-REAL(KIND=real_jlslsm), INTENT(IN) :: zeta_in
-REAL(KIND=real_jlslsm) :: r_psi, y
-REAL(KIND=real_jlslsm), PARAMETER :: gu = 16.0, a = 1.0, b = 0.667, c = 5.0,   &
-                                     d = 0.35
-IF ( zeta_in >= 0.0 ) THEN
-  r_psi = -(1.0 + 2.0 / 3.0 * a * zeta_in)**1.5                                &
-          - b * (zeta_in - c / d) * EXP(-d * zeta_in) - b * c / d + 1.0
-ELSE
-  y     = (1.0 + gu * ABS(zeta_in))**0.5
-  r_psi = 2.0 * LOG((1.0 + y) * 0.5)
-END IF
-END FUNCTION psis
-
-! Test a guessed canopy air temperature tc at point l, for the search that
-! finds the temperature at which the canopy air's heat budget balances.
-! It gives the temperature of each set of leaves, the canopy humidity,
-! the leaves' total sensible and latent heat (W m-2 ground), and how far
-! tc is from balancing the canopy air's heat budget:
+! Solve the energy balance of every class at point l and store the leaf
+! temperatures, boundary layer conductances, lt_a and lt_b, the number
+! of classes held at dt_leaf and the leaves' total sensible and latent
+! heat (canopy_diag_mod). qs0 and qs1 are the saturation humidity
+! (kg kg-1) at tair and tair + 0.1 K, which give the slope s.
 !
-!   res = tc - tair - ra (sum of the leaves' H) / (rho cp)      (K)
-!
-! res rises with tc and is 0 at the solution. qs0 and qs1 are the
-! saturation humidity (kg kg-1) at tc and tc + 0.1 K, which give the
-! slope s.
-!
-! Sets of leaves whose latent heat would be negative (dew, at night) are
-! left out of the canopy humidity and their latent heat is set to 0.
-SUBROUTINE canopy_balance( l, tc, qs0, qs1, res, t_new, qc_new, h_out, le_out )
+! Sets of leaves whose latent heat would be negative (dew, at night) have
+! their latent heat set to 0.
+SUBROUTINE leaf_balance( l, qs0, qs1 )
 
 INTEGER, INTENT(IN) :: l
-REAL(KIND=real_jlslsm), INTENT(IN) :: tc, qs0, qs1
-REAL(KIND=real_jlslsm), INTENT(OUT) :: res, t_new(nc), qc_new, h_out, le_out
+REAL(KIND=real_jlslsm), INTENT(IN) :: qs0, qs1
 
 REAL(KIND=real_jlslsm) ::                                                      &
-  cp_mol, cmolar, lhv, slope, gamma_p, sig_t4, eps_air, grn1, gbhw, rho, c_q,  &
-  rn(nc), gh(nc), gbh(nc), a(nc), b(nc), le, dt, h_tot, lai_x(nc), gl_x(nc),   &
-  t_old(nc), frad(nc), ff(nc), gbhf, gsw, gbw, gw, den, grashof, ra_x, visc,   &
-  sum_a, sum_b
-INTEGER :: ic, it_q
-LOGICAL :: l_act(nc), l_neg
+  tc, cp_mol, cmolar, lhv, slope, gamma_p, sig_t4, eps_air, grn1, gbhw,        &
+  rn, gh, gbh, a, b, le, dt, h_tot, le_tot, gbhf, gsw, gbw, gw, den, grashof,  &
+  n_cl
+INTEGER :: ic
 
+tc      = tair(l)
 cp_mol  = cp * rmol / r
-ra_x    = ra_m(l)
 cmolar  = pstar(l) / ( rmol * tc )
 lhv     = ( lc - 2.365e3 * (tc - zerodegc) ) * m_h2o
 slope   = ( qs1 - qs0 ) / 0.1 * pstar(l) / repsilon
@@ -804,129 +431,80 @@ gamma_p = cp_mol * pstar(l) / lhv
 sig_t4  = sbcon * tc**4
 eps_air = lw_down(l) / sig_t4
 grn1    = 4.0 * eps_leaf * sbcon * tc**3 / cp_mol
-IF ( leaf_aero_model == 1 ) THEN
-  ! CABLE's gbvtop (Raupach et al., 1997, eq. 3.12), with the kinematic
-  ! viscosity of air (cable_air) and the floor CABLE applies.
-  visc  = 1.0e-5 * MAX(1.0, 1.35 + 0.0092 * (tc - zerodegc))
-  gbhw  = cmolar * apol * visc / prandt / leaf_width                           &
-          * SQRT(MAX(u_m(l), u_min) * leaf_width / visc)                       &
-          * prandt**(1.0 / 3.0) / leaf_shelter
-  gbhw  = MAX(gbv_min, gbhw)
-ELSE
-  gbhw  = 0.003 * SQRT(MAX(u_m(l), u_min) / leaf_width) * cmolar               &
+gbhw    = 0.003 * SQRT(MAX(u_wind(l), u_min) / leaf_width) * cmolar            &
           / leaf_shelter
-END IF
-rho     = pstar(l) / ( r * tair(l) )
 
-lai_x = lai_c(l,:)
-gl_x  = gl_c(l,:)
-t_old = t_cls(l,:)
-frad  = frad_c(l,:)
-ff    = ff_c(l,:)
+h_tot  = 0.0
+le_tot = 0.0
+n_cl   = 0.0
 DO ic = 1,nc
-  rn(ic) = sw_c(l,ic) + eps_leaf * (lw_down(l) - sig_t4) * wlw_c(l,ic)         &
-           - sig_t4 * (1.0 - eps_soil) * (eps_leaf - eps_air) * wlws_c(l,ic)
-END DO
+  rn = sw_c(l,ic) + eps_leaf * (lw_down(l) - sig_t4) * wlw_c(l,ic)             &
+       - sig_t4 * (1.0 - eps_soil) * (eps_leaf - eps_air) * wlws_c(l,ic)
 
-! LE of each class is a + b (qs(tc) - q_c) (W m-2).
-DO ic = 1,nc
-  a(ic)   = 0.0
-  b(ic)   = 0.0
-  gh(ic)  = 0.0
-  gbh(ic) = 0.0
-  gbw_last(ic) = 0.0
-  IF ( lai_x(ic) > EPSILON(0.0) ) THEN
-    ! Free convection from the last leaf - canopy air difference.
-    IF ( ABS(t_old(ic) - tc) > 1.0e-6 ) THEN
-      grashof = MAX(1.0e-6, 1.6e8 * ABS(t_old(ic) - tc) * leaf_width**3)
+  ! LE of the class is a + b (qs(tair) - q1) (W m-2).
+  a   = 0.0
+  b   = 0.0
+  gh  = 0.0
+  gbh = 0.0
+  gbw_c(l,ic) = 0.0
+  IF ( lai_c(l,ic) > EPSILON(0.0) ) THEN
+    ! Free convection from the last leaf - air difference.
+    IF ( ABS(t_cls(l,ic) - tc) > 1.0e-6 ) THEN
+      grashof = MAX(1.0e-6, 1.6e8 * ABS(t_cls(l,ic) - tc) * leaf_width**3)
       gbhf    = 0.5 * dheat * grashof**0.25 / leaf_width * cmolar
     ELSE
       gbhf    = 0.0
     END IF
-    gbh(ic) = gbhw * ff(ic) + gbhf * lai_x(ic)
-    gh(ic)  = 2.0 * gbh(ic) + grn1 * frad(ic)
-    gsw     = MAX(gl_x(ic), 0.0) * cmolar
-    gbw     = gbh_2_gbw * gbh(ic)
-    gbw_last(ic) = gbw / cmolar
+    gbh = gbhw * ff_c(l,ic) + gbhf * lai_c(l,ic)
+    gh  = 2.0 * gbh + grn1 * frad_c(l,ic)
+    gsw = MAX(gl_c(l,ic), 0.0) * cmolar
+    gbw = gbh_2_gbw * gbh
+    gbw_c(l,ic) = gbw / cmolar
     IF ( gsw > 0.0 .AND. gbw > 0.0 ) THEN
-      gw    = gbw * gsw / ( gbw + gsw )
-      den   = slope + gamma_p * gh(ic) / gw
-      a(ic) = slope * rn(ic) / den
-      b(ic) = gh(ic) * cp_mol * pstar(l) / repsilon / den
+      gw  = gbw * gsw / ( gbw + gsw )
+      den = slope + gamma_p * gh / gw
+      a   = slope * rn / den
+      b   = gh * cp_mol * pstar(l) / repsilon / den
     END IF
   END IF
-END DO
 
-! Canopy humidity:
-!
-!   q_c = q1 + c_q sum(LE),   c_q = ra / (rho L),
-!
-! with L the latent heat at tc that the leaves' LE uses (lhv / m_h2o,
-! J kg-1; the constant lc is 2-3 % off at 25-35 C). The soil's vapour flux
-! is rho g_soil (qs_soil - q_c), so ra multiplies g_soil.
-c_q    = ra_x * m_h2o / ( rho * lhv )
-
-! Only the classes whose LE is positive at the solved q_c take part, as the
-! leaf heat balance below clips each class's LE at 0: a class that would
-! condense (at night) adds no vapour to, and removes none from, the canopy
-! air. Classes are dropped and q_c re-solved until none of those left is
-! negative (at most nc passes; with none negative, a single solve).
-l_act(:) = .TRUE.
-DO it_q = 1,nc
-  sum_a  = 0.0
-  sum_b  = 0.0
-  DO ic = 1,nc
-    IF ( l_act(ic) ) THEN
-      sum_a = sum_a + a(ic)
-      sum_b = sum_b + b(ic)
-    END IF
-  END DO
-  qc_new = ( q1(l) + c_q * ( sum_a + sum_b * qs0 )                             &
-             + ra_x * g_soil(l) * qs_soil(l) )                                 &
-           / ( 1.0 + c_q * sum_b + ra_x * g_soil(l) )
-  l_neg = .FALSE.
-  DO ic = 1,nc
-    IF ( l_act(ic) .AND. a(ic) + b(ic) * (qs0 - qc_new) < 0.0 ) THEN
-      l_act(ic) = .FALSE.
-      l_neg = .TRUE.
-    END IF
-  END DO
-  IF ( .NOT. l_neg ) EXIT
-END DO
-
-h_tot  = 0.0
-le_out = 0.0
-ncl_last = 0.0
-DO ic = 1,nc
-  ! The leaf temperature as a function of the class's transpiration at
-  ! this tc (l_leaf_temp_ci),
+  ! The leaf temperature as a function of the class's transpiration
+  ! (l_leaf_temp_ci),
   !
-  !   T = tc + (rn - lhv E) / (cp_mol gh).
+  !   T = tair + (rn - lhv E) / (cp_mol gh).
   !
-  lta_last(ic) = tc
-  ltb_last(ic) = 0.0
-  IF ( lai_x(ic) > EPSILON(0.0) .AND. gh(ic) > 0.0 ) THEN
-    lta_last(ic) = tc + rn(ic) / ( cp_mol * gh(ic) )
-    ltb_last(ic) = lhv / ( cp_mol * gh(ic) )
+  IF ( PRESENT(lt_a_c) ) THEN
+    lt_a_c(l,ic) = tc
+    lt_b_c(l,ic) = 0.0
+    IF ( lai_c(l,ic) > EPSILON(0.0) .AND. gh > 0.0 ) THEN
+      lt_a_c(l,ic) = tc + rn / ( cp_mol * gh )
+      lt_b_c(l,ic) = lhv / ( cp_mol * gh )
+    END IF
   END IF
-  IF ( lai_x(ic) > EPSILON(0.0) ) THEN
-    le     = MAX(0.0, a(ic) + b(ic) * (qs0 - qc_new))
-    le_out = le_out + le
-    dt     = ( rn(ic) - le ) / ( cp_mol * gh(ic) )
+
+  IF ( lai_c(l,ic) > EPSILON(0.0) ) THEN
+    le     = MAX(0.0, a + b * (qs0 - q1(l)))
+    le_tot = le_tot + le
+    dt     = ( rn - le ) / ( cp_mol * gh )
     ! Count the classes held at the limit (t_leaf_clamp).
-    IF ( ABS(dt) > dt_leaf ) ncl_last = ncl_last + 1.0
+    IF ( ABS(dt) > dt_leaf ) n_cl = n_cl + 1.0
     dt     = MIN(MAX(dt, -dt_leaf), dt_leaf)
-    t_new(ic) = tc + dt
-    h_tot  = h_tot + 2.0 * gbh(ic) * cp_mol * dt
+    t_cls(l,ic) = tc + dt
+    h_tot  = h_tot + 2.0 * gbh * cp_mol * dt
   ELSE
-    t_new(ic) = tc
+    t_cls(l,ic) = tc
   END IF
 END DO
 
-res     = tc - tair(l) - ra_x * h_tot / ( rho * cp )
-h_out   = h_tot
+n_clamp(l) = n_cl
 
-END SUBROUTINE canopy_balance
+! For the canopy diagnostics (canopy_diag_mod).
+IF ( ALLOCATED(h_leaf_pts) ) THEN
+  h_leaf_pts(l)  = h_tot
+  le_leaf_pts(l) = le_tot
+END IF
+
+END SUBROUTINE leaf_balance
 
 END SUBROUTINE leaf_temp_update_n
 

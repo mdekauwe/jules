@@ -321,7 +321,7 @@ END FUNCTION g_of_geff
 !   carbon and water fluxes in a temperate oak forest despite hydraulic
 !   impairment. Biogeosciences, in review
 !
-! MDK, 01/11/26
+! MDK, 04/11/26
 ! *********************************************************************
 
 SUBROUTINE stom_opt_mod (                                                      &
@@ -411,7 +411,10 @@ INTEGER, INTENT(IN) ::                                                         &
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   r_bl(land_pts),                                                              &
                             ! Leaf boundary layer resistance (s/m, on the
-                            ! basis of gl), for l_som_coupled_e.
+                            ! basis of gl), for l_som_coupled_e and the
+                            ! multilayer canopy with l_leaf_temp. Where it
+                            ! is > 0 the CO2 and water vapour cross it in
+                            ! series with the stomata.
   r_ca(land_pts),                                                              &
                             ! Canopy air to level-1 resistance (s/m), for
                             ! l_som_coupled_e.
@@ -1559,7 +1562,8 @@ END FUNCTION leaf_net_photo
 ! the CO2, the transpiration E, and from the plant's water path (som_path_psi)
 ! the leaf water potential, the path conductance k and the conductance the
 ! hydraulic cost uses (the intact path's with xylem impairment). With
-! l_som_coupled_e the CO2 and the water vapour also cross the leaf boundary
+! l_som_coupled_e, or where there is a leaf boundary layer resistance
+! (r_bl > 0), the CO2 and the water vapour also cross the leaf boundary
 ! layer (gl_co2_bl, g_eff_e).
 !
 ! Entry 0 of each output is the closed-stomata state: Ci = ca, A = -rd, no
@@ -1567,7 +1571,7 @@ END FUNCTION leaf_net_photo
 ! and k that of the path with no flow. With l_photo_only only Ci, A, gl and
 ! E are set, and the hydraulic outputs are 0.
 !
-! MDK, 25/10/26
+! MDK, 04/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_mod_ci(                                                    &
 ! IN
@@ -1824,7 +1828,7 @@ DO j = 1,open_pts
   gl_sample(:,j)    = ratio * glco2_sample(:,j)
 
   ! Coupled: the CO2 crosses the leaf boundary layer too (gl_co2_bl).
-  IF ( l_som_coupled_e ) THEN
+  IF ( l_som_coupled_e .OR. r_bl(l) > 0.0 ) THEN
     gl_sample(:,j) = gl_co2_bl(al_sample(:,j),                                 &
                                MAX(ca(l) - ci_sample(:,j),                     &
                                    1.0e-2_real_jlslsm), conv, r_bl(l))
@@ -1840,10 +1844,13 @@ DO j = 1,open_pts
   l = veg_index(open_index(j))
   el_sample(:,j) = e_of_g(gl_sample(:,j), dq(l), pstar(l), t_leaf(l))
 
-  ! Coupled: E = D g_eff(g), dq the deficit to the level-1 air.
-  IF ( l_som_coupled_e ) el_sample(:,j) = e_of_g(                              &
-       g_eff_e(MAX(gl_sample(:,j), 0.0_real_jlslsm), r_bl(l), r_ca(l),         &
-               g_oth(l)), dq(l), pstar(l), t_leaf(l))
+  ! Coupled, or through a leaf boundary layer: E = D g_eff(g), dq the
+  ! deficit to the level-1 air.
+  IF ( l_som_coupled_e .OR. r_bl(l) > 0.0 ) THEN
+    el_sample(:,j) = e_of_g(g_eff_e(MAX(gl_sample(:,j), 0.0_real_jlslsm),     &
+                                    r_bl(l), r_ca(l), g_oth(l)),               &
+                            dq(l), pstar(l), t_leaf(l))
+  END IF
 END DO
 
 ! Transpiration can't be negative
@@ -2401,7 +2408,7 @@ END SUBROUTINE stom_opt_profit_max_select
 ! own leaf temperature, is returned too (rd_g), so the gross
 ! photosynthesis A + Rd is that of the same leaf temperature.
 !
-! MDK, 01/11/26
+! MDK, 04/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_bounded_search(                                            &
 ! IN
@@ -3444,13 +3451,15 @@ CONTAINS
   al_u = al
   gl_u = ratio * (al_u * rmol * t_leaf(l)) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
   ! (Coupled: the CO2 crosses the leaf boundary layer too.)
-  IF ( l_som_coupled_e ) gl_u = gl_co2_bl(al_u, MAX(ca(l) - ci,               &
-                                          1.0e-2_real_jlslsm),                 &
-                                          rmol * t_leaf(l), r_bl(l))
+  IF ( l_som_coupled_e .OR. r_bl(l) > 0.0 ) THEN
+    gl_u = gl_co2_bl(al_u, MAX(ca(l) - ci, 1.0e-2_real_jlslsm),               &
+                     rmol * t_leaf(l), r_bl(l))
+  END IF
   el_u = MAX(0.0, e_of_g(gl_u, dq(l), pstar(l), t_leaf(l)))
-  IF ( l_som_coupled_e ) el_u = e_of_g(g_eff_e(MAX(gl_u, 0.0_real_jlslsm),     &
-                                               r_bl(l), r_ca(l), g_oth(l)),    &
-                                       dq(l), pstar(l), t_leaf(l))
+  IF ( l_som_coupled_e .OR. r_bl(l) > 0.0 ) THEN
+    el_u = e_of_g(g_eff_e(MAX(gl_u, 0.0_real_jlslsm), r_bl(l), r_ca(l),        &
+                          g_oth(l)), dq(l), pstar(l), t_leaf(l))
+  END IF
   CALL psi_k_at_e()
   END SUBROUTINE hydraulic_state
 
@@ -3495,10 +3504,11 @@ CONTAINS
                            apar(l), fapar_lf(l), ipar(l), je_ratio(l),         &
                            pstar(l), rd(l) * f(7) )
     gl_u = ratio * (al_u * rmol * tl) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
-    IF ( l_som_coupled_e ) gl_u = gl_co2_bl(al_u, MAX(ca(l) - ci,             &
-                                            1.0e-2_real_jlslsm), rmol * tl,    &
-                                            r_bl(l))
-    IF ( l_som_coupled_e ) THEN
+    IF ( l_som_coupled_e .OR. r_bl(l) > 0.0 ) THEN
+      gl_u = gl_co2_bl(al_u, MAX(ca(l) - ci, 1.0e-2_real_jlslsm), rmol * tl,  &
+                       r_bl(l))
+    END IF
+    IF ( l_som_coupled_e .OR. r_bl(l) > 0.0 ) THEN
       c_e = e_of_g(g_eff_e(MAX(gl_u, 0.0_real_jlslsm), r_bl(l), r_ca(l),       &
                            g_oth(l)), 1.0_real_jlslsm, pstar(l), tl)
     ELSE
@@ -3728,8 +3738,8 @@ CONTAINS
   !
   !   f(Ci) = g_cap (ca - Ci) - 1.6 R T A(Ci) >= 0
   !
-  ! which falls with Ci, close to a straight line, and needs only A. With
-  ! l_som_coupled_e the CO2 also crosses the leaf boundary layer, and
+  ! which falls with Ci, close to a straight line, and needs only A. Where
+  ! r_bl > 0 the CO2 also crosses the leaf boundary layer, and
   ! 1.6 R T becomes R T (1.6 + 1.37 r_bl g_cap). The root of f is found by
   ! a bracketed straight-line search (Illinois) between the feasible edge
   ! so far and ci_top, and the state there is then evaluated in full. If the
@@ -3745,7 +3755,7 @@ CONTAINS
   IF ( gl_max(l) > 0.0 ) g_cap = gl_max(l)
   IF ( conv_e > 0.0 ) THEN
     ! (Coupled: the g whose transpiration is E_crit.)
-    IF ( l_som_coupled_e ) THEN
+    IF ( l_som_coupled_e .OR. r_bl(l) > 0.0 ) THEN
       g_cap = MIN(g_cap, g_of_geff(kmax(l)                                     &
        * supply_lut_e_crit(pft, psi_root_zone(l),                              &
                            kcrit(l) / MAX(kmax(l), TINY(1.0_real_jlslsm)))     &
@@ -3773,7 +3783,7 @@ CONTAINS
   !
   ! the same f with rk = R T_leaf (ratio + 1.37 r_bl g_cap).
   rk = ratio * rmol * t_leaf(l)
-  IF ( l_som_coupled_e .AND. r_bl(l) > 0.0 )                                   &
+  IF ( r_bl(l) > 0.0 )                                                         &
     rk = rmol * t_leaf(l) * (ratio + r_bl_co2_fac * r_bl(l) * g_cap)
 
   ! Bracket: the current edge e_ci (feasible, f >= 0) and the top of the

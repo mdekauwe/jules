@@ -666,8 +666,8 @@ LOGICAL ::                                                                     &
       ! class's leaf temperature; otherwise tstar) to the level-1 air q1;
       ! r_bl the leaf boundary layer (two-leaf with l_leaf_temp, from the
       ! leaf energy balance's gb; 0 otherwise); r_ca the canopy air to
-      ! level 1 (JULES's ra; with l_leaf_temp the leaf_aero_model's, 0 for
-      ! leaf_aero_model = 0); g'_other the other leaf class and the soil
+      ! level 1 (JULES's ra; 0 with l_leaf_temp, the leaves being in the
+      ! level-1 air); g'_other the other leaf class and the soil
       ! evaporation beneath the canopy (soil_evap's conductance, which
       ! shares the same path; with l_leaf_temp at qs(tstar), which adds
       ! r_ca g_soil (qs(T_leaf) - qs(tstar)) to D). The fixed-D_c
@@ -855,33 +855,12 @@ LOGICAL ::                                                                     &
       ! instead of both at the surface temperature tstar. The tile energy
       ! balance is unchanged (it still solves one tstar from gc).
       ! The multilayer canopy (can_rad_mod = 5, 6) solves the same leaf
-      ! energy balance as set by ml_leaf_temp_model; its passes are
-      ! leaf_temp_iter, as two-leaf.
+      ! energy balance for the sunlit and the shaded leaf of every layer,
+      ! as MAESPA, each from its own absorbed radiation, stomatal
+      ! conductance and boundary layer (the wind falling with depth, see
+      ! leaf_wind_ext); its passes are leaf_temp_iter, as two-leaf.
       !
-      ! MDK, 19/10/26
-INTEGER, PARAMETER ::                                                          &
-  ml_leaf_temp_aggregate = 1,                                                  &
-  ml_leaf_temp_layers    = 2
-      ! Values of ml_leaf_temp_model.
-      !
-      ! MDK, 19/10/26
-INTEGER ::                                                                     &
-  ml_leaf_temp_model = ml_leaf_temp_layers
-      ! With l_leaf_temp and the multilayer canopy (can_rad_mod = 5, 6), the
-      ! leaf energy balance:
-      ! 1 (ml_leaf_temp_aggregate): one sunlit and one shaded balance (the
-      !   two-leaf one) from the sunlit and shaded leaf area, absorbed
-      !   radiation and stomatal conductance summed over the layers; every
-      !   layer's sunlit (shaded) leaves are at that sunlit (shaded)
-      !   temperature.
-      ! 2 (ml_leaf_temp_layers, default): as MAESPA, a balance for the sunlit
-      !   and the shaded leaf of every layer, each from its own absorbed
-      !   radiation, stomatal conductance and boundary layer (the wind
-      !   falling with depth, see leaf_wind_ext), all exchanging with one
-      !   canopy air.
-      ! Not used otherwise.
-      !
-      ! MDK, 19/10/26
+      ! MDK, 04/11/26
 REAL(KIND=real_jlslsm) ::                                                      &
   leaf_width = 0.05
       ! Characteristic leaf width (m), for the leaf boundary layer
@@ -901,27 +880,13 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! leaf boundary-layer conductance (CABLE shelrb; 2 in CABLE).
 INTEGER ::                                                                     &
   leaf_aero_model = 0
-      ! With l_leaf_temp, the leaves' aerodynamic environment:
-      ! 0: as the two-leaf model two_leaf_at_WTC (Wang & Leuning, 1998;
-      !    Leuning et al., 1995): the leaves exchange directly with the
-      !    level-1 air (t_c = tair, q_c = q1), at the level-1 wind speed.
-      ! 1: CABLE's canopy aerodynamics (Raupach, 1994; Raupach et al., 1997,
-      !    CSIRO SCAM): the canopy air coupled to level 1 by rt1 from the
-      !    roughness-sublayer theory, with the wind at the canopy top,
-      !    u* / (u*/u_h), declining as exp(-coexp L/2) into the canopy. u*
-      !    and rt1 follow CABLE's Monin-Obukhov stability, iterated (4
-      !    times, as CABLE's niter) on the leaves' sensible and latent heat
-      !    (the soil's are not known in the leaf solve). The top-leaf
-      !    boundary-layer conductance is CABLE's gbvtop (Pohlhausen 0.7,
-      !    viscosity of air; floor 0.05 mol m-2 s-1) and u* uses CABLE's
-      !    1 m s-1 minimum wind. Use with leaf_shelter = 2 for CABLE's
-      !    shelrb; see also l_leaf_coexp_lai.
-      ! 2: through a canopy air space coupled to level 1 by JULES's ra
-      !    (neutral: physiol sets rib = 0), at the level-1 wind speed; for
-      !    comparison.
+      ! With l_leaf_temp, the leaves' aerodynamic environment. Only 0: as
+      ! MAESPA and the two-leaf model two_leaf_at_WTC (Wang & Leuning,
+      ! 1998; Leuning et al., 1995), the leaves exchange directly with the
+      ! level-1 air (tair, q1), at the level-1 wind speed.
 REAL(KIND=real_jlslsm) ::                                                      &
   leaf_wind_ext = 0.0
-      ! With l_leaf_temp and leaf_aero_model = 0 or 2, the extinction
+      ! With l_leaf_temp, the extinction
       ! coefficient of the wind in the canopy per unit cumulative leaf area
       ! above (dimensionless): u(L) = u_top exp(-leaf_wind_ext L), so the
       ! forced-convection boundary-layer conductance falls as
@@ -930,19 +895,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! no attenuation, every leaf at the level-1 wind. Applies to the
       ! two-leaf (can_rad_mod 7, through the wind-weighted class leaf area)
       ! and the multilayer (5, 6, layer by layer) leaf energy balance.
-      ! leaf_aero_model = 1 uses CABLE's own coexp instead.
       !
-      ! MDK, 19/10/26
-LOGICAL ::                                                                     &
-  l_leaf_coexp_lai = .FALSE.
-      ! With l_leaf_temp and leaf_aero_model = 1, apply the in-canopy wind
-      ! extinction coefficient coexp to normalised height, as it is derived
-      ! (Raupach, 1994; CSIRO SCAM eq. 3.14: u(z) = u_h exp(-coexp (1 -
-      ! z/h))), i.e. coexp / LAI per unit cumulative leaf area. .FALSE.
-      ! applies coexp per unit leaf area, as CABLE's gbhu does, which for
-      ! LAI > 1 attenuates the wind LAI times too fast (at LAI 5 the
-      ! forced-convection conductance of the canopy is 0.17 of the top
-      ! leaf's times the leaf area, against 0.59 with .TRUE.).
+      ! MDK, 04/11/26
 LOGICAL ::                                                                     &
   l_leaf_temp_gc_eq = .TRUE.
       ! With l_leaf_temp, return to the surface energy balance the canopy
@@ -1376,8 +1330,8 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
     l_leaf_temp, leaf_width, l_leaf_temp_gc_eq,                                &
     l_leaf_temp_ci,                                                            &
-    leaf_shelter, leaf_aero_model, l_leaf_coexp_lai, leaf_wind_ext,            &
-    ml_leaf_temp_model, kplant_model,                                          &
+    leaf_shelter, leaf_aero_model, leaf_wind_ext,                              &
+    kplant_model,                                                              &
     l_som_gain_gross,                                                          &
     l_som_cuticular_loss,                                                      &
     l_som_cuticular_day_only,                                                  &
@@ -2354,9 +2308,9 @@ IF ( .NOT. l_root_mass_fixed .AND. root_mass_min <= 0.0 ) THEN
                'root_mass_min must be > 0 (or set l_root_mass_fixed)')
 END IF
 
-! can_rad_mod 5 and 6: the multilayer canopy, see ml_leaf_temp_model.
+! can_rad_mod 5 and 6: the multilayer canopy, a balance for every layer.
 !
-! MDK, 19/10/26
+! MDK, 04/11/26
 IF ( l_leaf_temp .AND. ( can_rad_mod < 5 .OR. can_rad_mod > 7 .OR.             &
                          leaf_flux_mod /= leaf_flux_stom_opt ) ) THEN
   errcode = 101
@@ -2365,35 +2319,17 @@ IF ( l_leaf_temp .AND. ( can_rad_mod < 5 .OR. can_rad_mod > 7 .OR.             &
                'stomata_model=4 to 7 or 9')
 END IF
 
-IF ( l_leaf_temp .AND. ( leaf_shelter <= 0.0 .OR. leaf_aero_model < 0 .OR.     &
-                         leaf_aero_model > 2 ) ) THEN
+IF ( l_leaf_temp .AND. ( leaf_shelter <= 0.0 .OR. leaf_aero_model /= 0 ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_leaf_temp needs leaf_shelter > 0 and leaf_aero_model ' //    &
-               '0, 1 or 2')
+               'l_leaf_temp needs leaf_shelter > 0 and leaf_aero_model = 0')
 END IF
 
-IF ( l_leaf_temp .AND. l_leaf_coexp_lai .AND. leaf_aero_model /= 1 ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_leaf_coexp_lai is only used with leaf_aero_model = 1')
-END IF
 
-! MDK, 19/10/26
-IF ( l_leaf_temp .AND. ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) .AND.        &
-     ml_leaf_temp_model /= ml_leaf_temp_aggregate .AND.                        &
-     ml_leaf_temp_model /= ml_leaf_temp_layers ) THEN
+IF ( l_leaf_temp .AND. leaf_wind_ext < 0.0 ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'ml_leaf_temp_model must be 1 (aggregate) or 2 (per layer)')
-END IF
-
-IF ( l_leaf_temp .AND. ( leaf_wind_ext < 0.0 .OR.                              &
-     ( leaf_aero_model == 1 .AND. leaf_wind_ext > 0.0 ) ) ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_leaf_temp needs leaf_wind_ext >= 0, and 0 with ' //          &
-               'leaf_aero_model = 1 (which uses CABLE''s coexp)')
+               'l_leaf_temp needs leaf_wind_ext >= 0')
 END IF
 
 IF ( l_leaf_temp .AND. leaf_width <= 0.0 ) THEN
@@ -2802,11 +2738,7 @@ IF ( l_leaf_temp ) THEN
   CALL jules_print('jules_vegetation_mod',lineBuffer)
   WRITE(lineBuffer,*) ' leaf_shelter = ', leaf_shelter
   CALL jules_print('jules_vegetation_mod',lineBuffer)
-  WRITE(lineBuffer,*) ' l_leaf_coexp_lai = ', l_leaf_coexp_lai
-  CALL jules_print('jules_vegetation_mod',lineBuffer)
   WRITE(lineBuffer,*) ' leaf_wind_ext = ', leaf_wind_ext
-  CALL jules_print('jules_vegetation_mod',lineBuffer)
-  WRITE(lineBuffer,*) ' ml_leaf_temp_model = ', ml_leaf_temp_model
   CALL jules_print('jules_vegetation_mod',lineBuffer)
 END IF
 
@@ -3013,13 +2945,13 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 27
+INTEGER, PARAMETER :: n_int = 26
                                   ! The INTEGER items of my_namelist.
 INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! The REAL items: 20 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 63 + npft_max
-                                  ! The LOGICAL items: 63 scalars and
+INTEGER, PARAMETER :: n_log = 62 + npft_max
+                                  ! The LOGICAL items: 62 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
                                   ! MDK, 04/11/26
@@ -3031,7 +2963,6 @@ TYPE :: my_namelist
   INTEGER :: can_model
   INTEGER :: can_rad_mod
   INTEGER :: leaf_aero_model
-  INTEGER :: ml_leaf_temp_model
   INTEGER :: kplant_model
   INTEGER :: nsc_heartwood_model   ! MDK, 04/11/26
   INTEGER :: nsc_damage_response   ! MDK, 04/11/26
@@ -3088,7 +3019,6 @@ TYPE :: my_namelist
   LOGICAL :: l_leaf_temp
   LOGICAL :: l_leaf_temp_gc_eq
   LOGICAL :: l_leaf_temp_ci
-  LOGICAL :: l_leaf_coexp_lai
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_cuticular_loss
@@ -3212,9 +3142,7 @@ IF (mype == 0) THEN
   my_nml % l_leaf_temp = l_leaf_temp
   my_nml % l_leaf_temp_gc_eq = l_leaf_temp_gc_eq
   my_nml % l_leaf_temp_ci = l_leaf_temp_ci
-  my_nml % l_leaf_coexp_lai = l_leaf_coexp_lai
   my_nml % leaf_aero_model = leaf_aero_model
-  my_nml % ml_leaf_temp_model = ml_leaf_temp_model
   my_nml % kplant_model = kplant_model
   my_nml % nsc_heartwood_model = nsc_heartwood_model   ! MDK, 04/11/26
   my_nml % nsc_damage_response = nsc_damage_response   ! MDK, 04/11/26
@@ -3334,9 +3262,7 @@ IF (mype /= 0) THEN
   l_leaf_temp = my_nml % l_leaf_temp
   l_leaf_temp_gc_eq = my_nml % l_leaf_temp_gc_eq
   l_leaf_temp_ci = my_nml % l_leaf_temp_ci
-  l_leaf_coexp_lai = my_nml % l_leaf_coexp_lai
   leaf_aero_model = my_nml % leaf_aero_model
-  ml_leaf_temp_model = my_nml % ml_leaf_temp_model
   kplant_model = my_nml % kplant_model
   nsc_heartwood_model = my_nml % nsc_heartwood_model   ! MDK, 04/11/26
   nsc_damage_response = my_nml % nsc_damage_response   ! MDK, 04/11/26
