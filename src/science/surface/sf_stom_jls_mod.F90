@@ -4132,6 +4132,13 @@ CASE ( 7 )
     END IF
   END DO
 
+  ! The shared root and stem without the store: the plant's conductance
+  ! from one solve of the whole plant (kplant_shared_stem). With the store
+  ! it is the store's k_be, set below.
+  !
+  ! MDK, 04/11/26
+  IF ( l_som_shared_stem .AND. .NOT. l_store_cpl ) CALL kplant_shared_stem()
+
   ! As the big-leaf path: el in mol H2O m-2 s-1 and leaf_k per unit leaf
   ! area. (gc_som is set after the canopy switch.)
   leaf_k(:) = leaf_k(:) / MAX(lai(:), TINY(1.0_real_jlslsm))
@@ -5563,6 +5570,75 @@ DO ic = 1,2
 END DO
 
 END SUBROUTINE store_cpl_cls_psi
+
+!-----------------------------------------------------------------------------
+! Two-leaf canopy with the shared root and stem (l_som_shared_stem) and no
+! store: the plant's conductance for the output kplant (leaf_k, per m2
+! ground here). Each class's path conductance includes the whole root and
+! stem, so the sum of the two would count them twice. Instead the whole
+! plant (both classes' leaves, the root and stem, and the soil-to-root
+! link) is solved once at the canopy's transpiration E_sun + E_shd, as
+! store_cpl_q gives kplant with the store (store_cpl_eval with q = 0):
+!
+!   leaf_k = -dE / dpsi_leaf   of the whole plant.
+!
+! MDK, 04/11/26
+!-----------------------------------------------------------------------------
+SUBROUTINE kplant_shared_stem()
+
+IMPLICIT NONE
+
+INTEGER :: j, l, m, n_k
+INTEGER :: idx_k(land_pts)
+                            ! The points solved, as positions in veg_index.
+LOGICAL :: l_imp_k
+                            ! Xylem impairment active.
+REAL(KIND=real_jlslsm) :: e_k(land_pts), q0(land_pts), c0(land_pts),         &
+                          psi0(land_pts), f0(land_pts)
+                            ! Canopy E (mol m-2 s-1); no store flow, no
+                            ! capacitance and the store's psi (unused);
+                            ! the store's mismatch (unused).
+REAL(KIND=real_jlslsm) :: kref_k(land_pts), kmx_k(land_pts),                  &
+                          kcr_k(land_pts), kcap_k(land_pts)
+                            ! The canopy's intact and impaired kmax, kcrit
+                            ! and their ratio.
+REAL(KIND=real_jlslsm) :: psi1(1,land_pts), st1(1,land_pts), k1(1,land_pts)
+                            ! The leaf and stem psi, and the conductance.
+
+l_imp_k = .NOT. is_spinup .AND.                                                &
+          pft_xylem_impairment_model(ft) /= xylem_impairment_none
+e_k(:)    = 0.0
+q0(:)     = 0.0
+c0(:)     = 0.0
+psi0(:)   = 0.0
+kref_k(:) = 0.0
+kmx_k(:)  = 0.0
+kcr_k(:)  = 0.0
+kcap_k(:) = 1.0
+n_k = 0
+DO m = 1,veg_pts
+  l = veg_index(m)
+  share_sup(l) = 1.0
+  kref_k(l) = kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l)
+  IF ( kref_k(l) <= 0.0 ) CYCLE
+  kmx_k(l)  = kmax_sun_2l(l) + kmax_shd_2l(l)
+  kcr_k(l)  = kcrit_sun_2l(l) + kcrit_shd_2l(l)
+  kcap_k(l) = kmx_k(l) / kref_k(l)
+  e_k(l)    = MAX(el_sun(l) + el_shd(l), 0.0)
+  n_k = n_k + 1
+  idx_k(n_k) = m
+END DO
+IF ( n_k == 0 ) RETURN
+
+CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
+CALL store_cpl_eval( n_k, idx_k, l_imp_k, .FALSE., e_k, q0, c0, psi0,          &
+                     kref_k, kmx_k, kcr_k, kcap_k, psi1, st1, f0,              &
+                     k1_out = k1 )
+DO j = 1,n_k
+  leaf_k(veg_index(idx_k(j))) = k1(1,j)
+END DO
+
+END SUBROUTINE kplant_shared_stem
 
 !-----------------------------------------------------------------------------
 ! Plant capacitance: one guess of the search in store_cpl_q. For a guessed
