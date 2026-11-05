@@ -25,7 +25,7 @@ IMPLICIT NONE
 ! and shaded leaves set on the path while the stomatal optimiser
 ! searches.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 PRIVATE
 
 CHARACTER(LEN=*),PARAMETER,PRIVATE :: ModuleName='PLANT_HYDRAULIC_PATH_MOD'
@@ -139,10 +139,11 @@ LOGICAL, PUBLIC :: l_shared_gain_path = .FALSE.
 ! the solved and on the intact segments, infeasible flag), with the inputs
 ! it came from, and the whole-plant solve of the same inputs starts from
 ! it at the leaf segment. The root and stem are then not solved twice;
-! the result is the same to the bit. Cleared by set_shared_stem and
-! clear_shared_stem.
+! the result is the same to the bit. Both segment solvers keep it
+! (rs_lut: kept by the lookup-table solver). Cleared by set_shared_stem
+! and clear_shared_stem.
 LOGICAL :: l_rs_cache = .FALSE.
-LOGICAL :: rs_intact, rs_exact, rs_closed
+LOGICAL :: rs_intact, rs_exact, rs_closed, rs_lut
 INTEGER :: rs_l
 REAL(KIND=real_jlslsm) :: rs_e, rs_kmax, rs_kcrit, rs_psi0, rs_kcap,           &
                           rs_psi, rs_dpsi, rs_dpsi_int
@@ -745,7 +746,7 @@ END FUNCTION k_path_zero_flow
 ! With the gravity drop set (set_grav_drop), the stem's root-side water
 ! potential is the root's leaf-side one less the drop.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 ! *****************************************************************************
 SUBROUTINE psi_leaf_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
                                   veg_index, open_index, e_leaf,               &
@@ -928,7 +929,8 @@ DO j = 1, open_pnts
   kc_key = -1.0
   IF ( l_impair ) kc_key = kcap_frac(l)
   IF ( l_one .AND. l_shared_whole_path .AND. l_rs_cache ) THEN
-    IF ( rs_l == l .AND. rs_e == e_leaf(1,j) .AND. rs_kmax == kmax(l) .AND.   &
+    IF ( .NOT. rs_lut .AND.                                                   &
+         rs_l == l .AND. rs_e == e_leaf(1,j) .AND. rs_kmax == kmax(l) .AND.   &
          rs_kcrit == kcrit(l) .AND. rs_psi0 == root_zone_psi(l) .AND.         &
          rs_kcap == kc_key .AND. ( rs_intact .EQV. PRESENT(leaf_k_intact) )   &
          .AND. ( rs_exact .EQV. l_exact_on ) ) THEN
@@ -1071,6 +1073,7 @@ DO j = 1, open_pnts
     ! Keep the stem state of a class solve (l_rs_cache).
     IF ( iseg == 2 .AND. l_one .AND. .NOT. l_shared_whole_path ) THEN
       l_rs_cache  = .TRUE.
+      rs_lut      = .FALSE.
       rs_l        = l
       rs_e        = e_leaf(1,j)
       rs_kmax     = kmax(l)
@@ -1255,7 +1258,7 @@ END SUBROUTINE psi_leaf_segments_jls
 ! lut_seg_step. The gravity drop (set_grav_drop) is taken between the root
 ! and the stem, as in the Newton solver.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 ! *****************************************************************************
 SUBROUTINE psi_leaf_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
                                       veg_index, open_index, e_leaf,           &
@@ -1305,6 +1308,12 @@ REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de,  &
 ! The flow of the soil link, root and stem (E_r) and of the current
 ! segment.
 REAL(KIND=real_jlslsm) :: e_r, e_s
+! The shared root and stem, one sample at one point: the stem state is
+! kept by a class solve and reused by the whole-plant solve of the same
+! inputs (see l_rs_cache). iseg0 is the first segment solved.
+LOGICAL :: l_one
+INTEGER :: iseg0
+REAL(KIND=real_jlslsm) :: kc_key
 ! The segment's intact conductance at its inlet and outlet (mol m-2 s-1
 ! Pa-1).
 REAL(KIND=real_jlslsm) :: k_in_int, k_out_int
@@ -1318,6 +1327,8 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL build_supply_lut_seg(pft)
 l_impair = PRESENT(kcap_frac)
+l_one = l_shared_stem_path .AND. n_e_leaf == 1 .AND. open_pnts == 1
+IF ( l_one .AND. .NOT. l_shared_whole_path ) l_rs_cache = .FALSE.
 
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
@@ -1348,11 +1359,29 @@ DO j = 1, open_pnts
       END IF
     END IF
 
+    ! The whole-plant solve of the same inputs as the last class solve:
+    ! start at the leaf segment from the kept stem state (l_rs_cache).
+    iseg0 = 1
+    kc_key = -1.0
+    IF ( l_impair ) kc_key = kcap_frac(l)
+    IF ( l_one .AND. l_shared_whole_path .AND. l_rs_cache ) THEN
+      IF ( rs_lut .AND. rs_l == l .AND. rs_e == e_leaf(1,j) .AND.             &
+           rs_kmax == kmax(l) .AND. rs_psi0 == root_zone_psi(l) .AND.         &
+           rs_kcap == kc_key .AND.                                            &
+           ( rs_intact .EQV. PRESENT(leaf_k_intact) ) ) THEN
+        psi_in      = rs_psi
+        dpsi_de     = rs_dpsi
+        dpsi_de_int = rs_dpsi_int
+        IF ( PRESENT(stem_psi) ) stem_psi(i,j) = rs_psi
+        iseg0 = n_seg
+      END IF
+    END IF
+
     ! Root, stem then leaf in series. Each segment carries the same E, so its
     ! leaf-side psi comes from its own table with E divided by its own kmax, and
     ! becomes the next segment's root-side psi. dpsi_de carries dpsi/dE down the
     ! chain: from E = integral(k), k_out dpsi_out = k_in dpsi_in - dE.
-    DO iseg = 1, n_seg
+    DO iseg = iseg0, n_seg
       kmx = kmax(l) * seg_kmax_fac(pft,l,iseg)
       bs  = conductance_b_seg(pft,iseg)
       cs  = conductance_c_seg(pft,iseg)
@@ -1402,6 +1431,20 @@ DO j = 1, open_pnts
       psi_in  = psi_out
       IF ( iseg == 1 ) psi_in = psi_in - grav_node_drop(l)
       IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(i,j) = psi_out
+      ! Keep the stem state of a class solve (l_rs_cache).
+      IF ( iseg == 2 .AND. l_one .AND. .NOT. l_shared_whole_path ) THEN
+        l_rs_cache  = .TRUE.
+        rs_lut      = .TRUE.
+        rs_l        = l
+        rs_e        = e_leaf(1,j)
+        rs_kmax     = kmax(l)
+        rs_psi0     = root_zone_psi(l)
+        rs_kcap     = kc_key
+        rs_intact   = PRESENT(leaf_k_intact)
+        rs_psi      = psi_out
+        rs_dpsi     = dpsi_de
+        rs_dpsi_int = dpsi_de_int
+      END IF
     END DO
 
     ! The leaf segment's leaf-side psi is the leaf psi. The whole-plant
