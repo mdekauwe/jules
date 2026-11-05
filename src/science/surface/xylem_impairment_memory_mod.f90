@@ -26,10 +26,10 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='XYLEM_IMPAIRMENT_MEMORY_MOD'
 
 PRIVATE
 
-PUBLIC :: ximpair_ring_init, ximpair_ring_mean,                                &
-          ximpair_ring_grow, ximpair_ring_repair, ximpair_ring_functional,     &
-          ximpair_ring_damaged, ximpair_ring_working,                          &
-          ximpair_ring_cweight, ximpair_ring_cref, ximpair_ring_next_year
+PUBLIC :: ximpair_ring_init, ximpair_ring_loss_mean, ximpair_ring_grow,        &
+          ximpair_ring_repair, ximpair_ring_cond_intact,                       &
+          ximpair_ring_repairable, ximpair_ring_working,                       &
+          ximpair_ring_cond_mean, ximpair_ring_cond_ref, ximpair_ring_next_year
 PUBLIC :: ximpair_memory_alloc, ximpair_dilute_area,                           &
           leaf_conductance_impaired_memory_jls,                                &
           psi_leaf_impaired_memory,                                            &
@@ -591,9 +591,9 @@ END SUBROUTINE ring_sums
 ! vessels conduct, holds sapwood), L is the mean of the older rings'
 ! losses weighted by f_i alone, or 0 if they hold no sapwood.
 !
-! MDK, 31/10/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
-FUNCTION ximpair_ring_mean( l, pft ) RESULT( loss )
+FUNCTION ximpair_ring_loss_mean( l, pft ) RESULT( loss )
 
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 
@@ -622,7 +622,7 @@ ELSE
   IF (sum_f > 0.0) loss = sum_fl / sum_f
 END IF
 
-END FUNCTION ximpair_ring_mean
+END FUNCTION ximpair_ring_loss_mean
 
 ! ---------------------------------------------------------------------
 ! Return the sapwood's mean ability to conduct water compared with new
@@ -635,9 +635,9 @@ END FUNCTION ximpair_ring_mean
 ! on this day (ring_cond). With X_s the sapwood carbon and X_i = f_i X_s
 ! that of ring i, SUM_i X_i c_i is X_s times this value.
 !
-! MDK, 31/10/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
-FUNCTION ximpair_ring_cweight( l, pft ) RESULT( share )
+FUNCTION ximpair_ring_cond_mean( l, pft ) RESULT( share )
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, pft
@@ -649,7 +649,7 @@ REAL(KIND=real_jlslsm) :: swl, swf
 
 CALL ring_sums(l, pft, .FALSE., share, swl, swf)
 
-END FUNCTION ximpair_ring_cweight
+END FUNCTION ximpair_ring_cond_mean
 
 ! ---------------------------------------------------------------------
 ! Return the share of the sapwood that still conducts water (0-1), for
@@ -661,9 +661,9 @@ END FUNCTION ximpair_ring_cweight
 !
 ! where X_f is the conducting sapwood and X_s all the sapwood.
 !
-! MDK, 31/10/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
-FUNCTION ximpair_ring_functional( l, pft ) RESULT( share )
+FUNCTION ximpair_ring_cond_intact( l, pft ) RESULT( share )
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, pft
@@ -675,7 +675,7 @@ REAL(KIND=real_jlslsm) :: sw, swl
 
 CALL ring_sums(l, pft, .FALSE., sw, swl, share)
 
-END FUNCTION ximpair_ring_functional
+END FUNCTION ximpair_ring_cond_intact
 
 ! ---------------------------------------------------------------------
 ! Return the mean ability to conduct water (0-1) of the sapwood of a
@@ -694,9 +694,9 @@ END FUNCTION ximpair_ring_functional
 ! SUM_i X_i c_i = X_t c_ref on any date, whether its heartwood forms at
 ! nsc_heartwood_rate or faster under the pipe heartwood rule.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
-FUNCTION ximpair_ring_cref( l, pft ) RESULT( c_ref )
+FUNCTION ximpair_ring_cond_ref( l, pft ) RESULT( c_ref )
 
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 
@@ -721,7 +721,7 @@ DO j = 1, nsc_n_ring
 END DO
 IF (sum_s > 0.0) c_ref = c_ref / sum_s
 
-END FUNCTION ximpair_ring_cref
+END FUNCTION ximpair_ring_cond_ref
 
 ! ---------------------------------------------------------------------
 ! Xylem impairment, memory model: update the sapwood's annual rings over
@@ -909,9 +909,9 @@ END SUBROUTINE ximpair_ring_repair
 ! while the drought lasts. Times the sapwood X_s it is the carbon that
 ! repair needs (ximpair_ring_repair). 0 where the rings are not yet set.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
-FUNCTION ximpair_ring_damaged( l, pft ) RESULT( share )
+FUNCTION ximpair_ring_repairable( l, pft ) RESULT( share )
 
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 
@@ -934,14 +934,14 @@ DO i = 1, nsc_n_ring
 END DO
 share = MIN(MAX(share, 0.0), 1.0)
 
-END FUNCTION ximpair_ring_damaged
+END FUNCTION ximpair_ring_repairable
 
 ! ---------------------------------------------------------------------
 ! Return the share of the sapwood's conductance that still works (0-1),
 !
 !   1 - L = SUM_i f_i c_i (1 - L_i) / SUM_i f_i c_i,
 !
-! with L the stem's loss (ximpair_ring_mean), f_i ring i's share of the
+! with L the stem's loss (ximpair_ring_loss_mean), f_i ring i's share of the
 ! sapwood, c_i how well it conducts (ring_cond) and L_i its loss of
 ! conductance; -1 where the rings are not yet set.
 !
@@ -958,7 +958,7 @@ share = -1.0
 IF (.NOT. ALLOCATED(ximpair_ring_frac)) RETURN
 IF (ximpair_ring_frac(l,pft,1) < 0.0 .OR. ximpair_ring_year(l,pft) < 0.0)     &
   RETURN
-share = 1.0 - ximpair_ring_mean(l, pft)
+share = 1.0 - ximpair_ring_loss_mean(l, pft)
 
 END FUNCTION ximpair_ring_working
 
@@ -1353,7 +1353,7 @@ END SUBROUTINE psi_leaf_impaired_memory
 !    or with l_nsc_ring_additive the new wood replaces damaged xylem
 !    first, as in the MEDFATE model, and L becomes MAX(L - rho, 0). With
 !    the annual rings (l_nsc_sapwood_rings) nothing waits: the stem's
-!    loss is the rings' weighted mean (ximpair_ring_mean).
+!    loss is the rings' weighted mean (ximpair_ring_loss_mean).
 ! 3. Recovery of the leaf segment (l_ximpair_seg_memory). The leaf's
 !    loss falls as leaves are replaced,
 !
@@ -1393,19 +1393,12 @@ END SUBROUTINE psi_leaf_impaired_memory
 ! is stored for TRIFFID and, with l_trif_hydmort, for hydraulic
 ! mortality.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
-SUBROUTINE update_xylem_impairment_memory ( n_land_pts                         &
-,                                           n_open_pts                         &
-,                                           open_index                         &
-,                                           pft                                &
-,                                           psi_leaf                           &
-,                                           psi_root                           &
-,                                           psi_stem                           &
-,                                           kcap                               &
-,                                           psi_leaf_cls                       &
-,                                           w_cls                              &
-                                          )
+SUBROUTINE update_xylem_impairment_memory( n_land_pts, n_open_pts,             &
+                                           open_index, pft, psi_leaf,          &
+                                           psi_root, psi_stem, kcap,           &
+                                           psi_leaf_cls, w_cls )
 
 USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
                    ximpair_psi_driver, ximpair_reset_mmdd,                     &
@@ -1430,69 +1423,55 @@ USE ereport_mod, ONLY: ereport
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
-INTEGER, INTENT(IN) ::                                                         &
-  n_land_pts                                                                   &
-                            ! Number of land points
-, n_open_pts                                                                   &
-                            ! Number of points with open stomata
-, open_index(n_open_pts)                                                       &
-                            ! Land point of each point with open stomata
-, pft
-                            ! Plant functional type
+! Number of land points, of points with open stomata, the land point of
+! each, and the plant functional type.
+INTEGER, INTENT(IN) :: n_land_pts, n_open_pts, open_index(n_open_pts), pft
 
-REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
-  psi_leaf(n_land_pts)                                                         &
-                            ! Leaf water potential (Pa)
-, psi_root(n_land_pts)                                                         &
-                            ! Root zone water potential (Pa)
-, psi_stem(n_land_pts)
-                            ! Stem water potential (Pa; leaf-side end of the
-                            ! stem segment, = psi_root without segments)
+! Leaf and root-zone water potential (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_leaf(n_land_pts), psi_root(n_land_pts)
+! Stem water potential (Pa; leaf-side end of the stem segment, = psi_root
+! without segments).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_stem(n_land_pts)
 
-REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
-  kcap(n_land_pts)
-                            ! Conductance cap, kmax_pft * (1 - PLC_mem)
-                            ! (leaf basis).
+! Conductance cap, kmax_pft * (1 - PLC_mem) (leaf basis).
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: kcap(n_land_pts)
 
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
-  psi_leaf_cls(n_land_pts,2)                                                   &
-                            ! Leaf water potential of the sunlit (1) and
-                            ! shaded (2) leaves of the two-leaf canopy (Pa)
-, w_cls(n_land_pts,2)
-                            ! Their shares of the leaf area (sum 1)
+  ! Leaf water potential of the sunlit (1) and shaded (2) leaves of the
+  ! two-leaf canopy (Pa).
+  psi_leaf_cls(n_land_pts,2),                                                  &
+  ! Their shares of the leaf area (sum 1).
+  w_cls(n_land_pts,2)
 
-! Local variables
+! Point counters and an error code.
 INTEGER :: j, l, errcode
+! The leaf classes are given.
 LOGICAL :: l_cls
-                            ! The leaf classes are given.
+! Relative intact conductance of the leaf segment at this step's leaf
+! water potential.
 REAL(KIND=real_jlslsm) :: f_leaf
-                            ! Relative intact conductance of the leaf
-                            ! segment at this step's leaf water potential.
+! Queued ring share at one point.
 REAL(KIND=real_jlslsm) :: rep_l
-                            ! Queued ring share at one point.
 
+! Damage-driving water potential (Pa), the intact conductance there, and
+! the PFT's intact curve (kmax, kcrit, b in Pa, c) on each point.
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_x(n_land_pts), k_x(n_land_pts), kmax_pts(n_land_pts),                    &
   kcrit_pts(n_land_pts), b_pts(n_land_pts), c_pts(n_land_pts)
-                            ! Damage-driving water potential (Pa), the
-                            ! intact conductance there, and the PFT's
-                            ! intact curve (kmax, kcrit, b in Pa, c) on
-                            ! each point.
+! This timestep in years, for the leaf segment's recovery.
 REAL(KIND=real_jlslsm) :: dt_years
-                            ! This timestep in years, for the leaf
-                            ! segment's recovery.
+! kcrit / kmax (floor of the leaf segment's cap).
 REAL(KIND=real_jlslsm) :: frac_crit
-                            ! kcrit / kmax (floor of the leaf segment's
-                            ! cap).
 
+! Seconds in a year.
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_year = 365.25 * 86400.0
 ! Fraction of kmax - kcrit by which the whole-plant cap is held above
 ! kcrit.
 REAL(KIND=real_jlslsm), PARAMETER :: kcap_crit_margin = 1.0e-3
 
+! The warning that the rings' year was reset has been given.
 LOGICAL, SAVE :: l_ring_year_warned = .FALSE.
-                            ! The warning that the rings' year was reset
-                            ! has been given.
+
 
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -1594,7 +1573,7 @@ IF (l_ximpair_rec_nsc) THEN
   ! follows them and nothing is queued.
   IF (l_nsc_sapwood_rings) THEN
     DO l = 1, n_land_pts
-      kcap(l) = kmax_pts(l) * (1.0 - ximpair_ring_mean(l, pft))
+      kcap(l) = kmax_pts(l) * (1.0 - ximpair_ring_loss_mean(l, pft))
     END DO
   ELSE
     DO l = 1, n_land_pts
@@ -1664,7 +1643,7 @@ IF (l_ximpair_seg_memory) THEN
     IF (l_nsc_sapwood_rings) THEN
       ! Every ring takes at least the imposed loss.
       CALL ring_damage(l, 1.0 - seg_rel_k(pft, 2, psi_stem(l)))
-      kcap(l) = kmax_pts(l) * (1.0 - ximpair_ring_mean(l, pft))
+      kcap(l) = kmax_pts(l) * (1.0 - ximpair_ring_loss_mean(l, pft))
     ELSE
       kcap(l) = MIN(kcap(l), kmax_pts(l) * seg_rel_k(pft, 2, psi_stem(l)))
     END IF
@@ -1686,7 +1665,7 @@ ELSE
     IF (l_nsc_sapwood_rings) THEN
       ! Every ring takes at least the imposed loss.
       CALL ring_damage(l, 1.0 - k_x(l) / kmax_pts(l))
-      kcap(l) = kmax_pts(l) * (1.0 - ximpair_ring_mean(l, pft))
+      kcap(l) = kmax_pts(l) * (1.0 - ximpair_ring_loss_mean(l, pft))
     ELSE
       kcap(l) = MIN(kcap(l), k_x(l))
     END IF

@@ -178,7 +178,7 @@ USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_eff_pft,                  &
                             ! MDK, 04/11/26
 USE plant_water_store_mod, ONLY: store_w, store_q, store_c,                    &
                                  store_state_alloc, store_unset,               &
-                                 store_w_shed, leak_e
+                                 store_w_shed, leak_e, store_q_gap
                             ! MDK, 05/11/26
 USE pftparm, ONLY: cap_stem, kcrit_fractional_loss, conductance_b_seg,         &
                    conductance_c_seg
@@ -4403,6 +4403,16 @@ IF ( l_cap_store ) THEN
     e_bal(l) = MAX(el(l), 0.0)
   END DO
   CALL store_cpl_q( .TRUE., e_bal )
+  ! The passes' fixed point: the store's flow at the committed E against
+  ! the flow the last pass held fixed, relative to E (store_q_gap).
+  !
+  ! MDK, 05/11/26
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    store_q_gap(l,ft) = 0.0
+    IF ( e_bal(l) > 0.0 )                                                      &
+      store_q_gap(l,ft) = ABS(q_bal(l) - q_store(l)) / e_bal(l)
+  END DO
   IF ( l_som_cuticular_loss ) CALL store_cpl_leak_cut()
   DO m = 1,veg_pts
     l = veg_index(m)
@@ -5226,9 +5236,10 @@ REAL(KIND=real_jlslsm), PARAMETER :: rtol_bal = 1.0e-6
                             ! Tolerance on the bracket of q, relative to
                             ! its first width.
 
-INTEGER :: m, l, j, it, n_bal
-INTEGER :: idx_bal(land_pts)
-                            ! Positions in veg_index of the points solved.
+INTEGER :: m, l, j, it, n_bal, n_only
+INTEGER :: idx_bal(land_pts), idx_only(land_pts)
+                            ! Positions in veg_index of the points solved,
+                            ! and of those where the store gives all of E.
 LOGICAL :: l_imp_bal, l_all_done
 LOGICAL :: l_only(land_pts), l_bis(land_pts), l_done(land_pts)
                             ! The store pays all of E; next step bisects;
@@ -5440,18 +5451,26 @@ END DO
 ! give a far wetter leaf that conducts too well.
 ! (The root carries nothing, so the chain starts at the stem psi plus the
 ! gravity drop the root-stem node takes off.)
-IF ( ANY(l_only(veg_index(idx_bal(1:n_bal)))) ) THEN
+! Only those points are solved again.
+n_only = 0
+DO j = 1,n_bal
+  IF ( l_only(veg_index(idx_bal(j))) ) THEN
+    n_only = n_only + 1
+    idx_only(n_only) = idx_bal(j)
+  END IF
+END DO
+IF ( n_only > 0 ) THEN
   psi_from(:) = psi_src(:)
-  DO j = 1,n_bal
-    l = veg_index(idx_bal(j))
-    IF ( l_only(l) ) psi_from(l) = psi_st_bal(l) + grav_node_drop(l)
+  DO j = 1,n_only
+    l = veg_index(idx_only(j))
+    psi_from(l) = psi_st_bal(l) + grav_node_drop(l)
   END DO
-  CALL store_cpl_eval( n_bal, idx_bal, l_imp_bal, l_ex, e_c, q_try, c_p,      &
+  CALL store_cpl_eval( n_only, idx_only, l_imp_bal, l_ex, e_c, q_try, c_p,     &
                        psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1, f_try, &
                        psi_from = psi_from )
-  DO j = 1,n_bal
-    l = veg_index(idx_bal(j))
-    IF ( l_only(l) ) psi_l_bal(l) = psi1(1,j)
+  DO j = 1,n_only
+    l = veg_index(idx_only(j))
+    psi_l_bal(l) = psi1(1,j)
   END DO
 END IF
 

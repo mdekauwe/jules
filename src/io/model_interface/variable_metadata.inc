@@ -10979,4 +10979,18 @@ DATA metadata(847) / var_metadata(                                             &
 ! Units
     "s m-1"                                                                    &
   ) /
+!-----------------------------------------------------------------------------
+! The capacitance store's fixed point.
+! MDK, 05/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(848) / var_metadata(                                             &
+! String identifier
+    'store_q_gap_pft',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Capacitance store: flow at commit vs last pass, relative to E",           &
+! Units
+    "-"                                                                        &
+  ) /
 #endif

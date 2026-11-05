@@ -29,7 +29,7 @@ USE trifctl, ONLY: asteps_phen
 USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state, store_e_prev,          &
                              shared_e_shd_prev, shared_amax_shd_prev
 USE plant_water_store_mod, ONLY: store_q, store_w, store_unset, store_c,       &
-                                 store_w_shed, leak_e
+                                 store_w_shed, leak_e, store_q_gap
 USE water_constants_mod, ONLY: Water_kg_per_mol
 USE phen_budburst_mod, ONLY: phen_gdd, phen_bb_day, phen_dormant
 USE triffid_hydmort_mod, ONLY: hydmort_g_pft, hydmort_m_pft,                   &
@@ -54,7 +54,7 @@ USE triffid_nsc_mod, ONLY: nsc_k_area_raw, nsc_lai_sap_cap,                    &
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
 USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_functional
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_cond_intact
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
 USE canopy_diag_mod, ONLY: gc_stomatal_pft, gsoil_pft, t_can_air_pft,          &
@@ -4142,6 +4142,15 @@ CASE ( 'leak_e_pft' )
 
 ! Deficit carried away by shed tissue this timestep (kg m-2), for the
 ! water budget.
+CASE ( 'store_q_gap_pft' )
+  ! The passes' fixed point (plant_water_store_mod).
+  !
+  ! MDK, 05/11/26
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(store_q_gap) ) workspace_pft(:,:) = store_q_gap(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
 CASE ( 'store_w_shed_pft' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(store_w_shed) ) workspace_pft(:,:) = store_w_shed(:,:)
@@ -4255,7 +4264,7 @@ CASE ( 'ximpair_ring_func' )
     DO n = 1,npft
       DO l = 1,land_pts
         IF ( ximpair_ring_frac(l,n,1) >= 0.0 )                                 &
-          workspace_pft(l,n) = ximpair_ring_functional(l, n)
+          workspace_pft(l,n) = ximpair_ring_cond_intact(l, n)
       END DO
     END DO
   END IF

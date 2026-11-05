@@ -688,7 +688,7 @@ END SUBROUTINE triffid_nsc_alloc
 !   6. With the Trugman response, gives repairing damaged xylem first
 !      call on the release (nsc_repair_claim); TRIFFID grows from the rest.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,         &
                               leafc, rootc, npp, pft_only )
@@ -707,7 +707,7 @@ USE pftparm, ONLY: nsc_grow_thresh
 USE model_time_mod, ONLY: current_time
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_damaged
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_repairable
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -919,7 +919,7 @@ DO n = n1,n2
     ! (the leaf regrowth, the flush and the overflow below are not used).
     ! The claim is at most that release and the carbon repair needs, the
     ! conductance it can restore in units of new ring,
-    ! X_s SUM_i f_i c_i MAX(L_i - L_p, 0) (ximpair_ring_damaged).
+    ! X_s SUM_i f_i c_i MAX(L_i - L_p, 0) (ximpair_ring_repairable).
     ! Not in spin-up or before the rings and the sapwood are set.
     nsc_repair_claim(l,n) = 0.0
     IF (nsc_damage_response == nsc_damage_trugman .AND. .NOT. is_spinup      &
@@ -927,7 +927,7 @@ DO n = n1,n2
       IF (ALLOCATED(nsc_sapwood)) THEN
         IF (nsc_sapwood(l,n) > 0.0) THEN
           nsc_repair_claim(l,n) = MIN(w, nsc_sapwood(l,n)                     &
-                                         * ximpair_ring_damaged(l, n) / dt)
+                                         * ximpair_ring_repairable(l, n) / dt)
           w = w - nsc_repair_claim(l,n)
         END IF
       END IF
@@ -1426,20 +1426,21 @@ END SUBROUTINE triffid_nsc_daily
 !
 ! with X_s the sapwood and X_t its pipe-model target (both kg C m-2), f_i
 ! each ring's share of the sapwood, c_i its conductivity by age and season
-! (ximpair_ring_cweight gives the sum), and c_ref the mean conductivity of
-! a stand in equilibrium on the same day (ximpair_ring_cref). Without the
+! (ximpair_ring_cond_mean gives the sum), and c_ref the mean conductivity of
+! a stand in equilibrium on the same day (ximpair_ring_cond_ref). Without the
 ! rings f_A = MIN(1, X_s / X_t). f_A is 1 until the sapwood and its target
 ! are set (in spin-up and before the first ring step), and at least
 ! nsc_f_a_min, so the plant keeps a conducting path. f_raw, if present, is
 ! the ratio before the MIN and the floor.
 !
-! MDK, 01/11/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
 FUNCTION nsc_k_area( l, n, f_raw ) RESULT( f_a )
 
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_year,  &
-                                       ximpair_ring_cweight, ximpair_ring_cref
+                                       ximpair_ring_cond_mean,                 &
+                                       ximpair_ring_cond_ref
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, n
@@ -1464,10 +1465,10 @@ r = x_s / x_t
 IF (l_nsc_sapwood_rings .AND. ALLOCATED(ximpair_ring_frac)) THEN
   IF (ximpair_ring_frac(l,n,1) >= 0.0 .AND.                                   &
       ximpair_ring_year(l,n) >= 0.0) THEN
-    c_ref = ximpair_ring_cref(l, n)
+    c_ref = ximpair_ring_cond_ref(l, n)
     r = 1.0
     IF (c_ref > 0.0) THEN
-      r   = x_s * ximpair_ring_cweight(l, n) / (x_t * c_ref)
+      r   = x_s * ximpair_ring_cond_mean(l, n) / (x_t * c_ref)
       f_a = MIN(1.0, r)
     END IF
     f_a = MAX(f_a, nsc_f_a_min)
@@ -1494,14 +1495,15 @@ END FUNCTION nsc_k_area
 ! was set on. Returns -1 when the sapwood, its target or the pipe model is
 ! not set (in spin-up and before the first ring step).
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
 FUNCTION nsc_lai_sapwood( l, n, ht ) RESULT( lai_s )
 
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
 USE pftparm, ONLY: eta_sl
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_year,  &
-                                       ximpair_ring_cweight, ximpair_ring_cref
+                                       ximpair_ring_cond_mean,                 &
+                                       ximpair_ring_cond_ref
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, n
@@ -1524,9 +1526,9 @@ x_a = nsc_sapwood(l,n)
 IF (l_nsc_sapwood_rings .AND. ALLOCATED(ximpair_ring_frac)) THEN
   IF (ximpair_ring_frac(l,n,1) < 0.0 .OR. ximpair_ring_year(l,n) < 0.0)      &
     RETURN
-  c_ref = ximpair_ring_cref(l, n)
+  c_ref = ximpair_ring_cond_ref(l, n)
   IF (c_ref <= 0.0) RETURN
-  x_a = x_a * ximpair_ring_cweight(l, n) / c_ref
+  x_a = x_a * ximpair_ring_cond_mean(l, n) / c_ref
 END IF
 
 lai_s = x_a / (eta_sl(n) * ht)

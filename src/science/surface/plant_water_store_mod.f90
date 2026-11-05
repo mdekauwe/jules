@@ -78,7 +78,7 @@ USE water_constants_mod, ONLY: Water_kg_per_mol
 IMPLICIT NONE
 
 PRIVATE
-PUBLIC :: store_w, store_q, store_c, store_w_shed, leak_e,                     &
+PUBLIC :: store_w, store_q, store_c, store_w_shed, leak_e, store_q_gap,        &
           store_state_alloc, store_unset, store_return, store_wt_root,         &
           store_w_soil, store_w_root_avail
 
@@ -123,6 +123,15 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_w_shed(:,:)
 ! output leak_e_pft is the tile's final transpiration at these points
 ! (sf_evap corrects the flux for the soil supply and the canopy coupling).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: leak_e(:,:)
+
+! How far the store's flow the optimiser saw in its last pass (held fixed
+! there, assumption 3) is from the flow at the committed E this timestep,
+! relative to that E (-; 0 where the canopy does not transpire):
+!
+!   |q_commit - q_last pass| / E.
+!
+! A diagnostic of the passes' fixed point (output store_q_gap_pft).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_q_gap(:,:)
 
 ! Root extraction weights of each PFT at each land point this timestep
 ! (fraction of the root uptake from each soil layer, summing to 1), set in
@@ -175,12 +184,13 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 IF (.NOT. ALLOCATED(store_w)) THEN
   ALLOCATE(store_w(n_land_pts, npft), store_q(n_land_pts, npft),               &
            store_c(n_land_pts, npft), store_w_shed(n_land_pts, npft),          &
-           leak_e(n_land_pts, npft))
+           leak_e(n_land_pts, npft), store_q_gap(n_land_pts, npft))
   store_w(:,:)      = store_unset
   store_q(:,:)      = 0.0
   store_c(:,:)      = 0.0
   store_w_shed(:,:) = 0.0
   leak_e(:,:)       = 0.0
+  store_q_gap(:,:)  = 0.0
 END IF
 
 IF (.NOT. ALLOCATED(store_wt_root)) THEN
