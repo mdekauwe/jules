@@ -146,7 +146,8 @@ MODULE triffid_nsc_mod
 ! so it does not drift through the run. The new ring renews about
 ! k_h + g_t of the sapwood each year, so the sapwood turnover, which can be
 ! measured, sets the recovery rate. A ring year with a net loss of wood
-! (S < 0) also takes |S| from X_s.
+! (S < 0) takes the sapwood's share of it, X_s |S| / (C_W + |S|), as
+! dieback and mortality take sapwood and heartwood alike.
 !
 ! 7. Ring cohorts (l_nsc_sapwood_rings, with the sapwood pool)
 !
@@ -1571,7 +1572,7 @@ END FUNCTION nsc_lai_sapwood
 !      for repair replaces damaged sapwood in the rings
 !      (ximpair_ring_repair).
 !   7. At the end of the ring year, the year's net wood growth S settles
-!      the deficit D, a net loss of wood also comes off the sapwood, and
+!      the deficit D, a net loss of wood takes its sapwood share, and
 !      with the pipe-model target this ring year's peak LAI becomes last
 !      year's.
 !
@@ -1643,6 +1644,8 @@ REAL(KIND=real_jlslsm) :: dt, g_step
 ! Sapwood pool: the wood before the step (kg C m-2) and TRIFFID's wood
 ! turnover rate (per 360 days).
 REAL(KIND=real_jlslsm) :: wood_old, g_turn
+! The wood before a ring year's net loss (kg C m-2).
+REAL(KIND=real_jlslsm) :: wood_pre
 ! Day of year now, days in this year, days of this step, day counter,
 ! a day of the step and the ring year's end day.
 INTEGER :: doy_now, n_days, nd, k, d, doy_end
@@ -1900,15 +1903,23 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! so D keeps only the over-count (growth counted before a loss that
       ! was not regrown) for next year's growth to repay, and a lasting
       ! loss of wood does not hold back later rings. With the sapwood
-      ! pool a net loss of wood also leaves the sapwood, |S| (all rings
-      ! alike). With the pipe-model target the ring year's peak LAI
-      ! becomes last year's.
+      ! pool a net loss of wood takes sapwood and heartwood alike, as
+      ! dieback and mortality do: the sapwood loses its share of the wood
+      ! before the loss (all rings alike),
+      !
+      !   X_s <- X_s (1 + MIN(S, 0) / (C_W - MIN(S, 0))),
+      !
+      ! with C_W the wood now. With the pipe-model target the ring year's
+      ! peak LAI becomes last year's.
       IF (l_ring_end) THEN
         nsc_wood_lost(l,n) = MAX(nsc_wood_lost(l,n)                            &
                                     + MIN(nsc_net_wood_growth(l,n), 0.0), 0.0)
-        IF (l_nsc_sapwood_pool)                                                &
+        IF (l_nsc_sapwood_pool .AND. nsc_net_wood_growth(l,n) < 0.0) THEN
+          wood_pre = MAX(woodc(l,n), 0.0) - nsc_net_wood_growth(l,n)
           nsc_sapwood(l,n) = MAX(nsc_sapwood(l,n)                              &
-                                 + MIN(nsc_net_wood_growth(l,n), 0.0), 0.0)
+                                 * (1.0 + nsc_net_wood_growth(l,n)             &
+                                          / wood_pre), 0.0)
+        END IF
         nsc_net_wood_growth(l,n) = 0.0
         IF (l_nsc_pipe_target) THEN
           nsc_lai_peak_prev(l,n) = nsc_lai_peak(l,n)
