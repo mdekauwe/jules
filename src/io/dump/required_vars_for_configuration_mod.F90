@@ -272,17 +272,16 @@ END IF
 !
 ! MDK, 22/10/26
 IF ( l_som_vcmax_psi ) CALL add_to_list( 'fvcmax_psi_state', nvars, identifiers )
-! The capacitance store (its water, stem psi and capacitance), and its
+! The capacitance store (its water and capacitance), and its
 ! flow and the canopy transpiration of the last timestep, which the next
 ! step's first pass starts from, so a restart reproduces a continuous run
 ! (l_som_capacitance_on: with the stomatal optimisation only).
 !
 ! MDK, 04/11/26
 IF ( l_som_capacitance_on ) THEN
-  CALL add_to_list( 'cut_w_store', nvars, identifiers )
-  CALL add_to_list( 'cut_psi_stem', nvars, identifiers )
-  CALL add_to_list( 'cut_c_store', nvars, identifiers )
-  CALL add_to_list( 'cut_q_store', nvars, identifiers )
+  CALL add_to_list( 'store_w', nvars, identifiers )
+  CALL add_to_list( 'store_c', nvars, identifiers )
+  CALL add_to_list( 'store_q', nvars, identifiers )
   CALL add_to_list( 'store_e_prev', nvars, identifiers )
 END IF
 ! The shared root and stem (two-leaf): the shaded leaves' transpiration

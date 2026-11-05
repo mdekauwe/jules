@@ -54,8 +54,8 @@ USE jules_surface_types_mod, ONLY: lake, npft, soil
 USE jules_hydrology_mod, ONLY: l_soil_evap_or
 USE soil_evap_or_mod, ONLY: w1_or
 USE jules_vegetation_mod, ONLY: l_som_capacitance_on   ! MDK, 04/11/26
-USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_store_return,           &
-                                    cut_wt_root, cut_w_soil, cut_w_root_avail
+USE plant_water_store_mod, ONLY: store_q, store_return, store_wt_root,         &
+                                 store_w_soil, store_w_root_avail
 USE ereport_mod, ONLY: ereport
 
 USE jules_science_fixes_mod, ONLY: l_fix_neg_snow
@@ -208,7 +208,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ,le_surft_old(land_pts,nsurft)                                                  &
 !                            ! Surf latent heat flux before adjustment.
 ,t_stom(land_pts,nsurft)                                                       &
-!                            ! Cuticular-loss store: stomatal
+!                            ! Plant capacitance store: stomatal
 !                            ! transpiration (kg/m2/s).
 ,esoil_ext(land_pts,nsurft)                                                    &
 !                            ! Flux taken from soil moisture (kg/m2/s):
@@ -240,11 +240,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
                        ! the roots can reach over the tiles (kg/m2).
                        !
                        ! MDK, 01/11/26
-LOGICAL :: l_cut_store
-                       ! The plant water store of the cuticular loss under
-                       ! the stomatal optimisation (cuticular_leak_state_mod).
+LOGICAL :: l_store
+                       ! The plant capacitance store under the stomatal
+                       ! optimisation (plant_water_store_mod).
                        !
-                       ! MDK, 22/10/26
+                       ! MDK, 05/11/26
 INTEGER :: errcode
 
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -281,8 +281,8 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='SF_EVAP'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-l_cut_store = l_som_capacitance_on   ! MDK, 23/10/26
-IF ( l_cut_store .AND. ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
+l_store = l_som_capacitance_on   ! MDK, 23/10/26
+IF ( l_store .AND. ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
   errcode = 101
   CALL ereport('sf_evap', errcode, 'The plant water store of the stomatal ' //&
                'optimisation is coded for nsoilt = 1, ' //                     &
@@ -817,14 +817,14 @@ esoil_ext(:,:) = esoil_surft(:,:)
 
 ! Plant capacitance of the stomatal optimisation (l_som_capacitance, or
 ! l_som_cuticular_loss): the soil gives the transpiration less the store's
-! flow out (cut_q_store, set in sf_stom),
+! flow out (store_q, set in sf_stom),
 !
 !   soil extraction = esoil - MIN(q_store, T),
 !
 ! so soil + plant + atmosphere water is conserved: the store pays part of
 ! the transpiration (and the leak) and refills from the soil later. The
 ! store's flow is root uptake, so it is taken from (refill) or left in
-! (give) the soil layers with the root weights (cut_wt_root, set in
+! (give) the soil layers with the root weights (store_wt_root, set in
 ! physiol), not the weights of the whole flux, which include the soil
 ! evaporation from layer 1.
 !
@@ -832,20 +832,20 @@ esoil_ext(:,:) = esoil_surft(:,:)
 !      esoil); what it cannot give stays in the store.
 !   2. The refills (q_store < 0) and the stomatal transpiration the soil
 !      still gives together take at most the water the roots can reach
-!      (cut_w_root_avail: the water above the closure point, weighted by the
+!      (store_w_root_avail: the water above the closure point, weighted by the
 !      root weights). smc_soilt cannot be used here: at night soil_evap
 !      gives all the weight to layer 1, so it would hold the top layer only.
 !   3. The refill from each layer, added to that layer's extraction
 !      without the store, takes at most the layer's unfrozen water
-!      (cut_w_soil); the refills are cut by the fraction that the most
+!      (store_w_soil); the refills are cut by the fraction that the most
 !      limiting layer can supply.
 !
 ! What is not given or not supplied goes back to the store through
-! cut_store_return.
+! store_return.
 !
 ! MDK, 02/11/26
-IF ( l_cut_store ) THEN
-  IF ( ALLOCATED(cut_q_store) ) THEN
+IF ( l_store ) THEN
+  IF ( ALLOCATED(store_q) ) THEN
     DO n = 1,npft
       DO k = 1,surft_pts(n)
         l = surft_index(k,n)
@@ -864,10 +864,10 @@ IF ( l_cut_store ) THEN
         ! Step 1: the soil gives esoil less the store's flow out, which is at
         ! most T; the rest of the flow out goes back to the store.
         esoil_ext(l,n) = esoil_surft(l,n)                                      &
-                         - MIN(cut_q_store(l,n), MAX(t_stom(l,n), 0.0))
-        IF ( cut_q_store(l,n) > MAX(t_stom(l,n), 0.0) )                        &
-          CALL cut_store_return( l, n, timestep,                               &
-                                 cut_q_store(l,n) - MAX(t_stom(l,n), 0.0) )
+                         - MIN(store_q(l,n), MAX(t_stom(l,n), 0.0))
+        IF ( store_q(l,n) > MAX(t_stom(l,n), 0.0) )                            &
+          CALL store_return( l, n, timestep,                                   &
+                                 store_q(l,n) - MAX(t_stom(l,n), 0.0) )
       END DO
     END DO
     ! Step 2: the refills and the stomatal transpiration the soil still
@@ -884,7 +884,7 @@ IF ( l_cut_store ) THEN
         sum_t  = sum_t + tile_frac(l,n)                                        &
                  * MAX(t_stom(l,n) - MAX(esoil_surft(l,n) - esoil_ext(l,n), 0.0), &
                        0.0)
-        w_root = w_root + tile_frac(l,n) * cut_w_root_avail(l,n)
+        w_root = w_root + tile_frac(l,n) * store_w_root_avail(l,n)
       END DO
       excess = sum_t + sum_q - w_root / timestep
       IF ( excess > 0.0 .AND. sum_q > 0.0 ) THEN
@@ -893,7 +893,7 @@ IF ( l_cut_store ) THEN
                    * MAX(esoil_ext(l,n) - esoil_surft(l,n), 0.0)
           IF ( dq_cut > 0.0 ) THEN
             esoil_ext(l,n) = esoil_ext(l,n) - dq_cut
-            CALL cut_store_return( l, n, timestep, -dq_cut )
+            CALL store_return( l, n, timestep, -dq_cut )
           END IF
         END DO
       END IF
@@ -913,13 +913,13 @@ IF ( l_cut_store ) THEN
                             * ( esoil_surft(l,n) + des_or(l,n) )
           IF ( m == 1 ) w_base = w_base - tile_frac(l,n) * des_or(l,n)
           IF ( n <= npft ) THEN
-            w_give   = w_give + tile_frac(l,n) * cut_wt_root(l,m,n)           &
+            w_give   = w_give + tile_frac(l,n) * store_wt_root(l,m,n)          &
                        * MAX(esoil_surft(l,n) - esoil_ext(l,n), 0.0)
-            w_refill = w_refill + tile_frac(l,n) * cut_wt_root(l,m,n)         &
+            w_refill = w_refill + tile_frac(l,n) * store_wt_root(l,m,n)        &
                        * MAX(esoil_ext(l,n) - esoil_surft(l,n), 0.0)
           END IF
         END DO
-        excess = w_base - w_give + w_refill - cut_w_soil(l,m) / timestep
+        excess = w_base - w_give + w_refill - store_w_soil(l,m) / timestep
         IF ( excess > 0.0 .AND. w_refill > 0.0 )                               &
           f_lay = MIN(f_lay, MAX(1.0 - excess / w_refill, 0.0))
       END DO
@@ -929,7 +929,7 @@ IF ( l_cut_store ) THEN
           dq_cut = (1.0 - f_lay) * MAX(esoil_ext(l,n) - esoil_surft(l,n), 0.0)
           IF ( dq_cut > 0.0 ) THEN
             esoil_ext(l,n) = esoil_ext(l,n) - dq_cut
-            CALL cut_store_return( l, n, timestep, -dq_cut )
+            CALL store_return( l, n, timestep, -dq_cut )
           END IF
         END DO
       END IF
@@ -970,11 +970,11 @@ DO m = 1,sm_levels
           ! root weights.
           !
           ! MDK, 01/11/26
-          IF ( l_cut_store .AND. n <= npft .AND. ALLOCATED(cut_wt_root) ) THEN
+          IF ( l_store .AND. n <= npft .AND. ALLOCATED(store_wt_root) ) THEN
             ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                              &
                               + tile_frac(l,n) * ( wt_ext_surft(l,m,n)         &
                               * ( esoil_surft(l,n) + des_or(l,n) )             &
-                              + cut_wt_root(l,m,n)                             &
+                              + store_wt_root(l,m,n)                           &
                               * ( esoil_ext(l,n) - esoil_surft(l,n) ) )
           ELSE
             ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                              &

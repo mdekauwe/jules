@@ -17,8 +17,8 @@ USE trifctl, ONLY: asteps_since_triffid
   ! MDK, 24/10/26
 USE trifctl, ONLY: asteps_phen
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
-USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
-                                    cut_psi_stem, cut_c_store, cut_q_store
+USE plant_water_store_mod, ONLY: store_state_alloc, store_w, store_c,          &
+                                 store_q
 USE sf_stom_state_mod, ONLY: store_e_prev, shared_e_shd_prev,                &
                              shared_amax_shd_prev
 ! The stomatal optimisation's tile aerodynamic resistance.
@@ -273,8 +273,8 @@ DO i = 1,nvars
            'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
-           'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &
-           'cut_q_store', 'store_e_prev',                                      &
+           'store_w', 'store_c',                                               &
+           'store_q', 'store_e_prev',                                          &
            'shared_e_shd_prev', 'shared_amax_shd_prev',                        &
            't_leaf_sun_pft', 't_leaf_shd_pft' )
       IF ( var_ids(i) > 0 ) THEN
@@ -307,7 +307,7 @@ DO i = 1,nvars
           global_data_2d(:,1:npft) = -1.0
         CASE ( 'phen_fbleaf', 'ximpair_area_w' )
           global_data_2d(:,1:npft) = 1.0
-        CASE ( 'cut_w_store', 'cut_psi_stem' )
+        CASE ( 'store_w' )
           ! Capacitance store: not yet set (> 0), so it starts at the first
           ! step's psi (in balance with it).
           global_data_2d(:,1:npft) = 1.0
@@ -813,32 +813,27 @@ DO i = 1,nvars
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), f_vcmax_state(:,n))
     END DO
-  ! Cuticular-loss store (cuticular_leak_state_mod).
+  ! Plant capacitance store (plant_water_store_mod).
   !
-  ! MDK, 22/10/26
-  CASE ( 'cut_w_store' )
-    CALL cut_state_alloc( land_pts )
+  ! MDK, 05/11/26
+  CASE ( 'store_w' )
+    CALL store_state_alloc( land_pts )
     DO n = 1,npft
-      CALL scatter_land_field(global_data_2d(:,n), cut_w_store(:,n))
+      CALL scatter_land_field(global_data_2d(:,n), store_w(:,n))
     END DO
-  CASE ( 'cut_psi_stem' )
-    CALL cut_state_alloc( land_pts )
+  CASE ( 'store_c' )
+    CALL store_state_alloc( land_pts )
     DO n = 1,npft
-      CALL scatter_land_field(global_data_2d(:,n), cut_psi_stem(:,n))
-    END DO
-  CASE ( 'cut_c_store' )
-    CALL cut_state_alloc( land_pts )
-    DO n = 1,npft
-      CALL scatter_land_field(global_data_2d(:,n), cut_c_store(:,n))
+      CALL scatter_land_field(global_data_2d(:,n), store_c(:,n))
     END DO
   ! The store's flow and the canopy transpiration of the last timestep,
   ! the next step's first guess.
   !
   ! MDK, 04/11/26
-  CASE ( 'cut_q_store' )
-    CALL cut_state_alloc( land_pts )
+  CASE ( 'store_q' )
+    CALL store_state_alloc( land_pts )
     DO n = 1,npft
-      CALL scatter_land_field(global_data_2d(:,n), cut_q_store(:,n))
+      CALL scatter_land_field(global_data_2d(:,n), store_q(:,n))
     END DO
   CASE ( 'store_e_prev' )
     IF ( .NOT. ALLOCATED(store_e_prev) ) THEN

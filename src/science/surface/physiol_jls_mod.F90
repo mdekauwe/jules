@@ -110,8 +110,8 @@ USE jules_surface_types_mod, ONLY:                                             &
 
 USE nvegparm, ONLY: ch_nvg, emis_nvg, gs_nvg, vf_nvg
 ! MDK, 01/11/26
-USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_wt_root, cut_w_soil,  &
-                                    cut_w_root_avail
+USE plant_water_store_mod, ONLY: store_q, store_wt_root, store_w_soil,         &
+                                 store_w_root_avail
 
 USE jules_soil_mod, ONLY: dzsoil
 USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
@@ -750,7 +750,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   e_root_rs
       ! The flow through the roots (mol H2O m-2 ground s-1): el_pft, or
       ! with the plant capacitance el_pft less the store's release
-      ! (cut_q_store), floored at 0.
+      ! (store_q), floored at 0.
       !
       ! MDK, 01/11/26
 LOGICAL, SAVE :: l_warned_ksr = .FALSE.
@@ -1697,12 +1697,12 @@ DO n = 1,npft
       ! less than E in the morning (the store empties) and more than E in
       ! the afternoon and at night (it refills, E_root > 0 with E = 0).
       ! Where the store gives more than E the excess goes back to the soil
-      ! (cut_store_return in sf_evap) and E_root is 0 here.
+      ! (store_return in sf_evap) and E_root is 0 here.
       !
       ! MDK, 23/10/26
       e_root_rs = el_pft(l,n)
       IF ( l_som_capacitance_on )                                              &
-        e_root_rs = MAX(el_pft(l,n) - cut_q_store(l,n) / m_h2o_rs, 0.0)
+        e_root_rs = MAX(el_pft(l,n) - store_q(l,n) / m_h2o_rs, 0.0)
       psi_root_rs = psi_root_zone_pft(l,n)                                     &
                     - e_root_rs * m_h2o_rs * rho_water * g / ksum_rs
 
@@ -1804,22 +1804,22 @@ DO n = 1,npft
   ! from each layer to its water.
   !
   ! MDK, 02/11/26
-  IF ( l_som_capacitance_on .AND. ALLOCATED(cut_wt_root) ) THEN
+  IF ( l_som_capacitance_on .AND. ALLOCATED(store_wt_root) ) THEN
     DO j = 1,surft_pts(n)
       l = surft_index(j,n)
       wsum_root = SUM(MAX(wt_ext_type(l,:,n), 0.0))
       IF ( wsum_root > TINY(1.0_real_jlslsm) ) THEN
-        cut_wt_root(l,:,n) = MAX(wt_ext_type(l,:,n), 0.0) / wsum_root
+        store_wt_root(l,:,n) = MAX(wt_ext_type(l,:,n), 0.0) / wsum_root
       ELSE
-        cut_wt_root(l,:,n) = 0.0
-        cut_wt_root(l,1,n) = 1.0
+        store_wt_root(l,:,n) = 0.0
+        store_wt_root(l,1,n) = 1.0
       END IF
-      cut_w_root_avail(l,n) = 0.0
+      store_w_root_avail(l,n) = 0.0
       DO k = 1,sm_levels
-        cut_w_soil(l,k) = rho_water * dzsoil(k) * sthu_soilt(l,m,k)           &
+        store_w_soil(l,k) = rho_water * dzsoil(k) * sthu_soilt(l,m,k)          &
                           * smvcst_soilt(l,m,k)
-        cut_w_root_avail(l,n) = cut_w_root_avail(l,n)                         &
-                                + cut_wt_root(l,k,n) * rho_water * dzsoil(k)   &
+        store_w_root_avail(l,n) = store_w_root_avail(l,n)                      &
+                                + store_wt_root(l,k,n) * rho_water * dzsoil(k) &
                                   * MAX(0.0, sthu_soilt(l,m,k)                 &
                                              * smvcst_soilt(l,m,k)             &
                                              - v_close_pft(l,k,n))

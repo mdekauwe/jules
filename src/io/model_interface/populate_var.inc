@@ -23,8 +23,8 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
 USE trifctl, ONLY: asteps_since_triffid
 USE trifctl, ONLY: asteps_phen
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
-USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
-                                    cut_psi_stem, cut_c_store, cut_q_store
+USE plant_water_store_mod, ONLY: store_state_alloc, store_w, store_c,          &
+                                 store_q
 USE sf_stom_state_mod, ONLY: store_e_prev, shared_e_shd_prev,                &
                              shared_amax_shd_prev
 ! The stomatal optimisation's tile aerodynamic resistance.
@@ -2108,46 +2108,37 @@ CASE ( 'nsc_turg_acc' )
     nsc_turg_acc(:,:) = const_val
   END IF
 
-! Cuticular-loss store (cuticular_leak_state_mod; > 0 = not yet set).
+! Plant capacitance store (plant_water_store_mod; > 0 = not yet set).
 !
-! MDK, 22/10/26
-CASE ( 'cut_w_store' )
-  CALL cut_state_alloc( land_pts )
+! MDK, 05/11/26
+CASE ( 'store_w' )
+  CALL store_state_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, cut_w_store(:,:))
+    CALL cube_get_data(cube_land, store_w(:,:))
   ELSE
-    cut_w_store(:,:) = const_val
+    store_w(:,:) = const_val
   END IF
 
-CASE ( 'cut_psi_stem' )
-  CALL cut_state_alloc( land_pts )
+CASE ( 'store_c' )
+  CALL store_state_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, cut_psi_stem(:,:))
+    CALL cube_get_data(cube_land, store_c(:,:))
   ELSE
-    cut_psi_stem(:,:) = const_val
-  END IF
-
-CASE ( 'cut_c_store' )
-  CALL cut_state_alloc( land_pts )
-  IF ( PRESENT(cube) ) THEN
-    cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, cut_c_store(:,:))
-  ELSE
-    cut_c_store(:,:) = const_val
+    store_c(:,:) = const_val
   END IF
 
 ! The store's flow and the canopy transpiration of the last timestep.
 !
 ! MDK, 04/11/26
-CASE ( 'cut_q_store' )
-  CALL cut_state_alloc( land_pts )
+CASE ( 'store_q' )
+  CALL store_state_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, cut_q_store(:,:))
+    CALL cube_get_data(cube_land, store_q(:,:))
   ELSE
-    cut_q_store(:,:) = const_val
+    store_q(:,:) = const_val
   END IF
 
 CASE ( 'store_e_prev' )

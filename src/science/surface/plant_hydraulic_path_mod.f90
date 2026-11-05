@@ -66,19 +66,19 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
 
 ! Plant capacitance coupled to the optimiser (the capacitance store): the
 ! store's flow out at the stem node, held fixed for this leaf path while
-! the optimiser searches (q_f, > 0: the store gives; < 0: it refills).
+! the optimiser searches (q_store, > 0: the store gives; < 0: it refills).
 ! With it set, the soil link, the root and the stem segments carry
 !
-!   E_r = E - q_f
+!   E_r = E - q_store
 !
 ! (not floored at 0, see psi_leaf_segments_jls) and the leaf segment
 ! carries E, so a full store leaves the stem and leaf wetter at the same
 ! E, and the hydraulic cost (k = -dE/dpsi_leaf) is that of the xylem
-! alone: q_f does not move with E, so the store adds no conductance of its
+! alone: q_store does not move with E, so the store adds no conductance of its
 ! own. The cost is measured against the unshifted path at zero flow
-! (stom_opt_mod, kl_hc_max). With q_f = 0 the chain is the steady-state
+! (stom_opt_mod, kl_hc_max). With q_store = 0 the chain is the steady-state
 ! one.
-!   store_q_path   : this leaf path's share of q_f, in the units of the
+!   store_q_path   : this leaf path's share of q_store, in the units of the
 !                    transpiration the solver is given. Set by sf_stom
 !                    (set_store_q_path) before the optimiser's call.
 !   l_store_q_path : .TRUE. while store_q_path applies (cleared after the
@@ -92,9 +92,9 @@ LOGICAL, PUBLIC :: l_store_q_path = .FALSE.
 ! searched, its root and stem segments (and the soil-to-root link) are the
 ! whole plant's, and carry the whole canopy's flow,
 !
-!   E_r = E + E_o - q_f
+!   E_r = E + E_o - q_store
 !
-! (E the class's transpiration, E_o the other class's, held fixed, and q_f
+! (E the class's transpiration, E_o the other class's, held fixed, and q_store
 ! the whole store's flow out with the store coupled), while its leaf
 ! segment keeps the class's own conductance and carries E. So the stem
 ! water potential the class sees is that of the shared stem.
@@ -109,7 +109,7 @@ LOGICAL, PUBLIC :: l_store_q_path = .FALSE.
 ! The hydraulic cost of either class is that of the whole plant at the
 ! whole canopy's flow: the shared root and stem, then one leaf segment
 ! with the sunlit and shaded leaves' conductance together, all carrying
-! E + E_o (less q_f on the root and stem). The search solves that path
+! E + E_o (less q_store on the root and stem). The search solves that path
 ! with l_shared_whole_path set, which makes the leaf segment the whole
 ! plant's too (shared_k_fac on all three segments) and puts E_o on it.
 !   l_shared_whole_path : .TRUE. while the whole-plant path is solved.
@@ -735,9 +735,9 @@ END FUNCTION k_path_zero_flow
 ! of resistances in series, 1/k = sum over s of 1/k_s(psi).
 !
 ! The soil link, root and stem can carry a different flow from the leaf:
-! with the plant capacitance store it is E - q_f, where q_f is the store's
-! flow out, held fixed, and with the shared root and stem it also has the
-! other leaf group's transpiration. With l_exact each psi_out is then
+! with the plant capacitance store it is E - q_store, where q_store is the
+! store's flow out, held fixed, and with the shared root and stem it also
+! has the other leaf group's transpiration. With l_exact each psi_out is then
 ! refined by bisection (repeatedly halving the range that holds the
 ! answer), so it is exact also near the most the segment can carry; a
 ! larger flow is infeasible (leaf_psi = som_psi_in_min, leaf_k = 0).
@@ -843,7 +843,7 @@ REAL(KIND=real_jlslsm) :: drop_nr
 ! drop_nr: kcrit, or the whole plant's for the shared root and stem.
 REAL(KIND=real_jlslsm) :: kcr_drop
 ! The flow the current segment carries: the leaf's E, or with the
-! store's flow held fixed (l_store_q_path) E_r = E - q_f for the soil
+! store's flow held fixed (l_store_q_path) E_r = E - q_store for the soil
 ! link, the root and the stem (dE_r/dE = 1 either way).
 REAL(KIND=real_jlslsm) :: e_seg(n_e_leaf)
 LOGICAL :: l_cap, l_impair, l_exact_on
@@ -886,12 +886,12 @@ DO j = 1, open_pnts
   l_closed(:) = .FALSE.
 
   ! The flow up to the stem node. With the store's flow held fixed
-  ! (l_store_q_path) the soil, root and stem carry E_r = E - q_f. It is not
-  ! floored at 0: below q_f it runs back towards the soil, so the supply
-  ! curve is the steady one shifted by q_f, smooth in E. (A floor at 0
-  ! would leave only the leaf segment below E = q_f, a conductance far
+  ! (l_store_q_path) the soil, root and stem carry E_r = E - q_store. It is not
+  ! floored at 0: below q_store it runs back towards the soil, so the supply
+  ! curve is the steady one shifted by q_store, smooth in E. (A floor at 0
+  ! would leave only the leaf segment below E = q_store, a conductance far
   ! above the whole plant's, so the hydraulic cost would be negative there
-  ! and jump at q_f, pinning the optimum near q_f.) The store's balance
+  ! and jump at q_store, pinning the optimum near q_store.) The store's balance
   ! (sf_stom, store_cpl_q) keeps E_r >= 0 in what is committed.
   e_seg(:) = e_leaf(:,j)
   IF ( l_store_q_path ) e_seg(:) = e_leaf(:,j) - store_q_path(l)
@@ -899,7 +899,7 @@ DO j = 1, open_pnts
   ! The shared root and stem (l_shared_stem_path): the soil link, the root
   ! and the stem also carry the other class's E, held fixed, so
   !
-  !   E_r = E + E_o - q_f
+  !   E_r = E + E_o - q_store
   !
   ! and dE_r/dE is still 1.
   IF ( l_shared_stem_path ) e_seg(:) = e_seg(:) + shared_e_other(l)
@@ -1245,9 +1245,9 @@ END SUBROUTINE psi_leaf_segments_jls
 ! With the plant capacitance store (l_store_q_path) and the shared root
 ! and stem (l_shared_stem_path), the soil link, root and stem carry
 !
-!   E_r = E - q_f + E_o
+!   E_r = E - q_store + E_o
 !
-! where q_f is the store's flow out and E_o the other leaf group's
+! where q_store is the store's flow out and E_o the other leaf group's
 ! transpiration, and the leaf carries E (plus E_o when the whole-plant
 ! path is solved). E_r < 0, the store giving more than E, is a flow back
 ! towards the soil: it is found upwards in the table (seg_lut_psi_back)

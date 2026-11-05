@@ -1135,16 +1135,16 @@ DO i = 1, nvars_required
     !
     ! MDK, 22/10/26
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
-  CASE ( 'cut_w_store', 'cut_psi_stem' )
+  CASE ( 'store_w' )
     ! Plant store: not yet set (> 0), so it starts at the first step's psi
     ! (in balance with it).
     !
     ! MDK, 24/10/26
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
-  CASE ( 'cut_c_store' )
-    ! Cuticular-loss store: C not yet set.
+  CASE ( 'store_c' )
+    ! Plant capacitance store: C not yet set.
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
-  CASE ( 'cut_q_store', 'store_e_prev', 'shared_e_shd_prev',                  &
+  CASE ( 'store_q', 'store_e_prev', 'shared_e_shd_prev',                       &
          'shared_amax_shd_prev' )
     ! Capacitance store and shared stem: no flow and no transpiration yet.
     !

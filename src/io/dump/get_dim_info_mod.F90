@@ -179,8 +179,8 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
            'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
-           'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &
-           'cut_q_store', 'store_e_prev',                                      &
+           'store_w', 'store_c',                                               &
+           'store_q', 'store_e_prev',                                          &
            'shared_e_shd_prev', 'shared_amax_shd_prev',                        &
            't_leaf_sun_pft', 't_leaf_shd_pft' )
   ndims = 2

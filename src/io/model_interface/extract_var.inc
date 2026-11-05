@@ -28,10 +28,9 @@ USE trifctl, ONLY: asteps_since_triffid
 USE trifctl, ONLY: asteps_phen
 USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state, store_e_prev,          &
                              shared_e_shd_prev, shared_amax_shd_prev
-USE cuticular_leak_state_mod, ONLY: cut_q_store, cut_w_store,                  &
-                                    cut_psi_stem, cut_m_h2o,                   &
-                                    cut_psi_unset, cut_c_store,                &
-                                    cut_w_shed, cut_e_leak
+USE plant_water_store_mod, ONLY: store_q, store_w, store_unset, store_c,       &
+                                 store_w_shed, leak_e
+USE water_constants_mod, ONLY: Water_kg_per_mol
 USE phen_budburst_mod, ONLY: phen_gdd, phen_bb_day, phen_dormant
 USE triffid_hydmort_mod, ONLY: hydmort_g_pft, hydmort_m_pft,                   &
                                hydmort_dead_pft, hydmort_plc_peak,             &
@@ -4070,42 +4069,36 @@ CASE ( 'cpl_ra_ca' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-! Plant water store of the cuticular loss (l_som_cuticular_loss): its flow
-! out this timestep (kg m-2 s-1; > 0 it gives water to the transpiration,
-! < 0 it refills from the soil), and its water relative to the full store
-! at psi = 0 (kg m-2, <= 0). 0 where not set.
+! Plant capacitance store (l_som_capacitance or l_som_cuticular_loss): its
+! flow out this timestep (kg m-2 s-1; > 0 it gives water to the
+! transpiration, < 0 it refills from the soil), and its water relative to
+! the full store at psi = 0 (kg m-2, <= 0). 0 where not set.
 !
-! MDK, 22/10/26
-CASE ( 'cut_q_store_pft' )
+! MDK, 05/11/26
+CASE ( 'store_q_pft' )
   workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(cut_q_store) ) workspace_pft(:,:) = cut_q_store(:,:)
+  IF ( ALLOCATED(store_q) ) workspace_pft(:,:) = store_q(:,:)
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
 ! The store's state as dumped: water (mol m-2) and stem psi (Pa); > 0 not
 ! yet set.
-CASE ( 'cut_w_store' )
-  workspace_pft(:,:) = cut_psi_unset
-  IF ( ALLOCATED(cut_w_store) ) workspace_pft(:,:) = cut_w_store(:,:)
+CASE ( 'store_w' )
+  workspace_pft(:,:) = store_unset
+  IF ( ALLOCATED(store_w) ) workspace_pft(:,:) = store_w(:,:)
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-CASE ( 'cut_psi_stem' )
-  workspace_pft(:,:) = cut_psi_unset
-  IF ( ALLOCATED(cut_psi_stem) ) workspace_pft(:,:) = cut_psi_stem(:,:)
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
-CASE ( 'cut_c_store' )
+CASE ( 'store_c' )
   workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(cut_c_store) ) workspace_pft(:,:) = cut_c_store(:,:)
+  IF ( ALLOCATED(store_c) ) workspace_pft(:,:) = store_c(:,:)
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
 ! MDK, 04/11/26
-CASE ( 'cut_q_store' )
+CASE ( 'store_q' )
   workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(cut_q_store) ) workspace_pft(:,:) = cut_q_store(:,:)
+  IF ( ALLOCATED(store_q) ) workspace_pft(:,:) = store_q(:,:)
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
@@ -4132,15 +4125,15 @@ CASE ( 'shared_amax_shd_prev' )
 ! Transpiration through the leak (kg m-2 s-1; part of TVeg): the PFT
 ! tile's final transpiration (et_stom_surft, after sf_evap's soil-supply and
 ! coupling corrections) where the leak set the conductance this step
-! (cut_e_leak > 0, sf_stom's estimate there), 0 elsewhere.
+! (leak_e > 0, sf_stom's estimate there), 0 elsewhere.
 !
 ! MDK, 25/10/26
-CASE ( 'cut_e_leak_pft' )
+CASE ( 'leak_e_pft' )
   workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(cut_e_leak) .AND.                                             &
+  IF ( ALLOCATED(leak_e) .AND.                                                 &
        SIZE(sf_diag%et_stom_surft, 2) >= npft ) THEN
     DO i = 1, npft
-      WHERE ( cut_e_leak(:,i) > 0.0 )                                          &
+      WHERE ( leak_e(:,i) > 0.0 )                                              &
         workspace_pft(:,i) = sf_diag%et_stom_surft(:,i)
     END DO
   END IF
@@ -4149,16 +4142,16 @@ CASE ( 'cut_e_leak_pft' )
 
 ! Deficit carried away by shed tissue this timestep (kg m-2), for the
 ! water budget.
-CASE ( 'cut_w_shed_pft' )
+CASE ( 'store_w_shed_pft' )
   workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(cut_w_shed) ) workspace_pft(:,:) = cut_w_shed(:,:)
+  IF ( ALLOCATED(store_w_shed) ) workspace_pft(:,:) = store_w_shed(:,:)
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-CASE ( 'cut_w_store_pft' )
+CASE ( 'store_w_pft' )
   workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(cut_w_store) )                                                &
-    workspace_pft(:,:) = MIN(cut_w_store(:,:), 0.0) * cut_m_h2o
+  IF ( ALLOCATED(store_w) )                                                    &
+    workspace_pft(:,:) = MIN(store_w(:,:), 0.0) * Water_kg_per_mol
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

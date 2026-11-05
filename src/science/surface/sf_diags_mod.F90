@@ -526,8 +526,8 @@ ELSE
 END IF
 ! The stomatal share of the evaporation is also needed by the Or
 ! soil-evaporation cap in sf_evap, which acts on the soil part alone, and
-! by the plant water store of the cuticular loss under the stomatal
-! optimisation.
+! by the plant capacitance store (l_som_capacitance or l_som_cuticular_loss)
+! under the stomatal optimisation.
 !
 ! MDK, 04/11/26
 IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR. l_soil_evap_or .OR.   &

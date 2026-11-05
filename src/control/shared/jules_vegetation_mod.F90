@@ -613,11 +613,11 @@ LOGICAL ::                                                                     &
       ! max) has a plant water store at the stem node of the root, stem
       ! and leaf segments, of capacitance C = cap_stem times the reference
       ! leaf area of the plant conductance, carried and dumped. The
-      ! optimiser sees it: the store's flow out at the stem node, q_f, is
+      ! optimiser sees it: the store's flow out at the stem node, q_store, is
       ! held fixed while it searches, so the soil, root and stem carry
-      ! E - q_f and the leaf E. A full store (morning) leaves the stem and
+      ! E - q_store and the leaf E. A full store (morning) leaves the stem and
       ! leaf wetter at the same E, the hydraulic cost lower and the stomata
-      ! more open; a refilling store (afternoon, night) the reverse. q_f
+      ! more open; a refilling store (afternoon, night) the reverse. q_store
       ! is updated between the passes of the leaf-temperature (or humidity)
       ! iteration by the store's balance at the stem node over the step
       ! (backward Euler), committed at the final E, so the water is

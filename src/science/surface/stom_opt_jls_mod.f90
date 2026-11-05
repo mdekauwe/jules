@@ -871,7 +871,7 @@ IF (l_xylem_impairment) THEN
 END IF
 
 ! The store's flow held fixed (l_store_q_path, the capacitance store): at
-! E near 0 the shifted chain carries -q_f, back towards the soil, a state
+! E near 0 the shifted chain carries -q_store, back towards the soil, a state
 ! the store's balance never allows. So the cost is measured against the
 ! unshifted path at zero flow (as with impairment), not the conductance
 ! at the low end of the Ci range. Without impairment the search's path
@@ -3352,9 +3352,9 @@ CONTAINS
   ! the path conductance is above its critical value kcrit, and the leaf
   ! conductance is within gl_max (when gl_max is set). With the store's flow
   ! held fixed (l_store_q_path) the test is not made: the store is a second
-  ! source, wetter than the soil while it gives. (Where E >= q_f the chain
+  ! source, wetter than the soil while it gives. (Where E >= q_store the chain
   ! carries flow to the leaf, so the leaf cannot be wetter than the soil
-  ! anyway; a strict test there would reject samples near E = q_f on
+  ! anyway; a strict test there would reject samples near E = q_store on
   ! rounding and shut points.)
   ! (Not the gl cap while l_no_glcap: the hydraulic edge.)
   ok_u = ( psi_u <= psi_root_zone(l) + TINY(psi_root_zone(l))                  &

@@ -18,8 +18,8 @@ USE trifctl, ONLY: asteps_since_triffid
   ! MDK, 24/10/26
 USE trifctl, ONLY: asteps_phen
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
-USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
-                                    cut_psi_stem, cut_c_store, cut_q_store
+USE plant_water_store_mod, ONLY: store_state_alloc, store_w, store_c,          &
+                                 store_q
 USE sf_stom_state_mod, ONLY: store_e_prev, shared_e_shd_prev,                &
                              shared_amax_shd_prev
 ! The stomatal optimisation's tile aerodynamic resistance.
@@ -470,31 +470,26 @@ DO i = 1,nvars
       CALL gather_land_field(nsc_tseas_acc(:,n), global_data_2d(:,n))
     END DO
 
-  ! Cuticular-loss store (cuticular_leak_state_mod; > 0 = not yet set).
+  ! Plant capacitance store (plant_water_store_mod; > 0 = not yet set).
   !
-  ! MDK, 22/10/26
-  CASE ( 'cut_w_store' )
-    CALL cut_state_alloc( land_pts )
+  ! MDK, 05/11/26
+  CASE ( 'store_w' )
+    CALL store_state_alloc( land_pts )
     DO n = 1,npft
-      CALL gather_land_field(cut_w_store(:,n), global_data_2d(:,n))
+      CALL gather_land_field(store_w(:,n), global_data_2d(:,n))
     END DO
-  CASE ( 'cut_psi_stem' )
-    CALL cut_state_alloc( land_pts )
+  CASE ( 'store_c' )
+    CALL store_state_alloc( land_pts )
     DO n = 1,npft
-      CALL gather_land_field(cut_psi_stem(:,n), global_data_2d(:,n))
-    END DO
-  CASE ( 'cut_c_store' )
-    CALL cut_state_alloc( land_pts )
-    DO n = 1,npft
-      CALL gather_land_field(cut_c_store(:,n), global_data_2d(:,n))
+      CALL gather_land_field(store_c(:,n), global_data_2d(:,n))
     END DO
   ! The store's flow and the canopy transpiration of the last timestep.
   !
   ! MDK, 04/11/26
-  CASE ( 'cut_q_store' )
-    CALL cut_state_alloc( land_pts )
+  CASE ( 'store_q' )
+    CALL store_state_alloc( land_pts )
     DO n = 1,npft
-      CALL gather_land_field(cut_q_store(:,n), global_data_2d(:,n))
+      CALL gather_land_field(store_q(:,n), global_data_2d(:,n))
     END DO
   CASE ( 'store_e_prev' )
     IF ( .NOT. ALLOCATED(store_e_prev) ) THEN
@@ -1470,8 +1465,8 @@ DO i = 1,nvars
            'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
-           'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &
-           'cut_q_store', 'store_e_prev',                                      &
+           'store_w', 'store_c',                                               &
+           'store_q', 'store_e_prev',                                          &
            'shared_e_shd_prev', 'shared_amax_shd_prev',                        &
            't_leaf_sun_pft', 't_leaf_shd_pft' )
       CALL file_write_var(FILE, var_ids(i), global_data_2d(:,1:npft))

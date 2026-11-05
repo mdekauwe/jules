@@ -100,6 +100,11 @@ LOGICAL :: l_read_from_dump
 
 INTEGER :: i, j  ! Loop counters
 
+CHARACTER(LEN=max_sdf_name_len) :: old_name
+  ! The plant capacitance store's name for a variable in older dumps.
+  !
+  ! MDK, 05/11/26
+
 nvars = SIZE(identifiers)
 
 !-----------------------------------------------------------------------------
@@ -179,6 +184,27 @@ IF ( is_master_task() ) THEN
         FILE, identifiers(i), var_ids(i), ndims_file, dim_ids_file,            &
         is_record_var, missing_ok = .TRUE.                                     &
       )
+
+      ! Dumps written before the plant capacitance store's variables were
+      ! renamed hold them under the old names.
+      !
+      ! MDK, 05/11/26
+      IF ( var_ids(i) < 1 ) THEN
+        old_name = ''
+        SELECT CASE ( identifiers(i) )
+        CASE ( 'store_w' )
+          old_name = 'cut_w_store'
+        CASE ( 'store_c' )
+          old_name = 'cut_c_store'
+        CASE ( 'store_q' )
+          old_name = 'cut_q_store'
+        END SELECT
+        IF ( LEN_TRIM(old_name) > 0 )                                          &
+          CALL file_inquire_var(                                               &
+            FILE, old_name, var_ids(i), ndims_file, dim_ids_file,              &
+            is_record_var, missing_ok = .TRUE.                                 &
+          )
+      END IF
 
       ! Check that we found a variable
       IF ( var_ids(i) < 1 ) THEN
@@ -309,7 +335,7 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts " //       &
              "'not yet set' (restart not exact).")
-        CASE ( 'cut_q_store', 'store_e_prev', 'shared_e_shd_prev',            &
+        CASE ( 'store_q', 'store_e_prev', 'shared_e_shd_prev',                 &
                'shared_amax_shd_prev' )
           ! The capacitance store's flow and the canopy transpiration of
           ! the last timestep, and the shared stem's shaded-leaf flow and
@@ -329,14 +355,14 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts " //       &
              "'not yet set' (restart not exact).")
-        CASE ( 'cut_w_store', 'cut_psi_stem', 'cut_c_store' )
-          ! Cuticular-loss store: dumps written without it start it full
-          ! (the restart is then not exact).
+        CASE ( 'store_w', 'store_c' )
+          ! Plant capacitance store: dumps written without it start it at
+          ! the first step's stem psi (the restart is then not exact).
           !
-          ! MDK, 22/10/26
+          ! MDK, 05/11/26
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so the store " //    &
-             "starts full (restart not exact).")
+             "starts at the first step's psi (restart not exact).")
         CASE ( 'phen_gdd', 'phen_bb_day', 'phen_dormant' )
           ! Budburst state: dumps written without the budburst gate.
           !

@@ -63,7 +63,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: shared_amax_shd_prev(:,:)
 ! shaded leaves together (mol H2O m-2 s-1, >= 0; 0 where the canopy was
 ! shut). Where it is 0, the first pass does not use the last step's store
 ! refill. Allocated and set to 0 by sf_stom or the dump reading; in the
-! dump with the store's flow (cut_q_store).
+! dump with the store's flow (store_q).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_e_prev(:,:)
 ! (land_pts, nsurft) The stomatal optimisation: each surface tile's
 ! aerodynamic resistance of the last timestep (s/m; < 0: not yet set).

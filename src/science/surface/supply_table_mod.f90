@@ -802,8 +802,8 @@ END FUNCTION seg_lut_psi
 ! water flows back towards the soil, e_over_k = E / kmax_s < 0 (Pa), read
 ! from the segment's supply table. This happens on the
 ! root and stem when the plant capacitance store gives more water than
-! the leaves transpire (l_store_q_path): they carry E - q_f < 0, where q_f
-! is the store's flow out. It solves
+! the leaves transpire (l_store_q_path): they carry E - q_store < 0, where
+! q_store is the store's flow out. It solves
 !
 !   S_s(psi_out) = S_s(psi_in) + e_over_k
 !
