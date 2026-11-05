@@ -247,10 +247,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
   soil_litter_depth_io(npft_max) = rmdi,                                       &
   or_z0soil_fac_io(npft_max) = rmdi,                                           &
   ! cap_stem is the size of the stomatal optimisation's plant capacitance
-  ! (l_som_capacitance), per unit leaf area: C = cap_stem x L_ref, mmol
-  ! H2O m-2 leaf MPa-1 (3000 = 0.11 mm per MPa at LAI 2.1). The default
-  ! is close to Q. ilex (SurEau, Ruffault et al. 2022). For Q. ilex it lies
-  ! in 2100-4400 over DBH 4-13 cm: the whole-tree stem capacitance of
+  ! (l_som_capacitance or som_cuticular_leak > 0), per unit leaf area:
+  ! C = cap_stem x L_ref, mmol H2O m-2 leaf MPa-1 (3000 = 0.11 mm per MPa
+  ! at LAI 2.1). The default is close to Q. ilex (SurEau, Ruffault et al.
+  ! 2022) and applies to every PFT once the store is on, grasses included.
+  ! For Q. ilex it lies in 2050-4210 over DBH 4-13 cm: the whole-tree stem
+  ! capacitance of
   ! Salomon et al. (2017, Plant Cell Environ. 40: 1379-1391,
   ! doi:10.1111/pce.12928, Fig. 6: refilling after the first autumn
   ! rains),
@@ -262,7 +264,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   !
   !   LA = 0.091 DBH^1.875   (m2).
   !
-  ! MDK, 04/11/26
+  ! MDK, 05/11/26
   cap_stem_io(npft_max) = 3000.0,                                              &
   q10_leaf_io(npft_max) = rmdi,                                                &
   r_grow_io(npft_max) = rmdi,                                                  &
@@ -1676,16 +1678,16 @@ IF ( l_nsc_pipe_target ) THEN
                  'raise a_ws_io by the same factor.')
   END IF
 END IF
-! Ring cohorts: the conductivity's e-folding (in rings) is > 0 if set. With
+! Ring cohorts: the conductivity's e-folding (years) is > 0 if set. With
 ! the cohorts the new ring's conductance ratio does not act on the stem
 ! (the radial profile replaces it), so setting it gives a warning.
 !
-! MDK, 30/10/26
+! MDK, 05/11/26
 IF ( ANY(is_set(nsc_ring_cond_efold(:)) .AND.                                 &
          nsc_ring_cond_efold(:) <= 0.0) ) THEN
   errcode = 101
   CALL ereport(RoutineName, errcode,                                           &
-               'nsc_ring_cond_efold_io must be > 0 (rings) if set.')
+               'nsc_ring_cond_efold_io must be > 0 (years) if set.')
 END IF
 IF ( l_nsc_sapwood_rings .AND.                                                 &
      ANY(ABS(nsc_xylem_cond_ratio_io(1:npft) - rmdi) > EPSILON(1.0)) ) THEN

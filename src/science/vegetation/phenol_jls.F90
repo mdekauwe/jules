@@ -123,11 +123,14 @@ LOGICAL :: l_pay
 REAL(KIND=real_jlslsm) :: doy
     ! Day of the year.
 
+REAL(KIND=real_jlslsm) :: f_work
+    ! Share of the sapwood's conductance that still works (Trugman
+    ! response; < 0 = rings not set, no cap).
 REAL(KIND=real_jlslsm) :: lai_cap
-    ! Largest LAI the functional sapwood can supply (Trugman response;
-    ! < 0 = no cap).
+    ! The canopy cap, the balanced LAI times f_work (m2 m-2; < 0 = no
+    ! cap).
     !
-    ! MDK, 01/11/26
+    ! MDK, 05/11/26
 
 REAL(KIND=real_jlslsm) ::                                                      &
   lai_bal(land_pts),                                                           &
@@ -203,16 +206,17 @@ END IF
 ! leaves are shed as below in step with the damage and regrow as the
 ! xylem recovers. No cap in spin-up or before the rings are set.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 IF (nsc_damage_response == nsc_damage_trugman) THEN
   CALL triffid_nsc_alloc( land_pts )
   DO j = 1,veg_pts
     l = veg_index(j)
+    f_work  = -1.0
     lai_cap = -1.0
-    IF (.NOT. is_spinup) lai_cap = ximpair_ring_working(l, n)
-    IF (lai_cap >= 0.0) THEN
-      phen_max(l) = MIN(phen_max(l), MAX(lai_cap, 0.01))
-      lai_cap     = lai_cap * lai_bal(l)
+    IF (.NOT. is_spinup) f_work = ximpair_ring_working(l, n)
+    IF (f_work >= 0.0) THEN
+      phen_max(l) = MIN(phen_max(l), MAX(f_work, 0.01))
+      lai_cap     = f_work * lai_bal(l)
     END IF
     nsc_lai_sap_cap(l,n) = lai_cap
   END DO

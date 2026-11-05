@@ -281,13 +281,14 @@ IF ( is_master_task() ) THEN
              TRIM(identifiers(i)) // " is not in the dump so starts at 0 " //  &
              "(restart not exact within a ring year).")
         CASE ( 'nsc_sapwood' )
-          ! Sapwood pool: dumps written without it start from the pipe
-          ! model at the first ring step.
+          ! Sapwood pool: dumps written without it start it at the first
+          ! ring step, at the pipe-model target (l_nsc_pipe_target) or at
+          ! its steady state.
           !
-          ! MDK, 30/10/26
+          ! MDK, 05/11/26
           CALL log_warn("read_dump_shared",                                    &
-             TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
-             "the pipe model at the first ring step.")
+             TRIM(identifiers(i)) // " is not in the dump so starts at " //    &
+             "the first ring step (target or steady state).")
         CASE ( 'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',   &
                'ximpair_ring_year' )
           ! Pipe-model target and ring cohorts: dumps written without these

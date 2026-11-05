@@ -4244,10 +4244,11 @@ CASE ( 'nsc_heartwood' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-! The ring cohorts' functional share of the sapwood, X_f / X_s (-1 = not
-! yet set, or without them).
+! The ring cohorts' intact conductivity relative to new wood,
+! SUM_i f_i c_i (1 - L_i), below 1 with no damage as old rings conduct
+! less (-1 = not yet set, or without them).
 !
-! MDK, 31/10/26
+! MDK, 05/11/26
 CASE ( 'ximpair_ring_func' )
   workspace_pft(:,:) = -1.0
   IF ( ALLOCATED(ximpair_ring_frac) ) THEN
@@ -4277,10 +4278,11 @@ CASE ( 'nsc_sapwood_target' )
   cube = map_from_land(cube_land)
 
 ! The pipe-model diagnostics: f_A before its MIN (1 when not set), the
-! sapwood canopy cap (-1 = none), the new ring's share of the conductance
-! weight, the heartwood factor g and the count of target caps.
+! Trugman canopy cap (-1 = none), the new ring's share of the conductance
+! weight, the heartwood rate over nsc_heartwood_rate and the count of
+! target caps.
 !
-! MDK, 01/11/26
+! MDK, 05/11/26
 CASE ( 'nsc_k_area_raw' )
   workspace_pft(:,:) = 1.0
   IF ( ALLOCATED(nsc_k_area_raw) ) workspace_pft(:,:) = nsc_k_area_raw

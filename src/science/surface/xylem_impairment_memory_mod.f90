@@ -7,6 +7,16 @@
 ! This file belongs in SURFACE
 
 MODULE xylem_impairment_memory_mod
+! Memory model of xylem impairment (pft_xylem_impairment_model = 3): the
+! loss of conductance a drought locks in, its spread over new cover, and,
+! with ring renewal and the ring cohorts (l_nsc_sapwood_rings), the stem's
+! annual sapwood rings, each with its share of the sapwood and its loss.
+! The ring functions give the stem's loss, the sapwood-area factor's sums
+! and the Trugman response's repair. The state below is carried between
+! updates; ximpair_lock, ximpair_repair_pend, ximpair_area_w (with
+! l_veg_compete) and the ring arrays are written to and read from dumps.
+!
+! MDK, 05/11/26
 
 USE um_types, ONLY: real_jlslsm
 
@@ -29,12 +39,7 @@ PRIVATE :: k_intact, antideriv, psi_at_k, ring_cond, ring_age, ring_steady,   &
            ring_q,                                                             &
            ring_sums
 
-! State of the memory model, held from one update to the next. ximpair_lock,
-! ximpair_repair_pend, ximpair_area_w (with l_veg_compete) and the ring
-! arrays are written to and read from dumps; ximpair_memory_alloc allocates
-! the first three.
-!
-! MDK, 04/11/26
+! ximpair_memory_alloc allocates the first three arrays below.
 
 ! Locked-in loss of conductivity, 1 - k_cap/kmax, of each PFT at each land
 ! point. Read by TRIFFID phenology (l_ximpair_leaf_loss), hydraulic
@@ -73,8 +78,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_year(:,:)
 ! damage the drought would put back at once. Xylem repair (the Trugman
 ! response) restores only the damage above it, and triffid_nsc_ring_renewal
 ! resets it to 0 after the repair. In dumps; allocated with the rings.
-!
-! MDK, 04/11/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_peak(:,:)
 
 ! Ring cohorts with the pipe heartwood rule (nsc_heartwood_model = 1): the
@@ -84,8 +87,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_peak(:,:)
 ! holds the sapwood at its target, and ring_steady builds the reference
 ! stand with it. < 0 = not set (nsc_heartwood_rate is used). In dumps
 ! with the rule; allocated with the rings.
-!
-! MDK, 04/11/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_hw_rate_mean(:,:)
 
 CONTAINS
@@ -122,7 +123,7 @@ CONTAINS
 ! not remove exactly m frac_old (without l_ht_compete, or at the minimum
 ! cover frac_seed).
 !
-! MDK, 30/10/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac,   &
                                 m_kill )
@@ -136,17 +137,21 @@ USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
+! Number of land points, of TRIFFID points, and their land points.
 INTEGER, INTENT(IN) :: land_pts, trif_pts, trif_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  ! Areal fractions after the TRIFFID step.
   frac(land_pts,ntype),                                                        &
-      ! Areal fractions after the TRIFFID step.
+  ! Change in the areal fractions over the step.
   dfrac(land_pts,npft)
-      ! Change in the areal fractions over the step.
+! Fraction of each PFT's old cover killed in the step (hydraulic
+! mortality, l_trif_hydmort).
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: m_kill(land_pts,npft)
-      ! Fraction of each PFT's old cover killed in the step (hydraulic
-      ! mortality, l_trif_hydmort).
 
+! PFT, TRIFFID point and land point counters.
 INTEGER :: n, t, l
+! The old cover's share of the new cover, the share killed and the
+! surviving cover.
 REAL(KIND=real_jlslsm) :: w, m, frac_surv
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -726,9 +731,9 @@ END FUNCTION ximpair_ring_cref
 !    undamaged, which dilutes that ring's loss of conductance.
 ! 2. Sapwood turns to heartwood, oldest rings first. The amount is
 !
-!      x_old (1 - EXP(-f_heart)),
+!      x_turn (1 - EXP(-f_heart)),
 !
-!    where x_old (kg C m-2) is the sapwood before the step, after
+!    where x_turn (kg C m-2) is the sapwood before the step, after
 !    TRIFFID's turnover (taken from all rings alike), and f_heart is the
 !    heartwood rate times the step length. The sapwood pool loses the
 !    same amount in total.
@@ -745,9 +750,9 @@ END FUNCTION ximpair_ring_cref
 !    dilutes (0 for a ring-porous tree's new ring before its vessels
 !    conduct).
 !
-! MDK, 01/11/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
-SUBROUTINE ximpair_ring_grow( l, pft, x_old, dg, f_heart, l_shift, g_year,    &
+SUBROUTINE ximpair_ring_grow( l, pft, x_turn, dg, f_heart, l_shift, g_year,    &
                               w_new )
 
 USE jules_vegetation_mod, ONLY: nsc_n_ring
@@ -756,7 +761,7 @@ USE jules_vegetation_mod, ONLY: nsc_n_ring
 INTEGER, INTENT(IN) :: l, pft
 ! Sapwood before the step and the new wood (kg C m-2); heartwood rate
 ! times the step (-).
-REAL(KIND=real_jlslsm), INTENT(IN) :: x_old, dg, f_heart
+REAL(KIND=real_jlslsm), INTENT(IN) :: x_turn, dg, f_heart
 ! The ring year ends with this step.
 LOGICAL, INTENT(IN) :: l_shift
 ! The calendar year in which a ring started at this step grows.
@@ -771,20 +776,20 @@ REAL(KIND=real_jlslsm) :: sw, swl, swf
 ! Sapwood of each ring (kg C m-2), ring 1 with the new wood, heartwood still
 ! to take, the part taken from a ring, the total, and the merged rings'
 ! share.
-REAL(KIND=real_jlslsm) :: a(nsc_n_ring), a1, h, take, tot, f_old
+REAL(KIND=real_jlslsm) :: a(nsc_n_ring), x1_new, h, take, tot, f_old
 
 n = nsc_n_ring
-a(:) = MAX(ximpair_ring_frac(l,pft,:), 0.0) * x_old
+a(:) = MAX(ximpair_ring_frac(l,pft,:), 0.0) * x_turn
 
 ! The new wood is intact: it dilutes the youngest ring's loss.
 IF (dg > 0.0) THEN
-  a1 = a(1) + dg
-  ximpair_ring_loss(l,pft,1) = ximpair_ring_loss(l,pft,1) * a(1) / a1
-  a(1) = a1
+  x1_new = a(1) + dg
+  ximpair_ring_loss(l,pft,1) = ximpair_ring_loss(l,pft,1) * a(1) / x1_new
+  a(1) = x1_new
 END IF
 
 ! Heartwood from the oldest rings first.
-h = x_old * (1.0 - EXP(-f_heart))
+h = x_turn * (1.0 - EXP(-f_heart))
 DO i = n, 1, -1
   IF (h <= 0.0) EXIT
   take = MIN(a(i), h)
@@ -934,13 +939,13 @@ END FUNCTION ximpair_ring_damaged
 ! ---------------------------------------------------------------------
 ! Return the share of the sapwood's conductance that still works (0-1),
 !
-!   SUM_i f_i c_i (1 - L_i) / SUM_i f_i c_i,
+!   1 - L = SUM_i f_i c_i (1 - L_i) / SUM_i f_i c_i,
 !
-! with f_i ring i's share of the sapwood, c_i how well it conducts
-! (ring_cond) and L_i its loss of conductance; 1 when no ring conducts
-! and -1 where the rings are not yet set.
+! with L the stem's loss (ximpair_ring_mean), f_i ring i's share of the
+! sapwood, c_i how well it conducts (ring_cond) and L_i its loss of
+! conductance; -1 where the rings are not yet set.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ximpair_ring_working( l, pft ) RESULT( share )
 
@@ -949,16 +954,11 @@ INTEGER, INTENT(IN) :: l, pft
 ! Working share of the conductance (0-1; -1 = not set).
 REAL(KIND=real_jlslsm) :: share
 
-! The ring sums (ring_sums).
-REAL(KIND=real_jlslsm) :: sw, swl, swf
-
 share = -1.0
 IF (.NOT. ALLOCATED(ximpair_ring_frac)) RETURN
 IF (ximpair_ring_frac(l,pft,1) < 0.0 .OR. ximpair_ring_year(l,pft) < 0.0)     &
   RETURN
-CALL ring_sums(l, pft, .FALSE., sw, swl, swf)
-share = 1.0
-IF (sw > 0.0) share = MIN(MAX(swf / sw, 0.0), 1.0)
+share = 1.0 - ximpair_ring_mean(l, pft)
 
 END FUNCTION ximpair_ring_working
 
@@ -1006,6 +1006,8 @@ END FUNCTION ximpair_ring_working
 ! water potentials psi (Pa) at one point, which the memory model caps to
 ! represent drought damage. It uses the cumulative Weibull curve,
 ! kmax EXP(-(psi / b)^c), or the SOX curve, kmax / (1 + (psi / b)^c).
+!
+! MDK, 01/11/26
 ! ---------------------------------------------------------------------
 FUNCTION k_intact( pft, n, psi, kmax, b, c ) RESULT( k )
 

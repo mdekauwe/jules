@@ -564,7 +564,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! in De Kauwe et al. 2015; the floor is an adjustment).
 ,cap_stem(:)                                                                   &
                  ! Plant water capacitance of the stomatal optimisation's
-                 ! store, per unit leaf area (mol H2O m-2 leaf Pa-1).
+                 ! store, per unit leaf area (mol H2O m-2 leaf Pa-1): the
+                 ! store's C = cap_stem L_ref (plant_water_store_mod).
 ,kcrit_fractional_loss(:)                                                      &
                  ! Critical fractional loss of xylem conductance.
 ,kcrit(:)                                                                      &
@@ -737,12 +738,12 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,nsc_heartwood_rate(:)                                                         &
                  ! Sapwood pool (l_nsc_sapwood_pool): the share of the
                  !  conducting sapwood that becomes heartwood each year (per
-                 !  360-day TRIFFID year, > 0), about 1 / the number of rings
-                 !  in the sapwood. With TRIFFID's wood turnover g_t the
-                 !  sapwood's steady state is C_W g_t / (this rate + g_t).
-                 !  Default 0.025 (40 rings).
+                 !  360-day TRIFFID year, > 0). With TRIFFID's wood turnover
+                 !  g_t the sapwood's steady state is C_W g_t / (this rate +
+                 !  g_t), and it holds 1 / (this rate + g_t) years of wood.
+                 !  Default 0.025.
                  !
-                 !  MDK, 31/10/26
+                 !  MDK, 05/11/26
 ,nsc_grow_thresh(:)                                                            &
                  ! Growth threshold of the TRIFFID store (fraction of C_max,
                  !  0-1): the release for growth draws only on the store
@@ -774,14 +775,13 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  MDK, 31/10/26
 ,nsc_ring_cond_efold(:)                                                        &
                  ! Ring cohorts (l_nsc_sapwood_rings): the conductivity of a
-                 !  ring falls by e with each nsc_ring_cond_efold rings of
-                 !  age (> 0; by ring index, so by age in ring years, not
-                 !  by depth), so newer rings conduct more; e.g. from the
-                 !  radial profile of sap flux density (e-folding depth over
-                 !  mean ring width). Unset (< -1e29) = all rings conduct
-                 !  alike.
+                 !  ring falls by e with each nsc_ring_cond_efold years of
+                 !  age (> 0; age in winters passed), so newer rings conduct
+                 !  more; e.g. from the radial profile of sap flux density
+                 !  (e-folding depth over mean ring width). Unset (< -1e29)
+                 !  = all rings conduct alike.
                  !
-                 !  MDK, 30/10/26
+                 !  MDK, 05/11/26
 ,nsc_ring_func_doy(:)
                  ! Ring cohorts, ring-porous stem: the day of year (1-366,
                  !  calendar) from which the youngest ring (the year's

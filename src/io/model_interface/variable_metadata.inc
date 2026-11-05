@@ -10711,7 +10711,7 @@ DATA metadata(826) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Ring cohorts: functional share of the sapwood (conducting, by age)",      &
+    "Ring cohorts: intact conductivity vs new wood, SUM f c (1 - L)",          &
 ! Units
     "1"                                                                        &
   ) /
@@ -10721,7 +10721,7 @@ DATA metadata(827) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Conductance from the sapwood area: factor on the plant's kmax",           &
+    "Sapwood-area factor: f_A on kmax, or L_A / LAI (Trugman)",                &
 ! Units
     "1"                                                                        &
   ) /
@@ -10784,7 +10784,7 @@ DATA metadata(832) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Canopy limited by the sapwood: largest LAI it supplies",                  &
+    "Trugman response: LAI cap, balanced LAI x working conductance",           &
 ! Units
     "1"                                                                        &
   ) /
@@ -10804,7 +10804,7 @@ DATA metadata(834) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Pipe-model target: heartwood factor g on nsc_heartwood_rate",             &
+    "Pipe-model target: heartwood rate over nsc_heartwood_rate",               &
 ! Units
     "1"                                                                        &
   ) /
@@ -10874,7 +10874,7 @@ DATA metadata(839) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Xylem repair: damaged sapwood replaced from the claimed release",         &
+    "Xylem repair: damaged sapwood restored from the store's release",         &
 ! Units
     "kg m-2 per 360days"                                                       &
   ) /

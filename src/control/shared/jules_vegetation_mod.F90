@@ -623,12 +623,13 @@ LOGICAL ::                                                                     &
       ! (backward Euler), committed at the final E, so the water is
       ! conserved; sf_evap takes the store's flow off the soil extraction.
       ! The store drives the leaf and stem psi, and so the embolism. Needs
-      ! the plant segments with the Newton solver, the bounded Ci search,
-      ! at least two passes, and the big-leaf, multilayer or two-leaf
-      ! canopy. On with som_cuticular_leak > 0 whatever its value (the leak
-      ! drains the store).
+      ! the plant segments with the Newton or lookup-table solver
+      ! (som_psi_solver = 2 or 3), the bounded Ci search, at least two
+      ! passes, and the big-leaf, multilayer or two-leaf canopy. On with
+      ! som_cuticular_leak > 0 whatever its value (the leak drains the
+      ! store). The mechanism is described in plant_water_store_mod.
       !
-      ! MDK, 25/10/26
+      ! MDK, 05/11/26
 
 LOGICAL ::                                                                     &
   l_som_capacitance_on = .FALSE.
@@ -735,8 +736,9 @@ INTEGER ::                                                                     &
       ! 1 (nsc_heartwood_pipe, default): the pipe model is kept, as in LPJ
       !   (Sitch et al. 2003): sapwood above the target X_t becomes
       !   heartwood at once, oldest rings first, and below it heartwood
-      !   forms at nsc_heartwood_rate k_h,
-      !     heartwood = MAX(k_h X_s, X_s - X_t)   (per TRIFFID step).
+      !   forms at nsc_heartwood_rate k_h (per 360 days); over a TRIFFID
+      !   step of dt (360-day years) the heartwood formed is
+      !     dH = MAX(X_s (1 - EXP(-k_h dt)), X_s - X_t).
       ! 0 (nsc_heartwood_fixed): heartwood at nsc_heartwood_rate whatever
       !   the target, which then sets only the pool's start, the cap at the
       !   wood and the sapwood-area factor.
@@ -751,8 +753,11 @@ INTEGER ::                                                                     &
       ! 1 (nsc_damage_trugman): as in the optimal allocation of Trugman et
       !   al. (2018), the tree matches its leaves to its working xylem and
       !   rebuilds the xylem first. Needs the ring cohorts, the pipe-model
-      !   target, l_phenol, fixed cover (l_veg_compete off), the
-      !   sapwood-area factor (l_nsc_k_sapwood) and kplant_model = 1:
+      !   target, l_phenol, fixed cover (l_veg_compete off: the repair
+      !   claim enters TRIFFID's carbon check with the cover before
+      !   competition and the litter with the cover after, so a changing
+      !   cover would break the carbon balance), the sapwood-area factor
+      !   (l_nsc_k_sapwood) and kplant_model = 1:
       !   - the canopy sheds the share of its leaves that matches the
       !     share of the sapwood's conductance lost: the phenological LAI
       !     is at most the balanced LAI times SUM_i f_i c_i (1 - L_i) /
@@ -770,10 +775,9 @@ INTEGER ::                                                                     &
       !     SUM_i X_i c_i MAX(L_i - L_p, 0), with L_p the highest loss
       !     imposed since the last TRIFFID step; each ring's loss falls in
       !     place, so no ring conducts better than it did undamaged;
-      !     TRIFFID grows from
-      !     the rest of the release, so the claim comes out of growth by
-      !     lambda_g and out of the spreading carbon by the rest (outputs
-      !     nsc_repair_claim and nsc_xylem_repair).
+      !     TRIFFID grows from the rest of the release, so the claim comes
+      !     out of growth by lambda_g and out of the spreading carbon by
+      !     the rest (outputs nsc_repair_claim and nsc_xylem_repair).
       !
       ! MDK, 04/11/26
 
@@ -1025,12 +1029,15 @@ LOGICAL ::                                                                     &
       !   rho = nsc_xylem_cond_ratio G dt / X
       !
       ! of the stem's conductance (X the conducting sapwood, the sapwood
-      ! pool by default) and dilutes the stem's loss, L -> L (1 - rho), as
-      ! leaf renewal does the leaf's. No store carbon is spent on it. See
-      ! triffid_nsc_mod. Use with l_ximpair_leaf_loss (ximpair_leaf_sens =
-      ! 1) for leaf area in proportion to the functional xylem.
+      ! pool by default). The stem's loss falls by that share,
+      ! L -> MAX(L - rho, 0), with l_nsc_ring_additive (the default), or is
+      ! diluted, L -> L (1 - rho), without it; with the ring cohorts
+      ! (l_nsc_sapwood_rings) each ring keeps its own loss instead. No
+      ! store carbon is spent on it. See triffid_nsc_mod. Use with
+      ! l_ximpair_leaf_loss (ximpair_leaf_sens = 1) for leaf area in
+      ! proportion to the functional xylem.
       !
-      ! MDK, 30/10/26
+      ! MDK, 05/11/26
   l_ximpair_rec_leaf_turn = .FALSE.,                                           &
       ! Per-segment memory (l_ximpair_seg_memory) with the TRIFFID store
       ! (l_triffid_nsc): the leaf segment recovers by leaf renewal, not by
@@ -1067,15 +1074,15 @@ LOGICAL ::                                                                     &
   l_nsc_sapwood_pool = .TRUE.,                                                 &
       ! Ring renewal (l_ximpair_rec_nsc): the conducting sapwood the rings
       ! renew is a pool of its own (nsc_sapwood, in dumps), as in MEDFATE,
-      ! instead of the pipe model on the current leaf area. It gains
+      ! instead of the pipe model on the balanced leaf area. It gains
       ! TRIFFID's new wood, loses nsc_heartwood_rate of itself a (360-day)
       ! year to heartwood and its share of TRIFFID's wood turnover, and
       ! loses the wood lost in a ring year with a net loss. It starts at
-      ! its steady state for the current wood. On by default; without ring
-      ! renewal check_jules_vegetation switches it off. .FALSE.: the pipe
-      ! model.
+      ! its steady state for the current wood (at the target with
+      ! l_nsc_pipe_target). On by default; without ring renewal
+      ! check_jules_vegetation switches it off. .FALSE.: the pipe model.
       !
-      ! MDK, 31/10/26
+      ! MDK, 05/11/26
   l_nsc_ring_additive = .TRUE.,                                                &
       ! Ring renewal (l_ximpair_rec_nsc) replaces damaged xylem first, as in
       ! MEDFATE: the stem's loss of conductance falls by the ring's share,
@@ -1116,10 +1123,11 @@ LOGICAL ::                                                                     &
       ! raises every ring's loss to at least the loss it imposes, and the
       ! stem's loss is the rings' mean weighted by sapwood and conductivity
       ! (nsc_ring_cond_efold). Recovery then follows from the rings, so
-      ! l_nsc_ring_additive is ignored. At most nsc_n_ring rings. See
-      ! triffid_nsc_mod.
+      ! l_nsc_ring_additive is ignored. At most nsc_n_ring rings. Needs
+      ! the per-segment memory (l_ximpair_seg_memory), so the rings carry
+      ! the stem's damage only. See triffid_nsc_mod.
       !
-      ! MDK, 30/10/26
+      ! MDK, 05/11/26
   l_nsc_pipe_target = .FALSE.,                                                 &
       ! Sapwood pool (l_nsc_sapwood_pool) with a pipe-model target: the
       ! target sapwood X_t is the pipe model on last ring year's peak LAI

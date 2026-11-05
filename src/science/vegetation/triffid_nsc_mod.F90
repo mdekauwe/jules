@@ -211,10 +211,11 @@ MODULE triffid_nsc_mod
 ! nsc_heartwood_model sets how the sapwood turns to heartwood. With the
 ! pipe rule (1, default) the pipe model is kept, as in LPJ (Sitch et al.
 ! 2003): the sapwood above the target becomes heartwood at once, oldest
-! rings first, and below it heartwood forms at k_h. Over a TRIFFID step,
-! with X' the sapwood after TRIFFID's turnover,
+! rings first, and below it heartwood forms at k_h. Over a TRIFFID step
+! of dt (360-day years), with X' the sapwood after TRIFFID's turnover, the
+! heartwood formed is
 !
-!   H = MAX(X' (1 - EXP(-k_h dt)), X' - X_t).
+!   dH = MAX(X' (1 - EXP(-k_h dt)), X' - X_t).
 !
 ! TRIFFID's allocation is fixed, so a sapwood below its target is not
 ! grown faster. With the fixed rate (0) heartwood forms at k_h whatever
@@ -305,10 +306,12 @@ MODULE triffid_nsc_mod
 ! wood carbon from the prescribed canopy height. The release leaves the
 ! store, as there is no growth to feed, and there is no stem recovery.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 
 USE um_types, ONLY: real_jlslsm
+! Smallest sapwood-area factor on kmax (supply_table_mod).
+USE supply_table_mod, ONLY: nsc_f_a_min
 
 IMPLICIT NONE
 
@@ -324,10 +327,6 @@ PUBLIC :: nsc_k_area_raw, nsc_lai_sapwood, nsc_lai_sap_cap
 PUBLIC :: nsc_xylem_renew_cw, nsc_heartwood_factor, nsc_xt_cap_count
 PUBLIC :: nsc_xylem_repair_pft, nsc_repair_claim
 PUBLIC :: nsc_f_a_min
-
-! Smallest sapwood-area factor on kmax (and on the stem with
-! the Trugman response), so the plant keeps a conducting path.
-REAL(KIND=real_jlslsm), PARAMETER :: nsc_f_a_min = 0.01
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,                     &
           nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft,  &
           nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, phen_nhigh,         &
@@ -360,8 +359,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_tseas_acc(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_mean(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_wt(:,:)
 ! Diagnostics of the last TRIFFID step (kg C m-2 per 360 days): the carbon
-! released from the store (W, which TRIFFID grows from) and the net flux
-! into the store (NPP - W).
+! released from the store (W, which TRIFFID grows from; with the Trugman
+! response, the release less the repair claim) and the net flux into the
+! store (NPP - W).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_load_pft(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_dc_pft(:,:)
 ! Overflow respiration of the last store step (kg C m-2 per 360 days). In
@@ -382,8 +382,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_wood_lost(:,:)
 ! of the ring year. In dumps with ring renewal.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_net_wood_growth(:,:)
 ! Sapwood pool (l_nsc_sapwood_pool): the conducting sapwood X_s (kg C m-2
-! of the PFT; < 0 = not yet set: the pipe model at the first step). In
-! dumps.
+! of the PFT; < 0 = not yet set: at the first ring step it starts at the
+! pipe-model target with l_nsc_pipe_target, else at its steady state
+! C_W g_t / (k_h + g_t)). In dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_sapwood(:,:)
 ! Stem N from the sapwood pool (l_nsc_sapwood_n): the pool's share of
 ! TRIFFID's wood carbon, X_s / C_W (0-1), set by triffid from the current
@@ -391,9 +392,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_sapwood(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_sapwood_share(:,:)
 ! Sapwood pool (l_nsc_sapwood_pool): the heartwood H = C_W - X_s of the
 ! last TRIFFID step (kg C m-2 of the PFT; < 0 = not yet set), a
-! diagnostic. Pipe-model target (l_nsc_pipe_target): the target sapwood X_t of the last TRIFFID step (kg C m-2;
-! 0 = not yet set), in dumps; and whether a point has been warned that
-! its target was capped at the wood.
+! diagnostic. Pipe-model target (l_nsc_pipe_target): the target sapwood
+! X_t of the last TRIFFID step (kg C m-2; 0 = not yet set), in dumps; and
+! whether a point has been warned that its target was capped at the wood.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_heartwood(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_sapwood_target(:,:)
 LOGICAL, ALLOCATABLE, SAVE :: nsc_xt_warned(:,:)
@@ -402,15 +403,16 @@ LOGICAL, ALLOCATABLE, SAVE :: nsc_xt_warned(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_lai_peak(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_lai_peak_prev(:,:)
 ! Conductance from the sapwood area (l_nsc_k_sapwood): the factor f_A on
-! the plant's kmax of the last step (1 = full area). A diagnostic, set by
-! sf_stom.
+! the plant's kmax of the last step (0-1, 1 = full area); with the Trugman
+! response, the stem's factor per unit leaf area, L_A / LAI (0.01-10). A
+! diagnostic, set by sf_stom.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_k_area_frac(:,:)
 ! The sapwood-area ratio before the MIN of f_A of the last step (can
 ! exceed 1; 1 until set). A diagnostic, set by sf_stom.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_k_area_raw(:,:)
-! Canopy limited by the sapwood (Trugman response): the largest LAI
-! the functional sapwood can supply at the last phenology step (< 0 = no
-! cap). A diagnostic, set by phenol.
+! Trugman response: the canopy cap of the last phenology step, the
+! balanced LAI times the share of the sapwood's conductance that still
+! works (m2 m-2; < 0 = no cap). A diagnostic, set by phenol.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_lai_sap_cap(:,:)
 ! Ring cohorts: the new ring's share of the stem's conductance weight,
 ! the share of the stem's loss it dilutes, of the last TRIFFID step (per
@@ -426,9 +428,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_repair_pft(:,:)
 ! input and, as the damaged wood it replaces, to the litter. Output
 ! nsc_repair_claim.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_repair_claim(:,:)
-! Pipe-model target: the heartwood factor g of the last TRIFFID step, and
-! the number of TRIFFID steps since the start (or restart) at which the
-! target was capped at the wood. Diagnostics.
+! Pipe-model target: the heartwood rate of the last TRIFFID step over
+! nsc_heartwood_rate (1 with the fixed rate; above 1 when the pipe rule
+! removes sapwood above the target; stays 1 if nsc_heartwood_rate is 0),
+! and the number of TRIFFID steps since the start (or restart) at which
+! the target was capped at the wood. Diagnostics.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_heartwood_factor(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xt_cap_count(:,:)
 ! Carbon-starvation mortality of the last TRIFFID step (per 360 days), used
@@ -1569,7 +1573,7 @@ END FUNCTION nsc_lai_sapwood
 !      with the pipe-model target this ring year's peak LAI becomes last
 !      year's.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
                                      r_gamma, ht, lai_bal, lai, woodc, dwood,  &
@@ -1628,9 +1632,9 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   wood_litc(land_pts,npft)
 
 INTEGER :: n, t, l
-! Gross wood production (kg C m-2 per 360 days); conducting sapwood
-! (kg C m-2).
-REAL(KIND=real_jlslsm) :: g_wood_prod, x_s
+! New wood counted as ring, net of the wood lost not yet regrown (kg C
+! m-2 per 360 days); conducting sapwood (kg C m-2).
+REAL(KIND=real_jlslsm) :: ring_prod, x_s
 ! TRIFFID timestep (360-day years) and the step's gross wood
 ! production (kg C m-2, < 0 when wood is lost).
 REAL(KIND=real_jlslsm) :: dt, g_step
@@ -1652,7 +1656,7 @@ LOGICAL :: l_ring_end
 REAL(KIND=real_jlslsm) :: lai_ref, lai_pot, x_t, rate_h, x_turn, h_step
 ! The target is set on the leaf area the climate allows (pipe heartwood
 ! rule or Trugman response).
-LOGICAL :: l_pot
+LOGICAL :: l_lai_climate
 ! The new ring's share of the conductance weight.
 REAL(KIND=real_jlslsm) :: w_cw
 ! Xylem repair: damaged sapwood replaced at this step (kg C m-2).
@@ -1686,7 +1690,7 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
                         current_time%day, l_360, l_leap)
   nd      = MAX(NINT(dt * 360.0), 1)
 
-  l_pot = nsc_heartwood_model == nsc_heartwood_pipe .OR.                      &
+  l_lai_climate = nsc_heartwood_model == nsc_heartwood_pipe .OR.               &
           nsc_damage_response == nsc_damage_trugman
 
   DO n = 1,nnpft
@@ -1722,7 +1726,7 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       lai_ref = lai_bal(l,n)
       IF (l_nsc_pipe_target) THEN
         lai_pot = lai(l,n)
-        IF (l_pot) THEN
+        IF (l_lai_climate) THEN
           lai_pot = lai_bal(l,n)
           IF (l_phen_psi .AND. is_set(phen_psi_tlp(n)))                       &
             lai_pot = lai_pot * MIN(MAX(phen_fbleaf(l,n), 0.01), 1.0)
@@ -1780,9 +1784,9 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! it heartwood forms at k_h. Over the step, with X' the sapwood after
       ! TRIFFID's turnover,
       !
-      !   H = MAX(X' (1 - EXP(-k_h dt)), X' - X_t),
+      !   dH = MAX(X' (1 - EXP(-k_h dt)), X' - X_t),
       !
-      ! taken oldest rings first; rate_h is the rate that removes H over
+      ! taken oldest rings first; rate_h is the rate that removes dH over
       ! the step, and the heartwood factor (an output) is rate_h / k_h.
       ! Otherwise heartwood forms at k_h.
       rate_h = nsc_heartwood_rate(n)
@@ -1820,13 +1824,13 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       g_step = dwood(l,n) + wood_litc(l,n) * dt
       IF (g_step < 0.0) THEN
         nsc_wood_lost(l,n) = nsc_wood_lost(l,n) - g_step
-        g_wood_prod = 0.0
+        ring_prod = 0.0
       ELSE
-        g_wood_prod = MAX(g_step - nsc_wood_lost(l,n), 0.0) * r_gamma
+        ring_prod = MAX(g_step - nsc_wood_lost(l,n), 0.0) * r_gamma
         nsc_wood_lost(l,n) = MAX(nsc_wood_lost(l,n) - g_step, 0.0)
       END IF
       nsc_net_wood_growth(l,n)       = nsc_net_wood_growth(l,n) + g_step
-      nsc_xylem_prod_pft(l,n) = g_wood_prod
+      nsc_xylem_prod_pft(l,n) = ring_prod
 
       ! The ring's share of the stem conductance, queued for the next
       ! impairment update. A sapwood at or below x_min renews nothing, but
@@ -1835,9 +1839,9 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! sapwood, and nothing is queued.
       IF (x_s > x_min) THEN
         IF (l_nsc_sapwood_rings) THEN
-          nsc_xylem_renew_pft(l,n) = g_wood_prod / x_s
+          nsc_xylem_renew_pft(l,n) = ring_prod / x_s
         ELSE
-          nsc_xylem_renew_pft(l,n) = nsc_xylem_cond_ratio(n) * g_wood_prod    &
+          nsc_xylem_renew_pft(l,n) = nsc_xylem_cond_ratio(n) * ring_prod       &
                                      / x_s
           ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                  &
                                      + nsc_xylem_renew_pft(l,n) / r_gamma
@@ -1855,7 +1859,7 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
                                  MIN(ximpair_lock(l,n)                         &
                                      / MAX(ximpair_area_w(l,n), 1.0e-6), 1.0))
         CALL ximpair_ring_grow(l, n, x_s * EXP(-g_turn / r_gamma),             &
-                               g_wood_prod / r_gamma, rate_h / r_gamma,        &
+                               ring_prod / r_gamma, rate_h / r_gamma,          &
                                l_ring_end, g_year, w_cw)
         ! The new ring's share of the conductance weight, per 360 days:
         ! the share of the stem's loss it dilutes.
@@ -1867,12 +1871,12 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       !
       !   dX_s/dt = G - (k_h + g_t) X_s,   k_h = nsc_heartwood_rate,
       !
-      ! so in equilibrium X_s = G / (k_h + g_t) (with the pipe-model
-      ! target k_h is g k_h).
+      ! so in equilibrium X_s = G / (k_h + g_t) (with the pipe heartwood
+      ! rule, k_h is the step's rate rate_h).
       IF (l_nsc_sapwood_pool)                                                  &
         nsc_sapwood(l,n) = nsc_sapwood(l,n)                                    &
                            * EXP(-(rate_h + g_turn) / r_gamma)                 &
-                           + g_wood_prod / r_gamma
+                           + ring_prod / r_gamma
 
       ! Xylem repair (the Trugman response): the release the store step
       ! claimed for repair replaces damaged sapwood above the period's

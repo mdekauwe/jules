@@ -1051,7 +1051,8 @@ DO i = 1, nvars_required
     ! MDK, 30/10/26
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'nsc_sapwood' )
-    ! Sapwood pool: not yet set, so the pipe model at the first ring step.
+    ! Sapwood pool: not yet set, so it starts at the first ring step, at
+    ! the pipe-model target or at its steady state.
     !
     ! MDK, 30/10/26
     CALL dict_set(defaults_dict, identifiers(i), -1.0)

@@ -185,8 +185,7 @@ USE pftparm, ONLY: cap_stem, kcrit_fractional_loss, conductance_b_seg,         &
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: l_som_plant_segments
 USE pftparm, ONLY: pft_xylem_impairment_model
-USE jules_vegetation_mod, ONLY: xylem_impairment_none, SOX_conductance
-USE pftparm, ONLY: pft_conductance_model
+USE jules_vegetation_mod, ONLY: xylem_impairment_none
 
 USE xylem_impairment_mod, ONLY: update_xylem_impairment
 ! MDK, 17/10/26
@@ -1002,10 +1001,6 @@ REAL(KIND=real_jlslsm) :: k_raw(land_pts), r_stem(land_pts), lai_sw
                             ! and the leaf area the sapwood can supply.
                             !
                             ! MDK, 01/11/26
-LOGICAL :: l_store_cpl
-                            ! The capacitance store (with l_cap_store): the
-                            ! optimiser sees the store, through its flow out
-                            ! q_store held fixed in each pass (store_cpl_q).
 REAL(KIND=real_jlslsm) :: q_store(land_pts)
                             ! The capacitance store: the store's flow out
                             ! at the stem node the optimiser sees (mol H2O
@@ -1158,11 +1153,6 @@ REAL(KIND=real_jlslsm) :: c_store
 REAL(KIND=real_jlslsm) :: psi0_store
                             ! The store's (stem node) psi at the start of the
                             ! step, W / C (Pa).
-LOGICAL :: l_seg_cut
-                            ! The cuticular loss's psi_stem is solved (plant
-                            ! segments under the impairment).
-                            !
-                            ! MDK, 24/10/26
 LOGICAL :: l_ml_ximp
                             ! Multilayer stomatal optimisation with xylem
                             ! impairment (not in spin-up).
@@ -1395,8 +1385,6 @@ psi_stem(:) = psi_root_zone(:)
 !
 ! MDK, 25/10/26
 l_cap_store = l_som_capacitance_on
-! The store is coupled to the optimiser whenever it is on.
-l_store_cpl = l_cap_store
 psi_stem_sun(:) = psi_root_zone(:)
 psi_stem_shd(:) = psi_root_zone(:)
 IF ( l_som_gravity .AND. leaf_flux_mod == leaf_flux_stom_opt ) THEN
@@ -2256,7 +2244,7 @@ CASE ( 5, 6 )
         ! the canopy's path for its balance (as the big leaf; no
         ! kplant_model = 1 here).
         e_sup_use(:) = e_supply(:)
-        IF ( l_store_cpl ) THEN
+        IF ( l_cap_store ) THEN
           ! (It needs at least 2 passes: iter and leaf_temp_iter are both
           ! fixed at 3.)
           share_one(:) = 1.0
@@ -2605,7 +2593,7 @@ CASE ( 5, 6 )
                       r_bl_shd_ml(l) = lai_lt_c(l,2*n) / gbw_lt_c(l,2*n)
                   END DO
 
-                  IF ( l_store_cpl ) CALL store_cpl_ml_q( n, k )
+                  IF ( l_cap_store ) CALL store_cpl_ml_q( n, k )
                   ! Sunlit, then shaded leaf of the layer, each at its own
                   ! leaf temperature.
                   CALL ml_class( vcmax_sun_ml, kc_sun_lt, ko_sun_lt,           &
@@ -2624,13 +2612,13 @@ CASE ( 5, 6 )
                                  flux_o3_l_shd, fo3_l_shd, gl_shd,             &
                                  psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,     &
                                  psi_stem_shd, q_store_shd_lyr )
-                  IF ( l_store_cpl ) THEN
+                  IF ( l_cap_store ) THEN
                     el_sun_lyr(:,n) = el_sun(:)
                     el_shd_lyr(:,n) = el_shd(:)
                   END IF
                 ELSE
                 ! share_sup: this layer's kmax share, set with kmax_leaf_lyr.
-                IF ( l_store_cpl ) CALL store_cpl_ml_q( n, k )
+                IF ( l_cap_store ) CALL store_cpl_ml_q( n, k )
                 CALL ml_class( vcmax, kc, ko, ccp, km, dqc, je, tstar,         &
                                je_sun_ratio, fapar_sun(:,n), zero_c,           &
                                rd_sun, ci_sun_ml, anetl_sun, el_sun,           &
@@ -2643,7 +2631,7 @@ CASE ( 5, 6 )
                                flux_o3_l_shd, fo3_l_shd, gl_shd,               &
                                psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,       &
                                psi_stem_shd, q_store_shd_lyr )
-                IF ( l_store_cpl ) THEN
+                IF ( l_cap_store ) THEN
                   el_sun_lyr(:,n) = el_sun(:)
                   el_shd_lyr(:,n) = el_shd(:)
                 END IF
@@ -2805,7 +2793,7 @@ CASE ( 5, 6 )
         ! pass, from its balance at this pass's canopy E, where some point
         ! transpires (the last pass's balance is committed after the leak
         ! block), and this pass's E for the layers' parts of q_store.
-        IF ( l_store_cpl .AND. k < n_pass_ml ) THEN
+        IF ( l_cap_store .AND. k < n_pass_ml ) THEN
           DO m = 1,veg_pts
             l = veg_index(m)
             e_bal(l)      = MAX(el(l), 0.0)
@@ -2845,7 +2833,7 @@ CASE ( 5, 6 )
 
         ! The canopy's stomatal transpiration for the next step's first
         ! pass.
-        IF ( l_store_cpl ) CALL store_cpl_e_prev( el )
+        IF ( l_cap_store ) CALL store_cpl_e_prev( el )
 
         ! Calculate canopy mean properties
         DO m = 1, veg_pts
@@ -3240,7 +3228,7 @@ CASE ( 1 )
   !
   ! MDK, 25/10/26
   e_sup_use(:) = e_supply(:)
-  IF ( l_store_cpl ) THEN
+  IF ( l_cap_store ) THEN
     ! (It needs iter >= 2: iter is fixed at 3.)
     CALL store_cpl_first_q()
     CALL store_cpl_supply()
@@ -3437,7 +3425,7 @@ CASE ( 1 )
        ! share 1).
        !
        ! MDK, 25/10/26
-       IF ( l_store_cpl ) THEN
+       IF ( l_cap_store ) THEN
          kref_cpl(:) = kmax_ref_bigleaf(:)
          kmx_cpl(:)  = kmax_bigleaf(:)
          kcr_cpl(:)  = kcrit_bigleaf(:)
@@ -3465,14 +3453,14 @@ CASE ( 1 )
         ! The store's flow held for the call applies no longer.
         !
         ! MDK, 25/10/26
-        IF ( l_store_cpl ) CALL clear_store_q_path()
+        IF ( l_cap_store ) CALL clear_store_q_path()
 
         ! The store coupled to the optimiser: its flow out for the next pass,
         ! from its balance at this pass's E, where some point transpires
         ! (the last pass's balance is committed after the leak block).
         !
         ! MDK, 25/10/26
-        IF ( l_store_cpl .AND. k < iter ) THEN
+        IF ( l_cap_store .AND. k < iter ) THEN
           DO m = 1,veg_pts
             l = veg_index(m)
             e_bal(l) = MAX(el(l), 0.0)
@@ -3593,7 +3581,7 @@ CASE ( 1 )
   END SELECT
 
   ! The canopy's stomatal transpiration for the next step's first pass.
-  IF ( l_store_cpl ) CALL store_cpl_e_prev( el )
+  IF ( l_cap_store ) CALL store_cpl_e_prev( el )
 
 
 CASE ( 7 )
@@ -3832,14 +3820,14 @@ CASE ( 7 )
   ! MDK, 04/11/26
   !---------------------------------------------------------------------------
   e_sup_use(:) = e_supply(:)
-  IF ( l_store_cpl ) THEN
+  IF ( l_cap_store ) THEN
     CALL store_cpl_first_q()
     CALL store_cpl_supply()
   END IF
   share_one(:) = 1.0
   q_store_sun(:)   = 0.0
   q_store_shd(:)   = 0.0
-  IF ( l_store_cpl ) THEN
+  IF ( l_cap_store ) THEN
     ! The canopy's path for the store's balance: the two classes together.
     DO m = 1,veg_pts
       l = veg_index(m)
@@ -3977,7 +3965,7 @@ CASE ( 7 )
     ! with E = 0 everywhere, e.g. at night, the solve is skipped and q_store
     ! keeps its value. The IFs are nested: Fortran need not short-circuit
     ! .AND., and e_bal is set only with the store coupled.
-    IF ( l_store_cpl .AND. k < n_pass_2l ) THEN
+    IF ( l_cap_store .AND. k < n_pass_2l ) THEN
       DO m = 1,veg_pts
         l = veg_index(m)
         e_bal(l) = MAX(el_sun(l) + el_shd(l), 0.0)
@@ -4023,7 +4011,7 @@ CASE ( 7 )
   ! The canopy's stomatal transpiration for the next step's first pass.
   !
   ! MDK, 01/11/26
-  IF ( l_store_cpl ) CALL store_cpl_e_prev( el_sun + el_shd )
+  IF ( l_cap_store ) CALL store_cpl_e_prev( el_sun + el_shd )
 
   ! The shared root and stem (l_som_shared_stem): the shaded leaves' flow
   ! (and A at their edge) for the next timestep's first pass, and one stem
@@ -4158,7 +4146,7 @@ CASE ( 7 )
   ! it is the store's k_bal, set below.
   !
   ! MDK, 04/11/26
-  IF ( l_som_shared_stem .AND. .NOT. l_store_cpl ) CALL kplant_shared_stem()
+  IF ( l_som_shared_stem .AND. .NOT. l_cap_store ) CALL kplant_shared_stem()
 
   ! As the big-leaf path: el in mol H2O m-2 s-1 and leaf_k per unit leaf
   ! area. (gc_som is set after the canopy switch.)
@@ -4226,17 +4214,22 @@ IF ( .NOT. l_leaf_temp ) gc_stomatal_pft(:,ft) = gc(:)
 ! its store. If the drought persists, psi_x reaches the threshold at which
 ! emboli propagate (about P50 in conifers, P88 in angiosperms) and the
 ! hydraulic system fails; here psi is held at the critical loss of
-! conductance (kcrit_fractional_loss, e.g. 0.95, beyond P88), as there is
-! no mortality.
+! conductance (kcrit_fractional_loss, e.g. 0.95, beyond P88); mortality, if
+! on (l_trif_hydmort), acts through TRIFFID's cover from the accumulated
+! loss.
 !
-! Where the optimiser has (nearly) shut the stomata, the canopy conductance
-! is raised to gcuticular * LAI. There is no carbon trade at that point, so
-! A is unchanged; the leak goes into the transpiration (and so ET and LE)
-! through gc. Its water comes from the capacitance store and the soil (the
-! soil-supply cap applies: no water is taken that is not there). In detail:
-! - day and night: at night and in dim light the closed canopy
-!   (gc = min_gl_pft) is raised to the leak as by day; with
-!   l_som_cuticular_day_only only at lit points with apar >= apar_cut_min;
+! Where the optimiser has (nearly) shut the stomata, the canopy's flux is
+! raised to the leak's, gcuticular * LAI times the leaf-to-air humidity
+! deficit (dq_cut, at most dq_ratio_cut_max times the tile's deficit); the
+! conductance that gives it is solved from the tile's flux. There is no
+! carbon trade at that point, so A is unchanged; the leak goes into the
+! transpiration (and so ET and LE) through gc. Its water comes from the
+! capacitance store and the soil (the soil-supply cap applies: no water is
+! taken that is not there). The store is described in
+! plant_water_store_mod. In detail:
+! - with som_cuticular_leak = 2 the closed canopy (gc = min_gl_pft) is
+!   raised to the leak day and night; with som_cuticular_leak = 1 only at
+!   lit points with apar >= apar_cut_min;
 ! - the leak is cut back only where it would take the leaf below the psi
 !   of the critical loss of conductance on the leaf (or PFT) curve,
 !   psi_fl_leaf (kcrit_fractional_loss, e.g. 0.95; store_cpl_leak_cut),
@@ -4251,7 +4244,7 @@ IF ( .NOT. l_leaf_temp ) gc_stomatal_pft(:,ft) = gc(:)
 ! memory does not go past that loss. The transpiration is the tile's flux
 ! at tstar, as sf_evap takes it.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 IF ( l_cap_store ) THEN
   CALL store_state_alloc( land_pts )
@@ -4310,7 +4303,7 @@ IF ( l_cap_store ) THEN
 
   ! (Coupled to the optimiser the soil supplies only E - q_store: the cap is
   ! e_sup_use.)
-  IF ( l_store_cpl ) THEN
+  IF ( l_cap_store ) THEN
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use,          &
                              share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
   ELSE
@@ -4370,40 +4363,20 @@ IF ( l_cap_store ) THEN
   ! lowest conductance the impairment memory allows. On the Weibull curve,
   ! k / kmax = exp(-(psi / b)**c),
   !
-  !   psi_fl = -b (-LOG(r))**(1 / c),
-  !
-  ! and on the SOX curve, k / kmax = 1 / (1 + (psi / b)**c),
-  !
-  !   psi_fl = -b (1 / r - 1)**(1 / c).
+  !   psi_fl = -b (-LOG(r))**(1 / c).
   !
   ! psi_fl_leaf and psi_fl_stem come from the leaf and stem segment curves
-  ! when segments are on (after spin-up, with an impairment model), and
-  ! always when the store is coupled to the optimiser, because the store's
-  ! balance and the optimiser then use the segment curves in spin-up and
-  ! without an impairment model too. The segment curves are Weibull.
-  ! Otherwise both are on the PFT curve, Weibull or SOX.
-  ! The leak is cut where the leaf would end below psi_fl_leaf
-  ! (store_cpl_leak_cut), and the store's stem psi is kept at or above
-  ! psi_fl_stem (store_cpl_q).
+  ! (Weibull), which the store's balance and the optimiser use, in spin-up
+  ! and without an impairment model too. The leak is cut where the leaf
+  ! would end below psi_fl_leaf (store_cpl_leak_cut), and the store's stem
+  ! psi is kept at or above psi_fl_stem (store_cpl_q).
   !
-  ! MDK, 03/11/26
+  ! MDK, 05/11/26
   r_crit = 1.0 - kcrit_fractional_loss(ft)
-  l_seg_cut = l_som_plant_segments .AND. .NOT. is_spinup .AND.                 &
-              pft_xylem_impairment_model(ft) /= xylem_impairment_none
-  IF ( l_seg_cut .OR. l_store_cpl ) THEN
-    psi_fl_leaf = -ABS(conductance_b_seg(ft,3))                                &
-                  * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,3))
-    psi_fl_stem = -ABS(conductance_b_seg(ft,2))                                &
-                  * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,2))
-  ELSE IF ( pft_conductance_model(ft) == SOX_conductance ) THEN
-    psi_fl_leaf = -ABS(conductance_b_pft(ft))                                  &
-                  * (1.0 / r_crit - 1.0)**(1.0 / conductance_c_pft(ft))
-    psi_fl_stem = psi_fl_leaf
-  ELSE
-    psi_fl_leaf = -ABS(conductance_b_pft(ft))                                  &
-                  * (-LOG(r_crit))**(1.0 / conductance_c_pft(ft))
-    psi_fl_stem = psi_fl_leaf
-  END IF
+  psi_fl_leaf = -ABS(conductance_b_seg(ft,3))                                  &
+                * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,3))
+  psi_fl_stem = -ABS(conductance_b_seg(ft,2))                                  &
+                * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,2))
 
   ! Advance the capacitance store over the step. Its state is its water,
   !
@@ -4900,7 +4873,7 @@ CONTAINS
 ! ground. The "cut_" prefix is from the module that holds the store,
 ! plant_water_store_mod.
 !
-! MDK, 23/10/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_commit( l_c, c_s, psi_x0, psi_x1 )
 
@@ -4931,7 +4904,7 @@ END SUBROUTINE store_commit
 ! store_q and store_e_prev are in the dump, so a restart in daylight
 ! starts its first pass from the same flow as a continuous run.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_first_q()
 
@@ -4990,7 +4963,7 @@ END SUBROUTINE store_cpl_e_prev
 !
 ! Sets e_sup_use.
 !
-! MDK, 24/10/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_supply()
 
@@ -5016,7 +4989,7 @@ END SUBROUTINE store_cpl_supply
 ! did not transpire, each gets its share of the canopy's hydraulic
 ! conductance (kmax_ref_sun_2l, kmax_ref_shd_2l) instead.
 !
-! MDK, 25/10/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_split( l_pass )
 
@@ -5057,7 +5030,7 @@ END SUBROUTINE store_cpl_split
 ! the canopy did not transpire, both get q_store times the layer's share of the
 ! canopy's hydraulic conductance (share_sup) instead.
 !
-! MDK, 25/10/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_ml_q( n_l, k_p )
 
@@ -5105,7 +5078,7 @@ END SUBROUTINE store_cpl_ml_q
 ! store's balance is committed. Only these points are solved again; the
 ! others keep the balance already committed.
 !
-! MDK, 25/10/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_leak_cut()
 
@@ -5133,8 +5106,9 @@ DO m = 1,veg_pts
 END DO
 IF ( .NOT. ANY(l_cut) ) RETURN
 
-! Bisection on E. At each guess, solve the store's balance (Newton steps,
-! cut points only) for the leaf psi at the end of the step. A leaf below
+! Bisection on E. At each guess, solve the store's balance (with the
+! search's solver: Newton steps, or the lookup tables with som_psi_solver =
+! 3; cut points only) for the leaf psi at the end of the step. A leaf below
 ! psi_fl_leaf means E is too large, so the guess becomes the upper end;
 ! otherwise it becomes the lower end. e_lo is always an E the leaf survives.
 DO it = 1,n_it_fl
@@ -5228,7 +5202,7 @@ END SUBROUTINE store_cpl_leak_cut
 ! It also sets share_sup to 1; each canopy scheme sets it again before
 ! using it.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_q( l_ex, e_c, l_sel )
 
@@ -5236,7 +5210,9 @@ IMPLICIT NONE
 
 LOGICAL, INTENT(IN) :: l_ex
                             ! .TRUE.: exact segment solves (the commit);
-                            ! .FALSE.: the Newton steps (between passes).
+                            ! .FALSE.: the search's solver (between
+                            ! passes): Newton steps, or the lookup tables
+                            ! with som_psi_solver = 3.
 REAL(KIND=real_jlslsm), INTENT(IN) :: e_c(land_pts)
                             ! Canopy transpiration (mol H2O m-2 s-1).
 LOGICAL, INTENT(IN), OPTIONAL :: l_sel(land_pts)
@@ -5542,7 +5518,7 @@ END SUBROUTINE store_cpl_q
 ! floored as the canopy leaf psi is in store_cpl_q. Where E_c / kmax_c is
 ! the same for both classes, both get the canopy leaf psi psi_l_bal.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_cls_psi( l )
 
@@ -5682,7 +5658,7 @@ END SUBROUTINE kplant_shared_stem
 ! It is 0 at the answer, below 0 when the guess is too small and above 0
 ! when it is too large. Only the n_bal points being solved are worked out.
 !
-! MDK, 31/10/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_eval( n_bal, idx_bal, l_imp_bal, l_ex, e_c, q_try, c_p,   &
                            psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1,    &
@@ -5781,7 +5757,7 @@ END SUBROUTINE store_cpl_eval
 ! per unit leaf area, so the CMax and CGain costs take a leaf area of 1
 ! (lai_cost), not the layer's N-profile share of kmax.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE ml_class( vcmax_x, kc_x, ko_x, ccp_x, km_x, dq_x, je_x,             &
                      t_x, je_ratio_x, fapar_x, r_bl_x, rd_c, ci_c, anetl_c,    &
@@ -5813,7 +5789,7 @@ REAL(KIND=real_jlslsm) :: e_sup_cls(land_pts)
                             ! share of the soil supply plus its own part of
                             ! the store's flow (kg m-2 s-1).
 
-IF ( l_store_cpl ) THEN
+IF ( l_cap_store ) THEN
   ! This leaf's kmax share of the soil supply plus its own part of the
   ! store's flow (q_c), not share_sup (e_s + q_store).
   e_sup_cls(:) = e_supply(:)
@@ -5831,7 +5807,7 @@ END IF
 CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
 ! The store's flow out held fixed for this leaf's search.
-IF ( l_store_cpl ) CALL set_store_q_path( land_pts, veg_pts, veg_index,        &
+IF ( l_cap_store ) CALL set_store_q_path( land_pts, veg_pts, veg_index,        &
                                           share_one, q_c )
 CALL stom_opt_mod (                                                            &
     ! IN
@@ -5851,7 +5827,7 @@ CALL stom_opt_mod (                                                            &
     psi_stem = psi_stem_c,                                                     &
     lai_cost = ones_c                                                          &
 )
-IF ( l_store_cpl ) CALL clear_store_q_path()
+IF ( l_cap_store ) CALL clear_store_q_path()
 
 END SUBROUTINE ml_class
 
@@ -5883,7 +5859,7 @@ END SUBROUTINE ml_class
 ! the same fraction of the plant's intact conductance, now of the whole
 ! plant's root and stem.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE two_leaf_class( apar_c, lai_c, kmax_ref_c, qs_lt_c, dq_lt_c,        &
                            gbw_c, gbw_o, gl_o, t_lt_c, gl_max_c, acr_c,        &
@@ -5971,9 +5947,9 @@ CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,        &
 ! part of the store's flow out (store_cpl_split), held fixed for its search
 ! (cleared after). With the shared root and stem the whole store's flow,
 ! which leaves at the shared stem node.
-IF ( l_store_cpl .AND. l_som_shared_stem ) THEN
+IF ( l_cap_store .AND. l_som_shared_stem ) THEN
   CALL set_store_q_path( land_pts, veg_pts, veg_index, share_one, q_store )
-ELSE IF ( l_store_cpl ) THEN
+ELSE IF ( l_cap_store ) THEN
   CALL set_store_q_path( land_pts, veg_pts, veg_index, share_one, q_store_cls )
 END IF
 
@@ -6023,7 +5999,7 @@ IF ( l_som_shared_stem ) THEN
     l = veg_index(m)
     IF ( e_supply(l) >= 0.0 ) THEN
       e_sup_cls(l) = e_supply(l) - e_o_c(l) * Water_kg_per_mol
-      IF ( l_store_cpl )                                                       &
+      IF ( l_cap_store )                                                       &
         e_sup_cls(l) = e_sup_cls(l) + q_store(l) * Water_kg_per_mol
       e_sup_cls(l) = MAX(e_sup_cls(l), 0.0)
     END IF
@@ -6031,7 +6007,7 @@ IF ( l_som_shared_stem ) THEN
   CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_cls,            &
                            share_one, dq_opt, t_lt_c, pstar, gl_max_c,         &
                            gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
-ELSE IF ( l_store_cpl ) THEN
+ELSE IF ( l_cap_store ) THEN
   ! The class's kmax share of the soil supply plus its own part of the
   ! store's flow (q_store_cls), not share_sup (e_s + q_store).
   e_sup_cls(:) = e_supply(:)
@@ -6073,7 +6049,7 @@ CALL stom_opt_mod (                                                            &
           psi_stem = psi_stem_c, lambda_eff = lam_c,                           &
           lai_cost = lai_c                                                     &
   )
-IF ( l_store_cpl ) CALL clear_store_q_path()
+IF ( l_cap_store ) CALL clear_store_q_path()
 
 ! The shared root and stem: this class's A at its edge, then off.
 IF ( l_som_shared_stem ) THEN

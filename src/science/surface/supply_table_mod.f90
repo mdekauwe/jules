@@ -23,7 +23,7 @@ IMPLICIT NONE
 ! segments, one for each segment. Reading a table gives the leaf water
 ! potential for a transpiration rate without iterating.
 !
-! MDK, 31/10/26
+! MDK, 05/11/26
 PRIVATE
 
 CHARACTER(LEN=*),PARAMETER,PRIVATE :: ModuleName='SUPPLY_TABLE_MOD'
@@ -72,9 +72,11 @@ INTEGER, PARAMETER, PRIVATE :: n_lut = 4001
 INTEGER, PARAMETER, PRIVATE :: n_lut_max = 16 * (n_lut - 1) + 1
 ! Bottom of the Weibull table (f falls fast).
 REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: lut_f_floor = 1.0e-6
-! Smallest sapwood-area factor on kmax (nsc_k_area in triffid_nsc_mod),
-! for the depth of the segment tables with l_nsc_k_sapwood.
-REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: f_a_min_lut = 0.01
+! Smallest sapwood-area factor on kmax (and on the stem with the Trugman
+! response), so the plant keeps a conducting path. It sets the depth of
+! the segment tables with l_nsc_k_sapwood; triffid_nsc_mod (nsc_k_area)
+! and sf_stom take it from here.
+REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: nsc_f_a_min = 0.01
 ! Bottom of the SOX table, as a fraction of kcrit/kmax (f has a power-law tail,
 ! so a fixed tiny floor would spread the table too thin).
 REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: lut_f_floor_kcrit = 0.1
@@ -811,7 +813,7 @@ END FUNCTION seg_lut_psi
 ! more than the segment can carry from psi_in up to psi = 0, psi_out is 0,
 ! as in the Newton solver (psi_leaf_segments_jls).
 !
-! MDK, 31/10/26
+! MDK, 05/11/26
 ! *****************************************************************************
 FUNCTION seg_lut_psi_back( pft, iseg, psi_in, e_over_k ) RESULT( psi_out )
 
@@ -876,7 +878,7 @@ END FUNCTION seg_lut_s
 ! (kplant_model = 1) and with the sapwood area (l_nsc_k_sapwood), so each
 ! table is built deep enough for the largest share these allow.
 !
-! MDK, 31/10/26
+! MDK, 05/11/26
 ! *****************************************************************************
 SUBROUTINE build_supply_lut_seg( pft )
 
@@ -934,7 +936,7 @@ IF ( .NOT. lut_seg_ready(pft) ) THEN
     kfac_lut = MAX(seg_kfac(pft,iseg), 1.0_real_jlslsm)
     IF ( kplant_model == kplant_model_ground )                                 &
       kfac_lut = kfac_lut * k_ground_ratio_max
-    IF ( l_nsc_k_sapwood ) kfac_lut = kfac_lut / f_a_min_lut
+    IF ( l_nsc_k_sapwood ) kfac_lut = kfac_lut / nsc_f_a_min
     CALL table_build( lut_seg_tab(pft,iseg), b, c, .FALSE., lut_f_floor,       &
                       lut_f_crit(1.0 - kcrit_fractional_loss(pft), kfac_lut) )
   END DO

@@ -29,7 +29,7 @@ MODULE sf_stom_state_mod
 ! These are negative until first set, meaning "not yet set". A dump
 ! without them gives the same.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 
 USE um_types, ONLY: real_jlslsm
 
