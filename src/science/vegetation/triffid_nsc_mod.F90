@@ -158,8 +158,11 @@ MODULE triffid_nsc_mod
 ! two merge when a new one starts. At each TRIFFID step TRIFFID's wood
 ! turnover takes from all rings alike, the new wood G dt joins the youngest
 ! ring with intact xylem, and heartwood forms from the oldest rings first.
-! At the end of the ring year a new ring starts. A drought raises each
-! conducting ring's loss to at least the loss it causes. The stem's loss
+! At the end of the ring year a new ring starts. A drought raises the
+! loss of each conducting ring's wood to at least the loss it causes; each
+! ring is kept in two parts, a more damaged part and the rest (intact wood
+! joins the rest), so wood a drought finds intact takes its loss in full
+! (ximpair_ring_dmg, ximpair_ring_loss_lo). The stem's loss
 ! is the mean of the rings' losses, weighted by their share of the sapwood
 ! and by their conductivity, which falls with ring age a (in winters
 ! passed, so a ring stays new until its calendar year ends):

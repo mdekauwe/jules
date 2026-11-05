@@ -43,6 +43,10 @@ USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
+! The rings' two parts.
+!
+! MDK, 05/11/26
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_dmg, ximpair_ring_loss_lo
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
 USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
@@ -324,12 +328,18 @@ DO i = 1,nvars
     ! the first update or TRIFFID step sets them from the stem's loss.
     !
     ! MDK, 30/10/26
-    CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss' )
+    CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_dmg',       &
+           'ximpair_ring_loss_lo' )
       IF ( var_ids(i) > 0 ) THEN
         CALL file_read_var(FILE, var_ids(i),                                   &
                            global_data_3d(:,1:npft,1:nsc_n_ring))
       ELSE IF ( identifiers(i) == 'ximpair_ring_frac' ) THEN
         global_data_3d(:,1:npft,1:nsc_n_ring) = -1.0
+      ELSE IF ( identifiers(i) == 'ximpair_ring_dmg' ) THEN
+        ! The rings' two parts: one part, as the old rings were.
+        !
+        ! MDK, 05/11/26
+        global_data_3d(:,1:npft,1:nsc_n_ring) = 1.0
       ELSE
         global_data_3d(:,1:npft,1:nsc_n_ring) = 0.0
       END IF
@@ -1090,6 +1100,27 @@ DO i = 1,nvars
       DO m = 1,nsc_n_ring
         CALL scatter_land_field(global_data_3d(:,n,m),                         &
                                 ximpair_ring_loss(:,n,m))
+      END DO
+    END DO
+
+  ! The rings' two parts.
+  !
+  ! MDK, 05/11/26
+  CASE ( 'ximpair_ring_dmg' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      DO m = 1,nsc_n_ring
+        CALL scatter_land_field(global_data_3d(:,n,m),                         &
+                                ximpair_ring_dmg(:,n,m))
+      END DO
+    END DO
+
+  CASE ( 'ximpair_ring_loss_lo' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      DO m = 1,nsc_n_ring
+        CALL scatter_land_field(global_data_3d(:,n,m),                         &
+                                ximpair_ring_loss_lo(:,n,m))
       END DO
     END DO
 

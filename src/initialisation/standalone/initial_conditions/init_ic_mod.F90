@@ -1075,6 +1075,13 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
   CASE ( 'ximpair_ring_loss' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  ! The rings' two parts: each ring one part.
+  !
+  ! MDK, 05/11/26
+  CASE ( 'ximpair_ring_dmg' )
+    CALL dict_set(defaults_dict, identifiers(i), 1.0)
+  CASE ( 'ximpair_ring_loss_lo' )
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
   ! The xylem repair's peak imposed loss: none yet.
   !
   ! MDK, 04/11/26

@@ -10681,6 +10681,30 @@ DATA metadata(823) / var_metadata(                                             &
     "1"                                                                        &
   ) /
 !-----------------------------------------------------------------------------
+! The rings' two parts.
+! MDK, 05/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(849) / var_metadata(                                             &
+! String identifier
+    'ximpair_ring_dmg',                                                        &
+! Variable type
+    var_type_pft_ring,                                                         &
+! Long name
+    "Ring cohorts: share of each ring in its more damaged part",               &
+! Units
+    "1"                                                                        &
+  ) /
+DATA metadata(850) / var_metadata(                                             &
+! String identifier
+    'ximpair_ring_loss_lo',                                                    &
+! Variable type
+    var_type_pft_ring,                                                         &
+! Long name
+    "Ring cohorts: loss of conductance of each ring's less damaged part",      &
+! Units
+    "1"                                                                        &
+  ) /
+!-----------------------------------------------------------------------------
 ! Metadata for the pipe-model target (l_nsc_pipe_target)
 !
 ! MDK, 30/10/26

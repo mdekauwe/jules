@@ -1120,8 +1120,10 @@ LOGICAL ::                                                                     &
       ! annual ring of the conducting sapwood keeps its share and its
       ! loss of conductance (in dumps). New wood joins the youngest
       ! ring intact, heartwood takes the oldest rings first, a drought
-      ! raises every ring's loss to at least the loss it imposes, and the
-      ! stem's loss is the rings' mean weighted by sapwood and conductivity
+      ! raises the loss of every ring's wood to at least the loss it
+      ! imposes (each ring in two parts, so wood grown intact since the
+      ! last drought takes the new loss in full), and the stem's loss is
+      ! the rings' mean weighted by sapwood and conductivity
       ! (nsc_ring_cond_efold). Recovery then follows from the rings, so
       ! l_nsc_ring_additive is ignored. At most nsc_n_ring rings. Needs
       ! the per-segment memory (l_ximpair_seg_memory), so the rings carry

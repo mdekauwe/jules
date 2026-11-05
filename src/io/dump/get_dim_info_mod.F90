@@ -195,7 +195,8 @@ CASE ( 'plantNumDensity' )
 ! The sapwood's ring cohorts.
 !
 ! MDK, 30/10/26
-CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss' )
+CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_dmg',           &
+       'ximpair_ring_loss_lo' )
   ndims = 3
   dim_names(1:ndims) = [ land_dim_name, pft_dim_name, ring_dim_name ]
   dim_sizes(1:ndims) = [ global_land_pts, npft, nsc_n_ring ]

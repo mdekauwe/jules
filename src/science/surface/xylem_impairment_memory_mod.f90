@@ -37,7 +37,7 @@ PUBLIC :: ximpair_memory_alloc, ximpair_dilute_area,                           &
 
 PRIVATE :: k_intact, antideriv, psi_at_k, ring_cond, ring_age, ring_steady,   &
            ring_q,                                                             &
-           ring_sums
+           ring_sums, ring_hi, ring_hit, ring_add_intact
 
 ! ximpair_memory_alloc allocates the first three arrays below.
 
@@ -72,6 +72,20 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_area_w(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_frac(:,:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_loss(:,:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_year(:,:)
+
+! Ring cohorts: each ring's sapwood in two parts, so wood a drought finds
+! intact (grown, or gained as cover, since the ring was damaged) takes
+! that drought's loss in full instead of being averaged into the damaged
+! wood. The more damaged part holds the share d (0-1) of the ring at loss
+! L_hi, the rest has the loss L_lo, and the ring's loss is their mean,
+!
+!   L = d L_hi + (1 - d) L_lo   (ximpair_ring_loss).
+!
+! ximpair_ring_dmg holds d (1 = one part, as for a ring set up with one
+! loss) and ximpair_ring_loss_lo holds L_lo; L_hi follows from L
+! (ring_hi). In dumps; allocated with the rings.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_dmg(:,:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_loss_lo(:,:,:)
 
 ! Ring cohorts: the highest loss of conductance (0-1) that the water
 ! potential has imposed on the rings since the last TRIFFID step, the
@@ -202,7 +216,7 @@ END SUBROUTINE ximpair_dilute_area
 ! sapwood's annual rings are created only with l_nsc_sapwood_rings, and
 ! are marked as not yet set.
 !
-! MDK, 30/10/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_memory_alloc( n_land_pts )
 
@@ -241,6 +255,10 @@ IF (l_nsc_sapwood_rings .AND. .NOT. ALLOCATED(ximpair_ring_frac)) THEN
   ALLOCATE(ximpair_ring_year(n_land_pts, npft))
   ALLOCATE(ximpair_ring_peak(n_land_pts, npft))
   ALLOCATE(ximpair_hw_rate_mean(n_land_pts, npft))
+  ALLOCATE(ximpair_ring_dmg(n_land_pts, npft, nsc_n_ring))
+  ALLOCATE(ximpair_ring_loss_lo(n_land_pts, npft, nsc_n_ring))
+  ximpair_ring_dmg(:,:,:)     = 1.0
+  ximpair_ring_loss_lo(:,:,:) = 0.0
   ximpair_ring_frac(:,:,:) = -1.0
   ximpair_ring_loss(:,:,:) = 0.0
   ximpair_ring_year(:,:)   = -1.0
@@ -263,7 +281,7 @@ END SUBROUTINE ximpair_memory_alloc
 ! if the set-up falls after this year's ring year has ended (it is then
 ! empty; ximpair_ring_next_year).
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_ring_init( l, pft, loss0 )
 
@@ -282,6 +300,8 @@ ximpair_ring_year(l,pft) = REAL(ximpair_ring_next_year(pft))
 CALL ring_steady(l, pft, ring_q(l, pft), s)
 ximpair_ring_frac(l,pft,:) = s(:) / SUM(s)
 ximpair_ring_loss(l,pft,:) = loss0
+ximpair_ring_dmg(l,pft,:)     = 1.0
+ximpair_ring_loss_lo(l,pft,:) = 0.0
 
 END SUBROUTINE ximpair_ring_init
 
@@ -580,6 +600,112 @@ END DO
 END SUBROUTINE ring_sums
 
 ! ---------------------------------------------------------------------
+! Return the loss of conductance (0-1) of the more damaged part of ring
+! i at point l (ximpair_ring_dmg),
+!
+!   L_hi = (L - (1 - d) L_lo) / d,
+!
+! with L the ring's loss, d the part's share and L_lo the loss of the
+! rest; L_lo where the ring has no damaged part (d = 0).
+!
+! MDK, 05/11/26
+! ---------------------------------------------------------------------
+FUNCTION ring_hi( l, pft, i ) RESULT( l_hi )
+
+! Land point, PFT and ring.
+INTEGER, INTENT(IN) :: l, pft, i
+! The more damaged part's loss (0-1).
+REAL(KIND=real_jlslsm) :: l_hi
+
+! The part's share.
+REAL(KIND=real_jlslsm) :: d
+
+d = ximpair_ring_dmg(l,pft,i)
+IF (d > 1.0e-6) THEN
+  l_hi = (ximpair_ring_loss(l,pft,i)                                           &
+          - (1.0 - d) * ximpair_ring_loss_lo(l,pft,i)) / d
+  l_hi = MIN(MAX(l_hi, ximpair_ring_loss_lo(l,pft,i)), 1.0)
+ELSE
+  l_hi = ximpair_ring_loss_lo(l,pft,i)
+END IF
+
+END FUNCTION ring_hi
+
+! ---------------------------------------------------------------------
+! Damage ring i at point l by a step that imposes the loss of
+! conductance l_imp (0-1). Each part of the ring takes at least that
+! loss,
+!
+!   L_hi <- MAX(L_hi, l_imp),   L_lo <- MAX(L_lo, l_imp),
+!
+! so wood a drought finds intact takes its loss in full. Where the less
+! damaged part reaches the other, the ring is one part again (d = 1).
+! With d = 1 this is L <- MAX(L, l_imp).
+!
+! MDK, 05/11/26
+! ---------------------------------------------------------------------
+SUBROUTINE ring_hit( l, pft, i, l_imp )
+
+! Land point, PFT and ring.
+INTEGER, INTENT(IN) :: l, pft, i
+! The loss the step imposes (0-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: l_imp
+
+! The parts' losses and the more damaged part's share.
+REAL(KIND=real_jlslsm) :: l_hi, l_lo, d
+
+d    = ximpair_ring_dmg(l,pft,i)
+l_hi = MAX(ring_hi(l, pft, i), l_imp)
+l_lo = MAX(ximpair_ring_loss_lo(l,pft,i), l_imp)
+IF (d >= 1.0) THEN
+  ximpair_ring_loss(l,pft,i) = MAX(ximpair_ring_loss(l,pft,i), l_imp)
+ELSE IF (l_lo >= l_hi) THEN
+  ximpair_ring_loss(l,pft,i)    = l_lo
+  ximpair_ring_dmg(l,pft,i)     = 1.0
+  ximpair_ring_loss_lo(l,pft,i) = 0.0
+ELSE
+  ximpair_ring_loss(l,pft,i)    = d * l_hi + (1.0 - d) * l_lo
+  ximpair_ring_loss_lo(l,pft,i) = l_lo
+END IF
+
+END SUBROUTINE ring_hit
+
+! ---------------------------------------------------------------------
+! Mix intact wood into ring i at point l, so the ring's old wood keeps
+! the share w (0-1) of it: new wood joining the youngest ring, or new
+! cover joining the stand. The intact wood joins the less damaged part,
+!
+!   L <- w L,   d <- w d,
+!   L_lo <- L_lo w (1 - d) / (w (1 - d) + 1 - w),
+!
+! so the more damaged part keeps its loss.
+!
+! MDK, 05/11/26
+! ---------------------------------------------------------------------
+SUBROUTINE ring_add_intact( l, pft, i, w )
+
+! Land point, PFT and ring.
+INTEGER, INTENT(IN) :: l, pft, i
+! The old wood's share of the ring after the mixing (0-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: w
+
+! The less damaged part's old wood, and the part after the mixing
+! (shares of the ring).
+REAL(KIND=real_jlslsm) :: f_lo, f_new
+
+f_lo  = w * (1.0 - ximpair_ring_dmg(l,pft,i))
+f_new = f_lo + 1.0 - w
+IF (f_new > 0.0) THEN
+  ximpair_ring_loss_lo(l,pft,i) = ximpair_ring_loss_lo(l,pft,i) * f_lo / f_new
+ELSE
+  ximpair_ring_loss_lo(l,pft,i) = 0.0
+END IF
+ximpair_ring_loss(l,pft,i) = ximpair_ring_loss(l,pft,i) * w
+ximpair_ring_dmg(l,pft,i)  = ximpair_ring_dmg(l,pft,i) * w
+
+END SUBROUTINE ring_add_intact
+
+! ---------------------------------------------------------------------
 ! Return the stem's loss of conductance (0-1) from drought damage to its
 ! annual rings, which sets the stem's conductance cap in the memory model
 ! of xylem impairment. Each ring's loss L_i is weighted by its share of
@@ -777,14 +903,18 @@ REAL(KIND=real_jlslsm) :: sw, swl, swf
 ! to take, the part taken from a ring, the total, and the merged rings'
 ! share.
 REAL(KIND=real_jlslsm) :: a(nsc_n_ring), x1_new, h, take, tot, f_old
+! Merged rings: the shares in the more and less damaged parts, and the
+! less damaged part's loss.
+REAL(KIND=real_jlslsm) :: f_hi, f_lo, lo_new
 
 n = nsc_n_ring
 a(:) = MAX(ximpair_ring_frac(l,pft,:), 0.0) * x_turn
 
-! The new wood is intact: it dilutes the youngest ring's loss.
+! The new wood is intact: it dilutes the youngest ring's loss, and joins
+! its less damaged part.
 IF (dg > 0.0) THEN
   x1_new = a(1) + dg
-  ximpair_ring_loss(l,pft,1) = ximpair_ring_loss(l,pft,1) * a(1) / x1_new
+  CALL ring_add_intact(l, pft, 1, a(1) / x1_new)
   a(1) = x1_new
 END IF
 
@@ -813,18 +943,38 @@ END IF
 IF (l_shift) THEN
   IF (n > 1) THEN
     f_old = ximpair_ring_frac(l,pft,n) + ximpair_ring_frac(l,pft,n-1)
-    IF (f_old > 0.0)                                                           &
+    IF (f_old > 0.0) THEN
+      ! The merged ring's parts: the more damaged parts together, and the
+      ! rest together, each weighted by its carbon.
+      f_hi = ximpair_ring_frac(l,pft,n) * ximpair_ring_dmg(l,pft,n)            &
+             + ximpair_ring_frac(l,pft,n-1) * ximpair_ring_dmg(l,pft,n-1)
+      f_lo = f_old - f_hi
+      lo_new = 0.0
+      IF (f_lo > 0.0)                                                          &
+        lo_new = (ximpair_ring_frac(l,pft,n)                                   &
+                  * (1.0 - ximpair_ring_dmg(l,pft,n))                          &
+                  * ximpair_ring_loss_lo(l,pft,n)                              &
+                  + ximpair_ring_frac(l,pft,n-1)                               &
+                  * (1.0 - ximpair_ring_dmg(l,pft,n-1))                        &
+                  * ximpair_ring_loss_lo(l,pft,n-1)) / f_lo
       ximpair_ring_loss(l,pft,n) = (ximpair_ring_frac(l,pft,n)                 &
                                     * ximpair_ring_loss(l,pft,n)               &
                                     + ximpair_ring_frac(l,pft,n-1)             &
                                     * ximpair_ring_loss(l,pft,n-1)) / f_old
+      ximpair_ring_dmg(l,pft,n)     = MIN(MAX(f_hi / f_old, 0.0), 1.0)
+      ximpair_ring_loss_lo(l,pft,n) = lo_new
+    END IF
     ximpair_ring_frac(l,pft,n) = f_old
     DO i = n - 1, 2, -1
-      ximpair_ring_frac(l,pft,i) = ximpair_ring_frac(l,pft,i-1)
-      ximpair_ring_loss(l,pft,i) = ximpair_ring_loss(l,pft,i-1)
+      ximpair_ring_frac(l,pft,i)    = ximpair_ring_frac(l,pft,i-1)
+      ximpair_ring_loss(l,pft,i)    = ximpair_ring_loss(l,pft,i-1)
+      ximpair_ring_dmg(l,pft,i)     = ximpair_ring_dmg(l,pft,i-1)
+      ximpair_ring_loss_lo(l,pft,i) = ximpair_ring_loss_lo(l,pft,i-1)
     END DO
-    ximpair_ring_frac(l,pft,1) = 0.0
-    ximpair_ring_loss(l,pft,1) = 0.0
+    ximpair_ring_frac(l,pft,1)    = 0.0
+    ximpair_ring_loss(l,pft,1)    = 0.0
+    ximpair_ring_dmg(l,pft,1)     = 1.0
+    ximpair_ring_loss_lo(l,pft,1) = 0.0
   END IF
   ximpair_ring_year(l,pft) = REAL(g_year)
 END IF
@@ -853,7 +1003,7 @@ END SUBROUTINE ximpair_ring_grow
 ! sapwood keeps its age structure and a ring conducts at most as well as it
 ! did undamaged. r is returned; r_max - r is claimed but not used.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_ring_repair( l, pft, x_s, r_max, r )
 
@@ -871,6 +1021,9 @@ INTEGER :: i
 ! Each ring's carbon, and the conductance repair can restore in it and in
 ! all rings (kg C m-2 of new ring).
 REAL(KIND=real_jlslsm) :: a(nsc_n_ring), d(nsc_n_ring), d_tot
+! A ring's loss before the repair, and the factor its loss above L_p is
+! cut by.
+REAL(KIND=real_jlslsm) :: l_old, phi
 
 r = 0.0
 IF (x_s <= 0.0 .OR. r_max <= 0.0) RETURN
@@ -885,13 +1038,29 @@ d_tot = SUM(d)
 IF (d_tot <= 0.0) RETURN
 r = MIN(r_max, d_tot)
 
-! Each ring's repairable loss falls by the share r / D.
+! Each ring's repairable loss falls by the share r / D. In a ring in two
+! parts, each part's loss above L_p falls by the same factor phi (the
+! less damaged part's, if it is above L_p), so the more damaged part is
+! repaired most.
 DO i = 1, nsc_n_ring
   IF (d(i) <= 0.0) CYCLE
+  l_old = ximpair_ring_loss(l,pft,i)
   ximpair_ring_loss(l,pft,i) = MIN(MAX(ximpair_ring_loss(l,pft,i)             &
                                        - r * (ximpair_ring_loss(l,pft,i)       &
                                        - ximpair_ring_peak(l,pft)) / d_tot,    &
                                        ximpair_ring_peak(l,pft)), 1.0)
+  IF (ximpair_ring_dmg(l,pft,i) < 1.0) THEN
+    phi = (ximpair_ring_loss(l,pft,i) - ximpair_ring_peak(l,pft))              &
+          / (l_old - ximpair_ring_peak(l,pft))
+    IF (ximpair_ring_loss_lo(l,pft,i) > ximpair_ring_peak(l,pft))              &
+      ximpair_ring_loss_lo(l,pft,i) = ximpair_ring_peak(l,pft)                 &
+                                      + phi * (ximpair_ring_loss_lo(l,pft,i)   &
+                                      - ximpair_ring_peak(l,pft))
+    IF (ring_hi(l, pft, i) <= ximpair_ring_loss_lo(l,pft,i)) THEN
+      ximpair_ring_dmg(l,pft,i)     = 1.0
+      ximpair_ring_loss_lo(l,pft,i) = 0.0
+    END IF
+  END IF
 END DO
 
 END SUBROUTINE ximpair_ring_repair
@@ -1372,7 +1541,8 @@ END SUBROUTINE psi_leaf_impaired_memory
 !    where psi_x is chosen by ximpair_psi_driver: 1 leaf, 2 mean of leaf
 !    and root zone, 3 root zone (close to predawn, as Mackay et al. 2015
 !    use), 4 stem (the leaf end of the stem segment). With the annual
-!    rings, every ring that conducts takes at least the loss this gives.
+!    rings, the wood of every ring that conducts takes at least the loss
+!    this gives (ring_hit).
 !
 ! With l_ximpair_seg_memory (with l_som_plant_segments), k_cap is the
 ! stem segment's cap and the leaf segment has its own cap. Each is
@@ -1409,7 +1579,7 @@ USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 l_ximpair_rec_leaf_turn, l_trif_hydmort,       &
                                 l_som_seg_whole
 USE jules_vegetation_mod, ONLY: l_nsc_ring_additive
-USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_psi_stem,                    &
                                           ximpair_seg_state_alloc
@@ -1443,8 +1613,8 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
   ! Their shares of the leaf area (sum 1).
   w_cls(n_land_pts,2)
 
-! Point counters and an error code.
-INTEGER :: j, l, errcode
+! Point counters, an error code and a ring counter.
+INTEGER :: j, l, errcode, i_r
 ! The leaf classes are given.
 LOGICAL :: l_cls
 ! Relative intact conductance of the leaf segment at this step's leaf
@@ -1532,11 +1702,15 @@ END IF
 ! stem's loss of conductance diluted by the new, intact area.
 IF ( ALLOCATED(ximpair_area_w) ) THEN
   IF (l_nsc_sapwood_rings) THEN
-    ! Every ring of the old cover keeps its loss, diluted alike.
+    ! Every ring of the old cover keeps its loss, diluted alike; the new
+    ! cover's wood is intact and joins each ring's less damaged part.
     DO l = 1, n_land_pts
-      IF (ximpair_area_w(l,pft) < 1.0)                                         &
-        ximpair_ring_loss(l,pft,:) = ximpair_ring_loss(l,pft,:)                &
-                                     * ximpair_area_w(l,pft)
+      IF (ximpair_area_w(l,pft) < 1.0 .AND.                                    &
+          ximpair_ring_frac(l,pft,1) >= 0.0) THEN
+        DO i_r = 1, nsc_n_ring
+          CALL ring_add_intact(l, pft, i_r, ximpair_area_w(l,pft))
+        END DO
+      END IF
     END DO
   ELSE
     WHERE ( ximpair_area_w(:,pft) < 1.0 )                                      &
@@ -1623,8 +1797,10 @@ IF (ximpair_reset_mmdd(pft) > 0) THEN
     IF (l_ximpair_seg_memory) ximpair_kcap_leaf(:,pft) = 1.0
     ! The ring cohorts' losses too, or the rings would restore the loss.
     IF (l_nsc_sapwood_rings) THEN
-      ximpair_ring_loss(:,pft,:) = 0.0
-      ximpair_ring_peak(:,pft)   = 0.0
+      ximpair_ring_loss(:,pft,:)    = 0.0
+      ximpair_ring_dmg(:,pft,:)     = 1.0
+      ximpair_ring_loss_lo(:,pft,:) = 0.0
+      ximpair_ring_peak(:,pft)      = 0.0
     END IF
   END IF
 END IF
@@ -1697,7 +1873,8 @@ CONTAINS
 
 ! ---------------------------------------------------------------------
 ! Xylem impairment, memory model: apply this step's damage to the annual
-! rings at point l. Each ring's loss of conductance is raised to at least
+! rings at point l. Both parts of each ring (ring_hit) take at least the
+! loss
 !
 !   MIN(loss_imp, 1 - kcrit / kmax),
 !
@@ -1709,7 +1886,7 @@ CONTAINS
 ! A youngest ring that does not conduct yet (not grown, or a ring-porous
 ! tree's new ring before its vessels conduct) is not damaged.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ring_damage( l, loss_imp )
 
@@ -1720,19 +1897,19 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: loss_imp
 
 ! The loss at kcrit.
 REAL(KIND=real_jlslsm) :: loss_max
+! The first ring damaged, and a ring counter.
+INTEGER :: i_first, i_r
 
 loss_max = 1.0 - kcrit_pts(l) / kmax_pts(l)
 ximpair_ring_peak(l,pft) = MAX(ximpair_ring_peak(l,pft),                       &
                                MIN(loss_imp, loss_max))
+i_first = 1
 IF (ring_age(l, pft, 1) < 0 .OR.                                               &
     ring_cond(pft, ring_age(l, pft, 1), 0) <= 0.0 .AND.                        &
-    ring_age(l, pft, 1) == 0) THEN
-  ximpair_ring_loss(l,pft,2:) = MAX(ximpair_ring_loss(l,pft,2:),               &
-                                    MIN(loss_imp, loss_max))
-ELSE
-  ximpair_ring_loss(l,pft,:) = MAX(ximpair_ring_loss(l,pft,:),                 &
-                                   MIN(loss_imp, loss_max))
-END IF
+    ring_age(l, pft, 1) == 0) i_first = 2
+DO i_r = i_first, nsc_n_ring
+  CALL ring_hit(l, pft, i_r, MIN(loss_imp, loss_max))
+END DO
 
 END SUBROUTINE ring_damage
 

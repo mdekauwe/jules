@@ -149,7 +149,8 @@ IF ( is_master_task() ) THEN
         ! MDK, 30/10/26
         IF ( dim_ids(j) < 0 ) THEN
           SELECT CASE ( identifiers(i) )
-          CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss' )
+          CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_dmg', &
+                 'ximpair_ring_loss_lo' )
             CYCLE
           END SELECT
           CALL log_fatal("read_dump_shared",                                   &
@@ -326,6 +327,14 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump: the rings " //      &
              "start at the first update with the stem's loss.")
+        CASE ( 'ximpair_ring_dmg', 'ximpair_ring_loss_lo' )
+          ! The rings' two parts: dumps written without them start each
+          ! ring as one part with its loss (restart not exact).
+          !
+          ! MDK, 05/11/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump: each ring " //      &
+             "starts as one part (restart not exact).")
         CASE ( 'ximpair_psi_stem', 'ximpair_area_w' )
           ! Dumps written without them: the stem psi of the PLC output is
           ! unset until the first update, and the area dilution of the

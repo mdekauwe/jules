@@ -52,6 +52,10 @@ USE triffid_nsc_mod, ONLY: nsc_k_area_raw, nsc_lai_sap_cap,                    &
                            nsc_xt_cap_count, nsc_xylem_repair_pft,          &
                            nsc_repair_claim
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
+! The rings' two parts.
+!
+! MDK, 05/11/26
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_dmg, ximpair_ring_loss_lo
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
 USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_cond_intact
@@ -4351,6 +4355,25 @@ CASE ( 'ximpair_ring_loss' )
   ALLOCATE(workspace_ring(land_pts, npft, nsc_n_ring))
   workspace_ring(:,:,:) = 0.0
   IF ( ALLOCATED(ximpair_ring_loss) ) workspace_ring(:,:,:) = ximpair_ring_loss
+  cube_land = cube_from_array(workspace_ring)
+  cube = map_from_land(cube_land)
+
+! The rings' two parts: the more damaged part's share and the loss of the
+! rest (1 and 0 without the rings).
+!
+! MDK, 05/11/26
+CASE ( 'ximpair_ring_dmg' )
+  ALLOCATE(workspace_ring(land_pts, npft, nsc_n_ring))
+  workspace_ring(:,:,:) = 1.0
+  IF ( ALLOCATED(ximpair_ring_dmg) ) workspace_ring(:,:,:) = ximpair_ring_dmg
+  cube_land = cube_from_array(workspace_ring)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_ring_loss_lo' )
+  ALLOCATE(workspace_ring(land_pts, npft, nsc_n_ring))
+  workspace_ring(:,:,:) = 0.0
+  IF ( ALLOCATED(ximpair_ring_loss_lo) )                                       &
+    workspace_ring(:,:,:) = ximpair_ring_loss_lo
   cube_land = cube_from_array(workspace_ring)
   cube = map_from_land(cube_land)
 

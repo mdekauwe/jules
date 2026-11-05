@@ -474,6 +474,8 @@ IF ( l_triffid_nsc ) THEN
   IF ( l_nsc_sapwood_rings ) THEN
     CALL add_to_list( 'ximpair_ring_frac', nvars, identifiers )
     CALL add_to_list( 'ximpair_ring_loss', nvars, identifiers )
+    CALL add_to_list( 'ximpair_ring_dmg', nvars, identifiers )
+    CALL add_to_list( 'ximpair_ring_loss_lo', nvars, identifiers )
     CALL add_to_list( 'ximpair_ring_year', nvars, identifiers )
     ! The period's peak imposed loss, which limits the xylem repair.
     !

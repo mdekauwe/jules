@@ -47,6 +47,10 @@ USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
+! The rings' two parts.
+!
+! MDK, 05/11/26
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_dmg, ximpair_ring_loss_lo
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
 USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
@@ -770,6 +774,26 @@ DO i = 1,nvars
     DO n = 1,npft
       DO m = 1,nsc_n_ring
         CALL gather_land_field(ximpair_ring_loss(:,n,m), global_data_3d(:,n,m))
+      END DO
+    END DO
+
+  ! The rings' two parts.
+  !
+  ! MDK, 05/11/26
+  CASE ( 'ximpair_ring_dmg' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      DO m = 1,nsc_n_ring
+        CALL gather_land_field(ximpair_ring_dmg(:,n,m), global_data_3d(:,n,m))
+      END DO
+    END DO
+
+  CASE ( 'ximpair_ring_loss_lo' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      DO m = 1,nsc_n_ring
+        CALL gather_land_field(ximpair_ring_loss_lo(:,n,m),                    &
+                               global_data_3d(:,n,m))
       END DO
     END DO
 
@@ -1531,7 +1555,8 @@ DO i = 1,nvars
     ! The sapwood's ring cohorts.
     !
     ! MDK, 30/10/26
-    CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss' )
+    CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_dmg',       &
+           'ximpair_ring_loss_lo' )
       CALL file_write_var(FILE, var_ids(i),                                    &
                           global_data_3d(:,1:npft,1:nsc_n_ring))
 
