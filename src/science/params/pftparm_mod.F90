@@ -199,8 +199,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,eta_sl(:)                                                                     &
                  ! Live stemwood coefficient (kg C m-1 (m2 leaf)-1)
                  ! The pipe model: live stemwood (sapwood) eta_sl h LAI,
-                 !  eta_sl = F rho cmass / LA:SA from the leaf area per
-                 !  sapwood area, stem form factor and wood density. It is
+                 !  eta_sl = F rho c_w / LA:SA from the leaf area per
+                 !  sapwood area, stem form factor, wood density (kg m-3)
+                 !  and the wood's carbon fraction c_w (about 0.48). It is
                  !  also the sapwood of the TRIFFID store's ring renewal
                  !  and pipe-model target. lai_bal and the wood depend on
                  !  a_ws eta_sl only.
@@ -781,12 +782,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  alike.
                  !
                  !  MDK, 30/10/26
-,nsc_ring_c_old(:)                                                             &
-                 ! Ring cohorts: the conductivity left in old rings (0-1),
-                 !  c(a) = c_old + (1 - c_old) EXP(-a / nsc_ring_cond_efold)
-                 !  for a ring of age a (ring years). Default 0.
-                 !
-                 !  MDK, 31/10/26
 ,nsc_ring_func_doy(:)
                  ! Ring cohorts, ring-porous stem: the day of year (1-366,
                  !  calendar) from which the youngest ring (the year's
@@ -828,6 +823,19 @@ nsc_season_on = is_set(nsc_grow_start_doy(n)) .OR.                             &
                 is_set(nsc_grow_end_doy(n)) .OR.                               &
                 is_set(nsc_flush_start_doy(n))
 END FUNCTION nsc_season_on
+
+REAL(KIND=real_jlslsm) FUNCTION nsc_season_start( n )
+! The day of year on which the TRIFFID store's growing season starts for
+! PFT n: the leaf flush (nsc_flush_start_doy) when it is set, otherwise
+! nsc_grow_start_doy (unset, < -1e29, when neither is). The store's release
+! and the youngest sapwood ring both start on it.
+!
+! MDK, 04/11/26
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: n
+nsc_season_start = nsc_grow_start_doy(n)
+IF (is_set(nsc_flush_start_doy(n))) nsc_season_start = nsc_flush_start_doy(n)
+END FUNCTION nsc_season_start
 
 LOGICAL FUNCTION nsc_limits_on( n )
 ! Any growth limit of the TRIFFID store is on for PFT n (turgor,
@@ -1212,7 +1220,6 @@ ALLOCATE( nsc_grow_thresh(npft))   ! MDK, 29/10/26
 ALLOCATE( nsc_sink_days(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_sink_beta_min(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_ring_cond_efold(npft))   ! MDK, 30/10/26
-ALLOCATE( nsc_ring_c_old(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_ring_func_doy(npft))   ! MDK, 31/10/26
 ALLOCATE( phen_psi_tlp(npft))
 ALLOCATE( phen_dfbleaf(npft))
@@ -1287,7 +1294,6 @@ nsc_grow_thresh(:) = -1.0e30   ! MDK, 29/10/26
 nsc_sink_days(:) = 240.0   ! MDK, 31/10/26
 nsc_sink_beta_min(:) = 0.8   ! MDK, 31/10/26
 nsc_ring_cond_efold(:) = -1.0e30   ! MDK, 30/10/26
-nsc_ring_c_old(:) = 0.0   ! MDK, 31/10/26
 nsc_ring_func_doy(:) = -1.0e30   ! MDK, 31/10/26
 phen_psi_tlp(:) = -1.0e30
 phen_dfbleaf(:) = 0.05
@@ -1656,8 +1662,6 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_sink_beta_min = ',nsc_sink_beta_min
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_ring_cond_efold = ',nsc_ring_cond_efold
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' nsc_ring_c_old = ',nsc_ring_c_old
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_ring_func_doy = ',nsc_ring_func_doy
 CALL jules_print('pftparm',lineBuffer)

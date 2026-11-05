@@ -54,6 +54,7 @@ USE triffid_nsc_mod, ONLY: nsc_k_area_raw, nsc_lai_sap_cap,                    &
                            nsc_repair_claim
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
+USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_functional
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
@@ -4234,6 +4235,13 @@ CASE ( 'ximpair_ring_year' )
 CASE ( 'ximpair_ring_peak' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(ximpair_ring_peak) ) workspace_pft(:,:) = ximpair_ring_peak
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_hw_rate_mean' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(ximpair_hw_rate_mean) )                                       &
+    workspace_pft(:,:) = ximpair_hw_rate_mean
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

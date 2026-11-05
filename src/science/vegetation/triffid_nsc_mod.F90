@@ -163,13 +163,13 @@ MODULE triffid_nsc_mod
 ! and by their conductivity, which falls with ring age a (in winters
 ! passed, so a ring stays new until its calendar year ends):
 !
-!   c(a) = c_old + (1 - c_old) EXP(-a / e),
+!   c(a) = EXP(-a / e),
 !
-! with c_old = nsc_ring_c_old and e = nsc_ring_cond_efold (years). With
-! these unset, all rings conduct alike. In a ring-porous stem
+! with e = nsc_ring_cond_efold (years). With it unset, all rings conduct
+! alike. In a ring-porous stem
 ! (nsc_ring_func_doy set), the youngest ring's early wood conducts only
 ! from that day of the year; before it the flow goes through the older
-! rings, with last year's early wood at c_old after the winter. The
+! rings, with last year's early wood at c(1) after the winter. The
 ! youngest ring holds only the wood grown so far, so the early wood is not
 ! paid for from the store ahead of growth. With the rings, recovery comes
 ! from the rings themselves: new rings dilute the stem's loss, and a
@@ -196,11 +196,12 @@ MODULE triffid_nsc_mod
 ! TRIFFID's live stemwood (live_stemwood) on the peak LAI. eta_sl is the
 ! sapwood carbon per unit leaf area and height,
 !
-!   eta_sl = F rho cmass / LA:SA,
+!   eta_sl = F rho c_w / LA:SA,
 !
 ! with LA:SA the leaf area per unit sapwood area, F the form factor of the
-! wood (its volume over basal area x height), rho the wood density and
-! cmass the carbon fraction of dry mass, so it is set from data (with a_ws
+! wood (its volume over basal area x height), rho the wood density (kg dry
+! mass m-3) and c_w the carbon fraction of wood dry mass (about 0.48, not
+! JULES's cmass 0.40), so it is set from data (with a_ws
 ! scaled to keep a_ws eta_sl, which TRIFFID's growth depends on). X_t is
 ! at most the wood C_W, so a_ws should be at least 1. This cap guards
 ! against inputs that do not fit together: a warning names the point and
@@ -278,12 +279,13 @@ MODULE triffid_nsc_mod
 !   - Repairing damaged xylem has first call on the store's release for
 !     growth (as u, the share of the release to xylem, in Trugman et al.
 !     eqn 5), so it obeys the growth limits as growth does: at each store
-!     step up to that release is claimed, at most the damaged sapwood
-!     that repair can restore, SUM_i X_i MAX(L_i - L_p, 0), with L_p the
-!     highest loss the water potential has imposed since the last
-!     TRIFFID step (damage at or below it would come back at once while
-!     the drought lasts). The claim restores damaged xylem in the rings
-!     in place, in proportion to their repairable damaged carbon. No ring
+!     step up to that release is claimed, at most the carbon repair
+!     needs. Repair is costed by the conductance it restores, as new
+!     wood: SUM_i X_i c_i MAX(L_i - L_p, 0), with c_i how well ring i
+!     conducts and L_p the highest loss the water potential has imposed
+!     since the last TRIFFID step (damage at or below it would come back
+!     at once while the drought lasts). The claim lowers each ring's loss
+!     in place by the same share of its repairable loss. No ring
 !     changes size, so a ring conducts at most as well as it did
 !     undamaged. The claim is taken before TRIFFID splits its carbon
 !     between growth and spreading (lambda_g), so a step's claim comes
@@ -315,7 +317,7 @@ PRIVATE
 PUBLIC :: nsc_xylem_prod_pft, nsc_xylem_renew_pft
 PUBLIC :: nsc_wood_lost
 PUBLIC :: nsc_net_wood_growth
-PUBLIC :: nsc_sapwood
+PUBLIC :: nsc_sapwood, nsc_sapwood_share, nsc_set_sapwood_share
 PUBLIC :: nsc_heartwood, nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
 PUBLIC :: nsc_k_area_frac, nsc_k_area
 PUBLIC :: nsc_k_area_raw, nsc_lai_sapwood, nsc_lai_sap_cap
@@ -383,9 +385,13 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_net_wood_growth(:,:)
 ! of the PFT; < 0 = not yet set: the pipe model at the first step). In
 ! dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_sapwood(:,:)
-! Pipe-model target (l_nsc_pipe_target): the heartwood H = C_W - X_s of
-! the last TRIFFID step (kg C m-2 of the PFT; < 0 = not yet set), a
-! diagnostic; the target sapwood X_t of the last TRIFFID step (kg C m-2;
+! Stem N from the sapwood pool (l_nsc_sapwood_n): the pool's share of
+! TRIFFID's wood carbon, X_s / C_W (0-1), set by triffid from the current
+! wood before it works out the stem N (< 0 = not set: 1 / a_ws is used).
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_sapwood_share(:,:)
+! Sapwood pool (l_nsc_sapwood_pool): the heartwood H = C_W - X_s of the
+! last TRIFFID step (kg C m-2 of the PFT; < 0 = not yet set), a
+! diagnostic. Pipe-model target (l_nsc_pipe_target): the target sapwood X_t of the last TRIFFID step (kg C m-2;
 ! 0 = not yet set), in dumps; and whether a point has been warned that
 ! its target was capped at the wood.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_heartwood(:,:)
@@ -456,6 +462,33 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='TRIFFID_NSC_MOD'
 CONTAINS
 
 ! ---------------------------------------------------------------------
+! Stem N from the sapwood pool (l_nsc_sapwood_n): keep the pool's share of
+! the wood C_W, s = MIN(X_s / C_W, 1), for TRIFFID's stem N
+! (calc_n_comps_triffid). Left unset (< 0) where the pool or the wood is
+! not set.
+!
+! MDK, 04/11/26
+! ---------------------------------------------------------------------
+SUBROUTINE nsc_set_sapwood_share( l, n, wood )
+
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_n
+
+IMPLICIT NONE
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, n
+! TRIFFID's wood carbon (kg C m-2).
+REAL(KIND=real_jlslsm), INTENT(IN) :: wood
+
+IF (.NOT. l_nsc_sapwood_n) RETURN
+IF (.NOT. ALLOCATED(nsc_sapwood_share)) RETURN
+nsc_sapwood_share(l,n) = -1.0
+IF (nsc_sapwood(l,n) >= 0.0 .AND. wood > 0.0)                                  &
+  nsc_sapwood_share(l,n) = MIN(nsc_sapwood(l,n) / wood, 1.0)
+
+END SUBROUTINE nsc_set_sapwood_share
+
+! ---------------------------------------------------------------------
 ! Allocates the store's state and diagnostics for all land points and
 ! PFTs, if not already allocated, at their values for a fresh start.
 ! Several start below 0, which marks them as not yet set; each is filled
@@ -522,6 +555,10 @@ END IF
 IF (.NOT. ALLOCATED(nsc_sapwood)) THEN
   ALLOCATE(nsc_sapwood(n_land_pts, npft))
   nsc_sapwood(:,:) = -1.0
+END IF
+IF (.NOT. ALLOCATED(nsc_sapwood_share)) THEN
+  ALLOCATE(nsc_sapwood_share(n_land_pts, npft))
+  nsc_sapwood_share(:,:) = -1.0
 END IF
 IF (.NOT. ALLOCATED(nsc_heartwood)) THEN
   ALLOCATE(nsc_heartwood(n_land_pts, npft))
@@ -876,8 +913,9 @@ DO n = n1,n2
     ! Trugman response: repairing damaged xylem has first call on the
     ! release for growth, so it obeys the growth limits as growth does
     ! (the leaf regrowth, the flush and the overflow below are not used).
-    ! The claim is at most that release and the damaged sapwood repair can
-    ! restore, X_s SUM_i f_i MAX(L_i - L_p, 0) (ximpair_ring_damaged).
+    ! The claim is at most that release and the carbon repair needs, the
+    ! conductance it can restore in units of new ring,
+    ! X_s SUM_i f_i c_i MAX(L_i - L_p, 0) (ximpair_ring_damaged).
     ! Not in spin-up or before the rings and the sapwood are set.
     nsc_repair_claim(l,n) = 0.0
     IF (nsc_damage_response == nsc_damage_trugman .AND. .NOT. is_spinup      &
@@ -1056,7 +1094,7 @@ USE jules_vegetation_mod, ONLY: l_triffid, triffid_period,                     &
 USE pftparm, ONLY: is_set, nsc_limits_on, nsc_season_on
 USE pftparm, ONLY: nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero,      &
                    nsc_t_grow_full, g_leaf_0, nsc_grow_start_doy,              &
-                   nsc_grow_end_doy, nsc_flush_start_doy
+                   nsc_grow_end_doy, nsc_flush_start_doy, nsc_season_start
 USE model_time_mod, ONLY: current_time, is_spinup
 USE datetime_utils_mod, ONLY: day_of_year
 USE time_info_mod, ONLY: l_360, l_leap
@@ -1122,8 +1160,7 @@ IF (l_season) THEN
   doy = REAL(day_of_year(current_time%year, current_time%month,                &
                          current_time%day, l_360, l_leap))
   ! With the leaf flush the release starts at budburst.
-  doy_start = nsc_grow_start_doy(ft)
-  IF (is_set(nsc_flush_start_doy(ft))) doy_start = nsc_flush_start_doy(ft)
+  doy_start = nsc_season_start(ft)
   IF (is_set(doy_start) .AND. doy < doy_start) f_season = 0.0
   IF (is_set(nsc_grow_end_doy(ft)) .AND. doy >= nsc_grow_end_doy(ft))          &
     f_season = 0.0
@@ -1559,7 +1596,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_area_w,           &
                                        ximpair_ring_frac, ximpair_ring_init,   &
                                        ximpair_ring_grow, ximpair_ring_repair, &
                                        ximpair_ring_next_year,                 &
-                                       ximpair_ring_peak
+                                       ximpair_ring_peak, ximpair_hw_rate_mean
 USE logging_mod, ONLY: log_warn
 USE string_utils_mod, ONLY: to_string
 
@@ -1762,6 +1799,16 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
             IF (nsc_heartwood_rate(n) > 0.0)                                   &
               nsc_heartwood_factor(l,n) = rate_h / nsc_heartwood_rate(n)
           END IF
+          ! The stand's mean heartwood rate, a running mean over about a
+          ! year (from nsc_heartwood_rate at the start), which sets the
+          ! rings' reference stand (ring_steady).
+          IF (l_nsc_sapwood_rings) THEN
+            IF (ximpair_hw_rate_mean(l,n) < 0.0)                               &
+              ximpair_hw_rate_mean(l,n) = nsc_heartwood_rate(n)
+            ximpair_hw_rate_mean(l,n) = ximpair_hw_rate_mean(l,n)              &
+                                        + (rate_h - ximpair_hw_rate_mean(l,n)) &
+                                        * (1.0 - EXP(-1.0 / r_gamma))
+          END IF
         END IF
       END IF
 
@@ -1864,13 +1911,13 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       END IF
 
       ! Pipe-model target: the sapwood is at most the wood (all rings
-      ! alike), and the heartwood is the rest,
+      ! alike). With the pool the heartwood is the rest of the wood,
       !
       !   H = C_W - X_s.
-      IF (l_nsc_pipe_target) THEN
-        nsc_sapwood(l,n)   = MIN(nsc_sapwood(l,n), MAX(woodc(l,n), 0.0))
-        nsc_heartwood(l,n) = MAX(woodc(l,n), 0.0) - nsc_sapwood(l,n)
-      END IF
+      IF (l_nsc_pipe_target)                                                   &
+        nsc_sapwood(l,n) = MIN(nsc_sapwood(l,n), MAX(woodc(l,n), 0.0))
+      IF (l_nsc_sapwood_pool)                                                  &
+        nsc_heartwood(l,n) = MAX(MAX(woodc(l,n), 0.0) - nsc_sapwood(l,n), 0.0)
 
     END DO
   END DO

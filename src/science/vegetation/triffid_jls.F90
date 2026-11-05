@@ -149,6 +149,7 @@ USE jules_vegetation_mod, ONLY: l_veg_compete, l_ht_compete,                   &
 ! MDK, 17/10/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_store, triffid_nsc_area, nsc_dc_pft
 USE triffid_nsc_mod, ONLY: nsc_repair_claim   ! MDK, 04/11/26
+USE triffid_nsc_mod, ONLY: nsc_set_sapwood_share   ! MDK, 04/11/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_ring_renewal   ! MDK, 25/10/26
 USE xylem_impairment_memory_mod, ONLY: ximpair_dilute_area   ! MDK, 25/10/26
 ! MDK, 21/10/26
@@ -606,6 +607,10 @@ DO n = 1,npft
     !-------------------------------------------------------------------------
     CALL calc_c_comps_triffid(n, ht(l,n), lai_bal_pft(l,n), leafc_pft(l,n),    &
                               rootc_pft(l,n), woodc_pft(l,n), c_veg(l,n))
+    ! The sapwood pool's share of the wood, for the stem N
+    ! (l_nsc_sapwood_n).
+    ! MDK, 04/11/26
+    IF ( l_triffid_nsc ) CALL nsc_set_sapwood_share(l, n, woodc_pft(l,n))
 
     !-------------------------------------------------------------------------
     ! Diagnose the phenological state
@@ -883,6 +888,9 @@ DO n = 1,nnpft
     END IF
     lai(l,n)   = phen(l,n) * lai_bal_pft(l,n)
     c_veg(l,n) = leafc_pft(l,n) + rootc_pft(l,n) + woodc_pft(l,n)
+    ! The sapwood pool's share of the new wood (l_nsc_sapwood_n).
+    ! MDK, 04/11/26
+    IF ( l_triffid_nsc ) CALL nsc_set_sapwood_share(l, n, woodc_pft(l,n))
 
     !-------------------------------------------------------------------------
     ! Diagnose updated nitrogen pools.

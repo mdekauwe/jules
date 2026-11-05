@@ -207,6 +207,8 @@ USE plant_hydraulic_path_mod, ONLY: set_ksr_path, set_k_ground_basis,          &
                                        ! MDK, 04/11/26
 USE plant_hydraulic_path_mod, ONLY: l_kscale   ! MDK, 31/10/26
 USE jules_vegetation_mod, ONLY: l_nsc_k_sapwood   ! MDK, 31/10/26
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_n   ! MDK, 04/11/26
+USE triffid_nsc_mod, ONLY: nsc_sapwood   ! MDK, 04/11/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_k_area, nsc_k_area_frac
                            ! MDK, 31/10/26
 USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman,       &
@@ -946,7 +948,15 @@ REAL(KIND=real_jlslsm) :: gl_max_eff(land_pts), share_sup(land_pts)
 REAL(KIND=real_jlslsm) :: gl_cut(land_pts), gl_cut_eff(land_pts)
                             ! Cuticular loss (l_som_cuticular_loss):
                             ! canopy floor conductance (m s-1) before and
-                            ! after the soil-supply cap.
+                            ! after the soil-supply cap, on the deficit
+                            ! dqc (so gl_cut dqc is the leak's flux).
+                            !
+                            ! MDK, 04/11/26
+REAL(KIND=real_jlslsm) :: a_leak, x_leak, g_leak
+                            ! The leak's tile flux: rho (qs(tstar) - q1)
+                            ! and the target flux rho gl_cut_eff dqc
+                            ! (kg m-2 s-1), and the canopy conductance
+                            ! that gives it through ra (m s-1).
                             !
                             ! MDK, 04/11/26
 REAL(KIND=real_jlslsm) :: lai_ref_kg(land_pts)
@@ -4264,17 +4274,31 @@ IF ( l_cap_store ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( ( l_som_cuticular_day_only .AND. .NOT. lit_cut(l) ) .OR.             &
-         gl_cut(l) <= 0.0 .OR. gc(l) >= gl_cut_eff(l) ) CYCLE
-    gc(l)     = gl_cut_eff(l)
+         gl_cut(l) <= 0.0 ) CYCLE
+    ! The canopy conductance that gives the leak's flux X = rho gl_cut_eff
+    ! dqc (gcuticular LAI times the leaf-to-air deficit, after the supply
+    ! cap) through the tile's resistances, as sf_evap takes it (the
+    ! stomatal share of the flux through ra, shared with the soil
+    ! conductance g_s; see gc_eq in lt_finish),
+    !
+    !   X = A gc / (1 + ra (gc + g_s)),   A = rho (qs(tstar) - q1),
+    !   gc = X (1 + ra g_s) / (A - ra X),
+    !
+    ! or gl_cut_eff where A - ra X is near 0 (rounding).
+    a_leak = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)
+    x_leak = pstar(l) / ( r * tstar(l) ) * gl_cut_eff(l) * dqc(l)
+    g_leak = gl_cut_eff(l)
+    IF ( a_leak - ra(l) * x_leak > TINY(1.0_real_jlslsm) )                     &
+      g_leak = x_leak * ( 1.0 + ra(l) * g_soil_c(l) )                          &
+               / ( a_leak - ra(l) * x_leak )
+    IF ( gc(l) >= g_leak ) CYCLE
+    gc(l)     = g_leak
     gc_som(l) = gc(l)
-    ! Canopy transpiration (mol H2O m-2 s-1), as el elsewhere: the tile's
-    ! flux at this gc, as sf_evap takes it (the stomatal share of the flux
-    ! through ra, shared with the soil conductance; see gc_eq in
-    ! lt_finish),
+    ! Canopy transpiration (mol H2O m-2 s-1), the tile's flux at this gc,
     !
     !   E = rho (qs(tstar) - q1) gc / (1 + ra (gc + g_s)) / M_w,
     !
-    ! not gc dqc, which leaves out the soil's share of ra (~15-20 % high).
+    ! which is X / M_w.
     el(l)     = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)         &
                 * gc(l) / ( 1.0 + ra(l) * ( gc(l) + g_soil_c(l) ) )            &
                 / m_h2o_lt
@@ -4340,9 +4364,11 @@ IF ( l_cap_store ) THEN
   ! leak's E is cut where the leaf would end below psi_fl_leaf
   ! (store_cpl_leak_cut). q goes to cut_q_store (kg m-2 s-1), which sf_evap
   ! takes off the soil extraction, so the water is conserved. With almost
-  ! no leaves (LAI < lai_cut_min) the store is dropped (unset); a store not
-  ! yet set (first step, or a dump without it) starts at the step's stem
-  ! psi.
+  ! no leaves (LAI < lai_cut_min) the store is dropped (unset), and the
+  ! water it has given and not yet taken back (its deficit, cut_w_store
+  ! <= 0) is drawn from the soil over the step, as a refill, so a store set
+  ! again later starts full without making water; a store not yet set
+  ! (first step, or a dump without it) starts at the step's stem psi.
   DO m = 1,veg_pts
     l = veg_index(m)
     e_be(l) = MAX(el(l), 0.0)
@@ -4355,11 +4381,14 @@ IF ( l_cap_store ) THEN
     c_cut = cut_c_store(l,ft)
     cut_psi_stem(l,ft) = psi_stem(l)
 
-    ! Almost no leaves: the store is dropped.
+    ! Almost no leaves: the store is dropped, its deficit refilled from
+    ! the soil over the step.
     IF ( lai(l) < lai_cut_min ) THEN
+      cut_q_store(l,ft)  = 0.0
+      IF ( cut_w_store(l,ft) <= 0.0 )                                          &
+        cut_q_store(l,ft) = cut_w_store(l,ft) * cut_m_h2o / timestep
       cut_w_store(l,ft)  = cut_psi_unset
       cut_psi_stem(l,ft) = cut_psi_unset
-      cut_q_store(l,ft)  = 0.0
       CYCLE
     END IF
     ! The store set: its balance at the final E, and kplant without the
@@ -4542,16 +4571,26 @@ DO m = 1,veg_pts
       !Initial calculation of N content in respiring stem wood
       IF (l_red) THEN
         n_stem(l) = veg_state%woodC(l,ft) / a_ws(ft) * nsw(ft)
-      ELSE
-        ! MDK, 20/10/26
-        n_stem(l) = live_stemwood(ft, ht(l), lai_bal(l)) * nsw(ft)
-      END IF
 
-      !Reduce n_stem for consistency with non-trait n_stem for now
-      !This must be done to achieve realistic respiration rates.
-      fstem            = 1.0 / a_ws(ft)
-      stem_resp_scaling = fstem + (1.0 - fstem) * hw_sw(ft)
-      n_stem(l)         = n_stem(l) * stem_resp_scaling
+        !Reduce n_stem for consistency with non-trait n_stem for now
+        !This must be done to achieve realistic respiration rates.
+        fstem            = 1.0 / a_ws(ft)
+        stem_resp_scaling = fstem + (1.0 - fstem) * hw_sw(ft)
+        n_stem(l)         = n_stem(l) * stem_resp_scaling
+      ELSE
+        ! The respiring stem is the live sapwood, with nsw its N per unit
+        ! carbon (kg N / kg C): TRIFFID's live stemwood, or the sapwood pool
+        ! with l_nsc_sapwood_n once the pool is set. hw_sw (heartwood N)
+        ! does not respire.
+        ! MDK, 04/11/26
+        n_stem(l) = live_stemwood(ft, ht(l), lai_bal(l)) * nsw(ft)
+        IF ( l_nsc_sapwood_n ) THEN
+          IF ( ALLOCATED(nsc_sapwood) ) THEN
+            IF ( nsc_sapwood(l,ft) >= 0.0 )                                    &
+              n_stem(l) = nsc_sapwood(l,ft) * nsw(ft)
+          END IF
+        END IF
+      END IF
 
     ELSE
 

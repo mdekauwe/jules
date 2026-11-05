@@ -57,6 +57,7 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
 ! MDK, 01/11/26
 USE jules_vegetation_mod, ONLY: l_nsc_sink_feedback
 USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman
+USE jules_vegetation_mod, ONLY: nsc_heartwood_model, nsc_heartwood_pipe
 
 USE jules_water_resources_mod, ONLY: l_water_irrigation, l_water_resources,    &
        nwater_use, partition_ancil, partition_method, use_environment
@@ -465,6 +466,12 @@ IF ( l_triffid_nsc ) THEN
     ! MDK, 04/11/26
     IF ( nsc_damage_response == nsc_damage_trugman )                           &
       CALL add_to_list( 'ximpair_ring_peak', nvars, identifiers )
+    ! The stand's mean heartwood rate under the pipe heartwood rule.
+    !
+    ! MDK, 04/11/26
+    IF ( l_nsc_pipe_target .AND.                                               &
+         nsc_heartwood_model == nsc_heartwood_pipe )                           &
+      CALL add_to_list( 'ximpair_hw_rate_mean', nvars, identifiers )
   END IF
 END IF
 ! Drought leaf shedding: daily water-status memory and the leaf factor.

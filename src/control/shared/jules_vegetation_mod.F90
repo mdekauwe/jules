@@ -551,32 +551,33 @@ LOGICAL ::                                                                     &
       ! (low light) and fails near the compensation point. GPP/NPP are
       ! unaffected (only the optimisation's gain changes).
 
-LOGICAL ::                                                                     &
-  l_som_cuticular_loss = .FALSE.
-      ! When .TRUE., leaf water loss never falls below a cuticular floor:
-      ! the canopy conductance is MAX(gs, gcuticular_io * LAI). The floor is
-      ! an uncontrolled leak, so it is not part of the optimisation and adds
-      ! no carbon. Under the stomatal optimisation (profit max, with the
-      ! capacitance store, which it turns on): day and night (lit points
-      ! only with l_som_cuticular_day_only), the full
-      ! leak, its transpiration the tile's flux at that conductance, paid
-      ! by the store and the soil (the soil-supply cap applies) through the
-      ! store's balance, and cut where the leaf would end below the psi of
-      ! the critical loss of conductance (kcrit_fractional_loss); the xylem
-      ! impairment update is made after the leak, at the leak's points as
-      ! well as the lit ones, so it drives the loss of conductance.
+INTEGER ::                                                                     &
+  som_cuticular_leak = 0
+      ! Cuticular water loss under the stomatal optimisation (profit max):
+      !   0 no leak (the default);
+      !   1 the leak in daylight only, at lit points with absorbed PAR of
+      !     at least 2 W m-2 (about 5 W m-2 of shortwave); at night and in
+      !     dim light the closed canopy keeps min_gl_pft;
+      !   2 the leak day and night.
+      ! The leak keeps the leaf's water loss from falling below
+      ! gcuticular_io * LAI times the leaf-to-air humidity deficit. It is
+      ! uncontrolled, so it is not part of the optimisation and adds no
+      ! carbon. It turns on the plant capacitance store, which pays it with
+      ! the soil (the soil-supply cap applies) through the store's balance,
+      ! and it is cut where the leaf would end below the psi of the critical
+      ! loss of conductance (kcrit_fractional_loss). The xylem impairment
+      ! update is made after the leak, at the leak's points as well as the
+      ! lit ones, so it drives the loss of conductance.
       !
       ! MDK, 04/11/26
 
 LOGICAL ::                                                                     &
+  l_som_cuticular_loss = .FALSE.,                                              &
+      ! Derived (not in the namelist): som_cuticular_leak > 0.
   l_som_cuticular_day_only = .FALSE.
-      ! When .TRUE. (with l_som_cuticular_loss under the stomatal
-      ! optimisation), the leak acts only at lit points with absorbed PAR
-      ! of at least 2 W m-2 (about 5 W m-2 of shortwave): at night and in
-      ! dim light the closed canopy keeps min_gl_pft. .FALSE.: the leak day
-      ! and night.
+      ! Derived (not in the namelist): som_cuticular_leak = 1.
       !
-      ! MDK, 29/10/26
+      ! MDK, 04/11/26
 
 LOGICAL ::                                                                     &
   l_som_shared_stem = .FALSE.
@@ -624,7 +625,7 @@ LOGICAL ::                                                                     &
       ! The store drives the leaf and stem psi, and so the embolism. Needs
       ! the plant segments with the Newton solver, the bounded Ci search,
       ! at least two passes, and the big-leaf, multilayer or two-leaf
-      ! canopy. On with l_som_cuticular_loss whatever its value (the leak
+      ! canopy. On with som_cuticular_leak > 0 whatever its value (the leak
       ! drains the store).
       !
       ! MDK, 25/10/26
@@ -632,7 +633,7 @@ LOGICAL ::                                                                     &
 LOGICAL ::                                                                     &
   l_som_capacitance_on = .FALSE.
       ! Derived (not in the namelist): the stomatal optimisation's plant
-      ! capacitance is on (l_som_capacitance or l_som_cuticular_loss, with
+      ! capacitance is on (l_som_capacitance or som_cuticular_leak > 0, with
       ! the stomatal optimisation).
       !
       ! MDK, 23/10/26
@@ -764,11 +765,12 @@ INTEGER ::                                                                     &
       !     leaf area it is kmax L_A / LAI and shedding leaves raises the
       !     supply per remaining leaf (at most k_ground_ratio_max times);
       !   - repairing damaged xylem has first call on the store's
-      !     release for growth, under the same growth limits: at most the
-      !     damaged sapwood above the highest loss imposed since the last
-      !     TRIFFID step, SUM_i X_i MAX(L_i - L_p, 0), is restored in place,
-      !     in proportion to each ring's repairable damaged carbon, so no
-      !     ring conducts better than it did undamaged; TRIFFID grows from
+      !     release for growth, under the same growth limits, costed by the
+      !     conductance it restores as new wood: at most
+      !     SUM_i X_i c_i MAX(L_i - L_p, 0), with L_p the highest loss
+      !     imposed since the last TRIFFID step; each ring's loss falls in
+      !     place, so no ring conducts better than it did undamaged;
+      !     TRIFFID grows from
       !     the rest of the release, so the claim comes out of growth by
       !     lambda_g and out of the spreading carbon by the rest (outputs
       !     nsc_repair_claim and nsc_xylem_repair).
@@ -780,7 +782,7 @@ LOGICAL ::                                                                     &
   l_som_seg_whole = .FALSE.
       ! Derived (not in the namelist): .TRUE. when l_som_plant_segments is
       ! .FALSE. but the plant capacitance is on (l_som_capacitance or
-      ! l_som_cuticular_loss, with the stomatal optimisation). The store
+      ! som_cuticular_leak > 0, with the stomatal optimisation). The store
       ! sits at the stem node, so check_jules_vegetation then turns
       ! l_som_plant_segments on, with the root, stem and leaf segments all
       ! on the PFT curve (p50_io, p88_io) and the usual resistance shares:
@@ -1141,6 +1143,16 @@ LOGICAL ::                                                                     &
       ! nsc_k_area_frac.
       !
       ! MDK, 31/10/26
+  l_nsc_sapwood_n = .FALSE.,                                                   &
+      ! Sapwood pool (l_nsc_sapwood_pool) with the trait physiology
+      ! (l_trait_phys): the stem's live part is the sapwood pool X_s
+      ! instead of TRIFFID's live stemwood eta_sl h lai_bal. Stem
+      ! respiration takes its N as X_s nsw, and TRIFFID's stem N (with
+      ! l_nitrogen) as C (s nsw + (1 - s) nsw hw_sw), with s = X_s / C_W
+      ! the sapwood's share of the wood C. Off: the live stemwood, as
+      ! TRIFFID's pipe model gives it.
+      !
+      ! MDK, 04/11/26
   l_som_fast = .FALSE.
       ! RETIRED input: .TRUE. stops the run; use som_ci_search = 2 (bounded)
       ! and som_psi_solver = 3 (lookup table). Still read so namelists that
@@ -1317,7 +1329,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
     l_nsc_wmax_norm, l_trif_hydmort,                                           &
     l_nsc_sapwood_pool, l_nsc_ring_additive, l_nsc_sapwood_rings,              &
-    l_nsc_pipe_target, l_nsc_k_sapwood,                                        &
+    l_nsc_pipe_target, l_nsc_k_sapwood, l_nsc_sapwood_n,                       &
     nsc_heartwood_model, nsc_damage_response,                                  &
     nsc_n_ring,                                                                &
     l_nsc_sink_feedback,                                                       &
@@ -1330,8 +1342,7 @@ NAMELIST  / jules_vegetation/                                                  &
     leaf_shelter, leaf_aero_model, leaf_wind_ext,                              &
     kplant_model,                                                              &
     l_som_gain_gross,                                                          &
-    l_som_cuticular_loss,                                                      &
-    l_som_cuticular_day_only,                                                  &
+    som_cuticular_leak,                                                        &
     l_som_shared_stem, l_som_shared_gain,                                      &
     l_som_capacitance,                                                         &
     l_som_gravity,                                                             &
@@ -1412,6 +1423,21 @@ USE jules_print_mgr, ONLY: jules_message, jules_print
 
 IMPLICIT NONE
 
+
+!-----------------------------------------------------------------------------
+! The cuticular leak: 0 none, 1 daylight only, 2 day and night. The two
+! logicals the code tests are derived from it.
+!
+! MDK, 04/11/26
+!-----------------------------------------------------------------------------
+IF ( som_cuticular_leak < 0 .OR. som_cuticular_leak > 2 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'som_cuticular_leak should be 0 (no leak), 1 (daylight) '   //  &
+               'or 2 (day and night)')
+END IF
+l_som_cuticular_loss     = som_cuticular_leak > 0
+l_som_cuticular_day_only = som_cuticular_leak == 1
 
 !-----------------------------------------------------------------------------
 ! The stomatal scheme: stomata_model is the switch; derive the internal
@@ -2152,7 +2178,7 @@ IF ( l_som_capacitance_on .AND. can_rad_mod == 4 ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'Plant capacitance (l_som_capacitance or ' //                   &
-               'l_som_cuticular_loss) is not available with can_rad_mod = 4')
+               'som_cuticular_leak > 0) is not available with can_rad_mod = 4')
 END IF
 ! The plant capacitance store sits at the stem node of the plant segments
 ! (given on the PFT curve when l_som_plant_segments is off, above),
@@ -2170,7 +2196,7 @@ IF ( l_som_capacitance_on ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
                  'Plant capacitance (l_som_capacitance or ' //                 &
-                 'l_som_cuticular_loss) requires l_som_plant_segments ' //    &
+                 'som_cuticular_leak > 0) requires l_som_plant_segments ' //   &
                  'and som_psi_solver = 2 (Newton) or 3 (lookup table)')
   END IF
   IF ( can_rad_mod /= 1 .AND. can_rad_mod /= 5 .AND. can_rad_mod /= 6 .AND.   &
@@ -2178,28 +2204,28 @@ IF ( l_som_capacitance_on ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
                  'Plant capacitance (l_som_capacitance or ' //                 &
-                 'l_som_cuticular_loss) is only coded for can_rad_mod = ' //   &
+                 'som_cuticular_leak > 0) is only coded for can_rad_mod = ' // &
                  '1, 5, 6 or 7')
   END IF
   IF ( stomata_model /= stomata_profit_max ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
                  'Plant capacitance (l_som_capacitance or ' //                 &
-                 'l_som_cuticular_loss) is only coded for profit max ' //     &
+                 'som_cuticular_leak > 0) is only coded for profit max ' //    &
                  '(stomata_model = 4)')
   END IF
   IF ( som_ci_search /= som_ci_bounded ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
                  'Plant capacitance (l_som_capacitance or ' //                 &
-                 'l_som_cuticular_loss) requires som_ci_search = 2 ' //        &
+                 'som_cuticular_leak > 0) requires som_ci_search = 2 ' //      &
                  '(bounded)')
   END IF
   IF ( l_som_skip_search_wellwatered ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
                  'Plant capacitance (l_som_capacitance or ' //                 &
-                 'l_som_cuticular_loss) is not coded with ' //                 &
+                 'som_cuticular_leak > 0) is not coded with ' //               &
                  'l_som_skip_search_wellwatered')
   END IF
 END IF
@@ -2212,20 +2238,8 @@ IF ( l_som_cuticular_loss .AND.                                                &
      ( leaf_flux_mod /= leaf_flux_stom_opt .OR. can_rad_mod == 4 ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_cuticular_loss requires the stomatal optimisation ' //   &
+               'som_cuticular_leak > 0 requires the stomatal optimisation ' // &
                '(stomata_model=4 to 7 or 9 to 11) and can_rad_mod=1, 5, 6 or 7')
-END IF
-
-! The daytime-only leak is that of the stomatal optimisation.
-!
-! MDK, 29/10/26
-IF ( l_som_cuticular_day_only .AND.                                            &
-     ( .NOT. l_som_cuticular_loss .OR. leaf_flux_mod /= leaf_flux_stom_opt ) ) &
-  THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_cuticular_day_only requires l_som_cuticular_loss ' //    &
-               'and the stomatal optimisation')
 END IF
 
 ! The shared root and stem: the two-leaf canopy under the stomatal
@@ -2511,6 +2525,16 @@ END IF
 ! multilayer canopy).
 !
 ! MDK, 31/10/26
+! Stem N from the sapwood pool: needs the pool and the trait physiology.
+!
+! MDK, 04/11/26
+IF ( l_nsc_sapwood_n .AND.                                                     &
+     (.NOT. l_nsc_sapwood_pool .OR. .NOT. l_trait_phys) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_sapwood_n needs l_nsc_sapwood_pool=T and '           //  &
+               'l_trait_phys=T')
+END IF
 IF ( l_nsc_k_sapwood .AND. .NOT. l_nsc_pipe_target ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2551,6 +2575,25 @@ IF ( nsc_damage_response == nsc_damage_trugman .AND.                           &
                'nsc_damage_response=1 needs l_nsc_sapwood_rings=T, '       //  &
                'l_nsc_pipe_target=T, l_phenol=T, l_veg_compete=F, '        //  &
                'l_nsc_k_sapwood=T and kplant_model=1')
+END IF
+! The rings are the stem's sapwood, so they need the stem's own damage
+! (l_ximpair_seg_memory): without it the one whole-plant loss would put
+! the leaf and root damage in the rings, and new wood would renew them.
+! The Trugman response sheds leaves for damage, which l_ximpair_leaf_loss
+! also does, so only one of them is allowed.
+!
+! MDK, 04/11/26
+IF ( l_nsc_sapwood_rings .AND. .NOT. l_ximpair_seg_memory ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_sapwood_rings needs l_ximpair_seg_memory=T')
+END IF
+IF ( nsc_damage_response == nsc_damage_trugman .AND. l_ximpair_leaf_loss )     &
+  THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'nsc_damage_response=1 sheds leaves for damage: set '       //  &
+               'l_ximpair_leaf_loss=F')
 END IF
 ! Ring ages need at least two rings: the new ring starts empty at the end
 ! of the ring year while last year's ring still conducts.
@@ -2746,11 +2789,8 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_gain_gross = ', l_som_gain_gross
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' l_som_cuticular_loss = ', l_som_cuticular_loss
-CALL jules_print('jules_vegetation_mod',lineBuffer)
-
-WRITE(lineBuffer,*) ' l_som_cuticular_day_only = ', l_som_cuticular_day_only
-CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 29/10/26
+WRITE(lineBuffer,*) ' som_cuticular_leak = ', som_cuticular_leak
+CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 04/11/26
 
 WRITE(lineBuffer,*) ' l_som_shared_stem = ', l_som_shared_stem
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 30/10/26
@@ -2790,6 +2830,8 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_pipe_target = ', l_nsc_pipe_target
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_k_sapwood = ', l_nsc_k_sapwood
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_sapwood_n = ', l_nsc_sapwood_n
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' nsc_heartwood_model = ', nsc_heartwood_model
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -2934,12 +2976,12 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 26
+INTEGER, PARAMETER :: n_int = 27
                                   ! The INTEGER items of my_namelist.
 INTEGER, PARAMETER :: n_real = 19 + (n_photo_coef * 5)
                                   ! The REAL items: 19 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 62 + npft_max
+INTEGER, PARAMETER :: n_log = 61 + npft_max
                                   ! The LOGICAL items: 62 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
@@ -2955,6 +2997,7 @@ TYPE :: my_namelist
   INTEGER :: kplant_model
   INTEGER :: nsc_heartwood_model   ! MDK, 04/11/26
   INTEGER :: nsc_damage_response   ! MDK, 04/11/26
+  INTEGER :: som_cuticular_leak   ! MDK, 04/11/26
   INTEGER :: nsc_n_ring   ! MDK, 30/10/26
   INTEGER :: ilayers
   INTEGER :: leaf_flux_mod !JBaguley
@@ -3009,8 +3052,6 @@ TYPE :: my_namelist
   LOGICAL :: l_leaf_temp_ci
   LOGICAL :: l_som_plant_segments
   LOGICAL :: l_som_gain_gross
-  LOGICAL :: l_som_cuticular_loss
-  LOGICAL :: l_som_cuticular_day_only   ! MDK, 29/10/26
   LOGICAL :: l_som_shared_stem   ! MDK, 30/10/26
   LOGICAL :: l_som_shared_gain   ! MDK, 30/10/26
   LOGICAL :: l_som_capacitance   ! MDK, 23/10/26
@@ -3028,6 +3069,7 @@ TYPE :: my_namelist
   LOGICAL :: l_nsc_sapwood_rings   ! MDK, 30/10/26
   LOGICAL :: l_nsc_pipe_target   ! MDK, 30/10/26
   LOGICAL :: l_nsc_k_sapwood   ! MDK, 31/10/26
+  LOGICAL :: l_nsc_sapwood_n   ! MDK, 04/11/26
   LOGICAL :: l_som_gravity
   LOGICAL :: l_som_rhizo_mfp
   LOGICAL :: l_nrun_mid_trif
@@ -3133,13 +3175,12 @@ IF (mype == 0) THEN
   my_nml % kplant_model = kplant_model
   my_nml % nsc_heartwood_model = nsc_heartwood_model   ! MDK, 04/11/26
   my_nml % nsc_damage_response = nsc_damage_response   ! MDK, 04/11/26
+  my_nml % som_cuticular_leak = som_cuticular_leak   ! MDK, 04/11/26
   my_nml % leaf_shelter = leaf_shelter
   my_nml % leaf_width = leaf_width
   my_nml % leaf_wind_ext = leaf_wind_ext
   my_nml % l_som_plant_segments = l_som_plant_segments
   my_nml % l_som_gain_gross = l_som_gain_gross
-  my_nml % l_som_cuticular_loss = l_som_cuticular_loss
-  my_nml % l_som_cuticular_day_only = l_som_cuticular_day_only
   my_nml % l_som_shared_stem = l_som_shared_stem
   my_nml % l_som_shared_gain = l_som_shared_gain
   my_nml % l_som_capacitance = l_som_capacitance
@@ -3157,6 +3198,7 @@ IF (mype == 0) THEN
   my_nml % l_nsc_sapwood_rings = l_nsc_sapwood_rings   ! MDK, 30/10/26
   my_nml % l_nsc_pipe_target = l_nsc_pipe_target   ! MDK, 30/10/26
   my_nml % l_nsc_k_sapwood = l_nsc_k_sapwood   ! MDK, 31/10/26
+  my_nml % l_nsc_sapwood_n = l_nsc_sapwood_n   ! MDK, 04/11/26
   my_nml % nsc_n_ring = nsc_n_ring   ! MDK, 30/10/26
   my_nml % l_som_gravity = l_som_gravity
   my_nml % l_som_rhizo_mfp = l_som_rhizo_mfp
@@ -3252,13 +3294,12 @@ IF (mype /= 0) THEN
   kplant_model = my_nml % kplant_model
   nsc_heartwood_model = my_nml % nsc_heartwood_model   ! MDK, 04/11/26
   nsc_damage_response = my_nml % nsc_damage_response   ! MDK, 04/11/26
+  som_cuticular_leak = my_nml % som_cuticular_leak   ! MDK, 04/11/26
   leaf_shelter = my_nml % leaf_shelter
   leaf_width = my_nml % leaf_width
   leaf_wind_ext = my_nml % leaf_wind_ext
   l_som_plant_segments = my_nml % l_som_plant_segments
   l_som_gain_gross = my_nml % l_som_gain_gross
-  l_som_cuticular_loss = my_nml % l_som_cuticular_loss
-  l_som_cuticular_day_only = my_nml % l_som_cuticular_day_only
   l_som_shared_stem = my_nml % l_som_shared_stem
   l_som_shared_gain = my_nml % l_som_shared_gain
   l_som_capacitance = my_nml % l_som_capacitance
@@ -3276,6 +3317,7 @@ IF (mype /= 0) THEN
   l_nsc_sapwood_rings = my_nml % l_nsc_sapwood_rings   ! MDK, 30/10/26
   l_nsc_pipe_target = my_nml % l_nsc_pipe_target   ! MDK, 30/10/26
   l_nsc_k_sapwood = my_nml % l_nsc_k_sapwood   ! MDK, 31/10/26
+  l_nsc_sapwood_n = my_nml % l_nsc_sapwood_n   ! MDK, 04/11/26
   nsc_n_ring = my_nml % nsc_n_ring   ! MDK, 30/10/26
   l_som_gravity = my_nml % l_som_gravity
   l_som_rhizo_mfp = my_nml % l_som_rhizo_mfp

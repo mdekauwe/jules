@@ -77,6 +77,17 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_year(:,:)
 ! MDK, 04/11/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_peak(:,:)
 
+! Ring cohorts with the pipe heartwood rule (nsc_heartwood_model = 1): the
+! stand's mean heartwood rate (per 360 days), a running mean of the rate
+! at each TRIFFID step with an e-folding time of one year, set by
+! triffid_nsc_ring_renewal. It is above nsc_heartwood_rate where the rule
+! holds the sapwood at its target, and ring_steady builds the reference
+! stand with it. < 0 = not set (nsc_heartwood_rate is used). In dumps
+! with the rule; allocated with the rings.
+!
+! MDK, 04/11/26
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_hw_rate_mean(:,:)
+
 CONTAINS
 
 ! ---------------------------------------------------------------------
@@ -224,10 +235,12 @@ IF (l_nsc_sapwood_rings .AND. .NOT. ALLOCATED(ximpair_ring_frac)) THEN
   ALLOCATE(ximpair_ring_loss(n_land_pts, npft, nsc_n_ring))
   ALLOCATE(ximpair_ring_year(n_land_pts, npft))
   ALLOCATE(ximpair_ring_peak(n_land_pts, npft))
+  ALLOCATE(ximpair_hw_rate_mean(n_land_pts, npft))
   ximpair_ring_frac(:,:,:) = -1.0
   ximpair_ring_loss(:,:,:) = 0.0
   ximpair_ring_year(:,:)   = -1.0
   ximpair_ring_peak(:,:)   = 0.0
+  ximpair_hw_rate_mean(:,:) = -1.0
 END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -261,7 +274,7 @@ REAL(KIND=real_jlslsm) :: s(nsc_n_ring)
 
 ximpair_ring_year(l,pft) = REAL(ximpair_ring_next_year(pft))
 
-CALL ring_steady(pft, ring_q(l, pft), s)
+CALL ring_steady(l, pft, ring_q(l, pft), s)
 ximpair_ring_frac(l,pft,:) = s(:) / SUM(s)
 ximpair_ring_loss(l,pft,:) = loss0
 
@@ -272,10 +285,12 @@ END SUBROUTINE ximpair_ring_init
 ! dynamics of ximpair_ring_grow, used to set up a point's rings and the
 ! reference stand that the sapwood-area factor compares with.
 !
-! New wood G (kg C m-2 per year) joins the youngest ring, TRIFFID's wood
-! turnover g_t (g_wood, per year) takes from all rings alike, and
-! heartwood forms from the oldest rings at k_h X_s (nsc_heartwood_rate;
-! at the pipe-model target the heartwood factor is 1). A ring that grew
+! New wood G (kg C m-2 per 360 days) joins the youngest ring, TRIFFID's
+! wood turnover g_t (g_wood, per 360 days) takes from all rings alike,
+! and heartwood forms from the oldest rings at k_h X_s, with k_h the
+! stand's mean heartwood rate: nsc_heartwood_rate, or with the pipe
+! heartwood rule the point's running mean ximpair_hw_rate_mean, which is
+! higher where the rule holds the sapwood at its target. A ring that grew
 ! m years ago then holds G EXP(-g_t m), and the sapwood holds
 !
 !   X_s = G / (k_h + g_t),
@@ -294,14 +309,14 @@ END SUBROUTINE ximpair_ring_init
 !
 ! MDK, 04/11/26
 ! ---------------------------------------------------------------------
-SUBROUTINE ring_steady( pft, q, s )
+SUBROUTINE ring_steady( l, pft, q, s )
 
 USE pftparm, ONLY: nsc_heartwood_rate
 USE trif, ONLY: g_wood
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 
-! PFT.
-INTEGER, INTENT(IN) :: pft
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
 ! The youngest ring's share (0-1).
 REAL(KIND=real_jlslsm), INTENT(IN) :: q
 ! Ring shares, youngest first (not normalised).
@@ -309,12 +324,16 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: s(nsc_n_ring)
 
 ! Ring counter.
 INTEGER :: j
-! Wood turnover rate (per year), the full rings' carbon still to place
-! and a full ring's share.
-REAL(KIND=real_jlslsm) :: g_t, rest, full
+! Wood turnover rate and the stand's heartwood rate (per 360 days), the
+! full rings' carbon still to place and a full ring's share.
+REAL(KIND=real_jlslsm) :: g_t, k_h, rest, full
 
-g_t  = MAX(g_wood(pft), 0.0)
-rest = 1.0 / MAX(nsc_heartwood_rate(pft) + g_t, 1.0e-6)
+g_t = MAX(g_wood(pft), 0.0)
+k_h = nsc_heartwood_rate(pft)
+IF (ALLOCATED(ximpair_hw_rate_mean)) THEN
+  IF (ximpair_hw_rate_mean(l,pft) >= 0.0) k_h = ximpair_hw_rate_mean(l,pft)
+END IF
+rest = 1.0 / MAX(k_h + g_t, 1.0e-6)
 s(:) = 0.0
 s(1) = q
 DO j = 2, nsc_n_ring
@@ -371,15 +390,16 @@ END FUNCTION ximpair_ring_next_year
 ! ---------------------------------------------------------------------
 ! Return the part (0-1) of the youngest sapwood ring that a stand in
 ! steady state has grown by this day: the fraction of the growing season
-! (nsc_grow_start_doy to nsc_grow_end_doy), or of the calendar year if
+! (nsc_season_start, the leaf flush or nsc_grow_start_doy, to
+! nsc_grow_end_doy, as the store's release), or of the calendar year if
 ! those are not set, that has passed; 0 for a ring not grown yet and 1
 ! for an older youngest ring.
 !
-! MDK, 01/11/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ring_q( l, pft ) RESULT( q )
 
-USE pftparm, ONLY: is_set, nsc_grow_start_doy, nsc_grow_end_doy
+USE pftparm, ONLY: is_set, nsc_season_start, nsc_grow_end_doy
 USE model_time_mod, ONLY: current_time
 USE datetime_utils_mod, ONLY: day_of_year, days_in_year
 USE time_info_mod, ONLY: l_360, l_leap
@@ -399,10 +419,10 @@ IF (a1 < 0) THEN
   q = 0.0
 ELSE IF (a1 > 0) THEN
   q = 1.0
-ELSE IF (is_set(nsc_grow_start_doy(pft)) .AND.                                 &
+ELSE IF (is_set(nsc_season_start(pft)) .AND.                                   &
          is_set(nsc_grow_end_doy(pft))) THEN
-  q = (REAL(doy) - nsc_grow_start_doy(pft))                                    &
-      / MAX(nsc_grow_end_doy(pft) - nsc_grow_start_doy(pft), 1.0)
+  q = (REAL(doy) - nsc_season_start(pft))                                      &
+      / MAX(nsc_grow_end_doy(pft) - nsc_season_start(pft), 1.0)
 ELSE
   q = REAL(doy) / REAL(days_in_year(current_time%year, l_360, l_leap))
 END IF
@@ -441,12 +461,12 @@ END FUNCTION ring_age
 ! compared with a new ring (0-1), used to weight each ring in the stem's
 ! conductance. Older rings conduct less,
 !
-!   c(a) = c_old + (1 - c_old) EXP(-a / e),
+!   c(a) = EXP(-a / e),
 !
-! where c_old (nsc_ring_c_old) is the value the oldest rings tend to and
-! e (nsc_ring_cond_efold, winters) is how fast it falls. If e is not set,
-! every ring conducts alike, c = 1. With c_old = 0 and a reference age a0
-! above 0, c is taken relative to the ring of age a0,
+! where e (nsc_ring_cond_efold, winters) is how fast it falls, so the
+! youngest rings carry most of the flow whatever the number of rings
+! followed. If e is not set, every ring conducts alike, c = 1. With a
+! reference age a0 above 0, c is taken relative to the ring of age a0,
 !
 !   c(a) = EXP(-(a - a0) / e),
 !
@@ -457,12 +477,11 @@ END FUNCTION ring_age
 ! day nsc_ring_func_doy of the calendar year, the day its new vessels
 ! start to conduct.
 !
-! MDK, 31/10/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ring_cond( pft, age, a0 ) RESULT( c )
 
-USE pftparm, ONLY: is_set, nsc_ring_cond_efold, nsc_ring_c_old,                &
-                   nsc_ring_func_doy
+USE pftparm, ONLY: is_set, nsc_ring_cond_efold, nsc_ring_func_doy
 USE model_time_mod, ONLY: current_time
 USE datetime_utils_mod, ONLY: day_of_year
 USE time_info_mod, ONLY: l_360, l_leap
@@ -485,11 +504,10 @@ END IF
 
 c = 1.0
 IF (is_set(nsc_ring_cond_efold(pft))) THEN
-  IF (a0 > 0 .AND. nsc_ring_c_old(pft) <= 0.0) THEN
+  IF (a0 > 0) THEN
     c = EXP(-REAL(age - a0) / nsc_ring_cond_efold(pft))
   ELSE
-    c = nsc_ring_c_old(pft) + (1.0 - nsc_ring_c_old(pft))                      &
-        * EXP(-REAL(age) / nsc_ring_cond_efold(pft))
+    c = EXP(-REAL(age) / nsc_ring_cond_efold(pft))
   END IF
 END IF
 
@@ -506,8 +524,8 @@ END FUNCTION ring_cond
 !
 ! where L_i is the ring's loss of conductance (0-1).
 !
-! With l_rel, c_i is taken relative to the youngest ring that conducts
-! (this matters only when c_old = 0). The ratios between the sums do not
+! With l_rel, c_i is taken relative to the youngest ring that conducts.
+! The ratios between the sums do not
 ! change, and that ring keeps the weight f_i, so a very small e in
 ! ring_cond cannot make every weight 0.
 !
@@ -660,17 +678,18 @@ END FUNCTION ximpair_ring_functional
 ! the point's own rings to scale the plant's conductance.
 !
 ! The steady stand has the ring shares s_j of ring_steady (the ring
-! dynamics with TRIFFID's wood turnover and heartwood at the target) at
-! the ages of the point's rings (ring_age), its youngest ring grown as
-! far as the season has gone (ring_q). With c(a_j) how well a ring of its
-! age conducts (ring_cond),
+! dynamics with TRIFFID's wood turnover and the stand's mean heartwood
+! rate) at the ages of the point's rings (ring_age), its youngest ring
+! grown as far as the season has gone (ring_q). With c(a_j) how well a
+! ring of its age conducts (ring_cond),
 !
 !   c_ref = SUM_j s_j c(a_j) / SUM_j s_j,
 !
 ! so a stand at its target sapwood X_t with this ring structure has
-! SUM_i X_i c_i = X_t c_ref on any date.
+! SUM_i X_i c_i = X_t c_ref on any date, whether its heartwood forms at
+! nsc_heartwood_rate or faster under the pipe heartwood rule.
 !
-! MDK, 01/11/26
+! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ximpair_ring_cref( l, pft ) RESULT( c_ref )
 
@@ -687,7 +706,7 @@ INTEGER :: j, a1
 REAL(KIND=real_jlslsm) :: s(nsc_n_ring), sum_s
 
 a1 = ring_age(l, pft, 1)
-CALL ring_steady(pft, ring_q(l, pft), s)
+CALL ring_steady(l, pft, ring_q(l, pft), s)
 c_ref = 0.0
 sum_s = 0.0
 DO j = 1, nsc_n_ring
@@ -809,23 +828,25 @@ END SUBROUTINE ximpair_ring_grow
 
 ! ---------------------------------------------------------------------
 ! Xylem impairment, memory model: replace damaged sapwood with new xylem in
-! the annual rings (Trugman response). With X the sapwood (kg C m-2),
-! X_i = f_i X ring i's carbon, L_i its loss of conductance and L_p the
-! highest loss imposed since the last TRIFFID step (ximpair_ring_peak),
-! the damaged sapwood that repair can restore is
+! the annual rings (Trugman response). Repair is costed by the conductance
+! it restores, as new wood: a unit of carbon restores the conductance of a
+! unit of new ring (c = 1). With X the sapwood (kg C m-2), X_i = f_i X ring
+! i's carbon, c_i how well it conducts (ring_cond), L_i its loss of
+! conductance and L_p the highest loss imposed since the last TRIFFID step
+! (ximpair_ring_peak), the conductance repair can restore, in kg C of new
+! ring, is
 !
-!   D = SUM_i X_i MAX(L_i - L_p, 0).
+!   D = SUM_i X_i c_i MAX(L_i - L_p, 0).
 !
-! Damage at or below L_p is left, as the drought would put it back at
-! the next time step. Up to r_max of new xylem (kg C m-2), and at most D,
-! replaces damaged wood in place: ring i gets m_i = r d_i / D of it, with
-! d_i = X_i MAX(L_i - L_p, 0), so its loss becomes
+! Damage at or below L_p is left, as the drought would put it back at the
+! next time step. r of new xylem (kg C m-2), at most r_max and D, restores
+! each ring's share of D, so its loss becomes
 !
-!   L_i -> L_i - m_i / X_i,
+!   L_i -> L_i - r MAX(L_i - L_p, 0) / D,
 !
-! at least L_p. No ring changes size, so the sapwood keeps its age
-! structure and a ring conducts at most as well as it did undamaged. r is
-! returned; r_max - r is claimed but not used.
+! at least L_p (L_p in every ring when r = D). No ring changes size, so the
+! sapwood keeps its age structure and a ring conducts at most as well as it
+! did undamaged. r is returned; r_max - r is claimed but not used.
 !
 ! MDK, 04/11/26
 ! ---------------------------------------------------------------------
@@ -842,8 +863,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) :: r
 
 ! Ring counter.
 INTEGER :: i
-! Each ring's carbon and repairable damaged carbon, and their sum (kg C
-! m-2).
+! Each ring's carbon, and the conductance repair can restore in it and in
+! all rings (kg C m-2 of new ring).
 REAL(KIND=real_jlslsm) :: a(nsc_n_ring), d(nsc_n_ring), d_tot
 
 r = 0.0
@@ -851,47 +872,61 @@ IF (x_s <= 0.0 .OR. r_max <= 0.0) RETURN
 IF (ximpair_ring_frac(l,pft,1) < 0.0) RETURN
 
 a(:) = MAX(ximpair_ring_frac(l,pft,:), 0.0) * x_s
-d(:) = a(:) * MAX(ximpair_ring_loss(l,pft,:) - ximpair_ring_peak(l,pft), 0.0)
+DO i = 1, nsc_n_ring
+  d(i) = a(i) * ring_cond(pft, ring_age(l, pft, i), 0)                         &
+         * MAX(ximpair_ring_loss(l,pft,i) - ximpair_ring_peak(l,pft), 0.0)
+END DO
 d_tot = SUM(d)
 IF (d_tot <= 0.0) RETURN
 r = MIN(r_max, d_tot)
 
-! Each ring's repairable damage is replaced in proportion to its share.
+! Each ring's repairable loss falls by the share r / D.
 DO i = 1, nsc_n_ring
-  IF (d(i) <= 0.0 .OR. a(i) <= 0.0) CYCLE
+  IF (d(i) <= 0.0) CYCLE
   ximpair_ring_loss(l,pft,i) = MIN(MAX(ximpair_ring_loss(l,pft,i)             &
-                                       - r * d(i) / (d_tot * a(i)),            &
+                                       - r * (ximpair_ring_loss(l,pft,i)       &
+                                       - ximpair_ring_peak(l,pft)) / d_tot,    &
                                        ximpair_ring_peak(l,pft)), 1.0)
 END DO
 
 END SUBROUTINE ximpair_ring_repair
 
 ! ---------------------------------------------------------------------
-! Return the share of the sapwood carbon whose damage repair could
-! restore (0-1),
+! Return the conductance repair could restore, per unit of sapwood carbon
+! and in units of new ring (0-1),
 !
-!   SUM_i f_i MAX(L_i - L_p, 0),
+!   SUM_i f_i c_i MAX(L_i - L_p, 0),
 !
-! with f_i ring i's share of the sapwood, L_i its loss of conductance and
-! L_p the highest loss the water potential has imposed since the last
-! TRIFFID step (ximpair_ring_peak): damage at or below L_p would come
-! back at once while the drought lasts. 0 where the rings are not yet
-! set.
+! with f_i ring i's share of the sapwood, c_i how well it conducts
+! (ring_cond), L_i its loss of conductance and L_p the highest loss the
+! water potential has imposed since the last TRIFFID step
+! (ximpair_ring_peak): damage at or below L_p would come back at once
+! while the drought lasts. Times the sapwood X_s it is the carbon that
+! repair needs (ximpair_ring_repair). 0 where the rings are not yet set.
 !
 ! MDK, 04/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ximpair_ring_damaged( l, pft ) RESULT( share )
 
+USE jules_vegetation_mod, ONLY: nsc_n_ring
+
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, pft
-! Repairable damaged share of the sapwood carbon (0-1).
+! Repairable conductance per unit of sapwood carbon (0-1).
 REAL(KIND=real_jlslsm) :: share
+
+! Ring counter.
+INTEGER :: i
 
 share = 0.0
 IF (.NOT. ALLOCATED(ximpair_ring_frac)) RETURN
 IF (ximpair_ring_frac(l,pft,1) < 0.0) RETURN
-share = SUM(MAX(ximpair_ring_frac(l,pft,:), 0.0)                              &
-            * MAX(ximpair_ring_loss(l,pft,:) - ximpair_ring_peak(l,pft), 0.0))
+DO i = 1, nsc_n_ring
+  share = share + MAX(ximpair_ring_frac(l,pft,i), 0.0)                         &
+                  * ring_cond(pft, ring_age(l, pft, i), 0)                     &
+                  * MAX(ximpair_ring_loss(l,pft,i) - ximpair_ring_peak(l,pft), &
+                        0.0)
+END DO
 share = MIN(MAX(share, 0.0), 1.0)
 
 END FUNCTION ximpair_ring_damaged

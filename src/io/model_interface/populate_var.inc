@@ -39,6 +39,7 @@ USE triffid_nsc_mod, ONLY: nsc_cmax_pft, nsc_wpot_pft, nsc_resp_pft,          &
                            nsc_tseas_acc
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
+USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
@@ -2406,6 +2407,18 @@ CASE ( 'ximpair_ring_peak' )
     CALL cube_get_data(cube_land, ximpair_ring_peak(:,:))
   ELSE
     ximpair_ring_peak(:,:) = const_val
+  END IF
+
+CASE ( 'ximpair_hw_rate_mean' )
+  IF ( .NOT. l_nsc_sapwood_rings )                                             &
+    CALL log_fatal("populate_var",                                             &
+                   "ximpair_hw_rate_mean needs l_nsc_sapwood_rings=T")
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_hw_rate_mean(:,:))
+  ELSE
+    ximpair_hw_rate_mean(:,:) = const_val
   END IF
 
 CASE ( 'phen_psi_acc' )

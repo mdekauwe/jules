@@ -274,6 +274,14 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts " //       &
              "'not yet set' (restart not exact).")
+        CASE ( 'ximpair_hw_rate_mean' )
+          ! The stand's mean heartwood rate: dumps written without it
+          ! start it at nsc_heartwood_rate (restart not exact).
+          !
+          ! MDK, 04/11/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts at " //    &
+             "nsc_heartwood_rate (restart not exact).")
         CASE ( 'ximpair_ring_peak' )
           ! Xylem repair's peak imposed loss: dumps written without it
           ! start at 0, so the first TRIFFID step's repair is not limited

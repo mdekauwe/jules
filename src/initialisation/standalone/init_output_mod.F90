@@ -909,7 +909,10 @@ DO j = 1,nvars
   CASE ( 'tau' )
     sf_diag % l_tau_surft = .TRUE.
 
-  CASE ( 'et_stom' )
+  CASE ( 'et_stom', 'cut_e_leak_pft' )
+    ! cut_e_leak_pft is the leak's share of the tile transpiration.
+    !
+    ! MDK, 04/11/26
     sf_diag % l_et_stom_surft = .TRUE.
 
   CASE ( 'et_stom_gb', 'esoil_surf_gb' )

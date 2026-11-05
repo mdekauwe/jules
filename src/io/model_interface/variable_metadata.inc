@@ -10957,4 +10957,19 @@ DATA metadata(846) / var_metadata(                                             &
 ! Units
     "mol m-2 s-1"                                                              &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for ximpair_hw_rate_mean
+!
+! MDK, 04/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(847) / var_metadata(                                             &
+! String identifier
+    'ximpair_hw_rate_mean',                                                    &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ring cohorts: stand's mean heartwood rate (< 0 = not set)",               &
+! Units
+    "per 360days"                                                              &
+  ) /
 #endif

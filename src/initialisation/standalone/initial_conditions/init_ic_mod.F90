@@ -1079,6 +1079,11 @@ DO i = 1, nvars_required
   ! MDK, 04/11/26
   CASE ( 'ximpair_ring_peak' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  ! The stand's mean heartwood rate: not set (nsc_heartwood_rate).
+  !
+  ! MDK, 04/11/26
+  CASE ( 'ximpair_hw_rate_mean' )
+    CALL dict_set(defaults_dict, identifiers(i), -1.0)
   ! TRIFFID's timer at the start of a run (as init_time) and empty sums.
   !
   ! MDK, 24/10/26

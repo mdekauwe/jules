@@ -175,7 +175,7 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
            'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
-           'ximpair_ring_year', 'ximpair_ring_peak',                           &
+           'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
            'cut_w_store', 'cut_psi_stem', 'cut_c_store',                       &

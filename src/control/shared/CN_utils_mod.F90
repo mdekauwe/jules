@@ -36,6 +36,8 @@ SUBROUTINE calc_n_comps_triffid(l, n, phen, lai_bal, wood, root, n_leaf,       &
 USE jules_vegetation_mod, ONLY:                                                &
 !  imported scalars that are not altered
     can_rad_mod, l_leaf_n_resp_fix, l_trait_phys
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_n   ! MDK, 04/11/26
+USE triffid_nsc_mod, ONLY: nsc_sapwood_share   ! MDK, 04/11/26
 
 USE pftparm, ONLY:                                                             &
 !  imported arrays that are not altered
@@ -157,6 +159,14 @@ END IF
 IF ( l_trait_phys ) THEN
   n_root = nr(n) * root
   fstem  = 1.0 / a_ws(n)
+  ! With l_nsc_sapwood_n the live share of the wood is the sapwood pool's,
+  ! X_s / C_W, once it is set.
+  ! MDK, 04/11/26
+  IF ( l_nsc_sapwood_n ) THEN
+    IF ( ALLOCATED(nsc_sapwood_share) ) THEN
+      IF ( nsc_sapwood_share(l,n) >= 0.0 ) fstem = nsc_sapwood_share(l,n)
+    END IF
+  END IF
   n_stem = wood * ( (nsw(n) * fstem) + (1.0 - fstem) * nsw(n) * hw_sw(n))
 ELSE
   n_root = nr_nl(n) * nl0(n) * root
