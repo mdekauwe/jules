@@ -120,24 +120,28 @@ USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                        &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
-  l_som_rhizo_series, l_som_capacitance_on   ! MDK, 04/11/26
+  l_som_rhizo_series, l_som_capacitance_on
 USE plant_hydraulic_path_mod, ONLY: ksr
 USE jules_vegetation_mod, ONLY: leaf_flux_stom_opt
 USE sf_stom_state_mod, ONLY: ra_tile_prev
+  ! MDK, 04/11/26
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: fsmc_mod
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
 USE jules_hydrology_mod, ONLY: l_limit_gsoil, l_soil_evap_or
-USE jules_hydrology_mod, ONLY: l_or_fsoil   ! MDK, 24/10/26
+USE jules_hydrology_mod, ONLY: l_or_fsoil
+  ! MDK, 24/10/26
 
 USE soil_evap_or_mod, ONLY: gsoil_or, w1_or
 
 USE pftparm, ONLY: emis_pft, fsmc_p0, rootd_ft, gsoil_f, min_rootc_pft,        &
                    soil_litter_depth, or_z0soil_fac
-USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht   ! MDK, 20/10/26
-USE canopy_diag_mod, ONLY: canopy_diag_alloc, gsoil_pft   ! MDK, 24/10/26
+USE calc_c_comps_triffid_mod, ONLY: lai_bal_from_ht
+  ! MDK, 20/10/26
+USE canopy_diag_mod, ONLY: canopy_diag_alloc, gsoil_pft
+  ! MDK, 24/10/26
 USE pftparm, ONLY: sigl, lma, rmass, kmax_pft, conductance_b_pft,              &
                    conductance_c_pft
 
@@ -1305,7 +1309,10 @@ DO n = 1,npft
       IF ( l_crop .AND. n > nnpft ) THEN
         root_mass(l) = rootc_cpft(l,n - nnpft) / rmass(n)
       ELSE
-        lai_bal_rt = lai_bal_from_ht(n, canht_pft(l,n))   ! MDK, 20/10/26
+        ! The balanced LAI from the canopy height (lai_bal_from_ht).
+        !
+        ! MDK, 20/10/26
+        lai_bal_rt = lai_bal_from_ht(n, canht_pft(l,n))
         IF ( l_red ) lai_bal_rt = veg_state%lai_bal(l,n)
         IF ( l_trait_phys ) THEN
           root_mass(l) = lma(n) * lai_bal_rt

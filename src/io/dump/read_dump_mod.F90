@@ -13,7 +13,8 @@ CONTAINS
 
 SUBROUTINE read_dump(file_name, identifiers)
 
-USE trifctl, ONLY: asteps_since_triffid   ! MDK, 24/10/26
+USE trifctl, ONLY: asteps_since_triffid
+  ! MDK, 24/10/26
 USE trifctl, ONLY: asteps_phen
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
 USE cuticular_leak_state_mod, ONLY: cut_state_alloc, cut_w_store,              &
@@ -831,7 +832,9 @@ DO i = 1,nvars
       CALL scatter_land_field(global_data_2d(:,n), cut_c_store(:,n))
     END DO
   ! The store's flow and the canopy transpiration of the last timestep,
-  ! the next step's first guess (MDK, 04/11/26).
+  ! the next step's first guess.
+  !
+  ! MDK, 04/11/26
   CASE ( 'cut_q_store' )
     CALL cut_state_alloc( land_pts )
     DO n = 1,npft
@@ -846,7 +849,9 @@ DO i = 1,nvars
       CALL scatter_land_field(global_data_2d(:,n), store_e_prev(:,n))
     END DO
   ! The shaded leaves' transpiration and A of the last timestep, the
-  ! shared root and stem's first guess (MDK, 04/11/26).
+  ! shared root and stem's first guess.
+  !
+  ! MDK, 04/11/26
   CASE ( 'shared_e_shd_prev' )
     IF ( .NOT. ALLOCATED(shared_e_shd_prev) ) THEN
       ALLOCATE( shared_e_shd_prev(land_pts, npft) )

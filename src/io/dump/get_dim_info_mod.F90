@@ -71,7 +71,8 @@ USE model_interface_mod, ONLY: bedrock_dim_name => bedrock_dim_name_out,       &
                                   soil_n_pool_dim_name_out,                    &
                                nmasst_dim_name => nmasst_dim_name_out,         &
                                ring_dim_name => ring_dim_name_out
-USE jules_vegetation_mod, ONLY: nsc_n_ring   ! MDK, 30/10/26
+USE jules_vegetation_mod, ONLY: nsc_n_ring
+  ! MDK, 30/10/26
 
 USE dump_mod, ONLY: ancil_dump_read
 

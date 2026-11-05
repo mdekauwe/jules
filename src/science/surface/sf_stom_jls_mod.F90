@@ -103,7 +103,11 @@ USE jules_surface_types_mod, ONLY: nnpft, ncpft, npft
 
 USE pftparm, ONLY:                                                             &
         kmax_pft, conductance_b_pft, conductance_c_pft, gcuticular,            &
-        min_gl_pft, lai_ref_k   ! lai_ref_k: MDK, 21/10/26
+        min_gl_pft, lai_ref_k
+                            ! lai_ref_k: reference LAI of the root and
+                            ! stem conductance (kplant_model = 1).
+                            !
+                            ! MDK, 21/10/26
 USE jules_vegetation_mod, ONLY:                                                &
 ! imported model ids.
     leaf_flux_fsmc, leaf_flux_stom_opt,                                        &
@@ -175,7 +179,8 @@ USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_eff_pft,                  &
 USE cuticular_leak_state_mod, ONLY: cut_w_store, cut_psi_stem,                 &
                                     cut_q_store, cut_c_store, cut_m_h2o,       &
                                     cut_state_alloc, cut_psi_unset,            &
-                                    cut_w_shed, cut_e_leak   ! MDK, 25/10/26
+                                    cut_w_shed, cut_e_leak
+                            ! MDK, 25/10/26
 USE pftparm, ONLY: cap_stem, kcrit_fractional_loss, conductance_b_seg,         &
                    conductance_c_seg
 USE model_time_mod, ONLY: is_spinup
@@ -192,23 +197,28 @@ USE triffid_nsc_mod, ONLY: triffid_nsc_daily, triffid_nsc_turgor,              &
 USE jules_vegetation_mod, ONLY: discrimination_model, discrimination_off
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft, d13c_disc_alloc, d13c_disc_leaf
 USE canopy_diag_mod, ONLY: gs_sun_pft, gs_shd_pft, lai_sun_pft
-USE canopy_diag_mod, ONLY: psi_leaf_sun_pft, psi_leaf_shd_pft   ! MDK, 30/10/26
+USE canopy_diag_mod, ONLY: psi_leaf_sun_pft, psi_leaf_shd_pft
+                            ! MDK, 30/10/26
 USE canopy_diag_mod, ONLY: vcmax_pft, jmax_pft, anetc_pft, anetl_top_pft,      &
                            anetl_bot_pft
-USE jules_vegetation_mod, ONLY: l_photo_diag   ! MDK, 30/10/26
+USE jules_vegetation_mod, ONLY: l_photo_diag
+                            ! MDK, 30/10/26
 USE canopy_diag_mod, ONLY: canopy_diag_alloc, gc_stomatal_pft, t_can_air_pft,  &
                            q_can_air_pft, h_leaf_pft, le_leaf_pft,            &
-                           h_leaf_pts, le_leaf_pts   ! MDK, 24/10/26
+                           h_leaf_pts, le_leaf_pts
+                            ! MDK, 24/10/26
 
 
 USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kcrit_of_path
 USE plant_hydraulic_path_mod, ONLY: set_ksr_path, set_k_ground_basis,          &
                                     kplant_scale
                                        ! MDK, 04/11/26
-USE plant_hydraulic_path_mod, ONLY: l_kscale   ! MDK, 31/10/26
-USE jules_vegetation_mod, ONLY: l_nsc_k_sapwood   ! MDK, 31/10/26
-USE jules_vegetation_mod, ONLY: l_nsc_sapwood_n   ! MDK, 04/11/26
-USE triffid_nsc_mod, ONLY: nsc_sapwood   ! MDK, 04/11/26
+USE plant_hydraulic_path_mod, ONLY: l_kscale
+USE jules_vegetation_mod, ONLY: l_nsc_k_sapwood
+                            ! MDK, 31/10/26
+USE jules_vegetation_mod, ONLY: l_nsc_sapwood_n
+USE triffid_nsc_mod, ONLY: nsc_sapwood
+                            ! MDK, 04/11/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_k_area, nsc_k_area_frac
                            ! MDK, 31/10/26
 USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman,       &
@@ -218,14 +228,17 @@ USE triffid_nsc_mod, ONLY: nsc_k_area_raw, nsc_lai_sapwood, nsc_f_a_min
 USE plant_hydraulic_path_mod, ONLY: set_store_q_path, clear_store_q_path,      &
                                     psi_leaf_segments_jls
                                        ! MDK, 24/10/26
-USE plant_hydraulic_path_mod, ONLY: psi_leaf_segments_lut_jls   ! MDK, 31/10/26
+USE plant_hydraulic_path_mod, ONLY: psi_leaf_segments_lut_jls
+                            ! MDK, 31/10/26
 USE plant_hydraulic_path_mod, ONLY: lut_seg_step, seg_kmax_fac
 USE plant_hydraulic_path_mod, ONLY: set_grav_drop, clear_grav_drop,            &
                                     grav_node_drop
+                            ! MDK, 04/11/26
 USE supply_table_mod, ONLY: build_supply_lut_seg
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_frac
                                        ! MDK, 04/11/26
-USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_lut   ! MDK, 31/10/26
+USE jules_vegetation_mod, ONLY: som_psi_solver, psi_solver_lut
+                            ! MDK, 31/10/26
 USE plant_hydraulic_path_mod, ONLY: set_shared_stem, clear_shared_stem,       &
                                     shared_amax_self
                                        ! MDK, 30/10/26
@@ -808,8 +821,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! WORK factor to convert top of canopy
                             ! value to canopy average.
 
-! MDK, 29/04/26
 REAL(KIND=real_jlslsm) :: je_dummy(land_pts), fapar_dummy(land_pts)
+                            ! Placeholders for the big-leaf optimiser call
+                            ! (stom_opt_mod uses them only for the
+                            ! multilayer canopy).
+                            !
+                            ! MDK, 29/04/26
 REAL(KIND=real_jlslsm) :: lam_sun(land_pts), lam_shd(land_pts)
                             ! Two-leaf: dA/dE at the optimum of the sunlit
                             ! and shaded leaves (lambda_eff of stom_opt_mod),
@@ -1498,7 +1515,7 @@ gc_som(:)         = 0.0
 ! MDK, 30/10/26
 CALL canopy_diag_alloc( land_pts )
 gc_stomatal_pft(:,ft) = 0.0
-n_lit = 0   ! MDK, 25/10/26
+n_lit = 0
 gs_sun_pft(:,ft)      = 0.0
 gs_shd_pft(:,ft)      = 0.0
 lai_sun_pft(:,ft)     = 0.0
@@ -3444,7 +3461,10 @@ CASE ( 1 )
                 carbon_gain, hydraulic_cost, leaf_k,                           &
                 psi_stem = psi_stem                                            &
         )
-        IF ( l_store_cpl ) CALL clear_store_q_path()   ! MDK, 25/10/26
+        ! The store's flow held for the call applies no longer.
+        !
+        ! MDK, 25/10/26
+        IF ( l_store_cpl ) CALL clear_store_q_path()
 
         ! The store coupled to the optimiser: its flow out for the next pass,
         ! from its balance at this pass's E, where some point transpires
@@ -4555,7 +4575,10 @@ DO m = 1,veg_pts
     lai_bal(l) = veg_state%lai_bal(l,ft)
 
   ELSE
-    lai_bal(l) = lai_bal_from_ht(ft, ht(l))   ! MDK, 20/10/26
+    ! The balanced LAI from the canopy height (lai_bal_from_ht).
+    !
+    ! MDK, 20/10/26
+    lai_bal(l) = lai_bal_from_ht(ft, ht(l))
 
   END IF
 
@@ -4664,7 +4687,11 @@ DO m = 1,veg_pts
   END IF
 
   gpp(l) = cconu * (anetc(l) + rdc(l) * fsmc_leaf_resp(l))
-  IF ( l_photo_diag ) anetc_pft(l,ft) = anetc(l)   ! MDK, 30/10/26
+  ! Net canopy photosynthesis for the photosynthesis diagnostics
+  ! (l_photo_diag).
+  !
+  ! MDK, 30/10/26
+  IF ( l_photo_diag ) anetc_pft(l,ft) = anetc(l)
 
   IF (l_scale_resp_pm) THEN
     fsmc_scale(l) = fsmc(l)
@@ -4844,6 +4871,8 @@ IF ( l_fapar_diag ) THEN
 END IF
 
 ! The gravity drop at the root-stem node is this timestep's only.
+!
+! MDK, 04/11/26
 CALL clear_grav_drop()
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -5201,7 +5230,7 @@ END SUBROUTINE store_cpl_leak_cut
 ! It also sets share_sup to 1; each canopy scheme sets it again before
 ! using it.
 !
-! MDK, 25/10/26
+! MDK, 04/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_q( l_ex, e_c, l_sel )
 
@@ -5655,7 +5684,7 @@ END SUBROUTINE kplant_shared_stem
 ! It is 0 at the answer, below 0 when the guess is too small and above 0
 ! when it is too large. Only the n_be points being solved are worked out.
 !
-! MDK, 25/10/26
+! MDK, 31/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_eval( n_be, idx_be, l_imp_be, l_ex, e_c, q_try, c_p,      &
                            psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1,    &
@@ -5700,8 +5729,6 @@ CALL set_store_q_path( land_pts, veg_pts, veg_index, share_sup, q_try )
 ! commit (l_ex), as the table inversion is exact to its interpolation and a
 ! flow beyond what a segment carries ends at the bottom of its table, below
 ! the floors applied at the commit.
-!
-! MDK, 31/10/26
 IF ( som_psi_solver == psi_solver_lut .AND. l_imp_be ) THEN
   CALL psi_leaf_segments_lut_jls( ft, 1, land_pts, n_be, veg_index, idx_be,    &
                                   e1(:,1:n_be), psi_in, kref_c,               &
@@ -6549,6 +6576,8 @@ SUBROUTINE leaf_temp_responses( ft, land_pts, veg_pts, veg_index,              &
 ! temperature when l_leaf_temp. It sets denom, qtenf_term, ccp, kc, ko
 ! (Collatz; C3 only for ccp, kc, ko) or ccp, km, i2, vcmax_temp,
 ! jmax_temp (Farquhar).
+!
+! MDK, 25/10/26
 
 USE conversions_mod, ONLY: zerodegc
 USE c_rmol, ONLY: rmol
@@ -6558,7 +6587,7 @@ USE pftparm, ONLY: alpha_elec, c3, deact_jmax, deact_vcmax, q10_leaf, tlow,    &
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-! (DrHook: MDK, 24/10/26)
+
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts),             &
@@ -6669,8 +6698,6 @@ CASE ( photo_farquhar )
 
   ! (The soil-water factor of Vcmax and Jmax, l_som_vcmax_psi, is applied
   ! in calc_photo_parameters, after dark respiration.)
-  !
-  ! MDK, 25/10/26
 
 END SELECT
 
@@ -7234,6 +7261,8 @@ END SUBROUTINE calc_electron_flux
 ! profitable state the soil can supply. gl_max <= 0 means "no cap" in
 ! stom_opt_mod, so a zero supply is passed as TINY (no sample feasible:
 ! stomata close).
+!
+! MDK, 24/10/26
 !-----------------------------------------------------------------------------
 SUBROUTINE apply_supply_limit( land_pts, veg_pts, veg_index, e_supply, share,  &
                                dq, tstar, pstar, gl_max_in, gl_max_out,        &
@@ -7243,11 +7272,11 @@ USE c_rmol, ONLY: rmol
 USE planet_constants_mod, ONLY: repsilon
 USE jules_vegetation_mod, ONLY: l_som_supply_limit, l_som_coupled_e
 USE stom_opt_jls_mod, ONLY: g_of_geff
-USE water_constants_mod, ONLY: Water_kg_per_mol   ! MDK, 24/10/26
+USE water_constants_mod, ONLY: Water_kg_per_mol
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-! (DrHook: MDK, 24/10/26)
+
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: land_pts, veg_pts
@@ -7278,8 +7307,6 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
 
 REAL(KIND=real_jlslsm), PARAMETER :: m_h2o = Water_kg_per_mol
       ! Molar mass of water (kg mol-1).
-      !
-      ! MDK, 24/10/26
 
 REAL(KIND=real_jlslsm) :: gl_sup
 INTEGER :: l, m

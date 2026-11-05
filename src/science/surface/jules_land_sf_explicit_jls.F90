@@ -206,9 +206,10 @@ USE jules_surface_mod, ONLY: l_aggregate, formdrag, l_anthrop_heat_src,        &
 
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod, ilayers, leaf_flux_mod,&
                                 l_triffid,  l_vegdrag_surft,                   &
-                                l_som_capacitance_on   ! MDK, 04/11/26
+                                l_som_capacitance_on
 USE jules_vegetation_mod, ONLY: leaf_flux_stom_opt
 USE sf_stom_state_mod, ONLY: ra_tile_prev, ra_tile_alloc
+  ! MDK, 04/11/26
 USE jules_hydrology_mod, ONLY: l_soil_evap_or
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd, irrig_option, tile_based_irrigation

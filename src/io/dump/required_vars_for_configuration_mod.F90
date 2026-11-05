@@ -19,7 +19,8 @@ SUBROUTINE required_vars_for_configuration(nvars, identifiers,                 &
                                            read_or_write_dump)
 
 USE update_mod, ONLY: l_imogen, have_prescribed_sthuf
-USE pftparm, ONLY: is_set, nsc_limits_on   ! MDK, 24/10/26
+USE pftparm, ONLY: is_set, nsc_limits_on
+  ! MDK, 24/10/26
 USE jules_surface_types_mod, ONLY: npft
 
 USE jules_hydrology_mod, ONLY: l_top
@@ -36,9 +37,11 @@ USE pftparm, ONLY: pft_xylem_impairment_model, nsc_psi_turg_zero,              &
                    nsc_t_grow_zero, nsc_grow_start_doy, nsc_grow_end_doy,      &
                    nsc_flush_start_doy, phen_bb_doy, phen_bb_gdd
 
-USE jules_vegetation_mod, ONLY: l_trif_hydmort   ! MDK, 25/10/26
+USE jules_vegetation_mod, ONLY: l_trif_hydmort
+  ! MDK, 25/10/26
 USE jules_vegetation_mod, ONLY: l_leaf_temp
-USE jules_vegetation_mod, ONLY: l_som_shared_stem   ! MDK, 04/11/26
+USE jules_vegetation_mod, ONLY: l_som_shared_stem
+  ! MDK, 04/11/26
 ! The stomatal optimisation's tile aerodynamic resistance.
 !
 ! MDK, 04/11/26
@@ -57,7 +60,8 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_nsc_sapwood_pool, l_nsc_sapwood_rings,       &
                                 l_nsc_pipe_target,                             &
                                 l_som_vcmax_psi, l_som_coupled_e,              &
-                                l_som_capacitance_on   ! MDK, 24/10/26
+                                l_som_capacitance_on
+  ! MDK, 24/10/26
 ! MDK, 01/11/26
 USE jules_vegetation_mod, ONLY: l_nsc_sink_feedback
 USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman

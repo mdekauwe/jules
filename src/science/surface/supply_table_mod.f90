@@ -401,7 +401,7 @@ END FUNCTION supply_lut_e_crit
 ! is worked out from the curve's formula; the table is built only to
 ! record which form the PFT uses.
 !
-! MDK, 18/10/26
+! MDK, 04/11/26
 FUNCTION supply_lut_f( pft, psi ) RESULT( f )
 
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
@@ -412,13 +412,16 @@ REAL(KIND=real_jlslsm) :: f
 
 ! Evaluated exactly from the curve, not interpolated from the table; the
 ! build call only makes sure lut_sox(pft) is set. Callers use it for k at
-! the psi_leaf from supply_lut_psi (k = kmax * f). b and psi are both
-! negative, so psi/b >= 0; ABS only guards a psi > 0.
+! the psi_leaf from supply_lut_psi (k = kmax * f). b is negative, and psi
+! is held at <= 0 as in the Newton solver (psi_leaf_segments_jls), so
+! psi/b >= 0.
 CALL build_supply_lut(pft)
 IF ( lut_sox(pft) ) THEN
-  f = 1.0 / (1.0 + (ABS(psi / conductance_b_pft(pft)))**conductance_c_pft(pft))
+  f = 1.0 / (1.0 + (MIN(psi, 0.0_real_jlslsm) / conductance_b_pft(pft))       &
+                   **conductance_c_pft(pft))
 ELSE
-  f = EXP(-(ABS(psi / conductance_b_pft(pft)))**conductance_c_pft(pft))
+  f = EXP(-(MIN(psi, 0.0_real_jlslsm) / conductance_b_pft(pft))               &
+          **conductance_c_pft(pft))
 END IF
 
 END FUNCTION supply_lut_f
@@ -597,9 +600,9 @@ CONTAINS
   ! Water potential (Pa, <= 0).
   REAL(KIND=r8), INTENT(IN) :: p
   IF ( l_sox ) THEN
-    f_of = 1.0_r8 / (1.0_r8 + (ABS(p / REAL(b, r8)))**REAL(c, r8))
+    f_of = 1.0_r8 / (1.0_r8 + (MIN(p, 0.0_r8) / REAL(b, r8))**REAL(c, r8))
   ELSE
-    f_of = EXP(-(ABS(p / REAL(b, r8)))**REAL(c, r8))
+    f_of = EXP(-(MIN(p, 0.0_r8) / REAL(b, r8))**REAL(c, r8))
   END IF
   END FUNCTION f_of
 
