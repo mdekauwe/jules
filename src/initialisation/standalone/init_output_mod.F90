@@ -340,7 +340,7 @@ USE jules_surface_mod, ONLY: l_urban2t
 
 USE jules_vegetation_mod, ONLY: l_fapar_diag, l_fao_ref_evapotranspiration,    &
     photo_acclim_model, l_sugar, stomata_model, stomata_sox_analytical,        &
-    l_photo_diag
+    l_photo_diag, l_lambda_diag
 
 USE jules_water_resources_mod, ONLY: l_have_groundwater, l_have_renew_gwater,  &
     l_have_surface_water, l_water_domestic, l_water_environment,               &
@@ -979,6 +979,12 @@ DO j = 1,nvars
 
   CASE ( 'vcmax', 'jmax', 'anetc', 'anetl_top', 'anetl_bot' )
     l_photo_diag = .TRUE.
+
+  CASE ( 'lambda_eff_pft' )
+    ! The marginal water price of the stomatal optimiser.
+    !
+    ! MDK, 05/11/26
+    l_lambda_diag = .TRUE.
 
   END SELECT
 

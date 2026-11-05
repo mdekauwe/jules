@@ -1400,6 +1400,13 @@ LOGICAL :: l_photo_diag = .FALSE.
     !
     ! MDK, 30/10/26
 
+LOGICAL :: l_lambda_diag = .FALSE.
+    ! Only true if lambda_eff_pft is in one of the output profiles: the
+    ! stomatal optimiser then works out the marginal water price dA/dE at
+    ! its optimum (two more evaluations per point)
+    !
+    ! MDK, 05/11/26
+
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='JULES_VEGETATION_MOD'
 
 CONTAINS

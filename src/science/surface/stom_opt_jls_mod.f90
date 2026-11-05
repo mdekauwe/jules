@@ -2337,13 +2337,14 @@ END SUBROUTINE stom_opt_profit_max_select
 !      the same leaf water potential (hold_leaf_psi).
 !
 ! The best Ci seen at any step, both ends included, is returned, with the
-! marginal water price dA/dE there (lambda_diag). Each evaluation is for one
-! point (eval_ci), so each point stops as soon as it has converged. With
-! l_leaf_temp_ci the dark respiration in the chosen A, at the candidate's
-! own leaf temperature, is returned too (rd_g), so the gross
-! photosynthesis A + Rd is that of the same leaf temperature.
+! marginal water price dA/dE there (lambda_diag) when it is output
+! (l_lambda_diag). Each evaluation is for one point (eval_ci), so each
+! point stops as soon as it has converged. With l_leaf_temp_ci the dark
+! respiration in the chosen A, at the candidate's own leaf temperature, is
+! returned too (rd_g), so the gross photosynthesis A + Rd is that of the
+! same leaf temperature.
 !
-! MDK, 04/11/26
+! MDK, 05/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_bounded_search(                                            &
 ! IN
@@ -2369,7 +2370,7 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_stomatal_response, ximpair_hold_gs,    &
                                 ximpair_hold_psi, l_som_coupled_e,             &
-                                photo_johnson
+                                photo_johnson, l_lambda_diag
 USE plant_hydraulic_path_mod, ONLY: l_kscale
 USE plant_hydraulic_path_mod, ONLY: grav_node_drop
 USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kplant_scale,            &
@@ -3030,13 +3031,15 @@ CONTAINS
   ! Work out, for output, the marginal water price at the chosen Ci,
   ! lambda_g = dA/dE (mol CO2 per mol H2O), from A and E at two Ci a small
   ! step (0.1 % of the feasible range) either side of it, kept inside the
-  ! range. Diagnostic only: the chosen state is not changed.
+  ! range. Diagnostic only: the chosen state is not changed. It is worked
+  ! out only when lambda_eff_pft is output (l_lambda_diag); otherwise
+  ! lambda_g stays 0.
   !---------------------------------------------------------------------------
   SUBROUTINE lambda_diag()
   ! Diagnostic dA/dE at the optimum: central difference over
   ! +-1e-3 of the range about best_ci, clipped to [ci_lo, e_ci] (one-sided
   ! at an end). Only *_u is changed, not the chosen state.
-  IF ( PRESENT(lambda_g) .AND. e_ci > ci_lo ) THEN
+  IF ( PRESENT(lambda_g) .AND. l_lambda_diag .AND. e_ci > ci_lo ) THEN
     lam_ci1 = MAX(best_ci - 1.0e-3_real_jlslsm * (e_ci - ci_lo), ci_lo)
     lam_ci2 = MIN(best_ci + 1.0e-3_real_jlslsm * (e_ci - ci_lo), e_ci)
     CALL eval_ci(lam_ci1)
