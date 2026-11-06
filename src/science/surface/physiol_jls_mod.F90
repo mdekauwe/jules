@@ -120,11 +120,18 @@ USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                        &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
-  l_som_rhizo_series, l_som_capacitance_on
-  ! MDK, 04/11/26
+  l_som_rhizo_series, l_som_capacitance_on, l_ximpair_frozen_hold,           &
+  xylem_impairment_memory
+  ! MDK, 06/11/26
+USE xylem_impairment_memory_mod, ONLY: ximpair_root_frozen
+  ! Frozen share of the root zone's soil water (l_ximpair_frozen_hold).
+  ! MDK, 06/11/26
 USE plant_hydraulic_path_mod, ONLY: ksr
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: fsmc_mod
+USE pftparm, ONLY: pft_xylem_impairment_model
+  ! Memory model PFTs need the frozen share (l_ximpair_frozen_hold).
+  ! MDK, 06/11/26
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
@@ -1583,6 +1590,29 @@ DO n = 1,npft
   fsun_tmp(:,:) = fsun(:,n,:)
   cond_b_pts(:) = conductance_b_pft(n)
   cond_c_pts(:) = conductance_c_pft(n)
+
+  ! Xylem impairment, memory model (l_ximpair_frozen_hold): the frozen share
+  ! of this PFT's root-zone soil water, sum over layers of
+  ! f_root sthf / (sthu + sthf), read when the impairment is updated in the
+  ! stomatal scheme. Only for PFTs on the memory model.
+  !
+  ! MDK, 06/11/26
+  IF ( l_ximpair_frozen_hold .AND.                                             &
+       pft_xylem_impairment_model(n) == xylem_impairment_memory ) THEN
+    IF ( .NOT. ALLOCATED(ximpair_root_frozen) ) THEN
+      ALLOCATE(ximpair_root_frozen(land_pts))
+    END IF
+    ximpair_root_frozen(:) = 0.0
+    DO j = 1, surft_pts(n)
+      l = surft_index(j,n)
+      DO k = 1, sm_levels
+        ximpair_root_frozen(l) = ximpair_root_frozen(l) + f_root(l,k)        &
+                                 * sthf_soilt(l,m,k)                           &
+                                 / MAX(sthu_soilt(l,m,k) + sthf_soilt(l,m,k),  &
+                                       TINY(1.0_real_jlslsm))
+      END DO
+    END DO
+  END IF
 
   CALL sf_stom (land_pts,land_index                                            &
 ,               surft_pts(n),surft_index(:,n),n                                &

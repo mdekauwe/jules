@@ -1051,6 +1051,19 @@ LOGICAL ::                                                                     &
       ! for the leaves.
       !
       ! MDK, 30/10/26
+  l_ximpair_frozen_hold = .TRUE.,                                              &
+      ! Xylem impairment, memory model: no new damage while the root zone
+      ! is frozen. On by default (an exception to new switches being off):
+      ! it removes an artefact, and it changes answers only for PFTs on
+      ! the memory model whose root zone freezes. JULES sets the soil water potential from the unfrozen
+      ! water, so freezing alone drives the root-zone psi, and with no
+      ! flow the leaf psi with it, far down (to -4 MPa in a cold spell)
+      ! when the trees are dormant and their xylem is cut off from the
+      ! frozen soil. A point takes no damage on a step when more than
+      ! ximpair_frozen_frac of the soil water in its root zone (root
+      ! fraction weighted) is frozen; recovery goes on as usual.
+      !
+      ! MDK, 06/11/26
   l_phen_psi = .FALSE.,                                                        &
       ! Drought leaf shedding from water potential (Xu et al. 2016, New
       ! Phytol, Notes S1 Eqn S7), with phenology (l_phenol): a leaf biomass
@@ -1203,6 +1216,18 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! (big leaf; two-leaf per class leaf area; multilayer per leaf).
 
 REAL(KIND=real_jlslsm) ::                                                      &
+  ximpair_frozen_frac = 0.1
+      ! With l_ximpair_frozen_hold: the share of the root zone's soil water
+      ! (root fraction weighted) above which a point is frozen and takes no
+      ! xylem damage. A low value holds damage as soon as the topsoil, which
+      ! holds most of the roots, freezes: a frozen top layer alone pulls the
+      ! root-zone psi far down while the deeper unfrozen layers keep the
+      ! weighted share below a half. Drought damage needs a thawed root
+      ! zone, so a low value takes nothing from the growing season.
+      !
+      ! MDK, 06/11/26
+
+REAL(KIND=real_jlslsm) ::                                                      &
   light_curvature_fvcb = 0.90
       ! Curvature (theta) of the light response of electron transport in the
       ! Farquhar model (Eq.4 of Medlyn et al. 2002, who used 0.9). Most
@@ -1337,6 +1362,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_fast,                                                                &
     l_ximpair_leaf_loss, l_ximpair_seg_memory,                                 &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
+    l_ximpair_frozen_hold,                                                     &
     l_nsc_wmax_norm, l_trif_hydmort,                                           &
     l_nsc_sapwood_pool, l_nsc_ring_additive, l_nsc_sapwood_rings,              &
     l_nsc_pipe_target, l_nsc_k_sapwood, l_nsc_sapwood_n,                       &
@@ -1357,7 +1383,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_capacitance,                                                         &
     l_som_gravity,                                                             &
     l_som_rhizo_mfp,                                                           &
-    som_gl_max, light_curvature_fvcb,                                          &
+    som_gl_max, light_curvature_fvcb, ximpair_frozen_frac,                     &
     som_psi_aprox_method, som_profit_model, som_psi_solver, som_ci_search,     &
     discrimination_model,                                                      &
     frac_min, frac_seed, pow, l_landuse, l_leaf_n_resp_fix, l_stem_resp_fix,   &
@@ -2830,6 +2856,8 @@ WRITE(lineBuffer,*) ' l_trif_hydmort = ', l_trif_hydmort
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_rec_leaf_turn = ', l_ximpair_rec_leaf_turn
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_ximpair_frozen_hold = ', l_ximpair_frozen_hold
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_phen_psi = ', l_phen_psi
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_wmax_norm = ', l_nsc_wmax_norm
@@ -2871,6 +2899,8 @@ WRITE(lineBuffer,*) ' som_hc_negligible_tol = ', som_hc_negligible_tol
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' som_gl_max = ', som_gl_max
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' ximpair_frozen_frac = ', ximpair_frozen_frac
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' light_curvature_fvcb = ', light_curvature_fvcb
@@ -2995,10 +3025,10 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 27
                                   ! The INTEGER items of my_namelist.
-INTEGER, PARAMETER :: n_real = 19 + (n_photo_coef * 5)
-                                  ! The REAL items: 19 scalars and the five
+INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
+                                  ! The REAL items: 20 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 61 + npft_max
+INTEGER, PARAMETER :: n_log = 62 + npft_max
                                   ! The LOGICAL items: 62 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
@@ -3051,6 +3081,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: stanton_leaf
   REAL(KIND=real_jlslsm) :: som_hc_negligible_tol
   REAL(KIND=real_jlslsm) :: som_gl_max
+  REAL(KIND=real_jlslsm) :: ximpair_frozen_frac   ! MDK, 06/11/26
   REAL(KIND=real_jlslsm) :: sl_kfail_frac
   REAL(KIND=real_jlslsm) :: light_curvature_fvcb
   REAL(KIND=real_jlslsm) :: leaf_width
@@ -3078,6 +3109,7 @@ TYPE :: my_namelist
   LOGICAL :: l_triffid_nsc
   LOGICAL :: l_trif_hydmort
   LOGICAL :: l_ximpair_rec_leaf_turn
+  LOGICAL :: l_ximpair_frozen_hold   ! MDK, 06/11/26
   LOGICAL :: l_phen_psi
   LOGICAL :: l_nsc_wmax_norm
   LOGICAL :: l_nsc_sapwood_pool   ! MDK, 29/10/26
@@ -3175,6 +3207,7 @@ IF (mype == 0) THEN
   my_nml % stanton_leaf    = stanton_leaf
   my_nml % som_hc_negligible_tol = som_hc_negligible_tol
   my_nml % som_gl_max = som_gl_max
+  my_nml % ximpair_frozen_frac = ximpair_frozen_frac
   my_nml % sl_kfail_frac = sl_kfail_frac
   my_nml % light_curvature_fvcb = light_curvature_fvcb
   my_nml % l_som_skip_search_wellwatered = l_som_skip_search_wellwatered
@@ -3207,6 +3240,7 @@ IF (mype == 0) THEN
   my_nml % l_triffid_nsc = l_triffid_nsc
   my_nml % l_trif_hydmort = l_trif_hydmort
   my_nml % l_ximpair_rec_leaf_turn = l_ximpair_rec_leaf_turn
+  my_nml % l_ximpair_frozen_hold = l_ximpair_frozen_hold
   my_nml % l_phen_psi = l_phen_psi
   my_nml % l_nsc_wmax_norm = l_nsc_wmax_norm
   my_nml % l_nsc_sapwood_pool = l_nsc_sapwood_pool   ! MDK, 29/10/26
@@ -3294,6 +3328,7 @@ IF (mype /= 0) THEN
   stanton_leaf    = my_nml % stanton_leaf
   som_hc_negligible_tol = my_nml % som_hc_negligible_tol
   som_gl_max = my_nml % som_gl_max
+  ximpair_frozen_frac = my_nml % ximpair_frozen_frac
   sl_kfail_frac = my_nml % sl_kfail_frac
   light_curvature_fvcb = my_nml % light_curvature_fvcb
   l_som_skip_search_wellwatered = my_nml % l_som_skip_search_wellwatered
@@ -3326,6 +3361,7 @@ IF (mype /= 0) THEN
   l_triffid_nsc = my_nml % l_triffid_nsc
   l_trif_hydmort = my_nml % l_trif_hydmort
   l_ximpair_rec_leaf_turn = my_nml % l_ximpair_rec_leaf_turn
+  l_ximpair_frozen_hold = my_nml % l_ximpair_frozen_hold
   l_phen_psi = my_nml % l_phen_psi
   l_nsc_wmax_norm = my_nml % l_nsc_wmax_norm
   l_nsc_sapwood_pool = my_nml % l_nsc_sapwood_pool   ! MDK, 29/10/26

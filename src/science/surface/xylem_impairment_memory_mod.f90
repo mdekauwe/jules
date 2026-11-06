@@ -16,7 +16,7 @@ MODULE xylem_impairment_memory_mod
 ! updates; ximpair_lock, ximpair_repair_pend, ximpair_area_w (with
 ! l_veg_compete) and the ring arrays are written to and read from dumps.
 !
-! MDK, 05/11/26
+! MDK, 06/11/26
 
 USE um_types, ONLY: real_jlslsm
 
@@ -102,6 +102,12 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_peak(:,:)
 ! stand with it. < 0 = not set (nsc_heartwood_rate is used). In dumps
 ! with the rule; allocated with the rings.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_hw_rate_mean(:,:)
+
+! With l_ximpair_frozen_hold: the share (0-1) of the root zone's soil
+! water that is frozen, each layer weighted by its root fraction, at each
+! land point for the PFT whose stomata are being solved. Set by physiol
+! before the stomatal scheme on every step, so not in dumps.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_root_frozen(:)
 
 CONTAINS
 
@@ -1559,11 +1565,18 @@ END SUBROUTINE psi_leaf_impaired_memory
 ! intact curve, so the sunlit and shaded leaves each lose conductance at
 ! their own water potential. The stem is damaged by psi_stem as before.
 !
+! With l_ximpair_frozen_hold (the default), a point whose root zone is
+! frozen (ximpair_root_frozen > ximpair_frozen_frac) takes no damage on
+! the step:
+! its soil water potential then comes from the unfrozen water alone and
+! says nothing about tension in the dormant xylem. Recovery (steps 1-4)
+! goes on.
+!
 ! k_cap is kept between kcrit and kmax. The stem's loss, 1 - k_cap / kmax,
 ! is stored for TRIFFID and, with l_trif_hydmort, for hydraulic
 ! mortality.
 !
-! MDK, 05/11/26
+! MDK, 06/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment_memory( n_land_pts, n_open_pts,             &
                                            open_index, pft, psi_leaf,          &
@@ -1580,6 +1593,7 @@ USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 l_som_seg_whole
 USE jules_vegetation_mod, ONLY: l_nsc_ring_additive
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
+USE jules_vegetation_mod, ONLY: l_ximpair_frozen_hold, ximpair_frozen_frac
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
                                           ximpair_psi_stem,                    &
                                           ximpair_seg_state_alloc
@@ -1617,6 +1631,8 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
 INTEGER :: j, l, errcode, i_r
 ! The leaf classes are given.
 LOGICAL :: l_cls
+! Damage is held at points with a mostly frozen root zone.
+LOGICAL :: l_frozen
 ! Relative intact conductance of the leaf segment at this step's leaf
 ! water potential.
 REAL(KIND=real_jlslsm) :: f_leaf
@@ -1807,8 +1823,12 @@ END IF
 
 !-----------------------------------------------------------------------------
 ! Damage: the cap can not exceed the intact conductance at the damage
-! driver. Only points with open stomata (i.e. under tension) are damaged.
+! driver. Only points with open stomata (i.e. under tension) are damaged,
+! and with l_ximpair_frozen_hold not those whose root zone is mostly
+! frozen.
 !-----------------------------------------------------------------------------
+l_frozen = l_ximpair_frozen_hold .AND. ALLOCATED(ximpair_root_frozen)
+
 IF (l_ximpair_seg_memory) THEN
   ! Per segment: the stem by psi_stem on the stem curve, the leaf by
   ! psi_leaf on the leaf curve (the segments' intact Weibull curves), or
@@ -1816,6 +1836,11 @@ IF (l_ximpair_seg_memory) THEN
   l_cls = PRESENT(psi_leaf_cls) .AND. PRESENT(w_cls)
   DO j = 1, n_open_pts
     l = open_index(j)
+
+    IF (l_frozen) THEN
+      IF (ximpair_root_frozen(l) > ximpair_frozen_frac) CYCLE
+    END IF
+
     IF (l_nsc_sapwood_rings) THEN
       ! Every ring takes at least the imposed loss.
       CALL ring_damage(l, 1.0 - seg_rel_k(pft, 2, psi_stem(l)))
@@ -1838,6 +1863,11 @@ ELSE
                              b_pts, c_pts, k_x )
   DO j = 1, n_open_pts
     l = open_index(j)
+
+    IF (l_frozen) THEN
+      IF (ximpair_root_frozen(l) > ximpair_frozen_frac) CYCLE
+    END IF
+
     IF (l_nsc_sapwood_rings) THEN
       ! Every ring takes at least the imposed loss.
       CALL ring_damage(l, 1.0 - k_x(l) / kmax_pts(l))
