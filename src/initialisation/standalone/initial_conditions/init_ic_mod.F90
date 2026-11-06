@@ -1158,12 +1158,6 @@ DO i = 1, nvars_required
     !
     ! MDK, 04/11/26
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
-  CASE ( 'ra_tile_prev' )
-    ! Tile aerodynamic resistance of the stomatal optimisation: not yet
-    ! set, so the first step uses the neutral resistance.
-    !
-    ! MDK, 04/11/26
-    CALL dict_set(defaults_dict, identifiers(i), -1.0)
   CASE ( 'nsc_ft_mean' )
     ! Not yet set: 1 at the first step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)

@@ -269,8 +269,7 @@ CASE ( 'tsoil_deep' )
   dim_sizes(1:ndims) = [ global_land_pts, ns_deep ]
 
 CASE ( 'canopy', 'nsnow', 'rgrain', 'rho_snow', 'snow_tile',                   &
-       'snow_depth', 'snow_grnd', 'tstar_tile', 'tsurf_elev_surft',            &
-       'ra_tile_prev' )
+       'snow_depth', 'snow_grnd', 'tstar_tile', 'tsurf_elev_surft' )
   ndims = 2
   dim_names(1:ndims) = [ land_dim_name, tile_dim_name ]
   dim_sizes(1:ndims) = [ global_land_pts, nsurft ]

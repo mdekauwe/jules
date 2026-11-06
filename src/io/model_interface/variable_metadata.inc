@@ -10684,7 +10684,7 @@ DATA metadata(823) / var_metadata(                                             &
 ! The rings' two parts.
 ! MDK, 05/11/26
 !-----------------------------------------------------------------------------
-DATA metadata(849) / var_metadata(                                             &
+DATA metadata(848) / var_metadata(                                             &
 ! String identifier
     'ximpair_ring_dmg',                                                        &
 ! Variable type
@@ -10694,7 +10694,7 @@ DATA metadata(849) / var_metadata(                                             &
 ! Units
     "1"                                                                        &
   ) /
-DATA metadata(850) / var_metadata(                                             &
+DATA metadata(849) / var_metadata(                                             &
 ! String identifier
     'ximpair_ring_loss_lo',                                                    &
 ! Variable type
@@ -10989,25 +10989,10 @@ DATA metadata(846) / var_metadata(                                             &
   ) /
 
 !-----------------------------------------------------------------------------
-! Metadata for ra_tile_prev
-!
-! MDK, 04/11/26
-!-----------------------------------------------------------------------------
-DATA metadata(847) / var_metadata(                                             &
-! String identifier
-    'ra_tile_prev',                                                            &
-! Variable type
-    var_type_surft,                                                            &
-! Long name
-    "Stomatal optimisation: tile aerodynamic resistance, last timestep (dump)",&
-! Units
-    "s m-1"                                                                    &
-  ) /
-!-----------------------------------------------------------------------------
 ! The capacitance store's fixed point.
 ! MDK, 05/11/26
 !-----------------------------------------------------------------------------
-DATA metadata(848) / var_metadata(                                             &
+DATA metadata(847) / var_metadata(                                             &
 ! String identifier
     'store_q_gap_pft',                                                         &
 ! Variable type

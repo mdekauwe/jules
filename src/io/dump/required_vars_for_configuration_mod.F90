@@ -42,10 +42,6 @@ USE jules_vegetation_mod, ONLY: l_trif_hydmort
 USE jules_vegetation_mod, ONLY: l_leaf_temp
 USE jules_vegetation_mod, ONLY: l_som_shared_stem
   ! MDK, 04/11/26
-! The stomatal optimisation's tile aerodynamic resistance.
-!
-! MDK, 04/11/26
-USE jules_vegetation_mod, ONLY: leaf_flux_mod, leaf_flux_stom_opt
 USE jules_vegetation_mod, ONLY: xylem_impairment_memory
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_triffid, l_phenol, l_veg_compete,            &
@@ -291,13 +287,6 @@ END IF
 IF ( l_som_shared_stem .AND. can_rad_mod == 7 ) THEN
   CALL add_to_list( 'shared_e_shd_prev', nvars, identifiers )
   CALL add_to_list( 'shared_amax_shd_prev', nvars, identifiers )
-END IF
-! The stomatal optimisation: each tile's aerodynamic resistance of the
-! last timestep, which sf_stom uses in place of the neutral one.
-!
-! MDK, 04/11/26
-IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
-  CALL add_to_list( 'ra_tile_prev', nvars, identifiers )
 END IF
 IF ( l_som_coupled_e .AND. can_rad_mod == 7 ) THEN
   CALL add_to_list( 'cpl_gl_sun', nvars, identifiers )

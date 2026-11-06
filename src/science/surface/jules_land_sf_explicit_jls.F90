@@ -207,8 +207,6 @@ USE jules_surface_mod, ONLY: l_aggregate, formdrag, l_anthrop_heat_src,        &
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod, ilayers, leaf_flux_mod,&
                                 l_triffid,  l_vegdrag_surft,                   &
                                 l_som_capacitance_on
-USE jules_vegetation_mod, ONLY: leaf_flux_stom_opt
-USE sf_stom_state_mod, ONLY: ra_tile_prev, ra_tile_alloc
   ! MDK, 04/11/26
 USE jules_hydrology_mod, ONLY: l_soil_evap_or
 
@@ -2669,23 +2667,6 @@ DO n = 1,nsurft
       *dq(l,n) * timestep
   END DO
 !$OMP END PARALLEL DO
-
-  ! The stomatal optimisation: keep this tile's aerodynamic resistance,
-  ! 1 / (ch vshr) with the stability and z0h of the surface exchange, as
-  ! sf_resist applies it to the stomatal flux, for sf_stom's next
-  ! timestep (physiol).
-  !
-  ! MDK, 04/11/26
-  IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
-    CALL ra_tile_alloc( land_pts )
-    DO k = 1,surft_pts(n)
-      l = surft_index(k,n)
-      j = (land_index(l) - 1) / t_i_length + 1
-      i = land_index(l) - (j-1) * t_i_length
-      IF ( ch_surft(l,n) * vshr_land(i,j) > 0.0 )                              &
-        ra_tile_prev(l,n) = 1.0 / ( ch_surft(l,n) * vshr_land(i,j) )
-    END DO
-  END IF
 
   ! We should only attempt to access sf_diag%resfs_stom(:,n) if it has
   ! been fully allocated.

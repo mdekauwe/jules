@@ -356,15 +356,6 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts at 0 " //  &
              "(restart not exact in daylight).")
-        CASE ( 'ra_tile_prev' )
-          ! The tile aerodynamic resistance of the stomatal optimisation:
-          ! dumps written without it start 'not yet set', so the first
-          ! step uses the neutral resistance (restart not exact).
-          !
-          ! MDK, 04/11/26
-          CALL log_warn("read_dump_shared",                                    &
-             TRIM(identifiers(i)) // " is not in the dump so starts " //       &
-             "'not yet set' (restart not exact).")
         CASE ( 'store_w', 'store_c' )
           ! Plant capacitance store: dumps written without it start it at
           ! the first step's stem psi (the restart is then not exact).
