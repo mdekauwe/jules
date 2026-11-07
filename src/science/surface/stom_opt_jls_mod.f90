@@ -2366,6 +2366,7 @@ USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 cgain_profit_model, sox_opt_profit_model,      &
                                 cap_profit_model, pm2_profit_model,            &
+                                som_light_k,                                   &
                                 l_som_gain_gross,                              &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_stomatal_response, ximpair_hold_gs,    &
@@ -2643,6 +2644,7 @@ DO j = 1, open_pts
   CALL scale_and_ends( l_shut )
   IF ( l_shut ) CYCLE
   CALL golden_max()
+  CALL light_cut()
   CALL lambda_diag()
   CALL chosen_state()
   IF ( l_intact_search .AND. gl_g(j) > 0.0 ) CALL hold_leaf_psi()
@@ -3838,6 +3840,40 @@ CONTAINS
 
   IF ( profit_u > best_f ) CALL store_best(profit_u, last_ci)
   END FUNCTION profit_u
+
+  ! Light response on top of the optimum (som_light_k > 0): scale the
+  ! chosen stomatal conductance by
+  !
+  !   f = MIN(1, I / (I + k) (I_ref + k) / I_ref)
+  !
+  ! with I the incident PAR at the canopy top (ipar, W m-2), and take the
+  ! Ci below the optimum that gives f gl (bisection; gl rises with Ci), so
+  ! A, E and leaf psi are those of the lower conductance.
+  !
+  ! MDK, 07/11/26
+  SUBROUTINE light_cut()
+  REAL(KIND=real_jlslsm), PARAMETER :: i_ref = 500.0
+  REAL(KIND=real_jlslsm) :: f_lt, g_tgt, c_lo, c_hi, c_md
+  INTEGER :: it
+  IF ( som_light_k <= 0.0 .OR. best_gl <= 0.0 ) RETURN
+  f_lt = MIN(1.0, MAX(ipar(l), 0.0) / (MAX(ipar(l), 0.0) + som_light_k)      &
+                  * (i_ref + som_light_k) / i_ref)
+  IF ( f_lt >= 1.0 ) RETURN
+  g_tgt = f_lt * best_gl
+  c_lo = ci_lo
+  c_hi = best_ci
+  DO it = 1, 40
+    c_md = 0.5 * (c_lo + c_hi)
+    CALL eval_ci(c_md)
+    IF ( gl_u > g_tgt ) THEN
+      c_hi = c_md
+    ELSE
+      c_lo = c_md
+    END IF
+  END DO
+  CALL eval_ci(c_lo)
+  CALL store_best(best_f, c_lo)
+  END SUBROUTINE light_cut
 
   ! Keep the latest evaluation as the best so far, with profit f at Ci ci:
   ! copy the state the last eval_ci call left (net photosynthesis, stomatal
