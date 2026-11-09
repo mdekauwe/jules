@@ -190,8 +190,11 @@ USE jules_vegetation_mod, ONLY: xylem_impairment_none
 USE xylem_impairment_mod, ONLY: update_xylem_impairment
 ! MDK, 17/10/26
 USE jules_vegetation_mod, ONLY: l_triffid, l_triffid_nsc, l_phen_psi
-USE triffid_nsc_mod, ONLY: triffid_nsc_daily, triffid_nsc_turgor,              &
-                           phen_psi_update
+USE triffid_nsc_mod, ONLY: triffid_nsc_daily, triffid_nsc_turgor
+USE jules_vegetation_mod, ONLY: l_phen_fuse, l_phen_heat
+USE leaf_shed_mod, ONLY: phen_psi_update, phen_fuse_update,                   &
+                         heat_damage_update
+! MDK, 09/11/26
 USE jules_vegetation_mod, ONLY: discrimination_model, discrimination_off
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft, d13c_disc_alloc, d13c_disc_leaf
 USE canopy_diag_mod, ONLY: gs_sun_pft, gs_shd_pft, lai_sun_pft
@@ -4768,12 +4771,20 @@ IF (l_triffid_nsc)                                                             &
   CALL triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,         &
                            psi_root_zone, tair )
 
-! Drought leaf shedding (l_phen_psi): daily water status of the PFT.
+! Leaf shedding (leaf_shed_mod): the daily drought counts (l_phen_psi),
+! the plant's daily water status (l_phen_fuse) and the leaf heat damage
+! (l_phen_heat).
 !
-! MDK, 18/10/26
+! MDK, 09/11/26
 IF (l_phen_psi)                                                                &
   CALL phen_psi_update( land_pts, veg_pts, veg_index, ft, timestep,            &
                         psi_root_zone )
+IF (l_phen_fuse)                                                               &
+  CALL phen_fuse_update( land_pts, veg_pts, veg_index, ft, timestep,           &
+                         psi_root_zone, psi_leaf )
+IF (l_phen_heat)                                                               &
+  CALL heat_damage_update( land_pts, veg_pts, veg_index, ft, timestep,         &
+                           tstar, t_can, t_leaf_sun )
 
 ! TRIFFID store without TRIFFID (prescribed LAI): daily store step.
 !

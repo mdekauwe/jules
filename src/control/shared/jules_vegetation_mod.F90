@@ -697,6 +697,29 @@ REAL(KIND=real_jlslsm), PARAMETER :: k_ground_ratio_max = 10.0
       ! Cap on LAI_ref / LAI (kplant_model = 1), also used as LAI -> 0.
       !
       ! MDK, 23/10/26
+INTEGER, PARAMETER ::                                                          &
+  heat_temp_tstar = 0,                                                         &
+  heat_temp_can   = 1,                                                         &
+  heat_temp_sun   = 2
+      ! Values of heat_phen_temp.
+      !
+      ! MDK, 09/11/26
+INTEGER ::                                                                     &
+  leaf_shed_combine = 0
+      ! How the heat cap (l_phen_heat) joins the drought and damage caps
+      ! (leaf_shed_mod): 0 (default) the smallest cap (one trigger for one
+      ! pool of leaves), 1 the heat cap times the smallest of the others
+      ! (heat and drought kill leaves independently).
+      !
+      ! MDK, 09/11/26
+INTEGER ::                                                                     &
+  heat_phen_temp = heat_temp_can
+      ! Temperature that drives the leaf heat damage (l_phen_heat):
+      ! 0 the surface temperature tstar, 1 (default) the canopy leaf
+      ! temperature, 2 the sunlit leaf temperature. Without l_leaf_temp the
+      ! leaf temperatures are tstar.
+      !
+      ! MDK, 09/11/26
 INTEGER ::                                                                     &
   kplant_model = kplant_model_param
       ! Whole-plant hydraulic conductance (needs l_som_plant_segments for 1):
@@ -743,9 +766,11 @@ INTEGER ::                                                                     &
       !   the target, which then sets only the pool's start, the cap at the
       !   wood and the sapwood-area factor.
       ! With nsc_heartwood_pipe or nsc_damage_trugman the target is set on
-      ! the leaf area the climate allows (the balanced LAI, less drought
-      ! leaf shedding with l_phen_psi), so leaves shed for drought damage
-      ! do not lower the target.
+      ! the leaf area the climate allows (the balanced LAI, less leaf
+      ! shedding by drought and heat, leaf_shed_mod), so leaves shed for
+      ! drought damage do not lower the target.
+      !
+      ! MDK, 09/11/26
   nsc_damage_response = nsc_damage_none
       ! How a tree with lasting stem damage responds:
       ! 0 (nsc_damage_none, default): no response; the damage is cleared
@@ -1001,12 +1026,13 @@ INTEGER ::                                                                     &
   ximpair_stomatal_response = ximpair_hold_gs
       ! See ximpair_hold_*. ximpair_hold_psi needs som_ci_search = 2.
 LOGICAL ::                                                                     &
-  l_ximpair_leaf_loss = .FALSE.,                                               &
-      ! Xylem impairment model 3 (memory) with TRIFFID phenology (l_phenol):
-      ! cap the phenological state at what the damaged xylem can supply,
-      ! phen <= 1 - ximpair_leaf_sens * (1 - k_cap/kmax), so the canopy sheds
-      ! leaves after lasting hydraulic damage and regrows as it recovers -
-      ! see phenol.
+  l_ximpair_leaf_loss = .FALSE.
+      ! Retired: the canopy cap on the locked-in xylem loss, replaced by the
+      ! Trugman response (nsc_damage_response = 1, leaf_shed_mod). Read
+      ! only so that old namelists still work; .TRUE. stops the run.
+      !
+      ! MDK, 09/11/26
+LOGICAL ::                                                                     &
   l_ximpair_seg_memory = .FALSE.,                                              &
       ! Memory model (pft_xylem_impairment_model = 3) with segments
       ! (l_som_plant_segments): a separate cap for the stem and the leaf
@@ -1034,10 +1060,10 @@ LOGICAL ::                                                                     &
       ! diluted, L -> L (1 - rho), without it; with the ring cohorts
       ! (l_nsc_sapwood_rings) each ring keeps its own loss instead. No
       ! store carbon is spent on it. See triffid_nsc_mod. Use with
-      ! l_ximpair_leaf_loss (ximpair_leaf_sens = 1) for leaf area in
-      ! proportion to the functional xylem.
+      ! nsc_damage_response = 1 for leaf area in proportion to the
+      ! functional xylem.
       !
-      ! MDK, 05/11/26
+      ! MDK, 09/11/26
   l_ximpair_rec_leaf_turn = .FALSE.,                                           &
       ! Per-segment memory (l_ximpair_seg_memory) with the TRIFFID store
       ! (l_triffid_nsc): the leaf segment recovers by leaf renewal, not by
@@ -1068,14 +1094,38 @@ LOGICAL ::                                                                     &
       ! Drought leaf shedding from water potential (Xu et al. 2016, New
       ! Phytol, Notes S1 Eqn S7), with phenology (l_phenol): a leaf biomass
       ! factor f_bleaf (0-1) falls by phen_dfbleaf a day once the predawn
-      ! water potential (daily mean root-zone psi) has been below the turgor
-      ! loss point phen_psi_tlp on phen_ndays consecutive days, rises by
-      ! phen_dfbleaf a day once it has been above 0.5 phen_psi_tlp on
-      ! phen_ndays days, and is held otherwise; the canopy is capped at
-      ! f_bleaf (phen_max), shed leaves go to litter, and regrowth stops
-      ! while the TRIFFID store is empty.
+      ! water potential (the root-zone psi at the day's last step) has been
+      ! below the turgor loss point phen_psi_tlp on phen_ndays consecutive
+      ! days, rises by phen_dfbleaf a day once it has been above
+      ! 0.5 phen_psi_tlp on phen_ndays days, and is held otherwise; the
+      ! canopy is capped at f_bleaf, shed leaves go to litter, and their
+      ! regrowth is paid from the TRIFFID store (leaf_shed_mod).
       !
-      ! MDK, 18/10/26
+      ! MDK, 09/11/26
+  l_phen_fuse = .FALSE.,                                                       &
+      ! Leaves as hydraulic fuses (Wolfe et al. 2016, New Phytol 212: 1007),
+      ! with phenology (l_phenol): the canopy is capped at a share of the
+      ! full canopy that falls linearly with the plant's daily water status
+      ! (mean of the predawn value, the daily highest root-zone psi, and the
+      ! daily lowest leaf psi), at 0.5 when it reaches shed_la50; shed
+      ! leaves go to litter and their regrowth is paid from the TRIFFID
+      ! store (leaf_shed_mod). For PFTs with shed_la50 set.
+      !
+      ! MDK, 09/11/26
+  l_phen_heat = .FALSE.,                                                       &
+      ! Leaf heat damage (Arnold et al. 2025 thermal load), with phenology
+      ! (l_phenol): the canopy is capped at 1 - shed_heat_sens x damage;
+      ! shed leaves go to litter and their regrowth is paid from the TRIFFID
+      ! store (leaf_shed_mod). For PFTs with ctmax_1h set.
+      !
+      ! MDK, 09/11/26
+  l_shed_regrow_flush = .FALSE.,                                               &
+      ! Leaves shed by the drought and heat caps (l_phen_psi, l_phen_fuse,
+      ! l_phen_heat) regrow only inside the leaf-flush window
+      ! (nsc_flush_start_doy, nsc_flush_days), not as soon as the cap rises.
+      ! For PFTs without the window it has no effect.
+      !
+      ! MDK, 09/11/26
   l_nsc_wmax_norm = .FALSE.,                                                   &
       ! TRIFFID store with the turgor / cold limits: W_max (the running mean
       ! NPP) is divided by the running annual mean of the growth factor
@@ -1360,8 +1410,10 @@ NAMELIST  / jules_vegetation/                                                  &
     som_base_parm, som_n_sample, som_n_ci_golden_iter,                         &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                      &
     l_som_fast,                                                                &
-    l_ximpair_leaf_loss, l_ximpair_seg_memory,                                 &
+    l_ximpair_seg_memory, l_ximpair_leaf_loss,                                 &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
+    l_phen_fuse, l_phen_heat, l_shed_regrow_flush, leaf_shed_combine,          &
+    heat_phen_temp,                                                            &
     l_ximpair_frozen_hold,                                                     &
     l_nsc_wmax_norm, l_trif_hydmort,                                           &
     l_nsc_sapwood_pool, l_nsc_ring_additive, l_nsc_sapwood_rings,              &
@@ -2622,21 +2674,12 @@ END IF
 ! The rings are the stem's sapwood, so they need the stem's own damage
 ! (l_ximpair_seg_memory): without it the one whole-plant loss would put
 ! the leaf and root damage in the rings, and new wood would renew them.
-! The Trugman response sheds leaves for damage, which l_ximpair_leaf_loss
-! also does, so only one of them is allowed.
 !
 ! MDK, 04/11/26
 IF ( l_nsc_sapwood_rings .AND. .NOT. l_ximpair_seg_memory ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_nsc_sapwood_rings needs l_ximpair_seg_memory=T')
-END IF
-IF ( nsc_damage_response == nsc_damage_trugman .AND. l_ximpair_leaf_loss )     &
-  THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'nsc_damage_response=1 sheds leaves for damage: set '       //  &
-               'l_ximpair_leaf_loss=F')
 END IF
 ! Ring ages need at least two rings: the new ring starts empty at the end
 ! of the ring year while last year's ring still conducts.
@@ -2651,6 +2694,40 @@ IF ( l_phen_psi .AND. .NOT. l_phenol ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_phen_psi (drought leaf shedding) needs l_phenol=T')
+END IF
+! MDK, 09/11/26
+! The retired l_ximpair_leaf_loss: stop rather than run without the cap
+! that was asked for.
+!
+! MDK, 09/11/26
+IF ( l_ximpair_leaf_loss ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_ximpair_leaf_loss is retired: for a canopy capped by '   //  &
+               'the working xylem use nsc_damage_response=1')
+END IF
+IF ( l_phen_fuse .AND. .NOT. l_phenol ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_phen_fuse (leaves as hydraulic fuses) needs l_phenol=T')
+END IF
+IF ( l_phen_heat .AND. .NOT. l_phenol ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_phen_heat (leaf heat damage) needs l_phenol=T')
+END IF
+IF ( leaf_shed_combine < 0 .OR. leaf_shed_combine > 1 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'leaf_shed_combine must be 0 (smallest cap) or 1 (heat cap '//  &
+               'times the others)')
+END IF
+IF ( heat_phen_temp < heat_temp_tstar .OR. heat_phen_temp > heat_temp_sun )    &
+  THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'heat_phen_temp must be 0 (tstar), 1 (canopy leaf) or 2 '   //  &
+               '(sunlit leaf)')
 END IF
 IF ( l_ximpair_rec_nsc .AND. .NOT. l_triffid_nsc ) THEN
   errcode = 101
@@ -2844,8 +2921,6 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 30/10/26
 WRITE(lineBuffer,*) ' l_som_capacitance = ', l_som_capacitance   ! MDK, 23/10/26
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' l_ximpair_leaf_loss = ', l_ximpair_leaf_loss
-CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_seg_memory = ', l_ximpair_seg_memory
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_rec_nsc = ', l_ximpair_rec_nsc
@@ -2859,6 +2934,16 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_frozen_hold = ', l_ximpair_frozen_hold
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_phen_psi = ', l_phen_psi
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_phen_fuse = ', l_phen_fuse
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_phen_heat = ', l_phen_heat
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_shed_regrow_flush = ', l_shed_regrow_flush
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' leaf_shed_combine = ', leaf_shed_combine
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' heat_phen_temp = ', heat_phen_temp
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_wmax_norm = ', l_nsc_wmax_norm
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -3023,16 +3108,16 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 27
+INTEGER, PARAMETER :: n_int = 29
                                   ! The INTEGER items of my_namelist.
 INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
                                   ! The REAL items: 20 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 62 + npft_max
-                                  ! The LOGICAL items: 62 scalars and
+INTEGER, PARAMETER :: n_log = 64 + npft_max
+                                  ! The LOGICAL items: 64 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
-                                  ! MDK, 04/11/26
+                                  ! MDK, 09/11/26
 
 TYPE :: my_namelist
   SEQUENCE
@@ -3042,6 +3127,8 @@ TYPE :: my_namelist
   INTEGER :: can_rad_mod
   INTEGER :: leaf_aero_model
   INTEGER :: kplant_model
+  INTEGER :: leaf_shed_combine   ! MDK, 09/11/26
+  INTEGER :: heat_phen_temp   ! MDK, 09/11/26
   INTEGER :: nsc_heartwood_model   ! MDK, 04/11/26
   INTEGER :: nsc_damage_response   ! MDK, 04/11/26
   INTEGER :: som_cuticular_leak   ! MDK, 04/11/26
@@ -3103,7 +3190,6 @@ TYPE :: my_namelist
   LOGICAL :: l_som_shared_stem   ! MDK, 30/10/26
   LOGICAL :: l_som_shared_gain   ! MDK, 30/10/26
   LOGICAL :: l_som_capacitance   ! MDK, 23/10/26
-  LOGICAL :: l_ximpair_leaf_loss
   LOGICAL :: l_ximpair_seg_memory
   LOGICAL :: l_ximpair_rec_nsc
   LOGICAL :: l_triffid_nsc
@@ -3111,6 +3197,9 @@ TYPE :: my_namelist
   LOGICAL :: l_ximpair_rec_leaf_turn
   LOGICAL :: l_ximpair_frozen_hold   ! MDK, 06/11/26
   LOGICAL :: l_phen_psi
+  LOGICAL :: l_phen_fuse   ! MDK, 09/11/26
+  LOGICAL :: l_phen_heat   ! MDK, 09/11/26
+  LOGICAL :: l_shed_regrow_flush   ! MDK, 09/11/26
   LOGICAL :: l_nsc_wmax_norm
   LOGICAL :: l_nsc_sapwood_pool   ! MDK, 29/10/26
   LOGICAL :: l_nsc_ring_additive   ! MDK, 29/10/26
@@ -3223,6 +3312,8 @@ IF (mype == 0) THEN
   my_nml % l_leaf_temp_ci = l_leaf_temp_ci
   my_nml % leaf_aero_model = leaf_aero_model
   my_nml % kplant_model = kplant_model
+  my_nml % leaf_shed_combine = leaf_shed_combine
+  my_nml % heat_phen_temp = heat_phen_temp
   my_nml % nsc_heartwood_model = nsc_heartwood_model   ! MDK, 04/11/26
   my_nml % nsc_damage_response = nsc_damage_response   ! MDK, 04/11/26
   my_nml % som_cuticular_leak = som_cuticular_leak   ! MDK, 04/11/26
@@ -3234,7 +3325,6 @@ IF (mype == 0) THEN
   my_nml % l_som_shared_stem = l_som_shared_stem
   my_nml % l_som_shared_gain = l_som_shared_gain
   my_nml % l_som_capacitance = l_som_capacitance
-  my_nml % l_ximpair_leaf_loss = l_ximpair_leaf_loss
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
   my_nml % l_ximpair_rec_nsc = l_ximpair_rec_nsc
   my_nml % l_triffid_nsc = l_triffid_nsc
@@ -3242,6 +3332,9 @@ IF (mype == 0) THEN
   my_nml % l_ximpair_rec_leaf_turn = l_ximpair_rec_leaf_turn
   my_nml % l_ximpair_frozen_hold = l_ximpair_frozen_hold
   my_nml % l_phen_psi = l_phen_psi
+  my_nml % l_phen_fuse = l_phen_fuse
+  my_nml % l_phen_heat = l_phen_heat
+  my_nml % l_shed_regrow_flush = l_shed_regrow_flush
   my_nml % l_nsc_wmax_norm = l_nsc_wmax_norm
   my_nml % l_nsc_sapwood_pool = l_nsc_sapwood_pool   ! MDK, 29/10/26
   my_nml % l_nsc_ring_additive = l_nsc_ring_additive   ! MDK, 29/10/26
@@ -3344,6 +3437,8 @@ IF (mype /= 0) THEN
   l_leaf_temp_ci = my_nml % l_leaf_temp_ci
   leaf_aero_model = my_nml % leaf_aero_model
   kplant_model = my_nml % kplant_model
+  leaf_shed_combine = my_nml % leaf_shed_combine
+  heat_phen_temp = my_nml % heat_phen_temp
   nsc_heartwood_model = my_nml % nsc_heartwood_model   ! MDK, 04/11/26
   nsc_damage_response = my_nml % nsc_damage_response   ! MDK, 04/11/26
   som_cuticular_leak = my_nml % som_cuticular_leak   ! MDK, 04/11/26
@@ -3355,7 +3450,6 @@ IF (mype /= 0) THEN
   l_som_shared_stem = my_nml % l_som_shared_stem
   l_som_shared_gain = my_nml % l_som_shared_gain
   l_som_capacitance = my_nml % l_som_capacitance
-  l_ximpair_leaf_loss = my_nml % l_ximpair_leaf_loss
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
   l_ximpair_rec_nsc = my_nml % l_ximpair_rec_nsc
   l_triffid_nsc = my_nml % l_triffid_nsc
@@ -3363,6 +3457,9 @@ IF (mype /= 0) THEN
   l_ximpair_rec_leaf_turn = my_nml % l_ximpair_rec_leaf_turn
   l_ximpair_frozen_hold = my_nml % l_ximpair_frozen_hold
   l_phen_psi = my_nml % l_phen_psi
+  l_phen_fuse = my_nml % l_phen_fuse
+  l_phen_heat = my_nml % l_phen_heat
+  l_shed_regrow_flush = my_nml % l_shed_regrow_flush
   l_nsc_wmax_norm = my_nml % l_nsc_wmax_norm
   l_nsc_sapwood_pool = my_nml % l_nsc_sapwood_pool   ! MDK, 29/10/26
   l_nsc_ring_additive = my_nml % l_nsc_ring_additive   ! MDK, 29/10/26

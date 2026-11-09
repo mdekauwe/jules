@@ -173,11 +173,13 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
            'nsc_turg_acc', 'nsc_t_run',                                        &
            'nsc_cmax', 'nsc_wpot', 'nsc_resp',                                 &
            'nsc_tseas_acc',                                                    &
-           'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
+           'nsc_ft_mean', 'phen_nlow', 'phen_nhigh',                           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
            'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
+           'shed_f_psi', 'shed_nup', 'shed_psi_pd', 'shed_psi_md',             &
+           'heat_dam', 'phen_shed_debt',                                       &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
            'store_w', 'store_c',                                               &
            'store_q', 'store_e_prev',                                          &

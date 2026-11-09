@@ -42,10 +42,11 @@ PRIVATE :: k_intact, antideriv, psi_at_k, ring_cond, ring_age, ring_steady,   &
 ! ximpair_memory_alloc allocates the first three arrays below.
 
 ! Locked-in loss of conductivity, 1 - k_cap/kmax, of each PFT at each land
-! point. Read by TRIFFID phenology (l_ximpair_leaf_loss), hydraulic
-! mortality, TRIFFID and its NSC routines, and the initialisation, and
-! written to output. Not allocated until the first update
-! (none during spin-up), and then read as zero where not yet set.
+! point. Read by hydraulic mortality, TRIFFID and its NSC routines, and
+! the initialisation, and written to output. Not allocated until the first
+! update (none during spin-up), and then read as zero where not yet set.
+!
+! MDK, 09/11/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_lock(:,:)
 
 ! Stem recovery by ring renewal (l_ximpair_rec_nsc): the share of the

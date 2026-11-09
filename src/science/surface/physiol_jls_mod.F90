@@ -132,6 +132,11 @@ USE pftparm, ONLY: fsmc_mod
 USE pftparm, ONLY: pft_xylem_impairment_model
   ! Memory model PFTs need the frozen share (l_ximpair_frozen_hold).
   ! MDK, 06/11/26
+USE jules_vegetation_mod, ONLY: l_phen_psi, l_phen_fuse
+USE pftparm, ONLY: is_set, phen_psi_tlp, shed_la50
+  ! Leaf shedding PFTs need the frozen share too (l_phen_psi, l_phen_fuse).
+  !
+  ! MDK, 09/11/26
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
@@ -1594,11 +1599,15 @@ DO n = 1,npft
   ! Xylem impairment, memory model (l_ximpair_frozen_hold): the frozen share
   ! of this PFT's root-zone soil water, sum over layers of
   ! f_root sthf / (sthu + sthf), read when the impairment is updated in the
-  ! stomatal scheme. Only for PFTs on the memory model.
+  ! stomatal scheme. Only for PFTs on the memory model, and for PFTs with
+  ! drought leaf shedding (l_phen_psi, l_phen_fuse), which skips frozen
+  ! days.
   !
-  ! MDK, 06/11/26
-  IF ( l_ximpair_frozen_hold .AND.                                             &
-       pft_xylem_impairment_model(n) == xylem_impairment_memory ) THEN
+  ! MDK, 09/11/26
+  IF ( ( l_ximpair_frozen_hold .AND.                                           &
+         pft_xylem_impairment_model(n) == xylem_impairment_memory ) .OR.       &
+       ( l_phen_psi .AND. is_set(phen_psi_tlp(n)) ) .OR.                      &
+       ( l_phen_fuse .AND. is_set(shed_la50(n)) ) ) THEN
     IF ( .NOT. ALLOCATED(ximpair_root_frozen) ) THEN
       ALLOCATE(ximpair_root_frozen(land_pts))
     END IF

@@ -39,8 +39,10 @@ USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,    &
                            nsc_starv_pft, nsc_turg_acc,                        &
                            nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day,  &
                            nsc_cmax_pft, nsc_wpot_pft, nsc_tseas_acc,          &
-                           phen_fbleaf, phen_nlow, phen_nhigh, nsc_regrow_acc, &
-                           phen_psi_acc
+                           nsc_regrow_acc
+USE leaf_shed_mod, ONLY: phen_nlow, phen_nhigh, phen_fbleaf, shed_f_psi,      &
+    shed_nup, shed_psi_pd, shed_psi_md, shed_psi_plant, heat_dam_pft,          &
+    phen_shed_debt, phen_max_pft, phen_regrow_c   ! MDK, 09/11/26
 USE triffid_nsc_mod, ONLY: nsc_xylem_prod_pft, nsc_xylem_renew_pft
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
@@ -3973,15 +3975,64 @@ CASE ( 'nsc_load' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-CASE ( 'phen_psi_acc' )
-  workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(phen_psi_acc) ) workspace_pft(:,:) = phen_psi_acc
-  cube_land = cube_from_array(workspace_pft)
-  cube = map_from_land(cube_land)
-
 CASE ( 'phen_fbleaf' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(phen_fbleaf) ) workspace_pft(:,:) = phen_fbleaf
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! MDK, 09/11/26
+CASE ( 'shed_f_psi' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(shed_f_psi) ) workspace_pft(:,:) = shed_f_psi
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'shed_nup' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(shed_nup) ) workspace_pft(:,:) = shed_nup
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'shed_psi_pd' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(shed_psi_pd) ) workspace_pft(:,:) = shed_psi_pd
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'shed_psi_md' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(shed_psi_md) ) workspace_pft(:,:) = shed_psi_md
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'heat_dam' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(heat_dam_pft) ) workspace_pft(:,:) = heat_dam_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'phen_shed_debt' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(phen_shed_debt) ) workspace_pft(:,:) = phen_shed_debt
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'shed_psi_plant' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(shed_psi_plant) ) workspace_pft(:,:) = shed_psi_plant
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'phen_max_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(phen_max_pft) ) workspace_pft(:,:) = phen_max_pft
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'phen_regrow_c' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(phen_regrow_c) ) workspace_pft(:,:) = phen_regrow_c
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

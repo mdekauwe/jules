@@ -22,6 +22,7 @@ USE ancil_info, ONLY: land_pts
 
 USE pftparm_io, ONLY: jules_pftparm, init_pftparm_allocated,                   &
                       canht_ft_io, lai_io
+USE pftparm_io, ONLY: ximpair_leaf_sens_io   ! MDK, 09/11/26
 
 USE pftparm, ONLY: print_nlist_jules_pftparm, check_jules_pftparm
 
@@ -84,6 +85,14 @@ IF ( ERROR /= 0 )                                                              &
                  "Error reading namelist JULES_PFTPARM " //                    &
                  "(IOSTAT=" // TRIM(to_string(ERROR)) // " IOMSG=" //          &
                  TRIM(iomessage) // ")")
+
+! The retired ximpair_leaf_sens is read so old namelists work, and ignored.
+!
+! MDK, 09/11/26
+IF ( ANY( ABS( ximpair_leaf_sens_io(1:npft) - rmdi ) > EPSILON(1.0) ) )       &
+  CALL log_warn(routinename,                                                   &
+                "ximpair_leaf_sens is retired and ignored: the canopy " //     &
+                "cap on xylem damage is now nsc_damage_response = 1")
 
 ! Close the namelist file
 CLOSE(namelist_unit, IOSTAT = ERROR, IOMSG = iomessage)

@@ -31,8 +31,10 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
 USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
                              phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
-    nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
-    phen_nhigh, phen_fbleaf, nsc_regrow_acc
+    nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, nsc_regrow_acc
+USE leaf_shed_mod, ONLY: leaf_shed_alloc, phen_nlow, phen_nhigh, phen_fbleaf,  &
+    shed_f_psi, shed_nup, shed_psi_pd, shed_psi_md, heat_dam_pft,              &
+    phen_shed_debt   ! MDK, 09/11/26
 USE triffid_nsc_mod, ONLY: nsc_cmax_pft, nsc_wpot_pft, nsc_resp_pft,          &
                            nsc_tseas_acc
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
@@ -267,11 +269,13 @@ DO i = 1,nvars
            'nsc_turg_acc', 'nsc_t_run',                                        &
            'nsc_cmax', 'nsc_wpot', 'nsc_resp',                                 &
            'nsc_tseas_acc',                                                    &
-           'nsc_ft_mean', 'phen_psi_acc', 'phen_nlow', 'phen_nhigh',           &
+           'nsc_ft_mean', 'phen_nlow', 'phen_nhigh',                           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
            'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
+           'shed_f_psi', 'shed_nup', 'shed_psi_pd', 'shed_psi_md',             &
+           'heat_dam', 'phen_shed_debt',                                       &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
            'store_w', 'store_c',                                               &
            'store_q', 'store_e_prev',                                          &
@@ -305,8 +309,15 @@ DO i = 1,nvars
         ! MDK, 01/11/26
         CASE ( 'nsc_cmax' )
           global_data_2d(:,1:npft) = -1.0
-        CASE ( 'phen_fbleaf', 'ximpair_area_w' )
+        CASE ( 'phen_fbleaf', 'ximpair_area_w', 'shed_f_psi' )
           global_data_2d(:,1:npft) = 1.0
+        ! Fuse: no value yet today.
+        !
+        ! MDK, 09/11/26
+        CASE ( 'shed_psi_pd' )
+          global_data_2d(:,1:npft) = -1.0e30
+        CASE ( 'shed_psi_md' )
+          global_data_2d(:,1:npft) = 1.0e30
         CASE ( 'store_w' )
           ! Capacitance store: not yet set (> 0), so it starts at the first
           ! step's psi (in balance with it).
@@ -964,28 +975,59 @@ DO i = 1,nvars
       CALL scatter_land_field(global_data_2d(:,n), ximpair_hw_rate_mean(:,n))
     END DO
 
-  CASE ( 'phen_psi_acc' )
-    CALL triffid_nsc_alloc( land_pts )
-    DO n = 1,npft
-      CALL scatter_land_field(global_data_2d(:,n), phen_psi_acc(:,n))
-    END DO
-
   CASE ( 'phen_nlow' )
-    CALL triffid_nsc_alloc( land_pts )
+    CALL leaf_shed_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), phen_nlow(:,n))
     END DO
 
   CASE ( 'phen_nhigh' )
-    CALL triffid_nsc_alloc( land_pts )
+    CALL leaf_shed_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), phen_nhigh(:,n))
     END DO
 
   CASE ( 'phen_fbleaf' )
-    CALL triffid_nsc_alloc( land_pts )
+    CALL leaf_shed_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), phen_fbleaf(:,n))
+    END DO
+
+  ! MDK, 09/11/26
+  CASE ( 'shed_f_psi' )
+    CALL leaf_shed_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), shed_f_psi(:,n))
+    END DO
+
+  CASE ( 'shed_nup' )
+    CALL leaf_shed_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), shed_nup(:,n))
+    END DO
+
+  CASE ( 'shed_psi_pd' )
+    CALL leaf_shed_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), shed_psi_pd(:,n))
+    END DO
+
+  CASE ( 'shed_psi_md' )
+    CALL leaf_shed_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), shed_psi_md(:,n))
+    END DO
+
+  CASE ( 'heat_dam' )
+    CALL leaf_shed_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), heat_dam_pft(:,n))
+    END DO
+
+  CASE ( 'phen_shed_debt' )
+    CALL leaf_shed_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), phen_shed_debt(:,n))
     END DO
 
   ! MDK, 20/10/26

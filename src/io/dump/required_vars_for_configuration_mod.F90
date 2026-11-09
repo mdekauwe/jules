@@ -39,6 +39,7 @@ USE pftparm, ONLY: pft_xylem_impairment_model, nsc_psi_turg_zero,              &
 
 USE jules_vegetation_mod, ONLY: l_trif_hydmort
   ! MDK, 25/10/26
+USE jules_vegetation_mod, ONLY: l_phen_fuse, l_phen_heat   ! MDK, 09/11/26
 USE jules_vegetation_mod, ONLY: l_leaf_temp
 USE jules_vegetation_mod, ONLY: l_som_shared_stem
   ! MDK, 04/11/26
@@ -479,21 +480,36 @@ IF ( l_triffid_nsc ) THEN
       CALL add_to_list( 'ximpair_hw_rate_mean', nvars, identifiers )
   END IF
 END IF
-! Drought leaf shedding: daily water-status memory and the leaf factor.
+! Drought leaf shedding: the counts of dry and wet days and the leaf factor.
 !
-! MDK, 18/10/26
+! MDK, 09/11/26
 IF ( l_phen_psi ) THEN
-  CALL add_to_list( 'phen_psi_acc', nvars, identifiers )
   CALL add_to_list( 'phen_nlow', nvars, identifiers )
   CALL add_to_list( 'phen_nhigh', nvars, identifiers )
   CALL add_to_list( 'phen_fbleaf', nvars, identifiers )
   CALL add_to_list( 'nsc_regrow_acc', nvars, identifiers )
 END IF
-! The leaf flush queues regrowth for the store as well.
+! Leaves as hydraulic fuses: the allowed share, the rise count and the
+! day's water status so far. Heat: the damage. Any shedding option: the
+! shed leaves still to be paid for.
 !
-! MDK, 20/10/26
+! MDK, 09/11/26
+IF ( l_phen_fuse ) THEN
+  CALL add_to_list( 'shed_f_psi', nvars, identifiers )
+  CALL add_to_list( 'shed_nup', nvars, identifiers )
+  CALL add_to_list( 'shed_psi_pd', nvars, identifiers )
+  CALL add_to_list( 'shed_psi_md', nvars, identifiers )
+END IF
+IF ( l_phen_heat ) CALL add_to_list( 'heat_dam', nvars, identifiers )
+IF ( l_phen_psi .OR. l_phen_fuse .OR. l_phen_heat )                            &
+  CALL add_to_list( 'phen_shed_debt', nvars, identifiers )
+! The leaf flush, and the fuse and heat shedding, queue regrowth for the
+! store as well.
+!
+! MDK, 09/11/26
 IF ( l_triffid_nsc .AND. .NOT. l_phen_psi .AND.                                &
-     ANY(is_set(nsc_flush_start_doy(:))) )                                     &
+     ( l_phen_fuse .OR. l_phen_heat .OR.                                       &
+       ANY(is_set(nsc_flush_start_doy(:))) ) )                                 &
   CALL add_to_list( 'nsc_regrow_acc', nvars, identifiers )
 ! Budburst for deciduous phenology: degree-days, budburst day, dormancy.
 !

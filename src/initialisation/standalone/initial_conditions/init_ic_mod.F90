@@ -1161,9 +1161,17 @@ DO i = 1, nvars_required
   CASE ( 'nsc_ft_mean' )
     ! Not yet set: 1 at the first step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
-  CASE ( 'phen_psi_acc', 'phen_nlow', 'phen_nhigh', 'nsc_regrow_acc' )
+  CASE ( 'phen_nlow', 'phen_nhigh', 'nsc_regrow_acc', 'shed_nup',            &
+         'heat_dam', 'phen_shed_debt' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
-  CASE ( 'phen_fbleaf' )
+  ! Fuse: no value yet today.
+  !
+  ! MDK, 09/11/26
+  CASE ( 'shed_psi_pd' )
+    CALL dict_set(defaults_dict, identifiers(i), -1.0e30)
+  CASE ( 'shed_psi_md' )
+    CALL dict_set(defaults_dict, identifiers(i), 1.0e30)
+  CASE ( 'phen_fbleaf', 'shed_f_psi' )
     ! Full canopy.
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   ! Budburst: no degree-days, no budburst yet this year, not dormant.

@@ -30,8 +30,10 @@ USE sf_stom_state_mod, ONLY: store_e_prev, shared_e_shd_prev,                &
 USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
                              phen_dormant
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_pft, nsc_npp_mean, nsc_npp_wt, &
-    nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, &
-    phen_nhigh, phen_fbleaf, nsc_regrow_acc
+    nsc_npp_day, nsc_turg_acc, nsc_t_run, nsc_ft_mean, nsc_regrow_acc
+USE leaf_shed_mod, ONLY: leaf_shed_alloc, phen_nlow, phen_nhigh, phen_fbleaf,  &
+    shed_f_psi, shed_nup, shed_psi_pd, shed_psi_md, heat_dam_pft,              &
+    phen_shed_debt   ! MDK, 09/11/26
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
@@ -2443,17 +2445,8 @@ CASE ( 'ximpair_hw_rate_mean' )
     ximpair_hw_rate_mean(:,:) = const_val
   END IF
 
-CASE ( 'phen_psi_acc' )
-  CALL triffid_nsc_alloc( land_pts )
-  IF ( PRESENT(cube) ) THEN
-    cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, phen_psi_acc(:,:))
-  ELSE
-    phen_psi_acc(:,:) = const_val
-  END IF
-
 CASE ( 'phen_nlow' )
-  CALL triffid_nsc_alloc( land_pts )
+  CALL leaf_shed_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
     CALL cube_get_data(cube_land, phen_nlow(:,:))
@@ -2462,7 +2455,7 @@ CASE ( 'phen_nlow' )
   END IF
 
 CASE ( 'phen_nhigh' )
-  CALL triffid_nsc_alloc( land_pts )
+  CALL leaf_shed_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
     CALL cube_get_data(cube_land, phen_nhigh(:,:))
@@ -2471,12 +2464,67 @@ CASE ( 'phen_nhigh' )
   END IF
 
 CASE ( 'phen_fbleaf' )
-  CALL triffid_nsc_alloc( land_pts )
+  CALL leaf_shed_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
     CALL cube_get_data(cube_land, phen_fbleaf(:,:))
   ELSE
     phen_fbleaf(:,:) = const_val
+  END IF
+
+! MDK, 09/11/26
+CASE ( 'shed_f_psi' )
+  CALL leaf_shed_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, shed_f_psi(:,:))
+  ELSE
+    shed_f_psi(:,:) = const_val
+  END IF
+
+CASE ( 'shed_nup' )
+  CALL leaf_shed_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, shed_nup(:,:))
+  ELSE
+    shed_nup(:,:) = const_val
+  END IF
+
+CASE ( 'shed_psi_pd' )
+  CALL leaf_shed_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, shed_psi_pd(:,:))
+  ELSE
+    shed_psi_pd(:,:) = const_val
+  END IF
+
+CASE ( 'shed_psi_md' )
+  CALL leaf_shed_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, shed_psi_md(:,:))
+  ELSE
+    shed_psi_md(:,:) = const_val
+  END IF
+
+CASE ( 'heat_dam' )
+  CALL leaf_shed_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, heat_dam_pft(:,:))
+  ELSE
+    heat_dam_pft(:,:) = const_val
+  END IF
+
+CASE ( 'phen_shed_debt' )
+  CALL leaf_shed_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, phen_shed_debt(:,:))
+  ELSE
+    phen_shed_debt(:,:) = const_val
   END IF
 
 ! MDK, 20/10/26

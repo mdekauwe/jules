@@ -579,13 +579,6 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! NOTE: This value is not directly input by the user, instead
                  !        it is calculated from the kcrit and the conductance
                  !        model in ptftparm_io_mod.F90.
-,ximpair_leaf_sens(:)                                                          &
-                 ! Sensitivity of the canopy to lasting xylem damage
-                 !  (l_ximpair_leaf_loss): the phenological state is capped
-                 !  at 1 - ximpair_leaf_sens * (1 - k_cap/kmax). 1 keeps leaf
-                 !  area in proportion to the conducting capacity, 0 disables.
-                 !
-                 ! MDK, 26/10/26
 ,ximpair_tau_leaf(:)                                                          &
                  ! Per-segment memory (l_ximpair_seg_memory): e-folding time
                  !  (years of calendar time) of the leaf (leaf and twig)
@@ -696,6 +689,43 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  thresholds before f_bleaf changes (Xu et al. 2016: 10).
 ,phen_fbleaf_min(:)                                                           &
                  ! l_phen_psi: lowest leaf biomass factor (0 = Xu et al.).
+,shed_la50(:)                                                                 &
+                 ! l_phen_fuse: plant water status (MPa) at which half the
+                 !  full canopy is shed (LA50, Wolfe et al. 2016); unset
+                 !  (< -1e29) = no fuse for the PFT.
+,shed_la_width(:)                                                             &
+                 ! l_phen_fuse: range of the plant water status (MPa) over
+                 !  which the canopy goes from full to none.
+,shed_fmin(:)                                                                 &
+                 ! l_phen_fuse: smallest share of the full canopy left (0-1).
+,ctmax_1h(:)                                                                  &
+                 ! l_phen_heat: leaf temperature (degC) at which the damage
+                 !  threshold is reached in 1 hour (thermal death time);
+                 !  unset (< -1e29) = no heat damage for the PFT.
+,z_tdt(:)                                                                     &
+                 ! l_phen_heat: degrees C per tenfold change in the time to
+                 !  the damage threshold.
+,tcrit_heat(:)                                                                &
+                 ! l_phen_heat: leaf temperature (degC) above which damage
+                 !  accrues.
+,krep_ref(:)                                                                  &
+                 ! l_phen_heat: repair rate at 20 degC (% of the threshold
+                 !  per minute).
+,krep_dec(:)                                                                  &
+                 ! l_phen_heat: steepness of the fall in repair with damage.
+,krep_t_hi(:)                                                                 &
+                 ! l_phen_heat: temperature (K) above which repair is
+                 !  deactivated.
+,shed_heat_sens(:)                                                            &
+                 ! l_phen_heat: share of the canopy shed per unit damage
+                 !  (0-1).
+,shed_heat_fmin(:)                                                            &
+                 ! l_phen_heat: smallest share of the full canopy left (0-1).
+,shed_heat_tau(:)                                                             &
+                 ! l_phen_heat: e-folding time of the damage (days); unset =
+                 !  cleared by repair and leaf turnover only.
+                 !
+                 ! MDK, 09/11/26
 ,phen_bb_doy(:)                                                               &
 ,phen_bb_gdd(:)                                                               &
 ,phen_bb_tbase(:)                                                             &
@@ -1192,7 +1222,6 @@ ALLOCATE( cap_stem(npft))
 ALLOCATE( conductance_b_seg(npft,3))
 ALLOCATE( conductance_c_seg(npft,3))
 ALLOCATE( ximpair_reset_mmdd(npft))
-ALLOCATE( ximpair_leaf_sens(npft))
 ALLOCATE( ximpair_tau_leaf(npft))
 ! MDK, 17/10/26
 ALLOCATE( nsc_flush(npft))
@@ -1225,6 +1254,10 @@ ALLOCATE( phen_psi_tlp(npft))
 ALLOCATE( phen_dfbleaf(npft))
 ALLOCATE( phen_ndays(npft))
 ALLOCATE( phen_fbleaf_min(npft))
+ALLOCATE( shed_la50(npft), shed_la_width(npft), shed_fmin(npft))
+ALLOCATE( ctmax_1h(npft), z_tdt(npft), tcrit_heat(npft))
+ALLOCATE( krep_ref(npft), krep_dec(npft), krep_t_hi(npft))
+ALLOCATE( shed_heat_sens(npft), shed_heat_fmin(npft), shed_heat_tau(npft))
 ALLOCATE( phen_bb_doy(npft))
 ALLOCATE( phen_bb_gdd(npft))
 ALLOCATE( phen_bb_tbase(npft))
@@ -1266,7 +1299,6 @@ cap_stem(:) = 3000.0e-9
 conductance_b_seg(:,:) = 1.0
 conductance_c_seg(:,:) = 1.0
 ximpair_reset_mmdd(:) = 0
-ximpair_leaf_sens(:) = 0.0
 ximpair_tau_leaf(:) = 0.0
 ! MDK, 17/10/26
 nsc_flush(:) = 2.0
@@ -1299,6 +1331,18 @@ phen_psi_tlp(:) = -1.0e30
 phen_dfbleaf(:) = 0.05
 phen_ndays(:) = 10.0
 phen_fbleaf_min(:) = 0.0
+shed_la50(:) = -1.0e30
+shed_la_width(:) = 3.0
+shed_fmin(:) = 0.0
+ctmax_1h(:) = -1.0e30
+z_tdt(:) = 4.0
+tcrit_heat(:) = 40.0
+krep_ref(:) = 0.01
+krep_dec(:) = 10.0
+krep_t_hi(:) = 300.15
+shed_heat_sens(:) = 1.0
+shed_heat_fmin(:) = 0.0
+shed_heat_tau(:) = -1.0e30
 phen_bb_doy(:) = -1.0e30
 phen_bb_gdd(:) = -1.0e30
 phen_bb_tbase(:) = 0.0
@@ -1608,8 +1652,6 @@ WRITE(lineBuffer,*)' conductance_c_seg = ',conductance_c_seg
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' pft_xylem_impairment_model = ',pft_xylem_impairment_model
 CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' ximpair_leaf_sens = ',ximpair_leaf_sens
-CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_tau_leaf = ',ximpair_tau_leaf
 CALL jules_print('pftparm',lineBuffer)
 ! MDK, 17/10/26
@@ -1673,6 +1715,30 @@ WRITE(lineBuffer,*)' phen_ndays = ',phen_ndays
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_fbleaf_min = ',phen_fbleaf_min
 CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' shed_la50 = ',shed_la50
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' shed_la_width = ',shed_la_width
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' shed_fmin = ',shed_fmin
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' ctmax_1h = ',ctmax_1h
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' z_tdt = ',z_tdt
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' tcrit_heat = ',tcrit_heat
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' krep_ref = ',krep_ref
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' krep_dec = ',krep_dec
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' krep_t_hi = ',krep_t_hi
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' shed_heat_sens = ',shed_heat_sens
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' shed_heat_fmin = ',shed_heat_fmin
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' shed_heat_tau = ',shed_heat_tau
+CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_bb_doy = ',phen_bb_doy
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_bb_gdd = ',phen_bb_gdd
@@ -1713,10 +1779,11 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  xylem_impairment_none,                        &
                                  xylem_impairment_whole_trunk,                 &
                                  ximpair_driver_leaf, ximpair_driver_stem,     &
-                                 l_ximpair_leaf_loss, l_phenol
+                                 l_phenol
 USE jules_vegetation_mod, ONLY: kplant_model, kplant_model_ground,             &
-                                l_trif_hydmort
-                                ! MDK, 26/10/26
+                                l_trif_hydmort, l_triffid_nsc, l_phen_psi,     &
+                                l_phen_fuse, l_phen_heat, l_shed_regrow_flush
+                                ! MDK, 09/11/26
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs, l_snow_albedo
 
@@ -2470,14 +2537,6 @@ IF ( l_som_plant_segments .AND. .NOT. l_ximpair_seg_memory .AND.               &
   'l_ximpair_seg_memory damages the segments on the PFT curve: use '        // &
   'l_ximpair_seg_memory')
 END IF
-IF ( l_ximpair_leaf_loss .AND. kplant_model /= kplant_model_ground ) THEN
-  ! With leaf-basis k the conductance per leaf stays at the cap whatever
-  ! the LAI, so shedding only cuts E.
-  ERROR = -1
-  CALL ereport(routinename, ERROR,                                             &
-  'l_ximpair_leaf_loss with kplant_model = 0: shedding leaves gives no '    // &
-  'hydraulic benefit (leaf-basis k); use kplant_model = 1 for that')
-END IF
 IF ( l_trif_hydmort .AND.                                                      &
      ANY( pft_xylem_impairment_model(1:npft) == xylem_impairment_memory .AND. &
           hydmort_mu(1:npft) >= kcrit_fractional_loss(1:npft) ) ) THEN
@@ -2489,20 +2548,130 @@ IF ( l_trif_hydmort .AND.                                                      &
 END IF
 
 !-----------------------------------------------------------------------------
-! Leaf loss after damage: needs the memory model's cap and phenology, or it
-! silently does nothing. A warning, not an error.
+! Leaf shedding (leaf_shed_mod). Each option acts only on PFTs with its
+! threshold set. The drought options need psi_root_zone, which smc_ext
+! computes only for the stomatal optimisation or calc_rz_psi: switch
+! calc_rz_psi on for those PFTs so they work with any stomata model
+! (calc_rz_psi only adds that diagnostic). With leaf-basis k
+! (kplant_model = 0) the conductance per leaf does not depend on LAI, so
+! shedding only cuts E; without the TRIFFID store regrowth costs nothing.
+! Warnings, except for values out of range.
 !
-! MDK, 24/10/26
+! MDK, 09/11/26
 !-----------------------------------------------------------------------------
-IF ( l_ximpair_leaf_loss ) THEN
-  IF ( .NOT. l_phenol .OR.                                                    &
-       .NOT. ANY( pft_xylem_impairment_model(1:npft) ==                     &
-                  xylem_impairment_memory ) ) THEN
+IF ( l_phen_psi ) THEN
+  IF ( .NOT. ANY( is_set( phen_psi_tlp(1:npft) ) ) ) THEN
     ERROR = -1
     CALL ereport(routinename, ERROR,                                           &
-    'l_ximpair_leaf_loss has no effect without l_phenol and a PFT with '    // &
-    'pft_xylem_impairment_model = 3')
+    'l_phen_psi has no effect: no PFT has phen_psi_tlp set')
   END IF
+  IF ( ANY( is_set( phen_psi_tlp(1:npft) ) .AND.                              &
+            phen_psi_tlp(1:npft) >= 0.0 ) ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR, 'phen_psi_tlp must be negative (MPa)')
+  END IF
+  IF ( ANY( phen_fbleaf_min(1:npft) < 0.0 .OR.                                &
+            phen_fbleaf_min(1:npft) > 1.0 ) ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR, 'phen_fbleaf_min must be between 0 and 1')
+  END IF
+  IF ( ANY( phen_dfbleaf(1:npft) <= 0.0 .OR. phen_dfbleaf(1:npft) > 1.0 ) )   &
+    THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR,                                           &
+    'phen_dfbleaf must be above 0 and at most 1 (per day)')
+  END IF
+  WHERE ( is_set( phen_psi_tlp(1:npft) ) ) calc_rz_psi(1:npft) = .TRUE.
+END IF
+IF ( l_phen_fuse ) THEN
+  IF ( .NOT. ANY( is_set( shed_la50(1:npft) ) ) ) THEN
+    ERROR = -1
+    CALL ereport(routinename, ERROR,                                           &
+    'l_phen_fuse has no effect: no PFT has shed_la50 set')
+  END IF
+  IF ( ANY( is_set( shed_la50(1:npft) ) .AND. shed_la50(1:npft) >= 0.0 ) )    &
+    THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR, 'shed_la50 must be negative (MPa)')
+  END IF
+  IF ( ANY( shed_la_width(1:npft) <= 0.0 ) ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR, 'shed_la_width must be positive (MPa)')
+  END IF
+  IF ( ANY( shed_fmin(1:npft) < 0.0 .OR. shed_fmin(1:npft) > 1.0 ) ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR, 'shed_fmin must be between 0 and 1')
+  END IF
+  WHERE ( is_set( shed_la50(1:npft) ) ) calc_rz_psi(1:npft) = .TRUE.
+END IF
+IF ( ( l_phen_psi .OR. l_phen_fuse ) .AND.                                     &
+     ANY( phen_ndays(1:npft) < 1.0 ) ) THEN
+  ERROR = 1
+  CALL ereport(routinename, ERROR, 'phen_ndays must be at least 1 (days)')
+END IF
+IF ( l_phen_heat ) THEN
+  IF ( .NOT. ANY( is_set( ctmax_1h(1:npft) ) ) ) THEN
+    ERROR = -1
+    CALL ereport(routinename, ERROR,                                           &
+    'l_phen_heat has no effect: no PFT has ctmax_1h set')
+  END IF
+  IF ( ANY( z_tdt(1:npft) <= 0.0 ) ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR, 'z_tdt must be positive (degC)')
+  END IF
+  IF ( ANY( krep_ref(1:npft) < 0.0 .OR. krep_dec(1:npft) < 0.0 ) ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR, 'krep_ref and krep_dec must be >= 0')
+  END IF
+  ! The repair rate falls with damage as krep_ref**(krep_dec/alive), which
+  ! needs krep_ref < 1 (at 1 or more it grows without bound); krep_t_hi is
+  ! in K, unlike the other heat thresholds (degC).
+  !
+  ! MDK, 09/11/26
+  IF ( ANY( krep_ref(1:npft) >= 1.0 ) ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR,                                           &
+    'krep_ref must be below 1 (% of the damage threshold per minute)')
+  END IF
+  IF ( ANY( krep_t_hi(1:npft) < 200.0 ) ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR,                                           &
+    'krep_t_hi is in K, not degC (e.g. 300.15)')
+  END IF
+  IF ( ANY( shed_heat_sens(1:npft) < 0.0 .OR. shed_heat_sens(1:npft) > 1.0 )   &
+       .OR. ANY( shed_heat_fmin(1:npft) < 0.0 .OR.                             &
+                 shed_heat_fmin(1:npft) > 1.0 ) ) THEN
+    ERROR = 1
+    CALL ereport(routinename, ERROR,                                           &
+    'shed_heat_sens and shed_heat_fmin must be between 0 and 1')
+  END IF
+  IF ( ANY( is_set( ctmax_1h(1:npft) ) .AND.                                  &
+            tcrit_heat(1:npft) >= ctmax_1h(1:npft) ) ) THEN
+    ERROR = -1
+    CALL ereport(routinename, ERROR,                                           &
+    'tcrit_heat >= ctmax_1h: damage starts only above the 1-hour '          // &
+    'threshold temperature')
+  END IF
+END IF
+IF ( ( l_phen_psi .OR. l_phen_fuse ) .AND.                                     &
+     kplant_model /= kplant_model_ground ) THEN
+  ERROR = -1
+  CALL ereport(routinename, ERROR,                                             &
+  'drought leaf shedding with kplant_model = 0: shedding leaves gives no '  // &
+  'hydraulic benefit (leaf-basis k); use kplant_model = 1 for that')
+END IF
+IF ( ( l_phen_psi .OR. l_phen_fuse .OR. l_phen_heat ) .AND.                    &
+     .NOT. l_triffid_nsc ) THEN
+  ERROR = -1
+  CALL ereport(routinename, ERROR,                                             &
+  'leaf shedding without the TRIFFID store (l_triffid_nsc): shed leaves '   // &
+  'regrow at no carbon cost')
+END IF
+IF ( l_shed_regrow_flush .AND.                                                 &
+     .NOT. ANY( is_set( nsc_flush_start_doy(1:npft) ) ) ) THEN
+  ERROR = -1
+  CALL ereport(routinename, ERROR,                                             &
+  'l_shed_regrow_flush has no effect: no PFT has nsc_flush_start_doy set')
 END IF
 
 END SUBROUTINE check_jules_pftparm

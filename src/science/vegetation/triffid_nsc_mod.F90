@@ -86,9 +86,8 @@ MODULE triffid_nsc_mod
 !
 ! With a leaf flush (nsc_flush_start_doy set), the year's new leaf carbon
 ! is drawn from the store over nsc_flush_days, before stem growth starts.
-! Drought leaf shedding (l_phen_psi, Xu et al. 2016; phen_psi_update) sheds
-! the canopy when the root zone stays dry and regrows it when it is wet
-! again, and the store pays for the regrowth. With leaf renewal
+! Leaf shedding by drought or heat (leaf_shed_mod) caps the canopy, and
+! the store pays for the regrowth. With leaf renewal
 ! (l_ximpair_rec_leaf_turn), new leaves arrive with intact xylem, so the
 ! leaf's loss of conductance falls by the share of the canopy that is new.
 !
@@ -192,8 +191,8 @@ MODULE triffid_nsc_mod
 ! until the first ring year has ended), and on the canopy height h (m).
 ! With the pipe heartwood rule or the Trugman response (section 10), L_pk
 ! is the peak of the leaf area the climate allows, the balanced LAI less
-! drought leaf shedding (l_phen_psi), so leaves shed for damage do not
-! lower the target:
+! leaf shedding by drought and heat (leaf_shed_climate_cap), so leaves shed
+! for damage do not lower the target:
 !
 !   X_t = eta_sl h L_pk   (kg C m-2),
 !
@@ -333,8 +332,7 @@ PUBLIC :: nsc_xylem_repair_pft, nsc_repair_claim
 PUBLIC :: nsc_f_a_min
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,                     &
           nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft,  &
-          nsc_t_run, nsc_ft_mean, phen_psi_acc, phen_nlow, phen_nhigh,         &
-          phen_fbleaf, nsc_regrow_acc, phen_psi_update,                        &
+          nsc_t_run, nsc_ft_mean, nsc_regrow_acc,                              &
           triffid_nsc_alloc, triffid_nsc_store, triffid_nsc_area,              &
           triffid_nsc_daily, triffid_nsc_turgor, triffid_nsc_ring_renewal
 PUBLIC :: nsc_cmax_pft, nsc_wpot_pft, nsc_tseas_acc
@@ -456,13 +454,10 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_t_run(:,:)
 ! Leaf renewal: running mean of the growth factor, e-folding 360 days (< 0 =
 ! not yet set: 1). In dumps with l_ximpair_rec_leaf_turn.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_ft_mean(:,:)
-! Drought leaf shedding (l_phen_psi), in dumps: root-zone psi summed over
-! the day so far (Pa s), consecutive dry and wet days, the leaf biomass
-! factor (0-1), and the regrowth carbon queued for the store (kg C m-2).
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: phen_psi_acc(:,:)
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: phen_nlow(:,:)
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: phen_nhigh(:,:)
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: phen_fbleaf(:,:)
+! Leaf regrowth queued for the store by phenol (kg C m-2), after leaf
+! shedding (leaf_shed_mod) or in the leaf-flush window. In dumps.
+!
+! MDK, 09/11/26
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_regrow_acc(:,:)
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='TRIFFID_NSC_MOD'
@@ -648,14 +643,8 @@ IF (.NOT. ALLOCATED(nsc_ft_mean)) THEN
   ALLOCATE(nsc_ft_mean(n_land_pts, npft))
   nsc_ft_mean(:,:) = -1.0
 END IF
-IF (.NOT. ALLOCATED(phen_psi_acc)) THEN
-  ALLOCATE(phen_psi_acc(n_land_pts, npft), phen_nlow(n_land_pts, npft),        &
-           phen_nhigh(n_land_pts, npft), phen_fbleaf(n_land_pts, npft),        &
-           nsc_regrow_acc(n_land_pts, npft))
-  phen_psi_acc(:,:)   = 0.0
-  phen_nlow(:,:)      = 0.0
-  phen_nhigh(:,:)     = 0.0
-  phen_fbleaf(:,:)    = 1.0
+IF (.NOT. ALLOCATED(nsc_regrow_acc)) THEN
+  ALLOCATE(nsc_regrow_acc(n_land_pts, npft))
   nsc_regrow_acc(:,:) = 0.0
 END IF
 
@@ -838,10 +827,12 @@ DO n = n1,n2
     IF (l_nsc_wmax_norm .AND. l_turg .AND. nsc_ft_mean(l,n) > 0.0)             &
       w_max = w_max / MAX(nsc_ft_mean(l,n), 0.05)
 
-    ! Leaf regrowth after drought shedding, queued by phenol (l_phen_psi),
-    ! paid first from the accessible store (phenol limited it to that), as
-    ! part of the release: over a shed-and-regrow cycle the store, not NPP,
-    ! carries the cost.
+    ! Leaf regrowth after shedding by drought or heat (leaf_shed_mod), or
+    ! in the flush window, queued by phenol, paid first from the accessible
+    ! store (phenol limited it to that), as part of the release: over a
+    ! shed-and-regrow cycle the store, not NPP, carries the cost.
+    !
+    ! MDK, 09/11/26
     w_regrow = 0.0
     IF (nsc_regrow_acc(l,n) > 0.0) THEN
       w_regrow = MIN(nsc_regrow_acc(l,n), MAX(nsc_pft(l,n) - c_res, 0.0))
@@ -1228,108 +1219,6 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 END SUBROUTINE triffid_nsc_turgor
 
 ! ---------------------------------------------------------------------
-! Shed leaves when the soil stays dry (l_phen_psi; Xu et al. 2016, New
-! Phytol, Notes S1 Eqn S7), so a droughted plant loses water through less
-! leaf area. It is called from sf_stom every time step for PFT ft, and does
-! nothing unless phen_psi_tlp is set.
-!
-! Each step adds the root-zone water potential to a daily sum. At the last
-! time step of the day the daily mean (MPa, a stand-in for predawn) is
-! compared with the turgor loss point phen_psi_tlp (MPa, negative). A day
-! below phen_psi_tlp is dry, and a day above 0.5 phen_psi_tlp is wet; each
-! count of days in a row goes back to 0 when the run breaks. After
-! phen_ndays dry days in a row, the leaf biomass factor phen_fbleaf (0-1,
-! the share of the full canopy allowed) falls by phen_dfbleaf a day; after
-! phen_ndays wet days in a row it rises by phen_dfbleaf a day. It stays
-! between phen_fbleaf_min and 1. phenol caps the canopy at this factor and
-! queues the leaf carbon of the regrowth (nsc_regrow_acc), which the store
-! pays for.
-!
-! MDK, 30/10/26
-! ---------------------------------------------------------------------
-SUBROUTINE phen_psi_update( land_pts, veg_pts, veg_index, ft, timestep,        &
-                            psi_rz )
-
-USE model_time_mod, ONLY: current_time
-USE pftparm, ONLY: is_set
-USE pftparm, ONLY: phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min
-
-USE parkind1, ONLY: jprb, jpim
-USE yomhook, ONLY: lhook, dr_hook
-
-INTEGER, INTENT(IN) ::                                                         &
-  ! Total number of land points.
-  land_pts,                                                                    &
-  ! Number of points of this PFT.
-  veg_pts,                                                                     &
-  ! Land points of this PFT.
-  veg_index(land_pts),                                                         &
-  ! Plant functional type.
-  ft
-
-REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
-  ! Model time step (s).
-  timestep,                                                                    &
-  ! Root-zone water potential (Pa).
-  psi_rz(land_pts)
-
-INTEGER :: j, l
-! Daily mean root-zone water potential (MPa).
-REAL(KIND=real_jlslsm) :: psi_d
-
-INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
-INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
-REAL(KIND=jprb)               :: zhook_handle
-CHARACTER(LEN=*), PARAMETER :: RoutineName='PHEN_PSI_UPDATE'
-
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
-
-IF (.NOT. is_set(phen_psi_tlp(ft))) THEN
-  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-  RETURN
-END IF
-CALL triffid_nsc_alloc( land_pts )
-
-DO j = 1,veg_pts
-  l = veg_index(j)
-  phen_psi_acc(l,ft) = phen_psi_acc(l,ft) + psi_rz(l) * timestep
-END DO
-
-! The day's update at its last time step.
-IF (REAL(current_time%time) + timestep < 86400.0 - 0.5) THEN
-  IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-  RETURN
-END IF
-
-DO j = 1,veg_pts
-  l = veg_index(j)
-  ! Daily mean root-zone psi (MPa), the predawn proxy (a part day after a
-  ! mid-day start counts as wetter: runs here start at the end of a day).
-  psi_d = 1.0e-6 * phen_psi_acc(l,ft) / 86400.0
-  phen_psi_acc(l,ft) = 0.0
-  IF (psi_d < phen_psi_tlp(ft)) THEN
-    phen_nlow(l,ft) = phen_nlow(l,ft) + 1.0
-  ELSE
-    phen_nlow(l,ft) = 0.0
-  END IF
-  IF (psi_d > 0.5 * phen_psi_tlp(ft)) THEN
-    phen_nhigh(l,ft) = phen_nhigh(l,ft) + 1.0
-  ELSE
-    phen_nhigh(l,ft) = 0.0
-  END IF
-  IF (phen_nlow(l,ft) >= phen_ndays(ft)) THEN
-    phen_fbleaf(l,ft) = phen_fbleaf(l,ft) - phen_dfbleaf(ft)
-  ELSE IF (phen_nhigh(l,ft) >= phen_ndays(ft)) THEN
-    phen_fbleaf(l,ft) = phen_fbleaf(l,ft) + phen_dfbleaf(ft)
-  END IF
-  phen_fbleaf(l,ft) = MIN(MAX(phen_fbleaf(l,ft), phen_fbleaf_min(ft)), 1.0)
-END DO
-
-IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
-
-END SUBROUTINE phen_psi_update
-
-! ---------------------------------------------------------------------
 ! Run the non-structural carbon store when TRIFFID is off (l_triffid off).
 ! It is called from sf_stom every time step for PFT ft after NPP, adds the
 ! step's NPP to a daily sum, and at the last time step of the day runs
@@ -1590,10 +1479,10 @@ USE jules_vegetation_mod, ONLY: l_ximpair_rec_nsc, xylem_impairment_memory
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_pool
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, l_nsc_pipe_target
 USE jules_vegetation_mod, ONLY: nsc_heartwood_model, nsc_heartwood_pipe,      &
-                                nsc_damage_response, nsc_damage_trugman,       &
-                                l_phen_psi
+                                nsc_damage_response, nsc_damage_trugman
 USE pftparm, ONLY: pft_xylem_impairment_model, nsc_xylem_cond_ratio
-USE pftparm, ONLY: eta_sl, phen_psi_tlp
+USE pftparm, ONLY: eta_sl
+USE leaf_shed_mod, ONLY: leaf_shed_climate_cap   ! MDK, 09/11/26
 USE pftparm, ONLY: is_set, nsc_grow_end_doy, nsc_heartwood_rate
 USE calc_c_comps_triffid_mod, ONLY: live_stemwood
 USE model_time_mod, ONLY: is_spinup
@@ -1728,16 +1617,16 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! pipe-model target last ring year's peak LAI (the balanced LAI until
       ! the first ring year has ended). This ring year's peak so far: of
       ! the LAI, or with the pipe heartwood rule or the Trugman response of
-      ! the leaf area the climate allows, the balanced LAI less drought
-      ! leaf shedding (l_phen_psi), so leaves shed for damage do not lower
+      ! the leaf area the climate allows, the balanced LAI less leaf
+      ! shedding by drought and heat, so leaves shed for damage do not lower
       ! the target.
+      !
+      ! MDK, 09/11/26
       lai_ref = lai_bal(l,n)
       IF (l_nsc_pipe_target) THEN
         lai_pot = lai(l,n)
         IF (l_lai_climate) THEN
-          lai_pot = lai_bal(l,n)
-          IF (l_phen_psi .AND. is_set(phen_psi_tlp(n)))                       &
-            lai_pot = lai_pot * MIN(MAX(phen_fbleaf(l,n), 0.01), 1.0)
+          lai_pot = lai_bal(l,n) * leaf_shed_climate_cap(l, n)
         END IF
         nsc_lai_peak(l,n) = MAX(nsc_lai_peak(l,n), lai_pot)
         IF (nsc_lai_peak_prev(l,n) >= 0.0) lai_ref = nsc_lai_peak_prev(l,n)

@@ -252,7 +252,9 @@ IF ( is_master_task() ) THEN
         CASE ( 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', 'nsc_npp_day',      &
                'nsc_turg_acc', 'nsc_tseas_acc', 'nsc_t_run', 'nsc_ft_mean',    &
                'ximpair_repair_pend',                                          &
-               'phen_psi_acc', 'phen_nlow', 'phen_nhigh', 'phen_fbleaf',       &
+               'phen_nlow', 'phen_nhigh', 'phen_fbleaf',                       &
+               'shed_f_psi', 'shed_nup', 'shed_psi_pd', 'shed_psi_md',         &
+               'heat_dam', 'phen_shed_debt',                                   &
                'nsc_regrow_acc', 'hydmort_pref', 'hydmort_dead',               &
                'hydmort_plc_peak' )
           ! TRIFFID store state: dumps written without the store.

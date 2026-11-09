@@ -186,7 +186,7 @@ END TYPE var_metadata
 ! Array holding the metadata for all model variables that we can use for input
 ! or output. The CABLE land surface model adds 10 prognostics for tiled
 ! soil/snow prognostics.
-INTEGER, PARAMETER :: n_vars = 849 ! upstream 723 + 126 on this branch
+INTEGER, PARAMETER :: n_vars = 857 ! upstream 723 + 134 on this branch
 TYPE(var_metadata) :: metadata(n_vars)
 
 ! Include the metadata DATA statement

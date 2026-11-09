@@ -285,7 +285,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
   sox_a_io(npft_max) = rmdi,                                                   &
   sox_p50_io(npft_max) = rmdi,                                                 &
   sox_rp_min_io(npft_max) = rmdi,                                              &
-  ximpair_leaf_sens_io(npft_max) = rmdi,                                       &
   ximpair_tau_leaf_io(npft_max) = rmdi,                                        &
   ! MDK, 17/10/26
   nsc_flush_io(npft_max) = rmdi,                                               &
@@ -318,10 +317,30 @@ REAL(KIND=real_jlslsm) ::                                                      &
   phen_dfbleaf_io(npft_max) = rmdi,                                            &
   phen_ndays_io(npft_max) = rmdi,                                              &
   phen_fbleaf_min_io(npft_max) = rmdi,                                         &
+  shed_la50_io(npft_max) = rmdi,                                              &
+  shed_la_width_io(npft_max) = rmdi,                                          &
+  shed_fmin_io(npft_max) = rmdi,                                              &
+  ctmax_1h_io(npft_max) = rmdi,                                               &
+  z_tdt_io(npft_max) = rmdi,                                                  &
+  tcrit_heat_io(npft_max) = rmdi,                                             &
+  krep_ref_io(npft_max) = rmdi,                                               &
+  krep_dec_io(npft_max) = rmdi,                                               &
+  krep_t_hi_io(npft_max) = rmdi,                                              &
+  shed_heat_sens_io(npft_max) = rmdi,                                         &
+  shed_heat_fmin_io(npft_max) = rmdi,                                         &
+  shed_heat_tau_io(npft_max) = rmdi,                                          &
   phen_bb_doy_io(npft_max) = rmdi,                                             &
   phen_bb_gdd_io(npft_max) = rmdi,                                             &
   phen_bb_tbase_io(npft_max) = rmdi,                                           &
   phen_bb_min_days_io(npft_max) = rmdi
+
+! Retired: the sensitivity of the canopy cap on the locked-in xylem loss
+! (l_ximpair_leaf_loss), replaced by the Trugman response
+! (nsc_damage_response = 1). Read only so that old namelists still work;
+! a value set is ignored, with a warning.
+!
+! MDK, 09/11/26
+REAL(KIND=real_jlslsm) :: ximpair_leaf_sens_io(npft_max) = rmdi
 !---------------------------------------------------------------------
 ! Set up a namelist for reading and writing these arrays
 !---------------------------------------------------------------------
@@ -388,7 +407,7 @@ NAMELIST  / jules_pftparm/                                                     &
   z0hm_classic_pft_io,               z0v_io,                                   &
   sox_a_io,        sox_p50_io,       sox_rp_min_io,                            &
   ximpair_psi_driver_io,                                                       &
-  ximpair_reset_mmdd_io,             ximpair_leaf_sens_io,                     &
+  ximpair_reset_mmdd_io,                                                       &
   ximpair_tau_leaf_io,                                                         &
   nsc_flush_io,    nsc_kc_io,        nsc_reserve_frac_io,                      &
   nsc_tau_load_io, nsc_wmax_fac_io,                                            &
@@ -405,7 +424,11 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_ring_cond_efold_io,                                                      &
   nsc_ring_func_doy_io,                                                        &
   phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io,                         &
-  phen_bb_doy_io, phen_bb_gdd_io, phen_bb_tbase_io, phen_bb_min_days_io
+  shed_la50_io, shed_la_width_io, shed_fmin_io,                                &
+  ctmax_1h_io, z_tdt_io, tcrit_heat_io, krep_ref_io, krep_dec_io,              &
+  krep_t_hi_io, shed_heat_sens_io, shed_heat_fmin_io, shed_heat_tau_io,        &
+  phen_bb_doy_io, phen_bb_gdd_io, phen_bb_tbase_io, phen_bb_min_days_io,     &
+  ximpair_leaf_sens_io
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM_IO'
 
@@ -449,14 +472,14 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 174 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 185 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
                                              ! hydmort; count the REAL
                                              ! declarations of the type)
                                              !
-                                             ! MDK, 04/11/26
+                                             ! MDK, 09/11/26
 
 TYPE :: my_namelist
   SEQUENCE
@@ -606,7 +629,6 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: sox_a_io(npft_max)
   REAL(KIND=real_jlslsm) :: sox_p50_io(npft_max)
   REAL(KIND=real_jlslsm) :: sox_rp_min_io(npft_max)
-  REAL(KIND=real_jlslsm) :: ximpair_leaf_sens_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_tau_leaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_flush_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_kc_io(npft_max)
@@ -638,6 +660,18 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: phen_dfbleaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_ndays_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_fbleaf_min_io(npft_max)
+  REAL(KIND=real_jlslsm) :: shed_la50_io(npft_max)
+  REAL(KIND=real_jlslsm) :: shed_la_width_io(npft_max)
+  REAL(KIND=real_jlslsm) :: shed_fmin_io(npft_max)
+  REAL(KIND=real_jlslsm) :: ctmax_1h_io(npft_max)
+  REAL(KIND=real_jlslsm) :: z_tdt_io(npft_max)
+  REAL(KIND=real_jlslsm) :: tcrit_heat_io(npft_max)
+  REAL(KIND=real_jlslsm) :: krep_ref_io(npft_max)
+  REAL(KIND=real_jlslsm) :: krep_dec_io(npft_max)
+  REAL(KIND=real_jlslsm) :: krep_t_hi_io(npft_max)
+  REAL(KIND=real_jlslsm) :: shed_heat_sens_io(npft_max)
+  REAL(KIND=real_jlslsm) :: shed_heat_fmin_io(npft_max)
+  REAL(KIND=real_jlslsm) :: shed_heat_tau_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_bb_doy_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_bb_gdd_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_bb_tbase_io(npft_max)
@@ -806,7 +840,6 @@ IF (mype == 0) THEN
   my_nml % sox_a_io       = sox_a_io
   my_nml % sox_p50_io     = sox_p50_io
   my_nml % sox_rp_min_io  = sox_rp_min_io
-  my_nml % ximpair_leaf_sens_io = ximpair_leaf_sens_io
   my_nml % ximpair_tau_leaf_io = ximpair_tau_leaf_io
   my_nml % nsc_flush_io = nsc_flush_io
   my_nml % nsc_kc_io = nsc_kc_io
@@ -838,6 +871,18 @@ IF (mype == 0) THEN
   my_nml % phen_dfbleaf_io = phen_dfbleaf_io
   my_nml % phen_ndays_io = phen_ndays_io
   my_nml % phen_fbleaf_min_io = phen_fbleaf_min_io
+  my_nml % shed_la50_io = shed_la50_io
+  my_nml % shed_la_width_io = shed_la_width_io
+  my_nml % shed_fmin_io = shed_fmin_io
+  my_nml % ctmax_1h_io = ctmax_1h_io
+  my_nml % z_tdt_io = z_tdt_io
+  my_nml % tcrit_heat_io = tcrit_heat_io
+  my_nml % krep_ref_io = krep_ref_io
+  my_nml % krep_dec_io = krep_dec_io
+  my_nml % krep_t_hi_io = krep_t_hi_io
+  my_nml % shed_heat_sens_io = shed_heat_sens_io
+  my_nml % shed_heat_fmin_io = shed_heat_fmin_io
+  my_nml % shed_heat_tau_io = shed_heat_tau_io
   my_nml % phen_bb_doy_io = phen_bb_doy_io
   my_nml % phen_bb_gdd_io = phen_bb_gdd_io
   my_nml % phen_bb_tbase_io = phen_bb_tbase_io
@@ -994,7 +1039,6 @@ IF (mype /= 0) THEN
   sox_a_io        = my_nml % sox_a_io
   sox_p50_io      = my_nml % sox_p50_io
   sox_rp_min_io   = my_nml % sox_rp_min_io
-  ximpair_leaf_sens_io = my_nml % ximpair_leaf_sens_io
   ximpair_tau_leaf_io = my_nml % ximpair_tau_leaf_io
   nsc_flush_io = my_nml % nsc_flush_io
   nsc_kc_io = my_nml % nsc_kc_io
@@ -1026,6 +1070,18 @@ IF (mype /= 0) THEN
   phen_dfbleaf_io = my_nml % phen_dfbleaf_io
   phen_ndays_io = my_nml % phen_ndays_io
   phen_fbleaf_min_io = my_nml % phen_fbleaf_min_io
+  shed_la50_io = my_nml % shed_la50_io
+  shed_la_width_io = my_nml % shed_la_width_io
+  shed_fmin_io = my_nml % shed_fmin_io
+  ctmax_1h_io = my_nml % ctmax_1h_io
+  z_tdt_io = my_nml % z_tdt_io
+  tcrit_heat_io = my_nml % tcrit_heat_io
+  krep_ref_io = my_nml % krep_ref_io
+  krep_dec_io = my_nml % krep_dec_io
+  krep_t_hi_io = my_nml % krep_t_hi_io
+  shed_heat_sens_io = my_nml % shed_heat_sens_io
+  shed_heat_fmin_io = my_nml % shed_heat_fmin_io
+  shed_heat_tau_io = my_nml % shed_heat_tau_io
   phen_bb_doy_io = my_nml % phen_bb_doy_io
   phen_bb_gdd_io = my_nml % phen_bb_gdd_io
   phen_bb_tbase_io = my_nml % phen_bb_tbase_io
@@ -1108,7 +1164,7 @@ USE pftparm, ONLY:                                                             &
   leaf_crit,       z0v,                                                        & !JBaguley
   sox_a,           sox_p50,          sox_rp_min,                               &
   ximpair_psi_driver,                ximpair_reset_mmdd,                       &
-  ximpair_leaf_sens,                 ximpair_tau_leaf,                         &
+  ximpair_tau_leaf,                                                            &
   nsc_flush,       nsc_kc,           nsc_reserve_frac,                         &
   nsc_tau_load,    nsc_wmax_fac,                                              &
   nsc_g_starv,                                                                 &
@@ -1117,6 +1173,9 @@ USE pftparm, ONLY:                                                             &
   nsc_overflow_resp,                                                           &
   nsc_grow_start_doy, nsc_grow_end_doy, nsc_flush_start_doy, nsc_flush_days,  &
   nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min,          &
+  shed_la50, shed_la_width, shed_fmin,                                         &
+  ctmax_1h, z_tdt, tcrit_heat, krep_ref, krep_dec, krep_t_hi,                  &
+  shed_heat_sens, shed_heat_fmin, shed_heat_tau,                               &
   nsc_xylem_cond_ratio,                                                       &
   nsc_heartwood_rate, nsc_grow_thresh, nsc_ring_cond_efold,                   &
   nsc_sink_days, nsc_sink_beta_min,                                            &
@@ -1459,8 +1518,6 @@ DO i = 1, npft
     ximpair_psi_driver(i) = ximpair_psi_driver_io(i)
   IF (ximpair_reset_mmdd_io(i) /= imdi)                                        &
     ximpair_reset_mmdd(i) = ximpair_reset_mmdd_io(i)
-  IF (ABS(ximpair_leaf_sens_io(i) - rmdi) > EPSILON(1.0))                      &
-    ximpair_leaf_sens(i) = ximpair_leaf_sens_io(i)
   IF (ABS(ximpair_tau_leaf_io(i) - rmdi) > EPSILON(1.0))                       &
     ximpair_tau_leaf(i) = ximpair_tau_leaf_io(i)
   ! MDK, 17/10/26
@@ -1528,6 +1585,24 @@ DO i = 1, npft
   IF (ABS(phen_ndays_io(i) - rmdi) > EPSILON(1.0)) phen_ndays(i) = phen_ndays_io(i)
   IF (ABS(phen_fbleaf_min_io(i) - rmdi) > EPSILON(1.0))                        &
     phen_fbleaf_min(i) = phen_fbleaf_min_io(i)
+  ! MDK, 09/11/26
+  IF (ABS(shed_la50_io(i) - rmdi) > EPSILON(1.0)) shed_la50(i) = shed_la50_io(i)
+  IF (ABS(shed_la_width_io(i) - rmdi) > EPSILON(1.0))                          &
+    shed_la_width(i) = shed_la_width_io(i)
+  IF (ABS(shed_fmin_io(i) - rmdi) > EPSILON(1.0)) shed_fmin(i) = shed_fmin_io(i)
+  IF (ABS(ctmax_1h_io(i) - rmdi) > EPSILON(1.0)) ctmax_1h(i) = ctmax_1h_io(i)
+  IF (ABS(z_tdt_io(i) - rmdi) > EPSILON(1.0)) z_tdt(i) = z_tdt_io(i)
+  IF (ABS(tcrit_heat_io(i) - rmdi) > EPSILON(1.0))                             &
+    tcrit_heat(i) = tcrit_heat_io(i)
+  IF (ABS(krep_ref_io(i) - rmdi) > EPSILON(1.0)) krep_ref(i) = krep_ref_io(i)
+  IF (ABS(krep_dec_io(i) - rmdi) > EPSILON(1.0)) krep_dec(i) = krep_dec_io(i)
+  IF (ABS(krep_t_hi_io(i) - rmdi) > EPSILON(1.0)) krep_t_hi(i) = krep_t_hi_io(i)
+  IF (ABS(shed_heat_sens_io(i) - rmdi) > EPSILON(1.0))                         &
+    shed_heat_sens(i) = shed_heat_sens_io(i)
+  IF (ABS(shed_heat_fmin_io(i) - rmdi) > EPSILON(1.0))                         &
+    shed_heat_fmin(i) = shed_heat_fmin_io(i)
+  IF (ABS(shed_heat_tau_io(i) - rmdi) > EPSILON(1.0))                          &
+    shed_heat_tau(i) = shed_heat_tau_io(i)
   ! MDK, 20/10/26
   IF (ABS(phen_bb_doy_io(i) - rmdi) > EPSILON(1.0))                            &
     phen_bb_doy(i) = phen_bb_doy_io(i)
