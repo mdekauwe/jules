@@ -177,6 +177,7 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
            'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
+           'nsc_xylem_prod',                                                   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'shed_f_psi', 'shed_nup', 'shed_psi_pd', 'shed_psi_md',             &
            'heat_dam', 'phen_shed_debt',                                       &

@@ -283,8 +283,10 @@ MODULE triffid_nsc_mod
 !   - Repairing damaged xylem has first call on the store's release for
 !     growth (as u, the share of the release to xylem, in Trugman et al.
 !     eqn 5), so it obeys the growth limits as growth does: at each store
-!     step up to that release is claimed, at most the carbon repair
-!     needs. Repair is costed by the conductance it restores, as new
+!     step up to that release is claimed, at most the carbon repair needs
+!     and at most the stem's last ring production (nsc_xylem_prod), so
+!     repair goes no faster than the stem grows new wood and a drought's
+!     damage takes years to repair. Repair is costed by the conductance it restores, as new
 !     wood: SUM_i X_i c_i MAX(L_i - L_p, 0), with c_i how well ring i
 !     conducts and L_p the highest loss the water potential has imposed
 !     since the last TRIFFID step (damage at or below it would come back
@@ -309,7 +311,7 @@ MODULE triffid_nsc_mod
 ! wood carbon from the prescribed canopy height. The release leaves the
 ! store, as there is no growth to feed, and there is no stem recovery.
 !
-! MDK, 05/11/26
+! MDK, 09/11/26
 !-----------------------------------------------------------------------------
 
 USE um_types, ONLY: real_jlslsm
@@ -372,7 +374,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_resp_pft(:,:)
 ! Ring renewal (stem recovery), last TRIFFID step: the new ring, TRIFFID's
 ! gross wood production G (kg C m-2 of the PFT per 360 days; the wood
 ! TRIFFID grows, not extra; net of nsc_wood_lost), and the share of the
-! stem conductance it renews, w_cond G / X (per 360 days). Diagnostics.
+! stem conductance it renews, w_cond G / X (per 360 days). Diagnostics,
+! but G also caps the Trugman repair claim, so it is in dumps then.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_prod_pft(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_renew_pft(:,:)
 ! Ring renewal: the wood TRIFFID lost and has not yet regrown, plus the
@@ -679,9 +682,10 @@ END SUBROUTINE triffid_nsc_alloc
 !      nsc_overflow_resp, which is respired, and sets the starvation
 !      disturbance for lotka.
 !   6. With the Trugman response, gives repairing damaged xylem first
-!      call on the release (nsc_repair_claim); TRIFFID grows from the rest.
+!      call on the release, up to the last ring production
+!      (nsc_repair_claim); TRIFFID grows from the rest.
 !
-! MDK, 05/11/26
+! MDK, 09/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,         &
                               leafc, rootc, npp, pft_only )
@@ -912,17 +916,21 @@ DO n = n1,n2
     ! Trugman response: repairing damaged xylem has first call on the
     ! release for growth, so it obeys the growth limits as growth does
     ! (the leaf regrowth, the flush and the overflow below are not used).
-    ! The claim is at most that release and the carbon repair needs, the
+    ! The claim is at most that release, the carbon repair needs, the
     ! conductance it can restore in units of new ring,
-    ! X_s SUM_i f_i c_i MAX(L_i - L_p, 0) (ximpair_ring_repairable).
-    ! Not in spin-up or before the rings and the sapwood are set.
+    ! X_s SUM_i f_i c_i MAX(L_i - L_p, 0) (ximpair_ring_repairable), and
+    ! the stem's ring production at the last TRIFFID step, so repair is
+    ! no faster than the stem grows new wood. Not in spin-up or before the
+    ! rings and the sapwood are set.
     nsc_repair_claim(l,n) = 0.0
     IF (nsc_damage_response == nsc_damage_trugman .AND. .NOT. is_spinup      &
         .AND. .NOT. PRESENT(pft_only) .AND. w > 0.0) THEN
       IF (ALLOCATED(nsc_sapwood)) THEN
         IF (nsc_sapwood(l,n) > 0.0) THEN
-          nsc_repair_claim(l,n) = MIN(w, nsc_sapwood(l,n)                     &
-                                         * ximpair_ring_repairable(l, n) / dt)
+          nsc_repair_claim(l,n) = MIN(w,                                      &
+                                      nsc_sapwood(l,n)                        &
+                                      * ximpair_ring_repairable(l, n) / dt,   &
+                                      MAX(nsc_xylem_prod_pft(l,n), 0.0))
           w = w - nsc_repair_claim(l,n)
         END IF
       END IF

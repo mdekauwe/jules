@@ -467,11 +467,14 @@ IF ( l_triffid_nsc ) THEN
     CALL add_to_list( 'ximpair_ring_dmg', nvars, identifiers )
     CALL add_to_list( 'ximpair_ring_loss_lo', nvars, identifiers )
     CALL add_to_list( 'ximpair_ring_year', nvars, identifiers )
-    ! The period's peak imposed loss, which limits the xylem repair.
+    ! The period's peak imposed loss and the last ring production, which
+    ! limit the xylem repair.
     !
-    ! MDK, 04/11/26
-    IF ( nsc_damage_response == nsc_damage_trugman )                           &
+    ! MDK, 09/11/26
+    IF ( nsc_damage_response == nsc_damage_trugman ) THEN
       CALL add_to_list( 'ximpair_ring_peak', nvars, identifiers )
+      CALL add_to_list( 'nsc_xylem_prod', nvars, identifiers )
+    END IF
     ! The stand's mean heartwood rate under the pipe heartwood rule.
     !
     ! MDK, 04/11/26

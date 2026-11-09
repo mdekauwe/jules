@@ -43,6 +43,7 @@ USE triffid_nsc_mod, ONLY: nsc_cmax_pft, nsc_wpot_pft, nsc_resp_pft,          &
                            nsc_tseas_acc
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
+USE triffid_nsc_mod, ONLY: nsc_xylem_prod_pft   ! MDK, 09/11/26
 USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 ! The rings' two parts.
@@ -587,6 +588,13 @@ DO i = 1,nvars
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(nsc_net_wood_growth(:,n), global_data_2d(:,n))
+    END DO
+
+  ! MDK, 09/11/26
+  CASE ( 'nsc_xylem_prod' )
+    CALL triffid_nsc_alloc( land_pts )
+    DO n = 1,npft
+      CALL gather_land_field(nsc_xylem_prod_pft(:,n), global_data_2d(:,n))
     END DO
 
   CASE ( 'nsc_sapwood' )
@@ -1507,6 +1515,7 @@ DO i = 1,nvars
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
            'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
+           'nsc_xylem_prod',                                                   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'shed_f_psi', 'shed_nup', 'shed_psi_pd', 'shed_psi_md',             &
            'heat_dam', 'phen_shed_debt',                                       &

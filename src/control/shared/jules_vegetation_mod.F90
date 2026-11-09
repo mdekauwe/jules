@@ -798,13 +798,16 @@ INTEGER ::                                                                     &
       !     release for growth, under the same growth limits, costed by the
       !     conductance it restores as new wood: at most
       !     SUM_i X_i c_i MAX(L_i - L_p, 0), with L_p the highest loss
-      !     imposed since the last TRIFFID step; each ring's loss falls in
-      !     place, so no ring conducts better than it did undamaged;
-      !     TRIFFID grows from the rest of the release, so the claim comes
-      !     out of growth by lambda_g and out of the spreading carbon by
-      !     the rest (outputs nsc_repair_claim and nsc_xylem_repair).
+      !     imposed since the last TRIFFID step, and at most the stem's
+      !     ring production at the last TRIFFID step (nsc_xylem_prod), so
+      !     repair goes no faster than the stem grows new wood; each ring's
+      !     loss falls in place, so no ring conducts better than it did
+      !     undamaged; TRIFFID grows from the rest of the release, so the
+      !     claim comes out of growth by lambda_g and out of the spreading
+      !     carbon by the rest (outputs nsc_repair_claim and
+      !     nsc_xylem_repair).
       !
-      ! MDK, 04/11/26
+      ! MDK, 09/11/26
 
 
 LOGICAL ::                                                                     &

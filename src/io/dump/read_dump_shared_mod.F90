@@ -321,6 +321,15 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts at 0 " //  &
              "(restart not exact).")
+        CASE ( 'nsc_xylem_prod' )
+          ! The last ring production, which caps the xylem repair: dumps
+          ! written without it start at 0, so there is no repair until the
+          ! first TRIFFID step (restart not exact).
+          !
+          ! MDK, 09/11/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts at 0 " //  &
+             "(restart not exact).")
         CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss' )
           ! Ring cohorts: dumps written without them start them at the
           ! first update, all rings with the stem's loss.

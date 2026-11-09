@@ -36,6 +36,7 @@ USE leaf_shed_mod, ONLY: leaf_shed_alloc, phen_nlow, phen_nhigh, phen_fbleaf,  &
     phen_shed_debt   ! MDK, 09/11/26
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
+USE triffid_nsc_mod, ONLY: nsc_xylem_prod_pft   ! MDK, 09/11/26
 USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
 USE triffid_nsc_mod, ONLY: nsc_cmax_pft, nsc_wpot_pft, nsc_resp_pft,          &
                            nsc_tseas_acc
@@ -2363,6 +2364,16 @@ CASE ( 'nsc_net_wood_growth' )
     CALL cube_get_data(cube_land, nsc_net_wood_growth(:,:))
   ELSE
     nsc_net_wood_growth(:,:) = const_val
+  END IF
+
+! MDK, 09/11/26
+CASE ( 'nsc_xylem_prod' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_xylem_prod_pft(:,:))
+  ELSE
+    nsc_xylem_prod_pft(:,:) = const_val
   END IF
 
 CASE ( 'nsc_sapwood' )

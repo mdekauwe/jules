@@ -1087,6 +1087,12 @@ DO i = 1, nvars_required
   ! MDK, 04/11/26
   CASE ( 'ximpair_ring_peak' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  ! The last ring production, which caps the xylem repair: none yet, so no
+  ! repair until the first TRIFFID step.
+  !
+  ! MDK, 09/11/26
+  CASE ( 'nsc_xylem_prod' )
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
   ! The stand's mean heartwood rate: not set (nsc_heartwood_rate).
   !
   ! MDK, 04/11/26
