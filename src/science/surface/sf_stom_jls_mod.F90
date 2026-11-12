@@ -999,20 +999,24 @@ REAL(KIND=real_jlslsm) :: gl_max_eff(land_pts), share_sup(land_pts)
                             ! share of e_supply that call may use.
                             !
                             ! MDK, 24/10/26
-REAL(KIND=real_jlslsm) :: gl_cut(land_pts), gl_cut_eff(land_pts)
-                            ! Cuticular loss (l_som_cuticular_loss):
-                            ! canopy floor conductance (m s-1) before and
-                            ! after the soil-supply cap, on the deficit
-                            ! dqc (so gl_cut dqc is the leak's flux).
+REAL(KIND=real_jlslsm) :: gc_cuticular(land_pts)
+                            ! Cuticular loss (l_som_cuticular_loss): the
+                            ! canopy's cuticular conductance (m s-1) on the
+                            ! deficit dqc, before the soil-supply cap (so
+                            ! gc_cuticular dqc is the leak's flux).
+REAL(KIND=real_jlslsm) :: gc_cuticular_capped(land_pts)
+                            ! The same after the soil-supply cap (m s-1).
+REAL(KIND=real_jlslsm) :: e_per_gc_leak
+                            ! The leak's tile flux per unit conductance,
+                            ! rho (qs(tstar) - q1) (kg m-3).
+REAL(KIND=real_jlslsm) :: e_target_leak
+                            ! The leak's target flux rho gc_cuticular_capped dqc
+                            ! (kg m-2 s-1).
+REAL(KIND=real_jlslsm) :: gc_leak
+                            ! The canopy conductance that gives the target
+                            ! flux through ra (m s-1).
                             !
-                            ! MDK, 04/11/26
-REAL(KIND=real_jlslsm) :: a_leak, x_leak, g_leak
-                            ! The leak's tile flux: rho (qs(tstar) - q1)
-                            ! and the target flux rho gl_cut_eff dqc
-                            ! (kg m-2 s-1), and the canopy conductance
-                            ! that gives it through ra (m s-1).
-                            !
-                            ! MDK, 04/11/26
+                            ! MDK, 12/11/26
 REAL(KIND=real_jlslsm) :: lai_ref_kg(land_pts)
                             ! kplant_model = 1: reference LAI of the root
                             ! and stem conductances (lai_ref_k, or the
@@ -1247,11 +1251,6 @@ REAL(KIND=real_jlslsm), PARAMETER :: lai_store_min = 0.01
                             ! meaning as C goes to 0.
                             !
                             ! MDK, 22/10/26
-LOGICAL :: l_cut(land_pts)
-                            ! Points where the leak is cut back
-                            ! (store_cpl_leak_cut).
-                            !
-                            ! MDK, 04/11/26
 REAL(KIND=real_jlslsm) :: dq_opt(land_pts)
                             ! Humidity deficit the stomatal optimisation
                             ! uses (kg kg-1), with and without coupled
@@ -4423,7 +4422,7 @@ IF ( .NOT. l_leaf_temp ) gc_stomatal_pft(:,ft) = gc(:)
 !   lit points with apar >= apar_leak_min;
 ! - the leak is cut back only where it would take the leaf below the psi
 !   of the critical loss of conductance on the leaf (or PFT) curve,
-!   psi_floor_leaf (kcrit_fractional_loss, e.g. 0.95; store_cpl_leak_cut),
+!   psi_floor_leaf (kcrit_fractional_loss, e.g. 0.95; store_cpl_leak_limit),
 !   so in a drought it keeps drying the plant down to that psi;
 ! - the leak drains the capacitance store at the stem node, psi_leaf
 !   follows it, and the impairment update is made after this block, so the
@@ -4435,7 +4434,7 @@ IF ( .NOT. l_leaf_temp ) gc_stomatal_pft(:,ft) = gc(:)
 ! memory does not go past that loss. The transpiration is the tile's flux
 ! at tstar, as sf_evap takes it.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 IF ( l_cap_store ) THEN
   CALL store_state_alloc( land_pts )
@@ -4484,11 +4483,12 @@ IF ( l_cap_store ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     ! mmol m-2 leaf s-1 -> m s-1, times LAI for the canopy.
-    gl_cut(l) = gcuticular(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l) * lai(l)
+    gc_cuticular(l) = gcuticular(ft) * 1.0e-3 * rmol * tstar(l) / pstar(l)     &
+                      * lai(l)
     ! No leak with capacitance alone (l_som_capacitance).
-    IF ( .NOT. l_som_cuticular_loss ) gl_cut(l) = 0.0
-    IF ( dqc(l) > 0.0 ) gl_cut(l) = gl_cut(l)                                  &
-                    * MIN(dq_leak(l) / dqc(l), dq_ratio_leak_max)
+    IF ( .NOT. l_som_cuticular_loss ) gc_cuticular(l) = 0.0
+    IF ( dqc(l) > 0.0 ) gc_cuticular(l) = gc_cuticular(l)                      &
+                        * MIN(dq_leak(l) / dqc(l), dq_ratio_leak_max)
     share_sup(l) = 1.0
   END DO
 
@@ -4496,10 +4496,12 @@ IF ( l_cap_store ) THEN
   ! e_sup_use.)
   IF ( l_cap_store ) THEN
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use,          &
-                             share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
+                             share_sup, dqc, tstar, pstar, gc_cuticular,       &
+                             gc_cuticular_capped )
   ELSE
     CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_supply,           &
-                             share_sup, dqc, tstar, pstar, gl_cut, gl_cut_eff )
+                             share_sup, dqc, tstar, pstar, gc_cuticular,       &
+                             gc_cuticular_capped )
   END IF
   CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
@@ -4514,25 +4516,26 @@ IF ( l_cap_store ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( ( l_som_cuticular_day_only .AND. .NOT. l_leak_lit(l) )                &
-         .OR. gl_cut(l) <= 0.0 ) CYCLE
-    ! The canopy conductance that gives the leak's flux X = rho gl_cut_eff
-    ! dqc (gcuticular LAI times the leaf-to-air deficit, after the supply
-    ! cap) through the tile's resistances, as sf_evap takes it (the
-    ! stomatal share of the flux through ra, shared with the soil
-    ! conductance g_s; see gc_eq in lt_finish),
+         .OR. gc_cuticular(l) <= 0.0 ) CYCLE
+    ! The canopy conductance that gives the leak's flux
+    ! X = rho gc_cuticular_capped dqc (gcuticular LAI times the leaf-to-air
+    ! deficit, after the supply cap) through the tile's resistances, as
+    ! sf_evap takes it (the stomatal share of the flux through ra, shared
+    ! with the soil conductance g_s; see gc_eq in lt_finish),
     !
     !   X = A gc / (1 + ra (gc + g_s)),   A = rho (qs(tstar) - q1),
     !   gc = X (1 + ra g_s) / (A - ra X),
     !
-    ! or gl_cut_eff where A - ra X is near 0 (rounding).
-    a_leak = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)
-    x_leak = pstar(l) / ( r * tstar(l) ) * gl_cut_eff(l) * dqc(l)
-    g_leak = gl_cut_eff(l)
-    IF ( a_leak - ra(l) * x_leak > TINY(1.0_real_jlslsm) )                     &
-      g_leak = x_leak * ( 1.0 + ra(l) * g_soil_c(l) )                          &
-               / ( a_leak - ra(l) * x_leak )
-    IF ( gc(l) >= g_leak ) CYCLE
-    gc(l)     = g_leak
+    ! or gc_cuticular_capped where A - ra X is near 0 (rounding).
+    e_per_gc_leak = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)
+    e_target_leak = pstar(l) / ( r * tstar(l) ) * gc_cuticular_capped(l)       &
+                    * dqc(l)
+    gc_leak = gc_cuticular_capped(l)
+    IF ( e_per_gc_leak - ra(l) * e_target_leak > TINY(1.0_real_jlslsm) )       &
+      gc_leak = e_target_leak * ( 1.0 + ra(l) * g_soil_c(l) )                  &
+                / ( e_per_gc_leak - ra(l) * e_target_leak )
+    IF ( gc(l) >= gc_leak ) CYCLE
+    gc(l)     = gc_leak
     gc_som(l) = gc(l)
     ! Canopy transpiration (mol H2O m-2 s-1), the tile's flux at this gc,
     !
@@ -4559,7 +4562,7 @@ IF ( l_cap_store ) THEN
   ! psi_floor_leaf and psi_floor_stem come from the leaf and stem segment curves
   ! (Weibull), which the store's balance and the optimiser use, in spin-up
   ! and without an impairment model too. The leak is cut where the leaf
-  ! would end below psi_floor_leaf (store_cpl_leak_cut), and the store's stem
+  ! would end below psi_floor_leaf (store_cpl_leak_limit), and the store's stem
   ! psi is kept at or above psi_floor_stem (store_cpl_q).
   !
   ! MDK, 05/11/26
@@ -4582,7 +4585,7 @@ IF ( l_cap_store ) THEN
   ! the stem node psi_st where the soil, root and stem carry E_r, and the
   ! leaf psi_leaf where the leaf segment then carries E. With the leak, the
   ! leak's E is cut where the leaf would end below psi_floor_leaf
-  ! (store_cpl_leak_cut). q goes to store_q (kg m-2 s-1), which sf_evap
+  ! (store_cpl_leak_limit). q goes to store_q (kg m-2 s-1), which sf_evap
   ! takes off the soil extraction, so the water is conserved. With almost
   ! no leaves (LAI < lai_store_min) the store is dropped (unset), and the
   ! water it has given and not yet taken back (its deficit, store_w
@@ -4604,7 +4607,7 @@ IF ( l_cap_store ) THEN
     IF ( e_store_bal(l) > 0.0 )                                                &
       store_q_gap(l,ft) = ABS(q_store_bal(l) - q_store(l)) / e_store_bal(l)
   END DO
-  IF ( l_som_cuticular_loss ) CALL store_cpl_leak_cut()
+  IF ( l_som_cuticular_loss ) CALL store_cpl_leak_limit()
   DO m = 1,veg_pts
     l = veg_index(m)
     ! The store's capacitance (mol m-2 Pa-1).
@@ -5384,52 +5387,54 @@ END SUBROUTINE store_cpl_ml_q
 !
 ! MDK, 12/11/26
 !-----------------------------------------------------------------------------
-SUBROUTINE store_cpl_leak_cut()
+SUBROUTINE store_cpl_leak_limit()
 
 IMPLICIT NONE
 
-INTEGER, PARAMETER :: n_it_fl = 20
+INTEGER, PARAMETER :: n_bisect_leak = 20
+                            ! Bisection steps on the leak's E.
 INTEGER :: m, l, it
-LOGICAL :: l_cut(land_pts)
+LOGICAL :: l_leak_limited(land_pts)
                             ! Points where the leak's E is cut.
 REAL(KIND=real_jlslsm) :: e_lo(land_pts)
                             ! Lower end of the bisection bracket on E (mol
                             ! H2O m-2 s-1).
 REAL(KIND=real_jlslsm) :: e_hi(land_pts)
                             ! Upper end of that bracket (mol H2O m-2 s-1).
-REAL(KIND=real_jlslsm) :: a_cut
+REAL(KIND=real_jlslsm) :: e_per_gc_cut
                             ! rho (qs(tstar) - q1) (kg m-3), for the exact gc.
-REAL(KIND=real_jlslsm) :: em_cut
+REAL(KIND=real_jlslsm) :: e_kg_cut
                             ! The cut E (kg m-2 s-1), for the exact gc.
 
 ! The points to cut: the leak sets the conductance (l_leak_on), the committed
 ! leaf psi fell below psi_floor_leaf (l_leaf_floor_hit), the canopy
 ! transpires, and the store is set up there. The bisection bracket on E runs
 ! from 0 to the committed E (the leak's own value).
-l_cut(:) = .FALSE.
+l_leak_limited(:) = .FALSE.
 DO m = 1,veg_pts
   l = veg_index(m)
-  l_cut(l) = l_leak_on(l) .AND. l_leaf_floor_hit(l) .AND. el(l) > 0.0          &
-             .AND. store_w(l,ft) <= 0.0 .AND. lai(l) >= lai_store_min
+  l_leak_limited(l) = l_leak_on(l) .AND. l_leaf_floor_hit(l)                   &
+                      .AND. el(l) > 0.0 .AND. store_w(l,ft) <= 0.0             &
+                      .AND. lai(l) >= lai_store_min
   e_lo(l) = 0.0
   e_hi(l) = e_store_bal(l)
 END DO
-IF ( .NOT. ANY(l_cut) ) RETURN
+IF ( .NOT. ANY(l_leak_limited) ) RETURN
 
 ! Bisection on E. At each guess, solve the store's balance (with the
 ! search's solver: Newton steps, or the lookup tables with som_psi_solver =
 ! 3; cut points only) for the leaf psi at the end of the step. A leaf below
 ! psi_floor_leaf means E is too large, so the guess becomes the upper end;
 ! otherwise it becomes the lower end. e_lo is always an E the leaf survives.
-DO it = 1,n_it_fl
+DO it = 1,n_bisect_leak
   DO m = 1,veg_pts
     l = veg_index(m)
-    IF ( l_cut(l) ) e_store_bal(l) = 0.5 * (e_lo(l) + e_hi(l))
+    IF ( l_leak_limited(l) ) e_store_bal(l) = 0.5 * (e_lo(l) + e_hi(l))
   END DO
-  CALL store_cpl_q( .FALSE., e_store_bal, l_sel = l_cut )
+  CALL store_cpl_q( .FALSE., e_store_bal, l_sel = l_leak_limited )
   DO m = 1,veg_pts
     l = veg_index(m)
-    IF ( .NOT. l_cut(l) ) CYCLE
+    IF ( .NOT. l_leak_limited(l) ) CYCLE
     IF ( psi_leaf_bal(l) < psi_floor_leaf ) THEN
       e_hi(l) = e_store_bal(l)
     ELSE
@@ -5452,14 +5457,15 @@ END DO
 ! under the same air.
 DO m = 1,veg_pts
   l = veg_index(m)
-  IF ( .NOT. l_cut(l) ) CYCLE
+  IF ( .NOT. l_leak_limited(l) ) CYCLE
   e_store_bal(l) = e_lo(l)
-  a_cut   = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)
-  em_cut  = e_lo(l) * m_h2o_lt
+  e_per_gc_cut   = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)
+  e_kg_cut  = e_lo(l) * m_h2o_lt
 
   ! If the denominator is near 0 (rounding), scale gc by the cut instead.
-  IF ( a_cut - ra(l) * em_cut > TINY(1.0_real_jlslsm) ) THEN
-    gc(l) = em_cut * ( 1.0 + ra(l) * g_soil_c(l) ) / ( a_cut - ra(l) * em_cut )
+  IF ( e_per_gc_cut - ra(l) * e_kg_cut > TINY(1.0_real_jlslsm) ) THEN
+    gc(l) = e_kg_cut * ( 1.0 + ra(l) * g_soil_c(l) )                           &
+            / ( e_per_gc_cut - ra(l) * e_kg_cut )
   ELSE
     gc(l) = gc(l) * e_lo(l) / el(l)
   END IF
@@ -5472,9 +5478,9 @@ DO m = 1,veg_pts
 END DO
 
 ! Commit the store's balance at the cut E, with the exact segment solves.
-CALL store_cpl_q( .TRUE., e_store_bal, l_sel = l_cut )
+CALL store_cpl_q( .TRUE., e_store_bal, l_sel = l_leak_limited )
 
-END SUBROUTINE store_cpl_leak_cut
+END SUBROUTINE store_cpl_leak_limit
 
 !-----------------------------------------------------------------------------
 ! Plant capacitance: how much of the canopy's transpiration the stem store
