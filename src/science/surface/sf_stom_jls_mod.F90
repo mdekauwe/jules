@@ -916,7 +916,7 @@ REAL(KIND=real_jlslsm) :: ci_sun_ml(land_pts), ci_shd_ml(land_pts),            &
 REAL(KIND=real_jlslsm) :: vcmax_sun_ml(land_pts), vcmax_shd_ml(land_pts),      &
                           je_sun_ml(land_pts), je_shd_ml(land_pts),            &
                           rd_sun_ml(land_pts), rd_shd_ml(land_pts),            &
-                          ones_c(land_pts)
+                          ones_pts(land_pts)
                             ! Multilayer with l_leaf_temp: the layer's
                             ! Vcmax, electron flux and dark respiration
                             ! (per unit leaf area) of the sunlit / shaded
@@ -1230,129 +1230,251 @@ LOGICAL :: l_cut(land_pts)
                             ! (store_cpl_leak_cut).
                             !
                             ! MDK, 04/11/26
-REAL(KIND=real_jlslsm) :: dq_opt(land_pts), r_bl_c(land_pts),                  &
-                          r_ca_c(land_pts), g_oth_c(land_pts), zero_c(land_pts)
-                            ! Coupled transpiration (l_som_coupled_e): the
-                            ! humidity deficit, leaf boundary layer and canopy
-                            ! air resistances (s/m) and the other leaf class's
-                            ! effective conductance (m/s) passed to
-                            ! stom_opt_mod (dq_opt the deficit used by the
-                            ! optimisation also without it); zeros.
-REAL(KIND=real_jlslsm) :: gbw_sun_lt(land_pts), gbw_shd_lt(land_pts),          &
-                          ra_ca_lt(land_pts)
-                            ! Two-leaf, coupled: the leaf boundary layer
-                            ! conductance for water of each class (m/s, class
-                            ! basis) and the canopy air resistance (s/m), from
-                            ! the last leaf energy balance.
+REAL(KIND=real_jlslsm) :: dq_opt(land_pts)
+                            ! Humidity deficit the stomatal optimisation
+                            ! uses (kg kg-1), with and without coupled
+                            ! transpiration (l_som_coupled_e).
+REAL(KIND=real_jlslsm) :: r_bl_opt(land_pts)
+                            ! Coupled transpiration: the leaf boundary layer
+                            ! resistance passed to stom_opt_mod (s m-1).
+REAL(KIND=real_jlslsm) :: r_ca_opt(land_pts)
+                            ! Coupled transpiration: the canopy air
+                            ! resistance passed to stom_opt_mod (s m-1).
+REAL(KIND=real_jlslsm) :: g_other_opt(land_pts)
+                            ! Coupled transpiration: the other leaf class's
+                            ! effective conductance passed to stom_opt_mod
+                            ! (m s-1).
+REAL(KIND=real_jlslsm) :: zeros_pts(land_pts)
+                            ! Zeros, for stom_opt_mod arguments not used.
+REAL(KIND=real_jlslsm) :: gbw_sun_lt(land_pts)
+                            ! Two-leaf, coupled: the sunlit leaves' boundary
+                            ! layer conductance for water (m s-1, class
+                            ! basis), from the last leaf energy balance.
+REAL(KIND=real_jlslsm) :: gbw_shd_lt(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: ra_ca_lt(land_pts)
+                            ! Two-leaf, coupled: the canopy air resistance
+                            ! (s m-1), from the last leaf energy balance.
 REAL(KIND=real_jlslsm) :: g_soil_c(land_pts)
                             ! Soil evaporation conductance beneath the
-                            ! canopy (m/s), which shares the canopy air and
+                            ! canopy (m s-1), which shares the canopy air and
                             ! ra with the leaves.
                             !
-                            ! MDK, 24/10/26
+                            ! MDK, 12/11/26
+
+! Name suffixes in the canopy code below: _2l the two-leaf canopy
+! (can_rad_mod = 7), _lt the leaf energy balance (l_leaf_temp), _ml and _lyr
+! the multilayer canopy, _sun and _shd the sunlit and shaded leaves.
 
 ! l_leaf_temp_ci (two-leaf): each class's leaf temperature as a linear
 ! function of its transpiration from the last pass's balance,
 !
-!   T = ltc_a - ltc_b E
+!   T = tleaf_a_2l - tleaf_b_2l E
 !
-! (ltc_b = 0 before the first balance of the step), and the deficit and
-! photosynthesis parameters' temperature slopes about it.
+! (tleaf_b_2l = 0 before the first balance of the step), and the
+! temperature slopes of the deficit and the photosynthesis parameters
+! about it.
 !
-! MDK, 24/10/26
-REAL(KIND=real_jlslsm) ::                                                      &
-  ltc_a_2l(land_pts,2), ltc_b_2l(land_pts,2), ltc_s_2l(land_pts),             &
-  ltc_dl_2l(land_pts,7)
+! MDK, 12/11/26
+REAL(KIND=real_jlslsm) :: tleaf_a_2l(land_pts,2)
+                            ! T_leaf at E = 0 of the sunlit (1) and shaded
+                            ! (2) leaves (K).
+REAL(KIND=real_jlslsm) :: tleaf_b_2l(land_pts,2)
+                            ! The fall of T_leaf per unit E of each class
+                            ! (K per mol m-2 s-1).
+REAL(KIND=real_jlslsm) :: dqs_dt_2l(land_pts)
+                            ! Change of the saturation humidity per kelvin,
+                            ! dqs / dT (kg kg-1 K-1).
+REAL(KIND=real_jlslsm) :: dlnpar_dt_2l(land_pts,7)
+                            ! Change per kelvin of the log of each
+                            ! photosynthesis parameter (Vcmax, Je, Kc, Ko,
+                            ! Gamma*, Km, Rd).
 
 ! Two-leaf (sunlit/shaded big-leaf) canopy, can_rad_mod = 7. Canopy (per m2
 ! ground) totals for each leaf class, aggregated from the layered radiation
 ! profile.
-REAL(KIND=real_jlslsm) ::                                                      &
-  lai_sun_2l(land_pts), lai_shd_2l(land_pts),                                  &
-      ! Sunlit / shaded leaf area (m2 leaf m-2 ground).
-  nw_sun_2l(land_pts), nw_shd_2l(land_pts),                                    &
-      ! Leaf area weighted by the relative leaf-N profile exp(-knl L), the
-      ! sunlit / shaded N weights of the canopy.
-  apar_sun_2l(land_pts), apar_shd_2l(land_pts),                                &
-      ! Absorbed PAR by the sunlit / shaded leaves (W m-2 ground).
-  acr_sun_2l(land_pts), acr_shd_2l(land_pts),                                  &
-      ! As apar_*_2l, in mol photons m-2 s-1.
-  vcmax_sun_2l(land_pts), vcmax_shd_2l(land_pts),                              &
-  jmax_sun_2l(land_pts), jmax_shd_2l(land_pts),                                &
-      ! Canopy Vcmax / Jmax of each leaf class (mol m-2 ground s-1).
-  kmax_sun_2l(land_pts), kmax_shd_2l(land_pts),                                &
-  kcrit_sun_2l(land_pts), kcrit_shd_2l(land_pts),                              &
-      ! Hydraulic conductance of each leaf class (mol m-2 s-1 Pa-1).
-  gl_max_sun_2l(land_pts), gl_max_shd_2l(land_pts),                            &
-      ! Maximum stomatal conductance of each leaf class (m s-1).
-  ci_sun_2l(land_pts), ci_shd_2l(land_pts),                                    &
-      ! Internal CO2 of each leaf class (Pa).
-  f_sun_2l, n_cls_lt,                                                          &
-      ! Sunlit fraction of LAI; in the multilayer canopy the number of
-      ! leaf classes with leaf area.
-      !
-      ! MDK, 19/10/26
-  dnw_2l,                                                                      &
-      ! Layer integral of exp(-kn_2l*L) over dlai.
-  kn_2l,                                                                       &
-      ! N extinction per unit LAI of the two-leaf classes (= knl).
-  nw_tot_2l
-      ! Canopy N weight N_sun + N_shd (floored at TINY); each class gets
-      ! its share N_class / nw_tot_2l of the canopy kmax.
-      !
-      ! MDK, 03/11/26
+!
+! MDK, 12/11/26
+REAL(KIND=real_jlslsm) :: lai_sun_2l(land_pts)
+                            ! Sunlit leaf area (m2 leaf m-2 ground).
+REAL(KIND=real_jlslsm) :: lai_shd_2l(land_pts)
+                            ! Shaded leaf area (m2 leaf m-2 ground).
+REAL(KIND=real_jlslsm) :: nweight_sun_2l(land_pts)
+                            ! Sunlit leaf area weighted by the relative
+                            ! leaf-N profile exp(-knl L), the sunlit N
+                            ! weight of the canopy.
+REAL(KIND=real_jlslsm) :: nweight_shd_2l(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: apar_sun_2l(land_pts)
+                            ! Absorbed PAR by the sunlit leaves (W m-2
+                            ! ground).
+REAL(KIND=real_jlslsm) :: apar_shd_2l(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: apar_mol_sun_2l(land_pts)
+                            ! As apar_sun_2l, in mol photons m-2 s-1.
+REAL(KIND=real_jlslsm) :: apar_mol_shd_2l(land_pts)
+                            ! As apar_shd_2l, in mol photons m-2 s-1.
+REAL(KIND=real_jlslsm) :: vcmax_sun_2l(land_pts)
+                            ! Canopy Vcmax of the sunlit leaves (mol m-2
+                            ! ground s-1).
+REAL(KIND=real_jlslsm) :: vcmax_shd_2l(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: jmax_sun_2l(land_pts)
+                            ! Canopy Jmax of the sunlit leaves (mol m-2
+                            ! ground s-1).
+REAL(KIND=real_jlslsm) :: jmax_shd_2l(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: kmax_sun_2l(land_pts)
+                            ! Hydraulic conductance of the sunlit leaves'
+                            ! path (mol m-2 s-1 Pa-1).
+REAL(KIND=real_jlslsm) :: kmax_shd_2l(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: kcrit_sun_2l(land_pts)
+                            ! kcrit of the sunlit leaves' path (mol m-2 s-1
+                            ! Pa-1).
+REAL(KIND=real_jlslsm) :: kcrit_shd_2l(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: gl_max_sun_2l(land_pts)
+                            ! Maximum stomatal conductance of the sunlit
+                            ! leaves (m s-1).
+REAL(KIND=real_jlslsm) :: gl_max_shd_2l(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: ci_sun_2l(land_pts)
+                            ! Internal CO2 of the sunlit leaves (Pa).
+REAL(KIND=real_jlslsm) :: ci_shd_2l(land_pts)
+                            ! Internal CO2 of the shaded leaves (Pa).
+REAL(KIND=real_jlslsm) :: f_sun_2l
+                            ! Sunlit fraction of LAI.
+REAL(KIND=real_jlslsm) :: n_cls_with_lai
+                            ! Multilayer canopy: the number of leaf classes
+                            ! with leaf area.
+REAL(KIND=real_jlslsm) :: dnweight_2l
+                            ! Layer integral of exp(-kn_2l L) over dlai.
+REAL(KIND=real_jlslsm) :: kn_2l
+                            ! N extinction per unit LAI of the two-leaf
+                            ! classes (= knl).
+REAL(KIND=real_jlslsm) :: nweight_tot_2l
+                            ! Canopy N weight N_sun + N_shd (floored at
+                            ! TINY); each class gets its share N_class /
+                            ! nweight_tot_2l of the canopy kmax.
 
 ! Two-leaf leaf temperatures (l_leaf_temp).
-REAL(KIND=real_jlslsm) ::                                                      &
-  t_sun_lt(land_pts), t_shd_lt(land_pts),                                      &
-      ! Sunlit / shaded leaf temperature of the current pass (K).
-  t_c_lt(land_pts), q_c_lt(land_pts),                                          &
-      ! Temperature (K) and specific humidity (kg kg-1) of the air the
-      ! leaves are in (tair, q1).
-  sw_sun_lt(land_pts), sw_shd_lt(land_pts),                                    &
-      ! Absorbed PAR + near-IR of each class (W m-2 ground).
-  wlw_sun_lt(land_pts), wlw_shd_lt(land_pts),                                  &
-  wlws_sun_lt(land_pts), wlws_shd_lt(land_pts),                                &
-      ! Layer weights of the isothermal long-wave (sky, soil-reflected).
-  frad_sun_lt(land_pts), frad_shd_lt(land_pts),                                &
-      ! Radiative conductance scalars of each class.
-  ff_sun_lt(land_pts), ff_shd_lt(land_pts),                                    &
-      ! Wind-weighted leaf area of each class, for forced convection.
-  ccp_sun_lt(land_pts), ccp_shd_lt(land_pts),                                  &
-  kc_sun_lt(land_pts), kc_shd_lt(land_pts),                                    &
-  ko_sun_lt(land_pts), ko_shd_lt(land_pts),                                    &
-  km_sun_lt(land_pts), km_shd_lt(land_pts),                                    &
-      ! Temperature-dependent photosynthesis terms of each class.
-  qs_sun_lt(land_pts), qs_shd_lt(land_pts),                                    &
-  dq_sun_lt(land_pts), dq_shd_lt(land_pts),                                    &
-      ! Saturated humidity at, and humidity deficit from, each leaf to the
-      ! canopy air (kg kg-1).
-  rdc_tstar(land_pts),                                                         &
-      ! Canopy dark respiration at tstar, for the stem and root respiration.
-  wind_ext(land_pts),                                                          &
-      ! Extinction coefficient of the wind with leaf area in the canopy.
-  gc_cap, r_eq
-      ! Cap and resistance for the transpiration-equivalent gc
-      ! (l_leaf_temp_gc_eq).
+!
+! MDK, 12/11/26
+REAL(KIND=real_jlslsm) :: t_sun_lt(land_pts)
+                            ! Sunlit leaf temperature of the current pass
+                            ! (K).
+REAL(KIND=real_jlslsm) :: t_shd_lt(land_pts)
+                            ! Shaded leaf temperature of the current pass
+                            ! (K).
+REAL(KIND=real_jlslsm) :: t_c_lt(land_pts)
+                            ! Temperature of the air the leaves are in, tair
+                            ! (K).
+REAL(KIND=real_jlslsm) :: q_c_lt(land_pts)
+                            ! Specific humidity of that air, q1 (kg kg-1).
+REAL(KIND=real_jlslsm) :: sw_sun_lt(land_pts)
+                            ! Absorbed PAR + near-IR of the sunlit leaves
+                            ! (W m-2 ground).
+REAL(KIND=real_jlslsm) :: sw_shd_lt(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: lwwt_sky_sun_lt(land_pts)
+                            ! Layer weight of the isothermal long-wave from
+                            ! the sky, sunlit leaves.
+REAL(KIND=real_jlslsm) :: lwwt_sky_shd_lt(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: lwwt_soil_sun_lt(land_pts)
+                            ! Layer weight of the isothermal long-wave from
+                            ! the soil, sunlit leaves.
+REAL(KIND=real_jlslsm) :: lwwt_soil_shd_lt(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: grad_fac_sun_lt(land_pts)
+                            ! Radiative conductance scalar of the sunlit
+                            ! leaves.
+REAL(KIND=real_jlslsm) :: grad_fac_shd_lt(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: lai_wind_sun_lt(land_pts)
+                            ! Wind-weighted leaf area of the sunlit leaves,
+                            ! for forced convection.
+REAL(KIND=real_jlslsm) :: lai_wind_shd_lt(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: ccp_sun_lt(land_pts)
+                            ! Gamma* (CO2 compensation point) of the sunlit
+                            ! leaves at their temperature.
+REAL(KIND=real_jlslsm) :: ccp_shd_lt(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: kc_sun_lt(land_pts)
+                            ! Kc of the sunlit leaves at their
+                            ! temperature.
+REAL(KIND=real_jlslsm) :: kc_shd_lt(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: ko_sun_lt(land_pts)
+                            ! Ko of the sunlit leaves at their
+                            ! temperature.
+REAL(KIND=real_jlslsm) :: ko_shd_lt(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: km_sun_lt(land_pts)
+                            ! Km of the sunlit leaves at their
+                            ! temperature.
+REAL(KIND=real_jlslsm) :: km_shd_lt(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: qs_sun_lt(land_pts)
+                            ! Saturated humidity at the sunlit leaves
+                            ! (kg kg-1).
+REAL(KIND=real_jlslsm) :: qs_shd_lt(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: dq_sun_lt(land_pts)
+                            ! Humidity deficit from the sunlit leaves to the
+                            ! canopy air (kg kg-1).
+REAL(KIND=real_jlslsm) :: dq_shd_lt(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: rdc_tstar(land_pts)
+                            ! Canopy dark respiration at tstar, for the stem
+                            ! and root respiration.
+REAL(KIND=real_jlslsm) :: wind_ext(land_pts)
+                            ! Extinction coefficient of the wind with leaf
+                            ! area in the canopy.
+REAL(KIND=real_jlslsm) :: gc_eq_cap
+                            ! Cap on the transpiration-equivalent gc
+                            ! (l_leaf_temp_gc_eq).
+REAL(KIND=real_jlslsm) :: r_eq_gc
+                            ! Resistance for the transpiration-equivalent gc
+                            ! (l_leaf_temp_gc_eq).
 REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_lt = Water_kg_per_mol
-      ! Molar mass of water (kg mol-1).
+                            ! Molar mass of water (kg mol-1).
 INTEGER :: n_pass_2l
-      ! Number of passes of the two-leaf optimisation.
-LOGICAL :: l_lt_lyr
-      ! l_leaf_temp in the multilayer canopy: a leaf energy balance for the
-      ! sunlit and shaded leaf of every layer.
-INTEGER :: nc_lt
-      ! With l_lt_lyr, the number of leaf classes, 2 x ilayers (class 2n-1
-      ! the sunlit and 2n the shaded leaf of layer n).
-REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
-  lai_lt_c(:,:), sw_lt_c(:,:), wlw_lt_c(:,:), wlws_lt_c(:,:), frad_lt_c(:,:),  &
-  ff_lt_c(:,:), gl_lt_c(:,:), t_lt_c(:,:), gbw_lt_c(:,:)
-      ! With l_lt_lyr (land_pts, nc_lt): of each class, the leaf area, the
-      ! terms of the leaf energy balance fixed over the passes (see
-      ! leaf_temp_setup), the stomatal conductance (m s-1, ground), the leaf
-      ! temperature (K) and the boundary-layer conductance for water.
-      !
-      ! MDK, 19/10/26
+                            ! Number of passes of the two-leaf optimisation.
+LOGICAL :: l_leaf_temp_lyr
+                            ! l_leaf_temp in the multilayer canopy: a leaf
+                            ! energy balance for the sunlit and shaded leaf
+                            ! of every layer.
+INTEGER :: n_cls_lt
+                            ! With l_leaf_temp_lyr, the number of leaf
+                            ! classes, 2 x ilayers (class 2n-1 the sunlit and
+                            ! 2n the shaded leaf of layer n).
+REAL(KIND=real_jlslsm), ALLOCATABLE :: lai_lt_c(:,:)
+                            ! With l_leaf_temp_lyr (land_pts, n_cls_lt): the
+                            ! leaf area of each class.
+REAL(KIND=real_jlslsm), ALLOCATABLE :: sw_lt_c(:,:)
+                            ! Absorbed short-wave of each class (see
+                            ! leaf_temp_setup; fixed over the passes).
+REAL(KIND=real_jlslsm), ALLOCATABLE :: lwwt_sky_lt_c(:,:)
+                            ! Long-wave weight from the sky of each class.
+REAL(KIND=real_jlslsm), ALLOCATABLE :: lwwt_soil_lt_c(:,:)
+                            ! Long-wave weight from the soil of each class.
+REAL(KIND=real_jlslsm), ALLOCATABLE :: grad_fac_lt_c(:,:)
+                            ! Radiative conductance scalar of each class.
+REAL(KIND=real_jlslsm), ALLOCATABLE :: lai_wind_lt_c(:,:)
+                            ! Wind-weighted leaf area of each class.
+REAL(KIND=real_jlslsm), ALLOCATABLE :: gl_lt_c(:,:)
+                            ! Stomatal conductance of each class (m s-1,
+                            ! ground).
+REAL(KIND=real_jlslsm), ALLOCATABLE :: t_lt_c(:,:)
+                            ! Leaf temperature of each class (K).
+REAL(KIND=real_jlslsm), ALLOCATABLE :: gbw_lt_c(:,:)
+                            ! Boundary-layer conductance for water of each
+                            ! class.
+                            !
+                            ! MDK, 12/11/26
 LOGICAL :: l_multilayer
                             ! .TRUE. for the multilayer canopy's calls to
                             ! stom_opt_mod (it then uses je_dummy and
@@ -1390,7 +1512,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 d13c_canopy(:) = 0.0
 
 gl_leaf_cap = som_gl_max
-zero_c(:) = 0.0
+zeros_pts(:) = 0.0
 IF ( stomata_model == stomata_supply_loss ) gl_leaf_cap = 0.0
 ! (Initialised here so that every path, not only two-leaf, has them set.)
 gbw_sun_lt(:) = 0.0
@@ -1928,11 +2050,12 @@ fsmc(:) = fsmc_in(:)
 !
 ! MDK, 19/10/26
 !-----------------------------------------------------------------------------
-n_clamp_lt(:) = 0.0
-ones_c(:)     = 1.0
-l_lt_lyr = l_leaf_temp .AND. ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) .AND.  &
-           leaf_flux_mod == leaf_flux_stom_opt
-nc_lt = 2 * ilayers
+n_clamp_lt(:)   = 0.0
+ones_pts(:)     = 1.0
+l_leaf_temp_lyr = l_leaf_temp                                                  &
+                  .AND. ( can_rad_mod == 5 .OR. can_rad_mod == 6 )             &
+                  .AND. leaf_flux_mod == leaf_flux_stom_opt
+n_cls_lt = 2 * ilayers
 DO m = 1,veg_pts
   l = veg_index(m)
   t_leaf_clamp(l) = 0.0
@@ -2263,11 +2386,13 @@ CASE ( 5, 6 )
                                  lai_sun_2l, lai_shd_2l, apar_sun_2l,          &
                                  apar_shd_2l )
           ! The classes of every layer.
-          ALLOCATE( lai_lt_c(land_pts,nc_lt), sw_lt_c(land_pts,nc_lt),         &
-                    wlw_lt_c(land_pts,nc_lt), wlws_lt_c(land_pts,nc_lt),       &
-                    frad_lt_c(land_pts,nc_lt), ff_lt_c(land_pts,nc_lt),        &
-                    gl_lt_c(land_pts,nc_lt), t_lt_c(land_pts,nc_lt),           &
-                    gbw_lt_c(land_pts,nc_lt) )
+          ALLOCATE( lai_lt_c(land_pts,n_cls_lt), sw_lt_c(land_pts,n_cls_lt),   &
+                    lwwt_sky_lt_c(land_pts,n_cls_lt),                          &
+                    lwwt_soil_lt_c(land_pts,n_cls_lt),                         &
+                    grad_fac_lt_c(land_pts,n_cls_lt),                          &
+                    lai_wind_lt_c(land_pts,n_cls_lt),                          &
+                    gl_lt_c(land_pts,n_cls_lt), t_lt_c(land_pts,n_cls_lt),     &
+                    gbw_lt_c(land_pts,n_cls_lt) )
           gl_lt_c(:,:)  = 0.0
           gbw_lt_c(:,:) = 0.0
           CALL lt_init()
@@ -2595,13 +2720,13 @@ CASE ( 5, 6 )
                   t_shd_lt(:) = t_lt_c(:,2*n)
                   CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,   &
                          pft_photo_model, t_sun_lt, oa, actj, actv, dsj, dsv,  &
-                         jv25, nleaf_layer, ones_c, i2_sun, pstar, q_c_lt,     &
+                         jv25, nleaf_layer, ones_pts, i2_sun, pstar, q_c_lt,   &
                          dq_min, ccp_sun_lt, kc_sun_lt, ko_sun_lt, km_sun_lt,  &
                          vcmax_sun_ml, je_sun_ml, rd_sun_ml, qs_sun_lt,        &
                          dq_sun_lt, f_vc = f_vc )
                   CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,   &
                          pft_photo_model, t_shd_lt, oa, actj, actv, dsj, dsv,  &
-                         jv25, nleaf_layer, ones_c, i2_shd, pstar, q_c_lt,     &
+                         jv25, nleaf_layer, ones_pts, i2_shd, pstar, q_c_lt,   &
                          dq_min, ccp_shd_lt, kc_shd_lt, ko_shd_lt, km_shd_lt,  &
                          vcmax_shd_ml, je_shd_ml, rd_shd_ml, qs_shd_lt,        &
                          dq_shd_lt, f_vc = f_vc )
@@ -2638,19 +2763,17 @@ CASE ( 5, 6 )
                   ! Sunlit, then shaded leaf of the layer, each at its own
                   ! leaf temperature.
                   CALL ml_class( vcmax_sun_ml, kc_sun_lt, ko_sun_lt,           &
-                                 ccp_sun_lt, km_sun_lt, dq_sun_lt,             &
-                                 je_sun_ml, t_sun_lt, ones_c, fapar_sun(:,n),  &
-                                 r_bl_sun_ml,                                  &
-                                 rd_sun, ci_sun_ml, anetl_sun, el_sun,         &
-                                 flux_o3_l_sun, fo3_l_sun, gl_sun,             &
+                                 ccp_sun_lt, km_sun_lt, dq_sun_lt, je_sun_ml,  &
+                                 t_sun_lt, ones_pts, fapar_sun(:,n),           &
+                                 r_bl_sun_ml, rd_sun, ci_sun_ml, anetl_sun,    &
+                                 el_sun, flux_o3_l_sun, fo3_l_sun, gl_sun,     &
                                  psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,     &
                                  psi_stem_sun, q_store_sun_lyr )
                   CALL ml_class( vcmax_shd_ml, kc_shd_lt, ko_shd_lt,           &
-                                 ccp_shd_lt, km_shd_lt, dq_shd_lt,             &
-                                 je_shd_ml, t_shd_lt, ones_c, fapar_shd(:,n),  &
-                                 r_bl_shd_ml,                                  &
-                                 rd_shd, ci_shd_ml, anetl_shd, el_shd,         &
-                                 flux_o3_l_shd, fo3_l_shd, gl_shd,             &
+                                 ccp_shd_lt, km_shd_lt, dq_shd_lt, je_shd_ml,  &
+                                 t_shd_lt, ones_pts, fapar_shd(:,n),           &
+                                 r_bl_shd_ml, rd_shd, ci_shd_ml, anetl_shd,    &
+                                 el_shd, flux_o3_l_shd, fo3_l_shd, gl_shd,     &
                                  psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,     &
                                  psi_stem_shd, q_store_shd_lyr )
                   IF ( l_cap_store ) THEN
@@ -2661,17 +2784,17 @@ CASE ( 5, 6 )
                 ! share_sup: this layer's kmax share, set with kmax_leaf_lyr.
                 IF ( l_cap_store ) CALL store_cpl_ml_q( n, k )
                 CALL ml_class( vcmax, kc, ko, ccp, km, dqc, je, tstar,         &
-                               je_sun_ratio, fapar_sun(:,n), zero_c,           &
+                               je_sun_ratio, fapar_sun(:,n), zeros_pts,        &
                                rd_sun, ci_sun_ml, anetl_sun, el_sun,           &
-                               flux_o3_l_sun, fo3_l_sun, gl_sun,               &
-                               psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,       &
-                               psi_stem_sun, q_store_sun_lyr )
+                               flux_o3_l_sun, fo3_l_sun, gl_sun, psi_leaf_sun, &
+                               CG_sun, HC_sun, leaf_k_sun, psi_stem_sun,       &
+                               q_store_sun_lyr )
                 CALL ml_class( vcmax, kc, ko, ccp, km, dqc, je, tstar,         &
-                               je_shd_ratio, fapar_shd(:,n), zero_c,           &
+                               je_shd_ratio, fapar_shd(:,n), zeros_pts,        &
                                rd_shd, ci_shd_ml, anetl_shd, el_shd,           &
-                               flux_o3_l_shd, fo3_l_shd, gl_shd,               &
-                               psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,       &
-                               psi_stem_shd, q_store_shd_lyr )
+                               flux_o3_l_shd, fo3_l_shd, gl_shd, psi_leaf_shd, &
+                               CG_shd, HC_shd, leaf_k_shd, psi_stem_shd,       &
+                               q_store_shd_lyr )
                 IF ( l_cap_store ) THEN
                   el_sun_lyr(:,n) = el_sun(:)
                   el_shd_lyr(:,n) = el_shd(:)
@@ -2863,11 +2986,11 @@ CASE ( 5, 6 )
         ! the next pass (none after the last pass, so the temperatures
         ! output are those used), as two-leaf.
         IF ( l_leaf_temp .AND. k < n_pass_ml ) THEN
-          CALL leaf_temp_update_n( land_pts, veg_pts, veg_index, nc_lt, tair,  &
-                                   q1, pstar, lw_down, u_wind, lai_lt_c,       &
-                                   sw_lt_c, wlw_lt_c, wlws_lt_c, frad_lt_c,    &
-                                   ff_lt_c, gl_lt_c, t_lt_c, gbw_lt_c,         &
-                                   n_clamp_lt )
+          CALL leaf_temp_update_n( land_pts, veg_pts, veg_index, n_cls_lt,     &
+                                   tair, q1, pstar, lw_down, u_wind, lai_lt_c, &
+                                   sw_lt_c, lwwt_sky_lt_c, lwwt_soil_lt_c,     &
+                                   grad_fac_lt_c, lai_wind_lt_c, gl_lt_c,      &
+                                   t_lt_c, gbw_lt_c, n_clamp_lt )
         END IF
 
         END DO                   ! K-ITER (whole canopy)
@@ -2912,24 +3035,24 @@ CASE ( 5, 6 )
               ELSE
                 f_sun_2l = 0.5
               END IF
-              gc_cap = gl_leaf_cap * lai(l)
+              gc_eq_cap = gl_leaf_cap * lai(l)
               ! The sunlit (shaded) temperature output is the leaf-area
-              ! weighted mean of the layers' sunlit (shaded) leaves (so t_can is that of all leaves);
-              ! a class without leaf area takes the air's (and
-              ! lt_finish then the other class's). The clamp fraction is
-              ! over all the classes with leaf area.
-              t_sun_lt(l) = 0.0
-              t_shd_lt(l) = 0.0
-              n_cls_lt    = 0.0
+              ! weighted mean of the layers' sunlit (shaded) leaves (so
+              ! t_can is that of all leaves); a class without leaf area
+              ! takes the air's (and lt_finish then the other class's). The
+              ! clamp fraction is over all the classes with leaf area.
+              t_sun_lt(l)    = 0.0
+              t_shd_lt(l)    = 0.0
+              n_cls_with_lai = 0.0
               DO n = 1,ilayers
                 t_sun_lt(l) = t_sun_lt(l)                                    &
                               + lai_lt_c(l,2*n-1) * t_lt_c(l,2*n-1)
                 t_shd_lt(l) = t_shd_lt(l)                                    &
                               + lai_lt_c(l,2*n) * t_lt_c(l,2*n)
                 IF ( lai_lt_c(l,2*n-1) > EPSILON(0.0) )                      &
-                  n_cls_lt = n_cls_lt + 1.0
+                  n_cls_with_lai = n_cls_with_lai + 1.0
                 IF ( lai_lt_c(l,2*n) > EPSILON(0.0) )                        &
-                  n_cls_lt = n_cls_lt + 1.0
+                  n_cls_with_lai = n_cls_with_lai + 1.0
               END DO
               IF ( lai_sun_2l(l) > EPSILON(0.0) ) THEN
                 t_sun_lt(l) = t_sun_lt(l) / lai_sun_2l(l)
@@ -2941,13 +3064,14 @@ CASE ( 5, 6 )
               ELSE
                 t_shd_lt(l) = t_c_lt(l)
               END IF
-              CALL lt_finish( l, f_sun_2l, n_cls_lt )
+              CALL lt_finish( l, f_sun_2l, n_cls_with_lai )
             END IF
 
         END DO
         IF ( l_leaf_temp ) THEN
-          DEALLOCATE( lai_lt_c, sw_lt_c, wlw_lt_c, wlws_lt_c, frad_lt_c,       &
-                      ff_lt_c, gl_lt_c, t_lt_c, gbw_lt_c )
+          DEALLOCATE( lai_lt_c, sw_lt_c, lwwt_sky_lt_c, lwwt_soil_lt_c,        &
+                      grad_fac_lt_c, lai_wind_lt_c, gl_lt_c, t_lt_c,           &
+                      gbw_lt_c )
         END IF
 
         ! Xylem impairment state update, once per timestep (after the
@@ -3423,15 +3547,15 @@ CASE ( 1 )
        ! Coupled transpiration: the deficit to the level-1 air through ra
        ! (shared with the soil evaporation, as in the tile flux).
        dq_opt(:) = dqc(:)
-       r_ca_c(:) = 0.0
+       r_ca_opt(:) = 0.0
        IF ( l_som_coupled_e ) THEN
          dq_opt(:) = dq(:)
-         r_ca_c(:) = ra(:)
+         r_ca_opt(:) = ra(:)
        END IF
        CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use,       &
                                 share_sup, dq_opt, tstar, pstar,               &
                                 gl_max_bigleaf, gl_max_eff,                    &
-                                zero_c, r_ca_c, g_soil_c )
+                                zeros_pts, r_ca_opt, g_soil_c )
        CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
        ! Xylem impairment: k_max/conductance_b/conductance_c hold
@@ -3481,7 +3605,7 @@ CASE ( 1 )
                 ca, psi_src, acrc, apar, oa, vcmaxc, kc, ko, ccp, pstar,       &
                 km, dq_opt, je, tstar, je_dummy, fapar_dummy,                  &
                 kmax_bigleaf, kcrit_bigleaf, gl_max_eff, ipar,                 &
-                l_multilayer, zero_c, r_ca_c, g_soil_c,                        &
+                l_multilayer, zeros_pts, r_ca_opt, g_soil_c,                   &
                 kmax_ref_bigleaf, conductance_b, conductance_c,                &
                 psi_leaf_extreme, psi_root_extreme, .TRUE.,                    &
               ! IN OUT
@@ -3704,30 +3828,30 @@ CASE ( 7 )
                          fapar_sun, fapar_shd, ipar, lai_sun_2l, lai_shd_2l,   &
                          apar_sun_2l, apar_shd_2l )
   DO m = 1,veg_pts
-    l = veg_index(m)
-    nw_sun_2l(l)   = 0.0
-    nw_shd_2l(l)   = 0.0
+    l                 = veg_index(m)
+    nweight_sun_2l(l) = 0.0
+    nweight_shd_2l(l) = 0.0
     ! N extinction per unit LAI (extkn of Wang & Leuning 1998): knl, as the
     ! multilayer scheme (can_rad_mod = 6). kpar is the PAR extinction only.
     kn_2l = knl(ft)
     DO n = 1,ilayers
       IF ( kn_2l > EPSILON(0.0) ) THEN
-        dnw_2l = ( EXP(-kn_2l * REAL(n-1) * dlai(l))                           &
-                   - EXP(-kn_2l * REAL(n) * dlai(l)) ) / kn_2l
+        dnweight_2l = ( EXP(-kn_2l * REAL(n-1) * dlai(l))                      &
+                        - EXP(-kn_2l * REAL(n) * dlai(l)) ) / kn_2l
       ELSE
-        dnw_2l = dlai(l)
+        dnweight_2l = dlai(l)
       END IF
-      nw_sun_2l(l)   = nw_sun_2l(l)   + fsun(l,n) * dnw_2l
-      nw_shd_2l(l)   = nw_shd_2l(l)   + (1.0 - fsun(l,n)) * dnw_2l
+      nweight_sun_2l(l) = nweight_sun_2l(l) + fsun(l,n) * dnweight_2l
+      nweight_shd_2l(l) = nweight_shd_2l(l) + (1.0 - fsun(l,n)) * dnweight_2l
     END DO
 
-    acr_sun_2l(l) = apar_sun_2l(l) / conpar
-    acr_shd_2l(l) = apar_shd_2l(l) / conpar
+    apar_mol_sun_2l(l) = apar_sun_2l(l) / conpar
+    apar_mol_shd_2l(l) = apar_shd_2l(l) / conpar
 
-    vcmax_sun_2l(l) = vcmax(l) * nw_sun_2l(l)
-    vcmax_shd_2l(l) = vcmax(l) * nw_shd_2l(l)
-    jmax_sun_2l(l)  = jmax(l)  * nw_sun_2l(l)
-    jmax_shd_2l(l)  = jmax(l)  * nw_shd_2l(l)
+    vcmax_sun_2l(l) = vcmax(l) * nweight_sun_2l(l)
+    vcmax_shd_2l(l) = vcmax(l) * nweight_shd_2l(l)
+    jmax_sun_2l(l)  = jmax(l)  * nweight_sun_2l(l)
+    jmax_shd_2l(l)  = jmax(l)  * nweight_shd_2l(l)
 
     ! Canopy conductance kmax_pft*LAI (per unit leaf area, as big-leaf),
     ! shared between the classes by their N-weighted leaf area (CABLE's
@@ -3740,11 +3864,13 @@ CASE ( 7 )
     ! the impaired leaf-basis k_max (= kmax_pft when unimpaired) is shared
     ! the same way, and the unimpaired kmax_pft share is the reference for
     ! the hydraulic cost; kcrit stays on the unimpaired curve, as big-leaf.
-    nw_tot_2l = MAX(nw_sun_2l(l) + nw_shd_2l(l), TINY(1.0))
-    kmax_ref_sun_2l(l) = kmax_pft(ft) * lai(l) * nw_sun_2l(l) / nw_tot_2l
-    kmax_ref_shd_2l(l) = kmax_pft(ft) * lai(l) * nw_shd_2l(l) / nw_tot_2l
-    kmax_sun_2l(l)     = k_max(l) * lai(l) * nw_sun_2l(l) / nw_tot_2l
-    kmax_shd_2l(l)     = k_max(l) * lai(l) * nw_shd_2l(l) / nw_tot_2l
+    nweight_tot_2l = MAX(nweight_sun_2l(l) + nweight_shd_2l(l), TINY(1.0))
+    kmax_ref_sun_2l(l) = kmax_pft(ft) * lai(l) * nweight_sun_2l(l) /           &
+                         nweight_tot_2l
+    kmax_ref_shd_2l(l) = kmax_pft(ft) * lai(l) * nweight_shd_2l(l) /           &
+                         nweight_tot_2l
+    kmax_sun_2l(l) = k_max(l) * lai(l) * nweight_sun_2l(l) / nweight_tot_2l
+    kmax_shd_2l(l) = k_max(l) * lai(l) * nweight_shd_2l(l) / nweight_tot_2l
 
     ! In spin-up, or without an impairment model, the intact kmax (as big
     ! leaf).
@@ -3775,8 +3901,8 @@ CASE ( 7 )
     gl_max_shd_2l(l) = gl_leaf_cap * lai_shd_2l(l)
 
     ! Radiation to photosystem II of each class (cf. i2 = alpha_elec*acr).
-    i2_sun(l) = alpha_elec(ft) * acr_sun_2l(l)
-    i2_shd(l) = alpha_elec(ft) * acr_shd_2l(l)
+    i2_sun(l) = alpha_elec(ft) * apar_mol_sun_2l(l)
+    i2_shd(l) = alpha_elec(ft) * apar_mol_shd_2l(l)
   END DO
 
   ! Each class's electron transport comes from its totals of I and Jmax.
@@ -3816,7 +3942,7 @@ CASE ( 7 )
     ! respiration, which stay at tstar.
     DO m = 1,veg_pts
       l = veg_index(m)
-      rdc_tstar(l) = rd(l) * ( nw_sun_2l(l) + nw_shd_2l(l) )
+      rdc_tstar(l) = rd(l) * ( nweight_sun_2l(l) + nweight_shd_2l(l) )
     END DO
   ELSE
     n_pass_2l = iter
@@ -3884,8 +4010,8 @@ CASE ( 7 )
   ! timestep's conductance (as for big-leaf), and with l_leaf_temp for the
   ! leaf temperatures.
   !---------------------------------------------------------------------------
-  ltc_a_2l(:,:) = 0.0
-  ltc_b_2l(:,:) = 0.0
+  tleaf_a_2l(:,:) = 0.0
+  tleaf_b_2l(:,:) = 0.0
 
   ! The shared root and stem: the last timestep's shaded flow (0 before the
   ! first).
@@ -3911,8 +4037,8 @@ CASE ( 7 )
       dqc(l)   = dq(l) / (1.0 + ra_rc(l))
       ! No light inhibition of Rd, as for big-leaf (rd is reset each pass
       ! because stom_opt_mod treats it as IN OUT).
-      rd_sun(l) = rd(l) * nw_sun_2l(l)
-      rd_shd(l) = rd(l) * nw_shd_2l(l)
+      rd_sun(l) = rd(l) * nweight_sun_2l(l)
+      rd_shd(l) = rd(l) * nweight_shd_2l(l)
     END DO
 
     IF ( l_leaf_temp ) THEN
@@ -3920,19 +4046,17 @@ CASE ( 7 )
       ! temperature. The deficit is from the leaf to the level-1 air,
       ! qs(T_leaf) - q1.
       CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
-                               pft_photo_model, t_sun_lt, oa, actj, actv,      &
-                               dsj, dsv, jv25, nleaf_top, nw_sun_2l, i2_sun,   &
-                               pstar, q_c_lt, dq_min,                          &
-                               ccp_sun_lt, kc_sun_lt, ko_sun_lt, km_sun_lt,    &
-                               vcmax_sun_2l, je_sun, rd_sun, qs_sun_lt,        &
-                               dq_sun_lt, f_vc = f_vc )
+                               pft_photo_model, t_sun_lt, oa, actj, actv, dsj, &
+                               dsv, jv25, nleaf_top, nweight_sun_2l, i2_sun,   &
+                               pstar, q_c_lt, dq_min, ccp_sun_lt, kc_sun_lt,   &
+                               ko_sun_lt, km_sun_lt, vcmax_sun_2l, je_sun,     &
+                               rd_sun, qs_sun_lt, dq_sun_lt, f_vc = f_vc )
       CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
-                               pft_photo_model, t_shd_lt, oa, actj, actv,      &
-                               dsj, dsv, jv25, nleaf_top, nw_shd_2l, i2_shd,   &
-                               pstar, q_c_lt, dq_min,                          &
-                               ccp_shd_lt, kc_shd_lt, ko_shd_lt, km_shd_lt,    &
-                               vcmax_shd_2l, je_shd, rd_shd, qs_shd_lt,        &
-                               dq_shd_lt, f_vc = f_vc )
+                               pft_photo_model, t_shd_lt, oa, actj, actv, dsj, &
+                               dsv, jv25, nleaf_top, nweight_shd_2l, i2_shd,   &
+                               pstar, q_c_lt, dq_min, ccp_shd_lt, kc_shd_lt,   &
+                               ko_shd_lt, km_shd_lt, vcmax_shd_2l, je_shd,     &
+                               rd_shd, qs_shd_lt, dq_shd_lt, f_vc = f_vc )
     END IF
 
     !-------------------------------------------------------------------------
@@ -3941,10 +4065,9 @@ CASE ( 7 )
     !-------------------------------------------------------------------------
     ! l_leaf_temp_ci: from the second pass, each candidate Ci of the
     ! search at its own leaf temperature (ltc_set).
-    IF ( l_leaf_temp_ci .AND. k > 1 )                                          &
-      CALL ltc_set( 1, t_sun_lt, nw_sun_2l, i2_sun, ccp_sun_lt, kc_sun_lt,     &
-                    ko_sun_lt, km_sun_lt, vcmax_sun_2l, je_sun, rd_sun,        &
-                    qs_sun_lt )
+    IF ( l_leaf_temp_ci .AND. k > 1 ) CALL ltc_set( 1, t_sun_lt,               &
+      nweight_sun_2l, i2_sun, ccp_sun_lt, kc_sun_lt, ko_sun_lt, km_sun_lt,     &
+      vcmax_sun_2l, je_sun, rd_sun, qs_sun_lt )
     ! The shared root and stem: the shaded leaves' flow on it, of the last
     ! pass, or in the first pass of the last timestep.
     IF ( l_som_shared_stem ) THEN
@@ -3959,20 +4082,20 @@ CASE ( 7 )
         END IF
       END DO
     END IF
-    CALL two_leaf_class( apar_sun_2l, lai_sun_2l, kmax_ref_sun_2l,             &
-                         qs_sun_lt, dq_sun_lt, gbw_sun_lt, gbw_shd_lt,         &
-                         gl_shd, t_sun_lt, gl_max_sun_2l, acr_sun_2l,          &
-                         vcmax_sun_2l, kc_sun_lt, ko_sun_lt, ccp_sun_lt,       &
-                         km_sun_lt, je_sun, kmax_sun_2l, kcrit_sun_2l,         &
-                         rd_sun, ci_sun_2l, anetl_sun, el_sun,                 &
-                         flux_o3_l_sun, fo3_l_sun, gl_sun, psi_leaf_sun,       &
-                         CG_sun, HC_sun, leaf_k_sun, psi_stem_sun, lam_sun,    &
-                         q_store_sun, e_oth_2l, a_oth_2l, amax_sun_2l )
+    CALL two_leaf_class( apar_sun_2l, lai_sun_2l, kmax_ref_sun_2l, qs_sun_lt,  &
+                         dq_sun_lt, gbw_sun_lt, gbw_shd_lt, gl_shd, t_sun_lt,  &
+                         gl_max_sun_2l, apar_mol_sun_2l, vcmax_sun_2l,         &
+                         kc_sun_lt, ko_sun_lt, ccp_sun_lt, km_sun_lt, je_sun,  &
+                         kmax_sun_2l, kcrit_sun_2l, rd_sun, ci_sun_2l,         &
+                         anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun, gl_sun,  &
+                         psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,             &
+                         psi_stem_sun, lam_sun, q_store_sun, e_oth_2l,         &
+                         a_oth_2l, amax_sun_2l )
     IF ( l_leaf_temp_ci .AND. k > 1 ) THEN
       CALL clear_leaf_temp_ci()
-      CALL ltc_set( 2, t_shd_lt, nw_shd_2l, i2_shd, ccp_shd_lt, kc_shd_lt,     &
-                    ko_shd_lt, km_shd_lt, vcmax_shd_2l, je_shd, rd_shd,        &
-                    qs_shd_lt )
+      CALL ltc_set( 2, t_shd_lt, nweight_shd_2l, i2_shd, ccp_shd_lt,           &
+                    kc_shd_lt, ko_shd_lt, km_shd_lt, vcmax_shd_2l, je_shd,     &
+                    rd_shd, qs_shd_lt )
     END IF
     ! The shared root and stem: the sunlit leaves' flow of this pass.
     IF ( l_som_shared_stem ) THEN
@@ -3982,15 +4105,15 @@ CASE ( 7 )
         a_oth_2l(l) = amax_sun_2l(l)
       END DO
     END IF
-    CALL two_leaf_class( apar_shd_2l, lai_shd_2l, kmax_ref_shd_2l,             &
-                         qs_shd_lt, dq_shd_lt, gbw_shd_lt, gbw_sun_lt,         &
-                         gl_sun, t_shd_lt, gl_max_shd_2l, acr_shd_2l,          &
-                         vcmax_shd_2l, kc_shd_lt, ko_shd_lt, ccp_shd_lt,       &
-                         km_shd_lt, je_shd, kmax_shd_2l, kcrit_shd_2l,         &
-                         rd_shd, ci_shd_2l, anetl_shd, el_shd,                 &
-                         flux_o3_l_shd, fo3_l_shd, gl_shd, psi_leaf_shd,       &
-                         CG_shd, HC_shd, leaf_k_shd, psi_stem_shd, lam_shd,    &
-                         q_store_shd, e_oth_2l, a_oth_2l, amax_shd_2l )
+    CALL two_leaf_class( apar_shd_2l, lai_shd_2l, kmax_ref_shd_2l, qs_shd_lt,  &
+                         dq_shd_lt, gbw_shd_lt, gbw_sun_lt, gl_sun, t_shd_lt,  &
+                         gl_max_shd_2l, apar_mol_shd_2l, vcmax_shd_2l,         &
+                         kc_shd_lt, ko_shd_lt, ccp_shd_lt, km_shd_lt, je_shd,  &
+                         kmax_shd_2l, kcrit_shd_2l, rd_shd, ci_shd_2l,         &
+                         anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd, gl_shd,  &
+                         psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,             &
+                         psi_stem_shd, lam_shd, q_store_shd, e_oth_2l,         &
+                         a_oth_2l, amax_shd_2l )
     IF ( l_leaf_temp_ci .AND. k > 1 ) CALL clear_leaf_temp_ci()
 
     DO m = 1,veg_pts
@@ -4036,11 +4159,13 @@ CASE ( 7 )
     IF ( l_leaf_temp .AND. k < n_pass_2l ) THEN
       CALL leaf_temp_update( land_pts, veg_pts, veg_index, tair, q1, pstar,    &
                              lw_down, u_wind, lai_sun_2l, lai_shd_2l,          &
-                             sw_sun_lt, sw_shd_lt, wlw_sun_lt, wlw_shd_lt,     &
-                             wlws_sun_lt, wlws_shd_lt, frad_sun_lt,            &
-                             frad_shd_lt, ff_sun_lt, ff_shd_lt, gl_sun,        &
-                             gl_shd, t_sun_lt, t_shd_lt, gbw_sun_lt,           &
-                             gbw_shd_lt, n_clamp_lt, ltc_a_2l, ltc_b_2l )
+                             sw_sun_lt, sw_shd_lt, lwwt_sky_sun_lt,            &
+                             lwwt_sky_shd_lt, lwwt_soil_sun_lt,                &
+                             lwwt_soil_shd_lt, grad_fac_sun_lt,                &
+                             grad_fac_shd_lt, lai_wind_sun_lt,                 &
+                             lai_wind_shd_lt, gl_sun, gl_shd, t_sun_lt,        &
+                             t_shd_lt, gbw_sun_lt, gbw_shd_lt, n_clamp_lt,     &
+                             tleaf_a_2l, tleaf_b_2l )
     END IF
 
   END DO   ! End of iteration loop
@@ -4177,7 +4302,7 @@ CASE ( 7 )
     IF ( l_leaf_temp ) THEN
       ! Leaf temperatures used and the transpiration-equivalent gc
       ! (lt_finish, shared with the multilayer scheme).
-      gc_cap = gl_max_sun_2l(l) + gl_max_shd_2l(l)
+      gc_eq_cap = gl_max_sun_2l(l) + gl_max_shd_2l(l)
       CALL lt_finish( l, f_sun_2l )
     END IF
   END DO
@@ -5982,7 +6107,7 @@ END SUBROUTINE store_cpl_eval
 ! per unit leaf area, so the CMax and CGain costs take a leaf area of 1
 ! (lai_cost), not the layer's N-profile share of kmax.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE ml_class( vcmax_x, kc_x, ko_x, ccp_x, km_x, dq_x, je_x,             &
                      t_x, je_ratio_x, fapar_x, r_bl_x, rd_c, ci_c, anetl_c,    &
@@ -6023,11 +6148,11 @@ IF ( l_cap_store ) THEN
                        + q_c(:) * Water_kg_per_mol, 0.0)
   CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_cls,            &
                            share_one, dq_x, t_x, pstar, gl_max_lf, gl_max_eff, &
-                           r_bl_x, zero_c, zero_c )
+                           r_bl_x, zeros_pts, zeros_pts )
 ELSE
   CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use,            &
                            share_sup, dq_x, t_x, pstar, gl_max_lf, gl_max_eff, &
-                           r_bl_x, zero_c, zero_c )
+                           r_bl_x, zeros_pts, zeros_pts )
 END IF
 CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
@@ -6041,17 +6166,14 @@ CALL stom_opt_mod (                                                            &
     ca, psi_src, acr, apar, oa, vcmax_x, kc_x, ko_x, ccp_x, pstar,             &
     km_x, dq_x, je_x, t_x, je_ratio_x, fapar_x,                                &
     kmax_imp_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,                            &
-    l_multilayer, r_bl_x, zero_c, zero_c,                                      &
+    l_multilayer, r_bl_x, zeros_pts, zeros_pts,                                &
     kmax_leaf_lyr, b_pft_pts, c_pft_pts,                                       &
     psi_leaf_extreme, psi_root_extreme, l_ml_ximp,                             &
     ! IN OUT
     rd_c,                                                                      &
     ! OUT
-    ci_c, anetl_c, el_c, flux_o3_c, fo3_c,                                     &
-    gl_c, psi_leaf_c, cg_c, hc_c, leaf_k_c,                                    &
-    psi_stem = psi_stem_c,                                                     &
-    lai_cost = ones_c                                                          &
-)
+    ci_c, anetl_c, el_c, flux_o3_c, fo3_c, gl_c, psi_leaf_c, cg_c, hc_c,       &
+    leaf_k_c, psi_stem = psi_stem_c, lai_cost = ones_pts )
 IF ( l_cap_store ) CALL clear_store_q_path()
 
 END SUBROUTINE ml_class
@@ -6084,7 +6206,7 @@ END SUBROUTINE ml_class
 ! the same fraction of the plant's intact conductance, now of the whole
 ! plant's root and stem.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE two_leaf_class( apar_c, lai_c, kmax_ref_c, qs_lt_c, dq_lt_c,        &
                            gbw_c, gbw_o, gl_o, t_lt_c, gl_max_c, acr_c,        &
@@ -6164,9 +6286,9 @@ DO m = 1,veg_pts
                  MAX(kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l), TINY(1.0))
 END DO
 
-CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min,        &
-                     dqc, dq, qs_lt_c, q1, dq_lt_c, gbw_c, gbw_o, ra_ca_lt,    &
-                     gl_o, g_soil_c, qs, dq_opt, r_bl_c, r_ca_c, g_oth_c )
+CALL coupled_inputs( land_pts, veg_pts, veg_index, l_leaf_temp, dq_min, dqc,   &
+                     dq, qs_lt_c, q1, dq_lt_c, gbw_c, gbw_o, ra_ca_lt, gl_o,   &
+                     g_soil_c, qs, dq_opt, r_bl_opt, r_ca_opt, g_other_opt )
 
 ! The store coupled to the optimiser (the capacitance store): this class's
 ! part of the store's flow out (store_cpl_split), held fixed for its search
@@ -6231,7 +6353,7 @@ IF ( l_som_shared_stem ) THEN
   END DO
   CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_cls,            &
                            share_one, dq_opt, t_lt_c, pstar, gl_max_c,         &
-                           gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
+                           gl_max_eff, r_bl_opt, r_ca_opt, g_other_opt )
 ELSE IF ( l_cap_store ) THEN
   ! The class's kmax share of the soil supply plus its own part of the
   ! store's flow (q_store_cls), not share_sup (e_s + q_store).
@@ -6241,11 +6363,11 @@ ELSE IF ( l_cap_store ) THEN
                        + q_store_cls(:) * Water_kg_per_mol, 0.0)
   CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_cls,            &
                            share_one, dq_opt, t_lt_c, pstar, gl_max_c,         &
-                           gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
+                           gl_max_eff, r_bl_opt, r_ca_opt, g_other_opt )
 ELSE
   CALL apply_supply_limit( land_pts, veg_pts, veg_index, e_sup_use,            &
                            share_sup, dq_opt, t_lt_c, pstar, gl_max_c,         &
-                           gl_max_eff, r_bl_c, r_ca_c, g_oth_c )
+                           gl_max_eff, r_bl_opt, r_ca_opt, g_other_opt )
 END IF
 
 ! The shared root and stem: the whole soil-to-root conductance.
@@ -6263,7 +6385,7 @@ CALL stom_opt_mod (                                                            &
           km_lt_c, dq_opt, je_c, t_lt_c, je_dummy,                             &
           fapar_dummy,                                                         &
           kmax_c, kcrit_use, gl_max_eff, ipar,                                 &
-          l_multilayer, r_bl_c, r_ca_c, g_oth_c,                               &
+          l_multilayer, r_bl_opt, r_ca_opt, g_other_opt,                       &
           kmax_ref_c, conductance_b, conductance_c,                            &
           psi_leaf_extreme, psi_root_extreme, .TRUE.,                          &
         ! IN OUT
@@ -6319,7 +6441,7 @@ END SUBROUTINE two_leaf_class
 ! candidate.
 !
 ! The leaf temperature is a straight line in the transpiration E, from
-! the last pass's leaf energy balance (ltc_a_2l, ltc_b_2l):
+! the last pass's leaf energy balance (tleaf_a_2l, tleaf_b_2l):
 !
 !   T_leaf = a - b E      (K)
 !
@@ -6331,7 +6453,7 @@ END SUBROUTINE two_leaf_class
 ! changes per kelvin, dqs / dT (kg kg-1 K-1). It passes these to the
 ! search (set_leaf_temp_ci).
 !
-! MDK, 24/10/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE ltc_set( ic, t_cls, nw_c, i2c, ccp_c, kc_c, ko_c, km_c, vcmax_c,    &
                     je_c, rd_c, qs_c )
@@ -6356,20 +6478,20 @@ CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index, pft_photo_model,    &
                          t1, oa, actj, actv, dsj, dsv, jv25, nleaf_top, nw_c,  &
                          i2c, pstar, q_c_lt, dq_min, ccp1, kc1, ko1, km1,      &
                          vcmax1, je1, rd1, qs1, dq1, f_vc = f_vc )
-ltc_dl_2l(:,:) = 0.0
-ltc_s_2l(:)    = 0.0
+dlnpar_dt_2l(:,:) = 0.0
+dqs_dt_2l(:)      = 0.0
 DO m = 1,veg_pts
   l = veg_index(m)
   p0 = (/ vcmax_c(l), je_c(l), kc_c(l), ko_c(l), ccp_c(l), km_c(l), rd_c(l) /)
   p1 = (/ vcmax1(l), je1(l), kc1(l), ko1(l), ccp1(l), km1(l), rd1(l) /)
   DO ip = 1,7
     IF ( p0(ip) > 0.0 .AND. p1(ip) > 0.0 )                                     &
-      ltc_dl_2l(l,ip) = LOG(p1(ip) / p0(ip))
+      dlnpar_dt_2l(l,ip) = LOG(p1(ip) / p0(ip))
   END DO
-  ltc_s_2l(l) = qs1(l) - qs_c(l)
+  dqs_dt_2l(l) = qs1(l) - qs_c(l)
 END DO
-CALL set_leaf_temp_ci( land_pts, veg_pts, veg_index, ltc_a_2l(:,ic),          &
-                       ltc_b_2l(:,ic), ltc_s_2l, ltc_dl_2l )
+CALL set_leaf_temp_ci( land_pts, veg_pts, veg_index, tleaf_a_2l(:,ic),         &
+                       tleaf_b_2l(:,ic), dqs_dt_2l, dlnpar_dt_2l )
 
 END SUBROUTINE ltc_set
 
@@ -6389,7 +6511,7 @@ END SUBROUTINE ltc_set
 !      leaves (CO2 compensation point and Michaelis-Menten constants) from
 !      the tile's.
 !
-! MDK, 04/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE lt_init()
 IMPLICIT NONE
@@ -6399,28 +6521,28 @@ INTEGER :: l, m
   ! The wind extinction with leaf area (0 by default).
   wind_ext(:) = leaf_wind_ext
 
-  IF ( l_lt_lyr ) THEN
+  IF ( l_leaf_temp_lyr ) THEN
     ! Also the terms of every layer's sunlit and shaded leaf.
     CALL leaf_temp_setup( ft, land_pts, veg_pts, veg_index, ilayers, lai,      &
                           dlai, fsun, fapar_sun_nir, fapar_shd_nir, ipar,      &
-                          wind_ext,                                            &
-                          apar_sun_2l, apar_shd_2l,                            &
-                          sw_sun_lt, sw_shd_lt, wlw_sun_lt, wlw_shd_lt,        &
-                          wlws_sun_lt, wlws_shd_lt, frad_sun_lt,               &
-                          frad_shd_lt, ff_sun_lt, ff_shd_lt,                   &
+                          wind_ext, apar_sun_2l, apar_shd_2l, sw_sun_lt,       &
+                          sw_shd_lt, lwwt_sky_sun_lt, lwwt_sky_shd_lt,         &
+                          lwwt_soil_sun_lt, lwwt_soil_shd_lt, grad_fac_sun_lt, &
+                          grad_fac_shd_lt, lai_wind_sun_lt, lai_wind_shd_lt,   &
                           fapar_sun_vis = fapar_sun,                           &
-                          fapar_shd_vis = fapar_shd, lai_c = lai_lt_c,         &
-                          sw_c = sw_lt_c, wlw_c = wlw_lt_c,                    &
-                          wlws_c = wlws_lt_c, frad_c = frad_lt_c,              &
-                          ff_c = ff_lt_c )
+                          fapar_shd_vis = fapar_shd,                           &
+                          lai_c = lai_lt_c, sw_c = sw_lt_c,                    &
+                          lwwt_sky_c = lwwt_sky_lt_c,                          &
+                          lwwt_soil_c = lwwt_soil_lt_c,                        &
+                          grad_fac_c = grad_fac_lt_c,                          &
+                          lai_wind_c = lai_wind_lt_c )
   ELSE
-  CALL leaf_temp_setup( ft, land_pts, veg_pts, veg_index, ilayers, lai,        &
-                        dlai, fsun, fapar_sun_nir, fapar_shd_nir, ipar,        &
-                        wind_ext,                                              &
-                        apar_sun_2l, apar_shd_2l,                              &
-                        sw_sun_lt, sw_shd_lt, wlw_sun_lt, wlw_shd_lt,          &
-                        wlws_sun_lt, wlws_shd_lt, frad_sun_lt, frad_shd_lt,    &
-                        ff_sun_lt, ff_shd_lt )
+  CALL leaf_temp_setup( ft, land_pts, veg_pts, veg_index, ilayers, lai, dlai,  &
+                        fsun, fapar_sun_nir, fapar_shd_nir, ipar, wind_ext,    &
+                        apar_sun_2l, apar_shd_2l, sw_sun_lt, sw_shd_lt,        &
+                        lwwt_sky_sun_lt, lwwt_sky_shd_lt, lwwt_soil_sun_lt,    &
+                        lwwt_soil_shd_lt, grad_fac_sun_lt, grad_fac_shd_lt,    &
+                        lai_wind_sun_lt, lai_wind_shd_lt )
   END IF
 
   ! Defined at every land point (leaf_class_at_temp takes qsat of the
@@ -6478,14 +6600,14 @@ END SUBROUTINE lt_init
 !      from the surface to the first atmospheric level (kg kg-1), ra the
 !      aerodynamic resistance (s m-1), g_s the soil's evaporation
 !      conductance, E the transpiration (mol m-2 s-1) and M_w the molar
-!      mass of water. gc is no more than gc_cap, set by the caller, or
+!      mass of water. gc is no more than gc_eq_cap, set by the caller, or
 !      som_gl_max times LAI where the caller sets none. The optimised gc
 !      is kept when the deficit is below 1e-4 kg kg-1.
 !   4. Record the fraction of the leaves (sunlit and shaded, or those of
 !      every layer, n_cls_in) whose temperature was held at dt_leaf from
 !      the air, and warn the first few times it happens.
 !
-! MDK, 04/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE lt_finish( lp, f_sun, n_cls_in )
 IMPLICIT NONE
@@ -6534,7 +6656,7 @@ CHARACTER(LEN=300) :: clamp_msg
   !
   !   rho (qs(tstar) - q1) gc / (1 + ra (gc + g_s)) = el m_h2o,
   !
-  ! so 1/gc is the r_eq above divided by 1 + ra g_s.
+  ! so 1/gc is the r_eq_gc above divided by 1 + ra g_s.
   !
   ! The deficit is the actual qs(tstar) - q1, not dq, which the stomatal
   ! optimisation floors at dq_min: with the floor a near-saturated or
@@ -6544,14 +6666,14 @@ CHARACTER(LEN=300) :: clamp_msg
   ! cap is off (supply-loss).
   IF ( l_leaf_temp_gc_eq ) THEN
     dq_eq  = qs(lp) - q1(lp)
-    cap_eq = gc_cap
+    cap_eq = gc_eq_cap
     IF ( cap_eq <= 0.0 ) cap_eq = som_gl_max * lai(lp)
     IF ( el(lp) * m_h2o_lt > TINY(1.0) .AND. dq_eq > 1.0e-4 ) THEN
-      r_eq = pstar(lp) / ( r * tstar(lp) ) * dq_eq / ( el(lp) * m_h2o_lt )     &
+      r_eq_gc = pstar(lp) / ( r * tstar(lp) ) * dq_eq / ( el(lp) * m_h2o_lt )  &
              - ra(lp)
-      r_eq = r_eq / ( 1.0 + ra(lp) * g_soil_c(lp) )
-      IF ( r_eq > 0.0 ) THEN
-        gc(lp) = MIN(1.0 / r_eq, cap_eq)
+      r_eq_gc = r_eq_gc / ( 1.0 + ra(lp) * g_soil_c(lp) )
+      IF ( r_eq_gc > 0.0 ) THEN
+        gc(lp) = MIN(1.0 / r_eq_gc, cap_eq)
       ELSE
         ! Demand above what any gc gives: the cap.
         gc(lp) = cap_eq
