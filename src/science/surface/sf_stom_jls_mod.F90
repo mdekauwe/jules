@@ -9,8 +9,8 @@
 MODULE sf_stom_mod
 
 USE um_types, ONLY: real_jlslsm
-USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state, sf_stom_state_alloc
-                            ! f_vcmax_state (l_som_vcmax_psi) and cpl_state
+USE sf_stom_state_mod, ONLY: f_vcmax_psi_state, cpl_state, sf_stom_state_alloc
+                            ! f_vcmax_psi_state (l_som_vcmax_psi) and cpl_state
                             ! (l_som_coupled_e, two-leaf) are in
                             ! sf_stom_state_mod, so they go in the dump.
                             !
@@ -880,13 +880,15 @@ REAL(KIND=real_jlslsm) :: fsmc(land_pts)
                             ! and passed to leaf_limits (fsmc_in).
                             !
                             ! MDK, 04/11/26
-REAL(KIND=real_jlslsm) :: f_vc(land_pts)
-                            ! Soil-water capacity factor (l_som_vcmax_psi).
-REAL(KIND=real_jlslsm) :: beta_sink(land_pts)
+REAL(KIND=real_jlslsm) :: f_vcmax_down(land_pts)
+                            ! Factor on Vcmax and Jmax (0-1): the soil-water
+                            ! factor (l_som_vcmax_psi) times the sink
+                            ! feedback (l_nsc_sink_feedback).
+REAL(KIND=real_jlslsm) :: f_sink_feedback(land_pts)
                             ! Sink feedback factor (l_nsc_sink_feedback;
                             ! 1 = none).
                             !
-                            ! MDK, 31/10/26
+                            ! MDK, 12/11/26
 REAL(KIND=real_jlslsm) :: vcmax_top_d(land_pts), jmax_top_d(land_pts),         &
                           rd_top_d(land_pts)
                             ! Vcmax, Jmax and Rd of a leaf at the top of
@@ -1595,16 +1597,17 @@ END IF
 ! then a further limit when carbon backs up in the store.
 !
 ! MDK, 31/10/26
-f_vc(:) = 1.0
+f_vcmax_down(:) = 1.0
 IF ( l_som_vcmax_psi ) CALL vcmax_psi_factor( ft, land_pts, veg_pts,           &
-                                              veg_index, psi_root_zone, f_vc )
+                                              veg_index, psi_root_zone,        &
+                                              f_vcmax_down )
 IF ( l_nsc_sink_feedback ) THEN
-  beta_sink(:) = 1.0
+  f_sink_feedback(:) = 1.0
   CALL nsc_sink_factor( ft, land_pts, veg_pts, veg_index, psi_root_zone,       &
-                        beta_sink )
+                        f_sink_feedback )
   DO m = 1,veg_pts
     l = veg_index(m)
-    f_vc(l) = f_vc(l) * beta_sink(l)
+    f_vcmax_down(l) = f_vcmax_down(l) * f_sink_feedback(l)
   END DO
 END IF
 
@@ -2052,9 +2055,9 @@ END SELECT  !  pft_photo_model
 !-----------------------------------------------------------------------------
 IF ( l_photo_diag ) THEN
   CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,          &
-                              veg_index, denom, jmax_temp, jv25,               &
-                              nleaf_top, qtenf_term, vcmax_temp,               &
-                              jmax_top_d, rd_top_d, vcmax_top_d, f_vc = f_vc )
+                              veg_index, denom, jmax_temp, jv25, nleaf_top,    &
+                              qtenf_term, vcmax_temp, jmax_top_d, rd_top_d,    &
+                              vcmax_top_d, f_vcmax_down = f_vcmax_down )
   DO m = 1,veg_pts
     l = veg_index(m)
     vcmax_pft(l,ft) = vcmax_top_d(l)
@@ -2229,8 +2232,8 @@ CASE ( 4 )
     !-------------------------------------------------------------------------
     CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,        &
                                 veg_index, denom, jmax_temp, jv25,             &
-                                nleaf_layer, qtenf_term, vcmax_temp,           &
-                                jmax, rd_dark, vcmax, f_vc = f_vc )
+                                nleaf_layer, qtenf_term, vcmax_temp, jmax,     &
+                                rd_dark, vcmax, f_vcmax_down = f_vcmax_down )
 
     !-------------------------------------------------------------------------
     ! Iterate to ensure that the canopy humidity deficit is consistent with
@@ -2569,10 +2572,11 @@ CASE ( 5, 6 )
             !-------------------------------------------------------------------
             ! Calculate photosynthetic parameters.
             !-------------------------------------------------------------------
-            CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,&
-                                        veg_index, denom, jmax_temp, jv25,     &
-                                        nleaf_layer, qtenf_term, vcmax_temp,   &
-                                        jmax, rd_dark, vcmax, f_vc = f_vc )
+            CALL calc_photo_parameters( ft, land_pts, pft_photo_model,         &
+                                        veg_pts, veg_index, denom, jmax_temp,  &
+                                        jv25, nleaf_layer, qtenf_term,         &
+                                        vcmax_temp, jmax, rd_dark, vcmax,      &
+                                        f_vcmax_down = f_vcmax_down )
 
             IF ( pft_photo_model == photo_farquhar ) THEN
             !-------------------------------------------------------------------
@@ -2748,13 +2752,13 @@ CASE ( 5, 6 )
                          jv25, nleaf_layer, ones_pts, i2_sun, pstar, q_c_lt,   &
                          dq_min, ccp_sun_lt, kc_sun_lt, ko_sun_lt, km_sun_lt,  &
                          vcmax_sun_ml, je_sun_ml, rd_sun_ml, qs_sun_lt,        &
-                         dq_sun_lt, f_vc = f_vc )
+                         dq_sun_lt, f_vcmax_down = f_vcmax_down )
                   CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,   &
                          pft_photo_model, t_shd_lt, oa, actj, actv, dsj, dsv,  &
                          jv25, nleaf_layer, ones_pts, i2_shd, pstar, q_c_lt,   &
                          dq_min, ccp_shd_lt, kc_shd_lt, ko_shd_lt, km_shd_lt,  &
                          vcmax_shd_ml, je_shd_ml, rd_shd_ml, qs_shd_lt,        &
-                         dq_shd_lt, f_vc = f_vc )
+                         dq_shd_lt, f_vcmax_down = f_vcmax_down )
                   ! Rd at the leaf temperatures, with the light inhibition
                   ! applied above.
                   DO m = 1,veg_pts
@@ -3155,8 +3159,9 @@ ELSE
       !-------------------------------------------------------------------------
       CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,      &
                                   veg_index, denom, jmax_temp, jv25,           &
-                                  nleaf_layer, qtenf_term, vcmax_temp,         &
-                                  jmax, rd_dark, vcmax, f_vc = f_vc )
+                                  nleaf_layer, qtenf_term, vcmax_temp, jmax,   &
+                                  rd_dark, vcmax,                              &
+                                  f_vcmax_down = f_vcmax_down )
 
       IF ( pft_photo_model == photo_farquhar ) THEN
       !-----------------------------------------------------------------------
@@ -3403,7 +3408,7 @@ CASE ( 1 )
   CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,          &
                               veg_index, denom, jmax_temp, jv25,               &
                               nleaf_top, qtenf_term, vcmax_temp,               &
-                              jmax, rd, vcmax, f_vc = f_vc )
+                              jmax, rd, vcmax, f_vcmax_down = f_vcmax_down )
 
   IF ( pft_photo_model == photo_farquhar ) THEN
     ! Calculate the electron flux.
@@ -3843,7 +3848,7 @@ CASE ( 7 )
   CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,          &
                               veg_index, denom, jmax_temp, jv25,               &
                               nleaf_top, qtenf_term, vcmax_temp,               &
-                              jmax, rd, vcmax, f_vc = f_vc )
+                              jmax, rd, vcmax, f_vcmax_down = f_vcmax_down )
 
   !---------------------------------------------------------------------------
   ! Aggregate the layer profile into the two leaf classes.
@@ -4074,13 +4079,15 @@ CASE ( 7 )
                                dsv, jv25, nleaf_top, nweight_sun_2l, i2_sun,   &
                                pstar, q_c_lt, dq_min, ccp_sun_lt, kc_sun_lt,   &
                                ko_sun_lt, km_sun_lt, vcmax_sun_2l, je_sun,     &
-                               rd_sun, qs_sun_lt, dq_sun_lt, f_vc = f_vc )
+                               rd_sun, qs_sun_lt, dq_sun_lt,                   &
+                               f_vcmax_down = f_vcmax_down )
       CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
                                pft_photo_model, t_shd_lt, oa, actj, actv, dsj, &
                                dsv, jv25, nleaf_top, nweight_shd_2l, i2_shd,   &
                                pstar, q_c_lt, dq_min, ccp_shd_lt, kc_shd_lt,   &
                                ko_shd_lt, km_shd_lt, vcmax_shd_2l, je_shd,     &
-                               rd_shd, qs_shd_lt, dq_shd_lt, f_vc = f_vc )
+                               rd_shd, qs_shd_lt, dq_shd_lt,                   &
+                               f_vcmax_down = f_vcmax_down )
     END IF
 
     !-------------------------------------------------------------------------
@@ -6508,7 +6515,8 @@ km1(:)  = km_c(:)
 CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index, pft_photo_model,    &
                          t1, oa, actj, actv, dsj, dsv, jv25, nleaf_top, nw_c,  &
                          i2c, pstar, q_c_lt, dq_min, ccp1, kc1, ko1, km1,      &
-                         vcmax1, je1, rd1, qs1, dq1, f_vc = f_vc )
+                         vcmax1, je1, rd1, qs1, dq1,                           &
+                         f_vcmax_down = f_vcmax_down )
 dlnpar_dt_2l(:,:) = 0.0
 dqs_dt_2l(:)      = 0.0
 DO m = 1,veg_pts
@@ -6816,7 +6824,7 @@ SUBROUTINE leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
                                pft_photo_model, t_leaf, oa, actj, actv, dsj,   &
                                dsv, jv25, nleaf_top, nw, i2c, pstar, q_c,      &
                                dq_min, ccp, kc, ko, km, vcmax_c, je_c, rd_c,   &
-                               qs_c, dq_c, f_vc )
+                               qs_c, dq_c, f_vcmax_down )
 
 ! Work out the photosynthesis inputs of one set of leaves (sunlit or
 ! shaded) at their own temperature t_leaf, for the leaf energy balance
@@ -6830,7 +6838,7 @@ SUBROUTINE leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
 ! flux. It also gives the leaves' humidity deficit to the canopy air,
 ! qs(t_leaf) - q_c (kg kg-1), no lower than dq_min.
 !
-! MDK, 24/10/26
+! MDK, 12/11/26
 
 USE jules_vegetation_mod, ONLY: photo_farquhar
 USE qsat_mod, ONLY: qsat
@@ -6854,7 +6862,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   vcmax_c(land_pts), je_c(land_pts), rd_c(land_pts), qs_c(land_pts),           &
   dq_c(land_pts)
 
-REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: f_vc(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: f_vcmax_down(land_pts)
     ! Soil-water capacity factor (l_som_vcmax_psi).
 
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -6894,7 +6902,7 @@ CALL leaf_temp_responses( ft, land_pts, veg_pts, veg_index,                    &
 CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,            &
                             veg_index, denom_t, jtemp, jv25,                   &
                             nleaf_top, qtenf_t, vtemp,                         &
-                            jmax_t, rd_t, vcmax_t, f_vc = f_vc )
+                            jmax_t, rd_t, vcmax_t, f_vcmax_down = f_vcmax_down )
 
 DO m = 1,veg_pts
   l = veg_index(m)
@@ -7062,7 +7070,8 @@ END SUBROUTINE leaf_temp_responses
 !#############################################################################
 !#############################################################################
 
-SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
+SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz,         &
+                             f_vcmax_down )
 
 ! Lower photosynthetic capacity (Vcmax and Jmax) as the soil dries
 ! (l_som_vcmax_psi), by returning a factor f (0 to 1) that multiplies
@@ -7081,7 +7090,7 @@ SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
 !
 !   1. A floor, fmin (psi_vcmax_fmin, 0 by default):
 !
-!        f_vc = fmin + (1 - fmin) f
+!        f_vcmax_down = fmin + (1 - fmin) f
 !
 !      so in the driest soil photosynthesis is limited by the stomata
 !      closing as the plant's water supply fails.
@@ -7095,9 +7104,9 @@ SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz, f_vc )
 !      new protein takes a week or more. The lagged
 !      factor is kept in sf_stom_state_mod and written to the dump
 !      (fvcmax_psi_state), so a restart carries on from it. A run started
-!      without it starts at f_vc.
+!      without it starts at f_vcmax_down.
 !
-! MDK, 24/10/26
+! MDK, 12/11/26
 
 USE pftparm, ONLY: psi_vcmax_f, sf_vcmax, psi_vcmax_fmin
 USE timestep_mod, ONLY: timestep
@@ -7110,14 +7119,22 @@ IMPLICIT NONE
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: psi_rz(land_pts)
     ! Root-zone water potential (Pa).
-REAL(KIND=real_jlslsm), INTENT(IN OUT) :: f_vc(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN OUT) :: f_vcmax_down(land_pts)
     ! Capacity factor (-); only veg points are set.
 
-REAL(KIND=real_jlslsm), PARAMETER :: tau_rec = 5.0 * 86400.0
+REAL(KIND=real_jlslsm), PARAMETER :: tau_recovery = 5.0 * 86400.0
     ! Recovery e-folding time (s).
 
 INTEGER :: l, m
-REAL(KIND=real_jlslsm) :: psi_mpa, f_psi, f_now, w_rec
+REAL(KIND=real_jlslsm) :: psi_mpa
+    ! Root-zone water potential (MPa).
+REAL(KIND=real_jlslsm) :: f_zhou
+    ! The Zhou et al. factor f (0-1), before the floor.
+REAL(KIND=real_jlslsm) :: f_target
+    ! This step's factor with the floor, fmin + (1 - fmin) f, before the lag
+    ! in recovery.
+REAL(KIND=real_jlslsm) :: w_recovery
+    ! Weight of one step of the recovery, 1 - exp(-dt / tau_recovery).
 
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -7128,23 +7145,23 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='VCMAX_PSI_FACTOR'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL sf_stom_state_alloc( land_pts )
-w_rec = 1.0 - EXP( -timestep / tau_rec )
+w_recovery = 1.0 - EXP( -timestep / tau_recovery )
 
 DO m = 1,veg_pts
   l = veg_index(m)
   psi_mpa = MIN(psi_rz(l), 0.0) * 1.0e-6
-  f_psi = ( 1.0 + EXP( sf_vcmax(ft) * psi_vcmax_f(ft) * 1.0e-6 ) )             &
-          / ( 1.0 + EXP( sf_vcmax(ft) * ( psi_vcmax_f(ft) * 1.0e-6             &
-                                          - psi_mpa ) ) )
-  f_psi = MIN(MAX(f_psi, 0.0_real_jlslsm), 1.0_real_jlslsm)
-  f_now = psi_vcmax_fmin(ft) + (1.0 - psi_vcmax_fmin(ft)) * f_psi
-  IF ( f_vcmax_state(l,ft) < 0.0 .OR. f_now <= f_vcmax_state(l,ft) ) THEN
-    f_vcmax_state(l,ft) = f_now
+  f_zhou = ( 1.0 + EXP( sf_vcmax(ft) * psi_vcmax_f(ft) * 1.0e-6 ) ) / ( 1.0 +  &
+          EXP( sf_vcmax(ft) * ( psi_vcmax_f(ft) * 1.0e-6 - psi_mpa ) ) )
+  f_zhou = MIN(MAX(f_zhou, 0.0_real_jlslsm), 1.0_real_jlslsm)
+  f_target = psi_vcmax_fmin(ft) + (1.0 - psi_vcmax_fmin(ft)) * f_zhou
+  IF ( f_vcmax_psi_state(l,ft) < 0.0 .OR. f_target <= f_vcmax_psi_state(l,ft)  &
+                                                      ) THEN
+    f_vcmax_psi_state(l,ft) = f_target
   ELSE
-    f_vcmax_state(l,ft) = f_vcmax_state(l,ft)                                  &
-                          + w_rec * ( f_now - f_vcmax_state(l,ft) )
+    f_vcmax_psi_state(l,ft) = f_vcmax_psi_state(l,ft) + w_recovery * (         &
+                          f_target - f_vcmax_psi_state(l,ft) )
   END IF
-  f_vc(l) = f_vcmax_state(l,ft)
+  f_vcmax_down(l) = f_vcmax_psi_state(l,ft)
 END DO
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -7186,7 +7203,7 @@ SUBROUTINE nsc_sink_factor( ft, land_pts, veg_pts, veg_index, psi_rz, beta )
 ! routine leaves beta unchanged without the turgor limit
 ! (nsc_psi_turg_zero not set) or before the store first exists.
 !
-! MDK, 01/11/26
+! MDK, 12/11/26
 
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_cmax_pft, nsc_wpot_pft
 USE pftparm, ONLY: is_set, nsc_psi_turg_zero, nsc_psi_turg_full,              &
@@ -7206,7 +7223,14 @@ REAL(KIND=real_jlslsm), PARAMETER :: room_min = 1.0e-6
     ! Smallest room counted (kg C m-2), so a full store gives a large X.
 
 INTEGER :: l, m
-REAL(KIND=real_jlslsm) :: room, blocked, x, f_turg
+REAL(KIND=real_jlslsm) :: store_room
+    ! Room left in the store, R = C_max - store (kg C m-2).
+REAL(KIND=real_jlslsm) :: c_held_back
+    ! Carbon kept from growth over nsc_sink_days, B (kg C m-2).
+REAL(KIND=real_jlslsm) :: room_fill_ratio
+    ! Share of the room the held-back carbon would fill, X = B / R (-).
+REAL(KIND=real_jlslsm) :: f_turg
+    ! Turgor factor on growth (0-1).
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -7228,12 +7252,13 @@ IF ( ALLOCATED(nsc_pft) .AND. ALLOCATED(nsc_cmax_pft) .AND.                    &
 
     ! The carbon kept from growth over t days (the release is per 360
     ! days) against the room left in the store.
-    blocked = nsc_wpot_pft(l,ft) * (1.0 - f_turg) * nsc_sink_days(ft) / 360.0
-    room = MAX(nsc_cmax_pft(l,ft) - nsc_pft(l,ft), room_min)
-    x = blocked / room
+    c_held_back = nsc_wpot_pft(l,ft) * (1.0 - f_turg) * nsc_sink_days(ft) /    &
+                  360.0
+    store_room = MAX(nsc_cmax_pft(l,ft) - nsc_pft(l,ft), room_min)
+    room_fill_ratio = c_held_back / store_room
 
     beta(l) = nsc_sink_beta_min(ft) + (1.0 - nsc_sink_beta_min(ft))            &
-              * EXP( -x**2 )
+              * EXP( -room_fill_ratio**2 )
   END DO
 END IF
 
@@ -7247,7 +7272,7 @@ END SUBROUTINE nsc_sink_factor
 SUBROUTINE calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,      &
                                   veg_index, denom, jmax_temp, jv25,           &
                                   nleaf, qtenf_term, vcmax_temp,               &
-                                  jmax, rd_dark, vcmax, f_vc )
+                                  jmax, rd_dark, vcmax, f_vcmax_down )
 
 ! Calculate the maximum rates of carboxylation of Rubisco and electron
 ! transport, and dark respiration without light inhibition.
@@ -7313,7 +7338,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   vcmax(land_pts)
     ! Maximum rate of carboxylation of Rubisco (mol CO2/m2/s).
 
-REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: f_vc(land_pts)
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: f_vcmax_down(land_pts)
     ! Soil-water capacity factor (l_som_vcmax_psi, vcmax_psi_factor):
     ! Vcmax and Jmax (Farquhar) are scaled by it after dark respiration is
     ! set, so it does not reach Rd, nor the stem and root maintenance
@@ -7492,11 +7517,11 @@ END DO
 ! The soil-water factor (l_som_vcmax_psi), after Rd.
 !
 ! MDK, 25/10/26
-IF ( PRESENT(f_vc) .AND. pft_photo_model == photo_farquhar ) THEN
+IF ( PRESENT(f_vcmax_down) .AND. pft_photo_model == photo_farquhar ) THEN
   DO m = 1,veg_pts
-    l = veg_index(m)
-    vcmax(l) = vcmax(l) * f_vc(l)
-    jmax(l)  = jmax(l)  * f_vc(l)
+    l        = veg_index(m)
+    vcmax(l) = vcmax(l) * f_vcmax_down(l)
+    jmax(l)  = jmax(l)  * f_vcmax_down(l)
   END DO
 END IF
 

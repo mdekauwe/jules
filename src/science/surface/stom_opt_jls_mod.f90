@@ -3220,10 +3220,26 @@ CONTAINS
   !---------------------------------------------------------------------------
   SUBROUTINE eval_ci(ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci
-  REAL(KIND=real_jlslsm) :: ag0, f_lo, f_hi, f_new, g_lo, g_hi, g_new
-  INTEGER :: it, side_f
-                            ! Iteration count, and the end replaced last
-                            ! (named so as not to hide the host's side).
+  REAL(KIND=real_jlslsm) :: a_gross_unlim
+                            ! Gross photosynthesis without the nonstomatal
+                            ! limitation, A + Rd (mol CO2 m-2 s-1).
+  REAL(KIND=real_jlslsm) :: nsl_f_lo
+                            ! Low end of the bracket on the NSL factor f.
+  REAL(KIND=real_jlslsm) :: nsl_f_hi
+                            ! High end of that bracket.
+  REAL(KIND=real_jlslsm) :: nsl_f_new
+                            ! The regula falsi step's f.
+  REAL(KIND=real_jlslsm) :: nsl_resid_lo
+                            ! g(f) = f - f(psi_leaf(f)) at nsl_f_lo.
+  REAL(KIND=real_jlslsm) :: nsl_resid_hi
+                            ! g(f) at nsl_f_hi.
+  REAL(KIND=real_jlslsm) :: nsl_resid_new
+                            ! g(f) at nsl_f_new.
+  INTEGER :: it
+                            ! Iteration count.
+  INTEGER :: nsl_side
+                            ! The end of the bracket replaced last (-1 low,
+                            ! +1 high), for the Illinois step.
 
   last_ci = ci
 
@@ -3274,27 +3290,27 @@ CONTAINS
     IF ( nsl_factor(psi_u) < 1.0 ) THEN
       ! Unlimited gross photosynthesis, and the bracket for f:
       !
-      !   f_hi = 1: g_hi = 1 - f(psi_leaf at full A) > 0
-      !   f_lo = 0: no transpiration, psi_leaf = psi_root_zone,
-      !             g_lo = -f(psi_root_zone) <= 0
+      !   nsl_f_hi = 1: nsl_resid_hi = 1 - f(psi_leaf at full A) > 0
+      !   nsl_f_lo = 0: no transpiration, psi_leaf = psi_root_zone,
+      !             nsl_resid_lo = -f(psi_root_zone) <= 0
       !
       ! With the store's flow held fixed (l_store_q_path) the leaf at no
       ! transpiration is not at psi_root_zone: the store keeps it wetter
-      ! while it gives, so g_lo is taken at the leaf psi of the path at
+      ! while it gives, so nsl_resid_lo is taken at the leaf psi of the path at
       ! E = 0 (the closed state, A = -Rd).
-      ag0  = al0_u + rd(l)
-      f_hi = 1.0
-      g_hi = 1.0 - nsl_factor(psi_u)
-      f_lo = 0.0
-      g_lo = -nsl_factor(psi_root_zone(l) - grav_node_drop(l))
+      a_gross_unlim = al0_u + rd(l)
+      nsl_f_hi      = 1.0
+      nsl_resid_hi  = 1.0 - nsl_factor(psi_u)
+      nsl_f_lo      = 0.0
+      nsl_resid_lo  = -nsl_factor(psi_root_zone(l) - grav_node_drop(l))
       ! The same with the shared root and stem, where the other class's
       ! flow keeps the leaf below psi_root_zone.
       IF ( l_store_q_path .OR. l_shared_stem_path ) THEN
         CALL hydraulic_state(ci, -rd(l))
-        g_lo = -nsl_factor(psi_u)
+        nsl_resid_lo = -nsl_factor(psi_u)
       END IF
 
-      IF ( g_lo >= 0.0 ) THEN
+      IF ( nsl_resid_lo >= 0.0 ) THEN
         ! The leaf at no transpiration (the soil, or the store) alone stops
         ! photosynthesis (psi <= psi_nsl0).
         CALL hydraulic_state(ci, -rd(l))
@@ -3303,36 +3319,37 @@ CONTAINS
         ! find in this module: it keeps a bracket, so it cannot diverge or
         ! leave the feasible range; it needs no derivative (the hydraulics
         ! give none cheaply); and it converges superlinearly where plain
-        ! regula falsi would stall with one end fixed. side_f records which
+        ! regula falsi would stall with one end fixed. nsl_side records which
         ! end was replaced last (-1 low, +1 high), for the Illinois step.
-        side_f = 0
-        f_new = f_lo
+        nsl_side = 0
+        nsl_f_new = nsl_f_lo
         DO it = 1, n_nsl_iter
           ! Regula falsi: the root of the straight line through the two
           ! bracket ends, then the hydraulics and g at that f.
-          f_new = f_lo - g_lo * (f_hi - f_lo) / (g_hi - g_lo)
-          CALL hydraulic_state(ci, f_new * ag0 - rd(l))
-          g_new = f_new - nsl_factor(psi_u)
-          IF ( ABS(g_new) < nsl_tol ) EXIT
+          nsl_f_new = nsl_f_lo - nsl_resid_lo * (nsl_f_hi - nsl_f_lo) /        &
+                      (nsl_resid_hi - nsl_resid_lo)
+          CALL hydraulic_state(ci, nsl_f_new * a_gross_unlim - rd(l))
+          nsl_resid_new = nsl_f_new - nsl_factor(psi_u)
+          IF ( ABS(nsl_resid_new) < nsl_tol ) EXIT
 
-          ! Replace the end with the same sign as g_new, so the root stays
-          ! bracketed. Illinois: if the same end is replaced twice in a row,
-          ! halve g at the other end, so that end moves too and the bracket
-          ! does not stall on one side.
-          IF ( g_new < 0.0 ) THEN
-            f_lo = f_new
-            g_lo = g_new
-            IF ( side_f == -1 ) g_hi = 0.5 * g_hi
-            side_f = -1
+          ! Replace the end with the same sign as nsl_resid_new, so the root
+          ! stays bracketed. Illinois: if the same end is replaced twice in a
+          ! row, halve g at the other end, so that end moves too and the
+          ! bracket does not stall on one side.
+          IF ( nsl_resid_new < 0.0 ) THEN
+            nsl_f_lo = nsl_f_new
+            nsl_resid_lo = nsl_resid_new
+            IF ( nsl_side == -1 ) nsl_resid_hi = 0.5 * nsl_resid_hi
+            nsl_side = -1
           ELSE
-            f_hi = f_new
-            g_hi = g_new
-            IF ( side_f == 1 ) g_lo = 0.5 * g_lo
-            side_f = 1
+            nsl_f_hi = nsl_f_new
+            nsl_resid_hi = nsl_resid_new
+            IF ( nsl_side == 1 ) nsl_resid_lo = 0.5 * nsl_resid_lo
+            nsl_side = 1
           END IF
         END DO
 
-        ! (The state left by hydraulic_state is that of f_new.)
+        ! (The state left by hydraulic_state is that of nsl_f_new.)
       END IF
     END IF
   END IF

@@ -26,7 +26,7 @@ USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf, ximpair_psi_stem
 USE xylem_impairment_memory_mod, ONLY: ximpair_repair_pend, ximpair_area_w
 USE trifctl, ONLY: asteps_since_triffid
 USE trifctl, ONLY: asteps_phen
-USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state, store_e_prev,          &
+USE sf_stom_state_mod, ONLY: f_vcmax_psi_state, cpl_state, store_e_prev,       &
                              shared_e_shd_prev, shared_amax_shd_prev
 USE plant_water_store_mod, ONLY: store_q, store_w, store_unset, store_c,       &
                                  store_w_shed, leak_e, store_q_gap,            &
@@ -4091,7 +4091,8 @@ CASE ( 'nsc_ft_mean' )
 ! MDK, 22/10/26
 CASE ( 'fvcmax_psi_state' )
   workspace_pft(:,:) = -1.0
-  IF ( ALLOCATED(f_vcmax_state) ) workspace_pft(:,:) = f_vcmax_state(:,:)
+  IF ( ALLOCATED(f_vcmax_psi_state) )                                          &
+    workspace_pft(:,:) = f_vcmax_psi_state(:,:)
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

@@ -22,7 +22,7 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_memory_alloc, ximpair_lock,     &
     ximpair_repair_pend, ximpair_area_w
 USE trifctl, ONLY: asteps_since_triffid
 USE trifctl, ONLY: asteps_phen
-USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
+USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_psi_state, cpl_state
 USE plant_water_store_mod, ONLY: store_state_alloc, store_w, store_c,          &
                                  store_q, store_w_xyl
 USE sf_stom_state_mod, ONLY: store_e_prev, shared_e_shd_prev,                &
@@ -2249,9 +2249,9 @@ CASE ( 'fvcmax_psi_state' )
   CALL sf_stom_state_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, f_vcmax_state(:,:))
+    CALL cube_get_data(cube_land, f_vcmax_psi_state(:,:))
   ELSE
-    f_vcmax_state(:,:) = const_val
+    f_vcmax_psi_state(:,:) = const_val
   END IF
 
 CASE ( 'cpl_gl_sun' )

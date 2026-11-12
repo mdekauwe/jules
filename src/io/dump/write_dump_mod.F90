@@ -17,7 +17,7 @@ SUBROUTINE write_dump()
 USE trifctl, ONLY: asteps_since_triffid
   ! MDK, 24/10/26
 USE trifctl, ONLY: asteps_phen
-USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
+USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_psi_state, cpl_state
 USE plant_water_store_mod, ONLY: store_state_alloc, store_w, store_c,          &
                                  store_q, store_w_xyl
 USE sf_stom_state_mod, ONLY: store_e_prev, shared_e_shd_prev,                &
@@ -551,7 +551,7 @@ DO i = 1,nvars
   CASE ( 'fvcmax_psi_state' )
     CALL sf_stom_state_alloc( land_pts )
     DO n = 1,npft
-      CALL gather_land_field(f_vcmax_state(:,n), global_data_2d(:,n))
+      CALL gather_land_field(f_vcmax_psi_state(:,n), global_data_2d(:,n))
     END DO
   CASE ( 'cpl_gl_sun' )
     CALL sf_stom_state_alloc( land_pts )

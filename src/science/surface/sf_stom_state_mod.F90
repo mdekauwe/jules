@@ -10,7 +10,7 @@ MODULE sf_stom_state_mod
 ! outside sf_stom, so they can be written to the dump and a run restarted
 ! from a dump gives the same answers as one that ran on.
 !
-!   - f_vcmax_state: the factor that lowers Vcmax as the soil dries
+!   - f_vcmax_psi_state: the factor that lowers Vcmax as the soil dries
 !     (l_som_vcmax_psi), as it was after its lag in recovering when the soil
 !     wets up again (0 to 1; dump name fvcmax_psi_state).
 !   - cpl_state: with coupled transpiration (l_som_coupled_e) and the
@@ -30,14 +30,14 @@ USE um_types, ONLY: real_jlslsm
 IMPLICIT NONE
 
 PRIVATE
-PUBLIC :: f_vcmax_state, cpl_state, sf_stom_state_alloc, n_cpl_state,        &
+PUBLIC :: f_vcmax_psi_state, cpl_state, sf_stom_state_alloc, n_cpl_state,      &
           shared_e_shd_prev, shared_amax_shd_prev, store_e_prev
 
 ! gl_sun, gl_shd, gbw_sun, gbw_shd, ra_ca
 INTEGER, PARAMETER :: n_cpl_state = 5
 
 ! (land_pts, npft)
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: f_vcmax_state(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: f_vcmax_psi_state(:,:)
 ! (land_pts, npft, n_cpl_state)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: cpl_state(:,:,:)
 
@@ -62,7 +62,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_e_prev(:,:)
 CONTAINS
 
 ! ---------------------------------------------------------------------
-! Allocate f_vcmax_state and cpl_state, filled with -1 ("not yet set"),
+! Allocate f_vcmax_psi_state and cpl_state, filled with -1 ("not yet set"),
 ! unless they are already allocated.
 ! ---------------------------------------------------------------------
 SUBROUTINE sf_stom_state_alloc( n_land_pts )
@@ -71,9 +71,9 @@ USE jules_surface_types_mod, ONLY: npft
 
 INTEGER, INTENT(IN) :: n_land_pts
 
-IF ( .NOT. ALLOCATED(f_vcmax_state) ) THEN
-  ALLOCATE( f_vcmax_state(n_land_pts, npft) )
-  f_vcmax_state(:,:) = -1.0
+IF ( .NOT. ALLOCATED(f_vcmax_psi_state) ) THEN
+  ALLOCATE( f_vcmax_psi_state(n_land_pts, npft) )
+  f_vcmax_psi_state(:,:) = -1.0
 END IF
 
 IF ( .NOT. ALLOCATED(cpl_state) ) THEN

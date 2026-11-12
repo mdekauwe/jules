@@ -2538,7 +2538,7 @@ END IF
 
 ! Both water limits on photosynthesis,
 !
-!   A = f_vc(psi_soil) f_nsl(psi_leaf) A0.
+!   A = f_vcmax_down(psi_soil) f_nsl(psi_leaf) A0.
 !
 ! Each is fitted on its own to the same kind of data, so together they
 ! count the drought limit about twice.
