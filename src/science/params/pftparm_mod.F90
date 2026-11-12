@@ -449,7 +449,7 @@ pft_xylem_impairment_model(:),                                                 &
                  !       1: Reduce kmax
                  !       2: Whole trunk (historic minimum water potentials)
                  !       3: Embolism memory with recovery
-ximpair_psi_driver(:),                                                         &
+ximpair_psi_driver(:)
                  ! Water potential driving embolism in the memory impairment
                  !  model (pft_xylem_impairment_model = 3).
                  !       1: Leaf water potential
@@ -457,13 +457,6 @@ ximpair_psi_driver(:),                                                         &
                  !       3: Root zone water potential
                  !       4: Stem water potential (leaf-side end of the stem
                  !          segment; needs l_som_plant_segments)
-ximpair_reset_mmdd(:)
-                 ! Month and day (month*100 + day, e.g. 401 = 1 April) on
-                 !  which the memory impairment model's embolism is reset
-                 !  (e.g. new earlywood in ring-porous species). 0 disables.
-                 !  Not with stem recovery (l_ximpair_rec_nsc).
-                 !
-                 !  MDK, 26/10/26
 
 REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
  kmax_pft(:)                                                                   &
@@ -1221,7 +1214,6 @@ ALLOCATE( or_z0soil_fac(npft))
 ALLOCATE( cap_stem(npft))
 ALLOCATE( conductance_b_seg(npft,3))
 ALLOCATE( conductance_c_seg(npft,3))
-ALLOCATE( ximpair_reset_mmdd(npft))
 ALLOCATE( ximpair_tau_leaf(npft))
 ! MDK, 17/10/26
 ALLOCATE( nsc_flush(npft))
@@ -1298,7 +1290,6 @@ or_z0soil_fac(:) = 1.0
 cap_stem(:) = 3000.0e-9
 conductance_b_seg(:,:) = 1.0
 conductance_c_seg(:,:) = 1.0
-ximpair_reset_mmdd(:) = 0
 ximpair_tau_leaf(:) = 0.0
 ! MDK, 17/10/26
 nsc_flush(:) = 2.0
@@ -1748,8 +1739,6 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_bb_min_days = ',phen_bb_min_days
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_psi_driver = ',ximpair_psi_driver
-CALL jules_print('pftparm',lineBuffer)
-WRITE(lineBuffer,*)' ximpair_reset_mmdd = ',ximpair_reset_mmdd
 CALL jules_print('pftparm',lineBuffer)
 
 CALL jules_print('pftparm',                                                    &

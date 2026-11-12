@@ -1538,8 +1538,7 @@ END SUBROUTINE psi_leaf_impaired_memory
 !    with dt the step length and tau = ximpair_tau_leaf (years). With
 !    l_ximpair_rec_leaf_turn the leaf recovers through new leaves in
 !    TRIFFID and phenology instead.
-! 4. A reset to undamaged once a year on day ximpair_reset_mmdd, if set.
-! 5. Damage, only where the stomata are open (the xylem is under
+! 4. Damage, only where the stomata are open (the xylem is under
 !    tension). The cap is lowered to the undamaged conductance at the
 !    water potential psi_x that drives the damage,
 !
@@ -1585,7 +1584,7 @@ SUBROUTINE update_xylem_impairment_memory( n_land_pts, n_open_pts,             &
                                            psi_leaf_cls, w_cls )
 
 USE pftparm, ONLY: kmax_pft, kcrit, conductance_b_pft, conductance_c_pft,      &
-                   ximpair_psi_driver, ximpair_reset_mmdd,                     &
+                   ximpair_psi_driver,                                         &
                    ximpair_tau_leaf, seg_rel_k
 USE jules_vegetation_mod, ONLY: ximpair_driver_leaf, ximpair_driver_mean,      &
                                 ximpair_driver_root, ximpair_driver_stem,      &
@@ -1804,21 +1803,6 @@ IF (l_ximpair_seg_memory) THEN
   IF (ximpair_tau_leaf(pft) > 0.0 .AND. .NOT. l_ximpair_rec_leaf_turn) THEN
     ximpair_kcap_leaf(:,pft) = 1.0 - (1.0 - ximpair_kcap_leaf(:,pft))          &
                                * EXP(-dt_years / ximpair_tau_leaf(pft))
-  END IF
-END IF
-
-IF (ximpair_reset_mmdd(pft) > 0) THEN
-  IF (current_time%month * 100 + current_time%day == ximpair_reset_mmdd(pft)   &
-      .AND. current_time%time < timestep_len) THEN
-    kcap(:) = kmax_pts(:)
-    IF (l_ximpair_seg_memory) ximpair_kcap_leaf(:,pft) = 1.0
-    ! The ring cohorts' losses too, or the rings would restore the loss.
-    IF (l_nsc_sapwood_rings) THEN
-      ximpair_ring_loss(:,pft,:)    = 0.0
-      ximpair_ring_dmg(:,pft,:)     = 1.0
-      ximpair_ring_loss_lo(:,pft,:) = 0.0
-      ximpair_ring_peak(:,pft)      = 0.0
-    END IF
   END IF
 END IF
 

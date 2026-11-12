@@ -1163,7 +1163,7 @@ USE pftparm, ONLY:                                                             &
   vint,            vsl,              sug_yg,                                   &
   leaf_crit,       z0v,                                                        & !JBaguley
   sox_a,           sox_p50,          sox_rp_min,                               &
-  ximpair_psi_driver,                ximpair_reset_mmdd,                       &
+  ximpair_psi_driver,                                                          &
   ximpair_tau_leaf,                                                            &
   nsc_flush,       nsc_kc,           nsc_reserve_frac,                         &
   nsc_tau_load,    nsc_wmax_fac,                                              &
@@ -1516,8 +1516,6 @@ sox_rp_min(:)   = sox_rp_min_io(1:npft)
 DO i = 1, npft
   IF (ximpair_psi_driver_io(i) /= imdi)                                        &
     ximpair_psi_driver(i) = ximpair_psi_driver_io(i)
-  IF (ximpair_reset_mmdd_io(i) /= imdi)                                        &
-    ximpair_reset_mmdd(i) = ximpair_reset_mmdd_io(i)
   IF (ABS(ximpair_tau_leaf_io(i) - rmdi) > EPSILON(1.0))                       &
     ximpair_tau_leaf(i) = ximpair_tau_leaf_io(i)
   ! MDK, 17/10/26
@@ -1856,13 +1854,17 @@ IF ( l_ximpair_rec_nsc .AND.                                                   &
                'and l_trif_eq=F; without them the stem would never '       //  &
                'recover.')
 END IF
-IF ( l_ximpair_rec_nsc .AND.                                                   &
-     ANY(pft_xylem_impairment_model(1:npft) == xylem_impairment_memory .AND.   &
-         ximpair_reset_mmdd(1:npft) > 0) ) THEN
+! The retired annual reset of the embolism (ximpair_reset_mmdd_io): it
+! refilled the embolised xylem, which the model does not do. Old namelists
+! are read; a date set stops the run.
+!
+! MDK, 12/11/26
+IF ( ANY(ximpair_reset_mmdd_io(1:npft) /= imdi .AND.                           &
+         ximpair_reset_mmdd_io(1:npft) > 0) ) THEN
   errcode = 101
   CALL ereport(RoutineName, errcode,                                           &
-               'l_ximpair_rec_nsc (ring renewal) needs '                   //  &
-               'ximpair_reset_mmdd_io off for memory-model PFTs.')
+               'ximpair_reset_mmdd_io is retired: embolised xylem is not ' //  &
+               'refilled.')
 END IF
 IF ( .NOT. l_ximpair_rec_nsc .AND.                                             &
      ANY(ABS(nsc_xylem_cond_ratio_io(1:npft) - rmdi) > EPSILON(1.0)) ) THEN
