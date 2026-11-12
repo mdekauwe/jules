@@ -25,7 +25,7 @@ IMPLICIT NONE
 ! and shaded leaves set on the path while the stomatal optimiser
 ! searches.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 PRIVATE
 
 CHARACTER(LEN=*),PARAMETER,PRIVATE :: ModuleName='PLANT_HYDRAULIC_PATH_MOD'
@@ -140,13 +140,31 @@ LOGICAL, PUBLIC :: l_shared_gain_path = .FALSE.
 ! it came from, and the whole-plant solve of the same inputs starts from
 ! it at the leaf segment. The root and stem are then not solved twice;
 ! the result is the same to the bit. Both segment solvers keep it
-! (rs_lut: kept by the lookup-table solver). Cleared by set_shared_stem
-! and clear_shared_stem.
-LOGICAL :: l_rs_cache = .FALSE.
-LOGICAL :: rs_intact, rs_exact, rs_closed, rs_lut
-INTEGER :: rs_l
-REAL(KIND=real_jlslsm) :: rs_e, rs_kmax, rs_kcrit, rs_psi0, rs_kcap,           &
-                          rs_psi, rs_dpsi, rs_dpsi_int
+! (rootstem_cache_lut: kept by the lookup-table solver). Cleared by
+! set_shared_stem and clear_shared_stem.
+LOGICAL :: l_rootstem_cache = .FALSE.
+! The cached solve asked for the intact conductance too (leaf_k_intact).
+LOGICAL :: rootstem_cache_intact
+! The cached solve used the exact segment solves.
+LOGICAL :: rootstem_cache_exact
+! The cached sample was infeasible (no soil conductance and E > 0).
+LOGICAL :: rootstem_cache_closed
+! The cache was filled by the lookup-table solver.
+LOGICAL :: rootstem_cache_lut
+! Land point of the cached solve.
+INTEGER :: rootstem_cache_l
+! Its inputs: the leaf's transpiration, kmax, kcrit, the root-zone water
+! potential (Pa) and the cap key.
+REAL(KIND=real_jlslsm) :: rootstem_cache_e
+REAL(KIND=real_jlslsm) :: rootstem_cache_kmax
+REAL(KIND=real_jlslsm) :: rootstem_cache_kcrit
+REAL(KIND=real_jlslsm) :: rootstem_cache_psi0
+REAL(KIND=real_jlslsm) :: rootstem_cache_kcap
+! Its result at the stem's leaf-side end: the water potential (Pa) and
+! dpsi/dE on the solved and on the intact segments.
+REAL(KIND=real_jlslsm) :: rootstem_cache_psi
+REAL(KIND=real_jlslsm) :: rootstem_cache_dpsi
+REAL(KIND=real_jlslsm) :: rootstem_cache_dpsi_int
 
 ! Root and stem conductance per unit ground area (kplant_model = 1, with
 ! l_som_plant_segments). On the leaf-area basis of kmax_pft the root and
@@ -368,7 +386,7 @@ END FUNCTION grav_node_drop
 ! (l_som_shared_gain). A leaf group with no share keeps its own root and
 ! stem.
 !
-! MDK, 30/10/26
+! MDK, 12/11/26
 ! *****************************************************************************
 SUBROUTINE set_shared_stem( land_pts, veg_pts, veg_index, share, e_other,      &
                             kcrit_plant, amax_other, l_gain )
@@ -416,7 +434,7 @@ DO m = 1,veg_pts
 END DO
 l_shared_stem_path  = .TRUE.
 l_shared_whole_path = .FALSE.
-l_rs_cache          = .FALSE.
+l_rootstem_cache    = .FALSE.
 l_shared_gain_path  = l_gain
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -426,9 +444,9 @@ END SUBROUTINE set_shared_stem
 ! *****************************************************************************
 ! Give each leaf group its own root and stem again once the optimiser
 ! call that shared them has finished, and drop the stem state kept
-! between solves (l_rs_cache).
+! between solves (l_rootstem_cache).
 !
-! MDK, 30/10/26
+! MDK, 12/11/26
 ! *****************************************************************************
 SUBROUTINE clear_shared_stem()
 
@@ -437,7 +455,7 @@ IMPLICIT NONE
 l_shared_stem_path  = .FALSE.
 l_shared_whole_path = .FALSE.
 l_shared_gain_path  = .FALSE.
-l_rs_cache          = .FALSE.
+l_rootstem_cache    = .FALSE.
 
 END SUBROUTINE clear_shared_stem
 
@@ -746,7 +764,7 @@ END FUNCTION k_path_zero_flow
 ! With the gravity drop set (set_grav_drop), the stem's root-side water
 ! potential is the root's leaf-side one less the drop.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 ! *****************************************************************************
 SUBROUTINE psi_leaf_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
                                   veg_index, open_index, e_leaf,               &
@@ -821,39 +839,64 @@ INTEGER :: j, l, iseg, it, i
 ! l_som_rhizo_series: no soil conductance and E > 0 (infeasible).
 LOGICAL :: l_closed(n_e_leaf)
 ! l_som_rhizo_series: this path's soil-to-root conductance.
-REAL(KIND=real_jlslsm) :: k_s
+REAL(KIND=real_jlslsm) :: k_soil_root
 
-REAL(KIND=real_jlslsm) ::                                                      &
-  ! Segment water potential at the root-side / leaf-side end (Pa).
-  psi_in(n_e_leaf), psi_out(n_e_leaf),                                         &
-  ! Segment conductance at the root-side end / current leaf-side end /
-  ! previous pass.
-  k_in(n_e_leaf), k_cur(n_e_leaf), k_prev(n_e_leaf),                           &
-  ! Supply integral at the root-side end; flow for the current leaf-side
-  ! end.
-  a_in(n_e_leaf), e_cur(n_e_leaf),                                             &
-  ! d(psi_out)/dE carried down the segments (as solved / intact curves).
-  dpsi_de(n_e_leaf), dpsi_de_int(n_e_leaf),                                    &
-  ! Segment kmax, kcrit, Weibull b (Pa) and c; cap fraction, the psi
-  ! where the intact curve meets the cap and the intact integral there.
-  kmx, kcr, bs, cs, fr, psi_cap, a_cap
+! Segment water potential at the root-side end (Pa).
+REAL(KIND=real_jlslsm) :: psi_in(n_e_leaf)
+! Segment water potential at the leaf-side end (Pa).
+REAL(KIND=real_jlslsm) :: psi_out(n_e_leaf)
+! Segment conductance at the root-side end.
+REAL(KIND=real_jlslsm) :: k_in(n_e_leaf)
+! Segment conductance at the current leaf-side end.
+REAL(KIND=real_jlslsm) :: k_cur(n_e_leaf)
+! Segment conductance at the previous pass's leaf-side end.
+REAL(KIND=real_jlslsm) :: k_prev(n_e_leaf)
+! Supply integral at the root-side end.
+REAL(KIND=real_jlslsm) :: supply_int_in(n_e_leaf)
+! Flow for the current leaf-side end.
+REAL(KIND=real_jlslsm) :: e_cur(n_e_leaf)
+! d(psi_out)/dE carried down the segments, on the solved curves.
+REAL(KIND=real_jlslsm) :: dpsi_de(n_e_leaf)
+! The same on the intact curves.
+REAL(KIND=real_jlslsm) :: dpsi_de_int(n_e_leaf)
+! Segment kmax.
+REAL(KIND=real_jlslsm) :: kmax_seg
+! Segment kcrit.
+REAL(KIND=real_jlslsm) :: kcrit_seg
+! Segment Weibull b (Pa).
+REAL(KIND=real_jlslsm) :: b_seg
+! Segment Weibull c.
+REAL(KIND=real_jlslsm) :: c_seg
+! The segment's cap fraction.
+REAL(KIND=real_jlslsm) :: kcap_frac_seg
+! psi where the intact curve meets the cap (Pa).
+REAL(KIND=real_jlslsm) :: psi_cap
+! The intact supply integral at psi_cap.
+REAL(KIND=real_jlslsm) :: supply_int_cap
 ! Deepest Newton step below psi_in on the segment's curve (Pa,
 ! newton_psi_drop).
-REAL(KIND=real_jlslsm) :: drop_nr
+REAL(KIND=real_jlslsm) :: newton_max_drop
 ! The critical conductance of the path the segment belongs to, for
-! drop_nr: kcrit, or the whole plant's for the shared root and stem.
-REAL(KIND=real_jlslsm) :: kcr_drop
+! newton_max_drop: kcrit, or the whole plant's for the shared root and stem.
+REAL(KIND=real_jlslsm) :: kcrit_for_drop
 ! The flow the current segment carries: the leaf's E, or with the
 ! store's flow held fixed (l_store_q_path) E_r = E - q_store for the soil
 ! link, the root and the stem (dE_r/dE = 1 either way).
 REAL(KIND=real_jlslsm) :: e_seg(n_e_leaf)
-LOGICAL :: l_cap, l_impair, l_exact_on
+! The segment is capped (xylem impairment).
+LOGICAL :: l_cap
+! Xylem impairment is on for this call.
+LOGICAL :: l_impair
+! The exact segment solves are on.
+LOGICAL :: l_exact_on
 ! The shared root and stem, one sample at one point: the stem state
 ! is kept by a class solve and reused by the whole-plant solve of the
-! same inputs (see l_rs_cache).
-LOGICAL :: l_one
-INTEGER :: iseg0
-REAL(KIND=real_jlslsm) :: kc_key
+! same inputs (see l_rootstem_cache).
+LOGICAL :: l_one_sample
+! The first segment solved (the leaf segment when the cache is used).
+INTEGER :: iseg_first
+! The cap of the stem segment, part of the cache's key.
+REAL(KIND=real_jlslsm) :: cache_kcap_key
 ! Newton: samples still iterating (each stops on its own convergence).
 LOGICAL :: l_nr_active(n_e_leaf)
 
@@ -867,8 +910,8 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 l_impair = PRESENT(kcap_frac)
 l_exact_on = .FALSE.
 IF ( PRESENT(l_exact) ) l_exact_on = l_exact
-l_one = l_shared_stem_path .AND. n_e_leaf == 1 .AND. open_pnts == 1
-IF ( l_one .AND. .NOT. l_shared_whole_path ) l_rs_cache = .FALSE.
+l_one_sample = l_shared_stem_path .AND. n_e_leaf == 1 .AND. open_pnts == 1
+IF ( l_one_sample .AND. .NOT. l_shared_whole_path ) l_rootstem_cache = .FALSE.
 
 ! For each open point, walk every sampled transpiration down the chain of
 ! segments (root, then stem, then leaf). Each segment takes the water
@@ -912,38 +955,39 @@ DO j = 1, open_pnts
   ! (leaf_k_intact, for the hydraulic cost under impairment: the intact
   ! segments at the same water potentials) starts the same way.
   IF ( ksr_path(l) >= 0.0 ) THEN
-    k_s = ksr_path(l)
-    IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
-      psi_in(:)  = MAX(root_zone_psi(l) - e_seg(:) / k_s,                      &
+    k_soil_root = ksr_path(l)
+    IF ( k_soil_root > TINY(1.0_real_jlslsm) ) THEN
+      psi_in(:) = MAX(root_zone_psi(l) - e_seg(:) / k_soil_root,               &
                        som_psi_in_min)
-      dpsi_de(:) = -1.0 / k_s
-      dpsi_de_int(:) = -1.0 / k_s
+      dpsi_de(:) = -1.0 / k_soil_root
+      dpsi_de_int(:) = -1.0 / k_soil_root
     ELSE
       l_closed(:) = e_seg(:) > 0.0
     END IF
   END IF
 
   ! The whole-plant solve of the same inputs as the last class solve:
-  ! start at the leaf segment from the kept stem state (l_rs_cache).
-  iseg0 = 1
-  kc_key = -1.0
-  IF ( l_impair ) kc_key = kcap_frac(l)
-  IF ( l_one .AND. l_shared_whole_path .AND. l_rs_cache ) THEN
-    IF ( .NOT. rs_lut .AND.                                                   &
-         rs_l == l .AND. rs_e == e_leaf(1,j) .AND. rs_kmax == kmax(l) .AND.   &
-         rs_kcrit == kcrit(l) .AND. rs_psi0 == root_zone_psi(l) .AND.         &
-         rs_kcap == kc_key .AND. ( rs_intact .EQV. PRESENT(leaf_k_intact) )   &
-         .AND. ( rs_exact .EQV. l_exact_on ) ) THEN
-      psi_in(1)      = rs_psi
-      dpsi_de(1)     = rs_dpsi
-      dpsi_de_int(1) = rs_dpsi_int
-      l_closed(1)    = rs_closed
-      IF ( PRESENT(stem_psi) ) stem_psi(1,j) = rs_psi
-      iseg0 = n_seg
+  ! start at the leaf segment from the kept stem state (l_rootstem_cache).
+  iseg_first = 1
+  cache_kcap_key = -1.0
+  IF ( l_impair ) cache_kcap_key = kcap_frac(l)
+  IF ( l_one_sample .AND. l_shared_whole_path .AND. l_rootstem_cache ) THEN
+    IF ( .NOT. rootstem_cache_lut .AND. rootstem_cache_l == l .AND.            &
+         rootstem_cache_e == e_leaf(1,j) .AND. rootstem_cache_kmax == kmax(l)  &
+         .AND. rootstem_cache_kcrit == kcrit(l) .AND. rootstem_cache_psi0 ==   &
+         root_zone_psi(l) .AND. rootstem_cache_kcap == cache_kcap_key .AND. (  &
+         rootstem_cache_intact .EQV. PRESENT(leaf_k_intact) ) .AND. (          &
+         rootstem_cache_exact .EQV. l_exact_on ) ) THEN
+      psi_in(1)      = rootstem_cache_psi
+      dpsi_de(1)     = rootstem_cache_dpsi
+      dpsi_de_int(1) = rootstem_cache_dpsi_int
+      l_closed(1)    = rootstem_cache_closed
+      IF ( PRESENT(stem_psi) ) stem_psi(1,j) = rootstem_cache_psi
+      iseg_first = n_seg
     END IF
   END IF
 
-  DO iseg = iseg0, n_seg
+  DO iseg = iseg_first, n_seg
     ! The leaf segment carries the leaf's E, whatever the store gives, and
     ! not the other class's unless the whole plant's leaf is solved.
     IF ( iseg == n_seg .AND. ( l_store_q_path .OR. l_shared_stem_path ) )     &
@@ -953,42 +997,43 @@ DO j = 1, open_pnts
 
     ! This segment's maximum and critical conductance (its share of the
     ! whole-plant values) and its own vulnerability curve (b, c).
-    kmx = kmax(l) * seg_kmax_fac(pft,l,iseg)
-    kcr = kcrit(l) * seg_kmax_fac(pft,l,iseg)
-    bs  = conductance_b_seg(pft,iseg)
-    cs  = conductance_c_seg(pft,iseg)
+    kmax_seg  = kmax(l) * seg_kmax_fac(pft,l,iseg)
+    kcrit_seg = kcrit(l) * seg_kmax_fac(pft,l,iseg)
+    b_seg     = conductance_b_seg(pft,iseg)
+    c_seg     = conductance_c_seg(pft,iseg)
     ! Deepest Newton step below psi_in: k there is below the path's kcrit
-    ! on this segment's curve, a fraction kcrit / kmx of the segment's own
-    ! kmax (newton_psi_drop; 5 |bs| unless the curve is wide). For the
+    ! on this segment's curve, a fraction kcrit / kmax_seg of the segment's own
+    ! kmax (newton_psi_drop; 5 |b_seg| unless the curve is wide). For the
     ! shared root and stem the path is the whole plant's, with its kcrit in
     ! proportion to its kmax.
-    kcr_drop = kcrit(l)
+    kcrit_for_drop = kcrit(l)
     IF ( l_shared_stem_path .AND. ( iseg <= 2 .OR. l_shared_whole_path ) )     &
-      kcr_drop = kcr_drop * shared_k_fac(l)
-    drop_nr = newton_psi_drop(bs, cs,                                          &
-                              kcr_drop / MAX(kmx, TINY(1.0_real_jlslsm)),      &
-                              .FALSE.)
+      kcrit_for_drop = kcrit_for_drop * shared_k_fac(l)
+    newton_max_drop = newton_psi_drop(b_seg, c_seg, kcrit_for_drop /           &
+                              MAX(kmax_seg, TINY(1.0_real_jlslsm)), .FALSE.)
 
     ! Cap on the stem and leaf segments (not the root) under xylem
-    ! impairment: their conductance cannot exceed fr * kmx. psi_cap is
-    ! where the intact curve falls to the cap,
+    ! impairment: their conductance cannot exceed kcap_frac_seg * kmax_seg.
+    ! psi_cap is where the intact curve falls to the cap,
     !
-    !   kmx exp(-(psi_cap / b)^c) = fr kmx,   psi_cap = b (-ln fr)^(1/c)
+    !   kmax_seg exp(-(psi_cap / b)^c) = kcap_frac_seg kmax_seg,
+    !   psi_cap = b (-ln kcap_frac_seg)^(1/c)
     !
     ! so above psi_cap (wetter) the cap binds and below it the intact curve
-    ! does. a_cap is the intact supply integral at psi_cap, used to join the
-    ! two parts of the capped integral (seg_a).
+    ! does. supply_int_cap is the intact supply integral at psi_cap, used to
+    ! join the two parts of the capped integral (seg_a).
     ! With l_som_seg_whole the root is capped too (whole-plant damage).
-    fr = 1.0
-    IF ( l_impair .AND. ( iseg >= 2 .OR. l_som_seg_whole ) )                   &
-      fr = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor), 1.0)
-    l_cap = fr < 1.0 - 1.0e-6
+    kcap_frac_seg = 1.0
+    IF ( l_impair .AND. ( iseg >= 2 .OR. l_som_seg_whole ) ) kcap_frac_seg =   &
+      MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor), 1.0)
+    l_cap = kcap_frac_seg < 1.0 - 1.0e-6
     IF ( l_cap ) THEN
-      psi_cap = bs * (-LOG(fr))**(1.0 / cs)
-      a_cap = kmx * (-bs/cs) * incomplete_gamma_1(1.0/cs, (psi_cap/bs)**cs)
+      psi_cap = b_seg * (-LOG(kcap_frac_seg))**(1.0 / c_seg)
+      supply_int_cap = kmax_seg * (-b_seg/c_seg) *                             &
+                       incomplete_gamma_1(1.0/c_seg, (psi_cap/b_seg)**c_seg)
     ELSE
       psi_cap = 0.0
-      a_cap = 0.0
+      supply_int_cap = 0.0
     END IF
 
     ! Conductance and supply integral at the root-side end of the segment.
@@ -997,20 +1042,21 @@ DO j = 1, open_pnts
       ! The root water potential is psi_root_zone for every sample: one
       ! evaluation.
       ! (With a soil link it falls with E, so not here.)
-      a_in(:) = seg_a(psi_in(1))
+      supply_int_in(:) = seg_a(psi_in(1))
     ELSE
-      a_in(:) = seg_a(psi_in)
+      supply_int_in(:) = seg_a(psi_in)
     END IF
 
     ! First guess: the root-side conductance over the whole drop (Ohm's
-    ! law, psi_out = psi_in - E / k_in), no more than drop_nr below psi_in.
+    ! law, psi_out = psi_in - E / k_in), no more than newton_max_drop below
+    ! psi_in.
     psi_out(:) = psi_in(:) - e_seg(:) / MAX(k_in(:), TINY(1.0_real_jlslsm))
-    psi_out(:) = MAX(psi_out(:), psi_in(:) - drop_nr)
+    psi_out(:) = MAX(psi_out(:), psi_in(:) - newton_max_drop)
     k_cur(:)   = k_in(:)
 
     ! Newton-Raphson for the leaf-side water potential: the segment carries
     !
-    !   E(psi_out) = seg_a(psi_out) - a_in
+    !   E(psi_out) = seg_a(psi_out) - supply_int_in
     !
     ! and dE/dpsi_out = -k(psi_out), so each step moves psi_out by the
     ! missing flow divided by the conductance there. Each sample stops
@@ -1020,16 +1066,17 @@ DO j = 1, open_pnts
     DO it = 1, max_nr_iter
       k_prev(:) = k_cur(:)
       k_cur(:)  = seg_k(psi_out)
-      e_cur(:)  = seg_a(psi_out) - a_in(:)
+      e_cur(:)  = seg_a(psi_out) - supply_int_in(:)
       WHERE (l_nr_active(:))                                                   &
         psi_out(:) = psi_out(:) - (e_seg(:) - e_cur(:))                        &
                                   / MAX(k_cur(:), TINY(1.0_real_jlslsm))
       ! Same runaway guard as the single segment (infeasible demand).
-      psi_out(:) = MAX(psi_out(:), psi_in(:) - drop_nr)
+      psi_out(:) = MAX(psi_out(:), psi_in(:) - newton_max_drop)
       ! A flow back from the store (E_r < 0) larger than the segment can
       ! carry up to psi = 0: the leaf-side end at 0.
       IF ( l_store_q_path ) psi_out(:) = MIN(psi_out(:), 0.0_real_jlslsm)
-      WHERE (ABS(k_cur(:) - k_prev(:)) < 0.1 * kcr) l_nr_active(:) = .FALSE.
+      WHERE (ABS(k_cur(:) - k_prev(:)) < 0.1 * kcrit_seg)                      &
+        l_nr_active(:) = .FALSE.
       IF ( .NOT. ANY(l_nr_active(:)) ) EXIT
     END DO
 
@@ -1051,17 +1098,18 @@ DO j = 1, open_pnts
     !
     !   dpsi_out/dE = (k(psi_in) dpsi_in/dE - 1) / k(psi_out)
     !
-    k_cur(:)   = MAX(seg_k(psi_out), k_floor * kmx)
-    dpsi_de(:) = ( MAX(k_in(:), k_floor * kmx) * dpsi_de(:) - 1.0 ) / k_cur(:)
+    k_cur(:)   = MAX(seg_k(psi_out), k_floor * kmax_seg)
+    dpsi_de(:) = ( MAX(k_in(:), k_floor * kmax_seg) * dpsi_de(:) - 1.0 ) /     &
+                 k_cur(:)
 
     ! The same for the intact segments at the same water potentials (the
     ! conductance the hydraulic cost uses under impairment).
     IF ( PRESENT(leaf_k_intact) ) THEN
-      dpsi_de_int(:) = ( MAX(kmx * EXP( -(MIN(psi_in(:), 0.0_real_jlslsm)      &
-                                     / bs)**cs ), k_floor * kmx)               &
-                         * dpsi_de_int(:) - 1.0 )                              &
-                       / MAX(kmx * EXP( -(MIN(psi_out(:), 0.0_real_jlslsm)     &
-                                        / bs)**cs ), k_floor * kmx)
+      dpsi_de_int(:) = ( MAX(kmax_seg * EXP( -(MIN(psi_in(:), 0.0_real_jlslsm) &
+                                     / b_seg)**c_seg ), k_floor * kmax_seg) *  &
+                                     dpsi_de_int(:) - 1.0 ) / MAX(kmax_seg *   &
+                                     EXP( -(MIN(psi_out(:), 0.0_real_jlslsm) / &
+                                     b_seg)**c_seg ), k_floor * kmax_seg)
     END IF
 
     ! Hand on to the next segment; keep the stem segment's leaf-side psi.
@@ -1070,22 +1118,22 @@ DO j = 1, open_pnts
     psi_in(:)  = psi_out(:)
     IF ( iseg == 1 ) psi_in(:) = psi_in(:) - grav_node_drop(l)
     IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(:,j) = psi_out(:)
-    ! Keep the stem state of a class solve (l_rs_cache).
-    IF ( iseg == 2 .AND. l_one .AND. .NOT. l_shared_whole_path ) THEN
-      l_rs_cache  = .TRUE.
-      rs_lut      = .FALSE.
-      rs_l        = l
-      rs_e        = e_leaf(1,j)
-      rs_kmax     = kmax(l)
-      rs_kcrit    = kcrit(l)
-      rs_psi0     = root_zone_psi(l)
-      rs_kcap     = kc_key
-      rs_intact   = PRESENT(leaf_k_intact)
-      rs_exact    = l_exact_on
-      rs_psi      = psi_out(1)
-      rs_dpsi     = dpsi_de(1)
-      rs_dpsi_int = dpsi_de_int(1)
-      rs_closed   = l_closed(1)
+    ! Keep the stem state of a class solve (l_rootstem_cache).
+    IF ( iseg == 2 .AND. l_one_sample .AND. .NOT. l_shared_whole_path ) THEN
+      l_rootstem_cache        = .TRUE.
+      rootstem_cache_lut      = .FALSE.
+      rootstem_cache_l        = l
+      rootstem_cache_e        = e_leaf(1,j)
+      rootstem_cache_kmax     = kmax(l)
+      rootstem_cache_kcrit    = kcrit(l)
+      rootstem_cache_psi0     = root_zone_psi(l)
+      rootstem_cache_kcap     = cache_kcap_key
+      rootstem_cache_intact   = PRESENT(leaf_k_intact)
+      rootstem_cache_exact    = l_exact_on
+      rootstem_cache_psi      = psi_out(1)
+      rootstem_cache_dpsi     = dpsi_de(1)
+      rootstem_cache_dpsi_int = dpsi_de_int(1)
+      rootstem_cache_closed   = l_closed(1)
     END IF
   END DO
 
@@ -1126,7 +1174,7 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 CONTAINS
 
   ! Return the conductance of the current segment at water potential psi
-  ! (Pa) for the segment solver, capped at fr * kmx under xylem
+  ! (Pa) for the segment solver, capped at kcap_frac_seg * kmax_seg under xylem
   ! impairment (l_cap). psi is held at <= 0 here
   ! and in seg_a: a root-zone psi just above 0 from rounding would give a
   ! negative base to a non-integer power (NaN) and close a wet point.
@@ -1135,15 +1183,15 @@ CONTAINS
   ELEMENTAL FUNCTION seg_k( psi ) RESULT( k )
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
   REAL(KIND=real_jlslsm) :: k
-  k = kmx * EXP( -(MIN(psi, 0.0_real_jlslsm)/bs)**cs )
-  IF ( l_cap ) k = MIN(k, fr * kmx)
+  k = kmax_seg * EXP( -(MIN(psi, 0.0_real_jlslsm)/b_seg)**c_seg )
+  IF ( l_cap ) k = MIN(k, kcap_frac_seg * kmax_seg)
   END FUNCTION seg_k
 
   ! Find the leaf-side water potential of sample i exactly (l_exact), for
   ! flows near the most the segment can carry, where Newton's method is
-  ! not accurate enough. It solves seg_a(psi_out) = a_in + E (seg_a rises
-  ! as psi falls) by bisection: the range that holds it is halved 60
-  ! times. The range runs from the root-side psi down to where
+  ! not accurate enough. It solves seg_a(psi_out) = supply_int_in + E
+  ! (seg_a rises as psi falls) by bisection: the range that holds it is
+  ! halved 60 times. The range runs from the root-side psi down to where
   ! (psi/b)^c = 12, f = 6e-6. There the curve has carried nearly all it
   ! can, and the incomplete gamma series is still accurate; deeper, its 40
   ! terms are not enough and seg_a no longer rises steadily. A flow above
@@ -1152,9 +1200,9 @@ CONTAINS
   INTEGER, INTENT(IN) :: i
   INTEGER :: ib
   REAL(KIND=real_jlslsm) :: lo, hi, mid, a_t
-  a_t = a_in(i) + e_seg(i)
+  a_t = supply_int_in(i) + e_seg(i)
   hi  = psi_in(i)
-  lo  = -ABS(bs) * 12.0**(1.0 / cs)
+  lo  = -ABS(b_seg) * 12.0**(1.0 / c_seg)
   IF ( l_closed(i) ) RETURN
   IF ( lo >= hi ) THEN
     l_closed(i) = .TRUE.
@@ -1181,20 +1229,21 @@ CONTAINS
   ! (Pa) at one end and 0 at the other: its conductance integrated from
   ! psi up to 0. The segment solver uses it to find psi_out, since the
   ! flow from psi_in to psi_out is seg_a(psi_out) - seg_a(psi_in). Under
-  ! xylem impairment it is the integral of the capped curve: fr kmx (-psi)
-  ! above psi_cap, and below it the intact integral, joined at psi_cap.
+  ! xylem impairment it is the integral of the capped curve:
+  ! kcap_frac_seg kmax_seg (-psi) above psi_cap, and below it the intact
+  ! integral, joined at psi_cap.
   ! ELEMENTAL, as seg_k.
   ELEMENTAL FUNCTION seg_a( psi ) RESULT( a )
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
   REAL(KIND=real_jlslsm) :: a
-  ! Note: the negative sign is present because bs is negative.
-  a = kmx * (-bs/cs) * incomplete_gamma_1(1.0/cs,                              &
-                                          (MIN(psi, 0.0_real_jlslsm)/bs)**cs)
+  ! Note: the negative sign is present because b_seg is negative.
+  a = kmax_seg * (-b_seg/c_seg) * incomplete_gamma_1(1.0/c_seg, (MIN(psi,      &
+                                          0.0_real_jlslsm)/b_seg)**c_seg)
   IF ( l_cap ) THEN
     IF ( psi >= psi_cap ) THEN
-      a = fr * kmx * (-psi)
+      a = kcap_frac_seg * kmax_seg * (-psi)
     ELSE
-      a = fr * kmx * (-psi_cap) + a - a_cap
+      a = kcap_frac_seg * kmax_seg * (-psi_cap) + a - supply_int_cap
     END IF
   END IF
   END FUNCTION seg_a
@@ -1258,7 +1307,7 @@ END SUBROUTINE psi_leaf_segments_jls
 ! lut_seg_step. The gravity drop (set_grav_drop) is taken between the root
 ! and the stem, as in the Newton solver.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 ! *****************************************************************************
 SUBROUTINE psi_leaf_segments_lut_jls( pft, n_e_leaf, land_pts, open_pnts,      &
                                       veg_index, open_index, e_leaf,           &
@@ -1300,23 +1349,48 @@ INTEGER, PARAMETER :: n_seg = 3
 REAL(KIND=real_jlslsm), PARAMETER :: k_floor = 1.0e-12
 
 INTEGER :: i, j, l, iseg
-LOGICAL :: l_cap, l_impair
-REAL(KIND=real_jlslsm) :: kmx, bs, cs, psi_in, psi_out, k_in, k_out, dpsi_de,  &
-                          k_s, fr, dpsi_de_int
-      ! fr: the segment's cap fraction; dpsi_de_int d(psi)/dE on the intact
-      ! segments.
-! The flow of the soil link, root and stem (E_r) and of the current
-! segment.
-REAL(KIND=real_jlslsm) :: e_r, e_s
+! The segment is capped (xylem impairment).
+LOGICAL :: l_cap
+! Xylem impairment is on for this call.
+LOGICAL :: l_impair
+! Segment kmax.
+REAL(KIND=real_jlslsm) :: kmax_seg
+! Segment Weibull b (Pa).
+REAL(KIND=real_jlslsm) :: b_seg
+! Segment Weibull c.
+REAL(KIND=real_jlslsm) :: c_seg
+! Segment water potential at the root-side end (Pa).
+REAL(KIND=real_jlslsm) :: psi_in
+! Segment water potential at the leaf-side end (Pa).
+REAL(KIND=real_jlslsm) :: psi_out
+! Segment conductance at the root-side end.
+REAL(KIND=real_jlslsm) :: k_in
+! Segment conductance at the leaf-side end.
+REAL(KIND=real_jlslsm) :: k_out
+! d(psi)/dE carried down the segments, on the solved curves.
+REAL(KIND=real_jlslsm) :: dpsi_de
+! l_som_rhizo_series: this path's soil-to-root conductance.
+REAL(KIND=real_jlslsm) :: k_soil_root
+! The segment's cap fraction.
+REAL(KIND=real_jlslsm) :: kcap_frac_seg
+! d(psi)/dE carried down the segments, on the intact curves.
+REAL(KIND=real_jlslsm) :: dpsi_de_int
+! The flow of the soil link, root and stem (E_r).
+REAL(KIND=real_jlslsm) :: e_r
+! The flow of the current segment.
+REAL(KIND=real_jlslsm) :: e_seg
 ! The shared root and stem, one sample at one point: the stem state is
 ! kept by a class solve and reused by the whole-plant solve of the same
-! inputs (see l_rs_cache). iseg0 is the first segment solved.
-LOGICAL :: l_one
-INTEGER :: iseg0
-REAL(KIND=real_jlslsm) :: kc_key
-! The segment's intact conductance at its inlet and outlet (mol m-2 s-1
-! Pa-1).
-REAL(KIND=real_jlslsm) :: k_in_int, k_out_int
+! inputs (see l_rootstem_cache).
+LOGICAL :: l_one_sample
+! The first segment solved.
+INTEGER :: iseg_first
+! The cap of the stem segment, part of the cache's key.
+REAL(KIND=real_jlslsm) :: cache_kcap_key
+! The segment's intact conductance at its inlet (mol m-2 s-1 Pa-1).
+REAL(KIND=real_jlslsm) :: k_in_int
+! The same at its outlet.
+REAL(KIND=real_jlslsm) :: k_out_int
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -1327,8 +1401,8 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 CALL build_supply_lut_seg(pft)
 l_impair = PRESENT(kcap_frac)
-l_one = l_shared_stem_path .AND. n_e_leaf == 1 .AND. open_pnts == 1
-IF ( l_one .AND. .NOT. l_shared_whole_path ) l_rs_cache = .FALSE.
+l_one_sample = l_shared_stem_path .AND. n_e_leaf == 1 .AND. open_pnts == 1
+IF ( l_one_sample .AND. .NOT. l_shared_whole_path ) l_rootstem_cache = .FALSE.
 
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
@@ -1345,11 +1419,11 @@ DO j = 1, open_pnts
     ! l_som_rhizo_series: soil link ahead of the root segment (as
     ! psi_leaf_segments_jls).
     IF ( ksr_path(l) >= 0.0 ) THEN
-      k_s = ksr_path(l)
-      IF ( k_s > TINY(1.0_real_jlslsm) ) THEN
-        psi_in  = MAX(root_zone_psi(l) - e_r / k_s, som_psi_in_min)
-        dpsi_de = -1.0 / k_s
-        dpsi_de_int = -1.0 / k_s
+      k_soil_root = ksr_path(l)
+      IF ( k_soil_root > TINY(1.0_real_jlslsm) ) THEN
+        psi_in      = MAX(root_zone_psi(l) - e_r / k_soil_root, som_psi_in_min)
+        dpsi_de     = -1.0 / k_soil_root
+        dpsi_de_int = -1.0 / k_soil_root
       ELSE IF ( e_r > 0.0 ) THEN
         leaf_psi(i,j) = som_psi_in_min
         leaf_k(i,j)   = 0.0
@@ -1360,20 +1434,21 @@ DO j = 1, open_pnts
     END IF
 
     ! The whole-plant solve of the same inputs as the last class solve:
-    ! start at the leaf segment from the kept stem state (l_rs_cache).
-    iseg0 = 1
-    kc_key = -1.0
-    IF ( l_impair ) kc_key = kcap_frac(l)
-    IF ( l_one .AND. l_shared_whole_path .AND. l_rs_cache ) THEN
-      IF ( rs_lut .AND. rs_l == l .AND. rs_e == e_leaf(1,j) .AND.             &
-           rs_kmax == kmax(l) .AND. rs_psi0 == root_zone_psi(l) .AND.         &
-           rs_kcap == kc_key .AND.                                            &
-           ( rs_intact .EQV. PRESENT(leaf_k_intact) ) ) THEN
-        psi_in      = rs_psi
-        dpsi_de     = rs_dpsi
-        dpsi_de_int = rs_dpsi_int
-        IF ( PRESENT(stem_psi) ) stem_psi(i,j) = rs_psi
-        iseg0 = n_seg
+    ! start at the leaf segment from the kept stem state (l_rootstem_cache).
+    iseg_first = 1
+    cache_kcap_key = -1.0
+    IF ( l_impair ) cache_kcap_key = kcap_frac(l)
+    IF ( l_one_sample .AND. l_shared_whole_path .AND. l_rootstem_cache ) THEN
+      IF ( rootstem_cache_lut .AND. rootstem_cache_l == l .AND.                &
+           rootstem_cache_e == e_leaf(1,j) .AND. rootstem_cache_kmax ==        &
+           kmax(l) .AND. rootstem_cache_psi0 == root_zone_psi(l) .AND.         &
+           rootstem_cache_kcap == cache_kcap_key .AND. ( rootstem_cache_intact &
+           .EQV. PRESENT(leaf_k_intact) ) ) THEN
+        psi_in      = rootstem_cache_psi
+        dpsi_de     = rootstem_cache_dpsi
+        dpsi_de_int = rootstem_cache_dpsi_int
+        IF ( PRESENT(stem_psi) ) stem_psi(i,j) = rootstem_cache_psi
+        iseg_first = n_seg
       END IF
     END IF
 
@@ -1381,45 +1456,47 @@ DO j = 1, open_pnts
     ! leaf-side psi comes from its own table with E divided by its own kmax, and
     ! becomes the next segment's root-side psi. dpsi_de carries dpsi/dE down the
     ! chain: from E = integral(k), k_out dpsi_out = k_in dpsi_in - dE.
-    DO iseg = iseg0, n_seg
-      kmx = kmax(l) * seg_kmax_fac(pft,l,iseg)
-      bs  = conductance_b_seg(pft,iseg)
-      cs  = conductance_c_seg(pft,iseg)
+    DO iseg = iseg_first, n_seg
+      kmax_seg = kmax(l) * seg_kmax_fac(pft,l,iseg)
+      b_seg    = conductance_b_seg(pft,iseg)
+      c_seg    = conductance_c_seg(pft,iseg)
 
       ! The leaf carries the leaf's E (and the other class's on the
       ! whole-plant path); the soil link, root and stem E_r.
-      e_s = e_r
-      IF ( iseg == n_seg ) e_s = e_leaf(i,j)
+      e_seg = e_r
+      IF ( iseg == n_seg ) e_seg = e_leaf(i,j)
       IF ( iseg == n_seg .AND. l_shared_stem_path .AND. l_shared_whole_path )  &
-        e_s = e_s + shared_e_other(l)
+        e_seg = e_seg + shared_e_other(l)
 
       ! Cap on the stem and leaf segments (not the root; all three with
       ! l_som_seg_whole), as psi_leaf_segments_jls.
       l_cap = .FALSE.
-      fr = 1.0
+      kcap_frac_seg = 1.0
       IF ( l_impair .AND. ( iseg >= 2 .OR. l_som_seg_whole ) ) THEN
-        fr = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)), k_floor),   &
-                 1.0)
-        l_cap = fr < 1.0 - 1.0e-6
+        kcap_frac_seg = MIN(MAX(ximpair_seg_frac(pft, l, iseg, kcap_frac(l)),  &
+                 k_floor), 1.0)
+        l_cap = kcap_frac_seg < 1.0 - 1.0e-6
       END IF
 
-      psi_out = lut_seg_step( pft, iseg, psi_in, e_s, kmx, fr, l_cap,          &
-                              l_store_q_path )
+      psi_out = lut_seg_step( pft, iseg, psi_in, e_seg, kmax_seg,              &
+                              kcap_frac_seg, l_cap, l_store_q_path )
 
       ! The segment's intact conductance at its two ends, worked out once
-      ! for the search's chain (capped at fr kmax on a capped segment) and
-      ! the intact chain. Both are floored at k_floor kmax.
-      k_in_int  = kmx * EXP( -(MIN(psi_in, 0.0_real_jlslsm)/bs)**cs )
-      k_out_int = kmx * EXP( -(MIN(psi_out, 0.0_real_jlslsm)/bs)**cs )
+      ! for the search's chain (capped at kcap_frac_seg kmax on a capped
+      ! segment) and the intact chain. Both are floored at k_floor kmax.
+      k_in_int  = kmax_seg * EXP( -(MIN(psi_in, 0.0_real_jlslsm)/b_seg)**c_seg )
+      k_out_int = kmax_seg * EXP( -(MIN(psi_out,                               &
+                  0.0_real_jlslsm)/b_seg)**c_seg )
       IF ( l_cap ) THEN
-        k_in  = MAX(MIN(k_in_int, fr * kmx), k_floor * kmx)
-        k_out = MAX(MIN(k_out_int, fr * kmx), k_floor * kmx)
+        k_in  = MAX(MIN(k_in_int, kcap_frac_seg * kmax_seg), k_floor * kmax_seg)
+        k_out = MAX(MIN(k_out_int, kcap_frac_seg * kmax_seg), k_floor *        &
+                kmax_seg)
       ELSE
-        k_in  = MAX(k_in_int, k_floor * kmx)
-        k_out = MAX(k_out_int, k_floor * kmx)
+        k_in  = MAX(k_in_int, k_floor * kmax_seg)
+        k_out = MAX(k_out_int, k_floor * kmax_seg)
       END IF
-      k_in_int  = MAX(k_in_int, k_floor * kmx)
-      k_out_int = MAX(k_out_int, k_floor * kmx)
+      k_in_int  = MAX(k_in_int, k_floor * kmax_seg)
+      k_out_int = MAX(k_out_int, k_floor * kmax_seg)
 
       dpsi_de = ( k_in * dpsi_de - 1.0 ) / k_out
 
@@ -1431,19 +1508,19 @@ DO j = 1, open_pnts
       psi_in  = psi_out
       IF ( iseg == 1 ) psi_in = psi_in - grav_node_drop(l)
       IF ( iseg == 2 .AND. PRESENT(stem_psi) ) stem_psi(i,j) = psi_out
-      ! Keep the stem state of a class solve (l_rs_cache).
-      IF ( iseg == 2 .AND. l_one .AND. .NOT. l_shared_whole_path ) THEN
-        l_rs_cache  = .TRUE.
-        rs_lut      = .TRUE.
-        rs_l        = l
-        rs_e        = e_leaf(1,j)
-        rs_kmax     = kmax(l)
-        rs_psi0     = root_zone_psi(l)
-        rs_kcap     = kc_key
-        rs_intact   = PRESENT(leaf_k_intact)
-        rs_psi      = psi_out
-        rs_dpsi     = dpsi_de
-        rs_dpsi_int = dpsi_de_int
+      ! Keep the stem state of a class solve (l_rootstem_cache).
+      IF ( iseg == 2 .AND. l_one_sample .AND. .NOT. l_shared_whole_path ) THEN
+        l_rootstem_cache        = .TRUE.
+        rootstem_cache_lut      = .TRUE.
+        rootstem_cache_l        = l
+        rootstem_cache_e        = e_leaf(1,j)
+        rootstem_cache_kmax     = kmax(l)
+        rootstem_cache_psi0     = root_zone_psi(l)
+        rootstem_cache_kcap     = cache_kcap_key
+        rootstem_cache_intact   = PRESENT(leaf_k_intact)
+        rootstem_cache_psi      = psi_out
+        rootstem_cache_dpsi     = dpsi_de
+        rootstem_cache_dpsi_int = dpsi_de_int
       END IF
     END DO
 
@@ -1490,10 +1567,10 @@ END SUBROUTINE psi_leaf_segments_lut_jls
 ! chain, and sf_stom for the leaf segment of each two-leaf class.
 ! build_supply_lut_seg(pft) must have been called.
 !
-! MDK, 04/11/26
+! MDK, 12/11/26
 ! *****************************************************************************
-FUNCTION lut_seg_step( pft, iseg, psi_in, e_s, kmx, fr, l_cap, l_back )        &
-         RESULT( psi_out )
+FUNCTION lut_seg_step( pft, iseg, psi_in, e_seg, kmax_seg, kcap_frac_seg,      &
+         l_cap, l_back ) RESULT( psi_out )
 
 USE pftparm, ONLY: conductance_b_seg, conductance_c_seg
 
@@ -1501,67 +1578,81 @@ IMPLICIT NONE
 
 ! Plant functional type and segment.
 INTEGER, INTENT(IN) :: pft, iseg
-! Water potential at the root-side end (Pa), the flow and the segment's
-! maximum conductance (intact) and cap fraction.
-REAL(KIND=real_jlslsm), INTENT(IN) :: psi_in, e_s, kmx, fr
-! .TRUE.: the segment is capped at fr kmx.
+! Water potential at the root-side end (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_in
+! The flow the segment carries.
+REAL(KIND=real_jlslsm), INTENT(IN) :: e_seg
+! The segment's maximum conductance (intact).
+REAL(KIND=real_jlslsm), INTENT(IN) :: kmax_seg
+! The segment's cap fraction.
+REAL(KIND=real_jlslsm), INTENT(IN) :: kcap_frac_seg
+! .TRUE.: the segment is capped at kcap_frac_seg kmax_seg.
 LOGICAL, INTENT(IN) :: l_cap
-! .TRUE.: a flow e_s < 0 runs back towards the soil.
+! .TRUE.: a flow e_seg < 0 runs back towards the soil.
 LOGICAL, INTENT(IN) :: l_back
 ! Water potential at the leaf-side end (Pa).
 REAL(KIND=real_jlslsm) :: psi_out
 
-REAL(KIND=real_jlslsm) :: bs, cs
-! Where the intact curve meets the cap (Pa), the flow the capped part
-! above it carries, and the flow (>= 0).
-REAL(KIND=real_jlslsm) :: psi_cap, e_cap, e_pos
-! With a flow back, the flow per unit kmax from psi_in up to psi_cap (< 0)
-! and the flow per unit kmax.
-REAL(KIND=real_jlslsm) :: x_cap, x_s
+! The segment's Weibull b (Pa).
+REAL(KIND=real_jlslsm) :: b_seg
+! The segment's Weibull c.
+REAL(KIND=real_jlslsm) :: c_seg
+! Where the intact curve meets the cap (Pa).
+REAL(KIND=real_jlslsm) :: psi_cap
+! The flow the capped part above psi_cap carries.
+REAL(KIND=real_jlslsm) :: e_cap
+! The flow, no less than 0.
+REAL(KIND=real_jlslsm) :: e_pos
+! With a flow back, the flow per unit kmax from psi_in up to psi_cap (< 0).
+REAL(KIND=real_jlslsm) :: x_cap
+! With a flow back, the flow per unit kmax.
+REAL(KIND=real_jlslsm) :: x_s
 
-bs = conductance_b_seg(pft,iseg)
-cs = conductance_c_seg(pft,iseg)
+b_seg = conductance_b_seg(pft,iseg)
+c_seg = conductance_c_seg(pft,iseg)
 
-IF ( l_cap .AND. l_back .AND. e_s < 0.0 ) THEN
+IF ( l_cap .AND. l_back .AND. e_seg < 0.0 ) THEN
   ! A flow back towards the soil on a capped segment: up the intact curve
   ! to psi_cap, then up the straight capped part, to at most psi = 0.
-  psi_cap = bs * (-LOG(fr))**(1.0 / cs)
-  x_s = e_s / MAX(kmx, TINY(1.0_real_jlslsm))
+  psi_cap = b_seg * (-LOG(kcap_frac_seg))**(1.0 / c_seg)
+  x_s = e_seg / MAX(kmax_seg, TINY(1.0_real_jlslsm))
   IF ( psi_in >= psi_cap ) THEN
-    psi_out = psi_in - e_s / MAX(fr * kmx, TINY(1.0_real_jlslsm))
+    psi_out = psi_in - e_seg / MAX(kcap_frac_seg * kmax_seg,                   &
+              TINY(1.0_real_jlslsm))
   ELSE
     x_cap = seg_lut_s(pft, iseg, psi_cap) - seg_lut_s(pft, iseg, psi_in)
     IF ( x_s >= x_cap ) THEN
       psi_out = seg_lut_psi_back(pft, iseg, psi_in, x_s)
     ELSE
-      psi_out = psi_cap - (x_s - x_cap) / fr
+      psi_out = psi_cap - (x_s - x_cap) / kcap_frac_seg
     END IF
   END IF
   psi_out = MIN(psi_out, 0.0_real_jlslsm)
-ELSE IF ( l_back .AND. e_s < 0.0 ) THEN
+ELSE IF ( l_back .AND. e_seg < 0.0 ) THEN
   ! A flow back on an intact segment (as above).
   psi_out = seg_lut_psi_back(pft, iseg, psi_in,                                &
-                             e_s / MAX(kmx, TINY(1.0_real_jlslsm)))
+                             e_seg / MAX(kmax_seg, TINY(1.0_real_jlslsm)))
 ELSE IF ( l_cap ) THEN
   ! Exact inversion of the capped integral: the straight capped part down
   ! to psi_cap, then the intact table from psi_cap.
-  psi_cap = bs * (-LOG(fr))**(1.0 / cs)
-  e_pos   = MAX(e_s, 0.0)
+  psi_cap = b_seg * (-LOG(kcap_frac_seg))**(1.0 / c_seg)
+  e_pos   = MAX(e_seg, 0.0)
   IF ( psi_in > psi_cap ) THEN
-    e_cap = fr * kmx * (psi_in - psi_cap)
+    e_cap = kcap_frac_seg * kmax_seg * (psi_in - psi_cap)
     IF ( e_pos <= e_cap ) THEN
-      psi_out = psi_in - e_pos / MAX(fr * kmx, TINY(1.0_real_jlslsm))
+      psi_out = psi_in - e_pos / MAX(kcap_frac_seg * kmax_seg,                 &
+                TINY(1.0_real_jlslsm))
     ELSE
-      psi_out = seg_lut_psi(pft, iseg, psi_cap,                                &
-                            (e_pos - e_cap) / MAX(kmx, TINY(1.0_real_jlslsm)))
+      psi_out = seg_lut_psi(pft, iseg, psi_cap, (e_pos - e_cap) /              &
+                            MAX(kmax_seg, TINY(1.0_real_jlslsm)))
     END IF
   ELSE
     psi_out = seg_lut_psi(pft, iseg, psi_in,                                   &
-                          e_pos / MAX(kmx, TINY(1.0_real_jlslsm)))
+                          e_pos / MAX(kmax_seg, TINY(1.0_real_jlslsm)))
   END IF
 ELSE
   psi_out = seg_lut_psi(pft, iseg, psi_in,                                     &
-                        e_s / MAX(kmx, TINY(1.0_real_jlslsm)))
+                        e_seg / MAX(kmax_seg, TINY(1.0_real_jlslsm)))
 END IF
 
 END FUNCTION lut_seg_step

@@ -242,7 +242,7 @@ END SUBROUTINE psi_leaf_lut_jls
 ! psi_leaf_impaired_memory solves. The conductance returned is the capped
 ! curve at psi_l, floored at the critical conductance kcrit, as there.
 !
-! MDK, 18/10/26
+! MDK, 12/11/26
 ! *****************************************************************************
 SUBROUTINE psi_leaf_capped_lut_jls( pft, n_e_leaf, land_pts, open_pnts,        &
                                     veg_index, open_index, e_leaf,             &
@@ -271,7 +271,19 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 , leaf_k(n_e_leaf, open_pnts)
 
 INTEGER :: i, j, l
-REAL(KIND=real_jlslsm) :: kmx, kc, psi_r, psi_s, psi_top, e_cap, r
+! The point's intact kmax and its cap clipped to [kcrit, kmax].
+REAL(KIND=real_jlslsm) :: kmax_intact
+REAL(KIND=real_jlslsm) :: kcap_eff
+! Root-zone water potential (Pa).
+REAL(KIND=real_jlslsm) :: psi_r
+! psi where the intact curve meets the cap (Pa; +HUGE: no cap).
+REAL(KIND=real_jlslsm) :: psi_meet
+! Top of the intact-curve part of the path (Pa).
+REAL(KIND=real_jlslsm) :: psi_intact_top
+! The flow the intact part of the path carries down to psi_intact_top.
+REAL(KIND=real_jlslsm) :: e_capped
+! kcap_eff / kmax_intact.
+REAL(KIND=real_jlslsm) :: r
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -283,39 +295,41 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 CALL build_supply_lut(pft)
 
 DO j = 1, open_pnts
-  l = veg_index(open_index(j))
-  kmx   = kmax_ref(l)
-  kc    = MAX(MIN(kcap(l), kmx), kcrit(l))
-  psi_r = root_zone_psi(l)
+  l           = veg_index(open_index(j))
+  kmax_intact = kmax_ref(l)
+  kcap_eff    = MAX(MIN(kcap(l), kmax_intact), kcrit(l))
+  psi_r       = root_zone_psi(l)
 
-  ! psi_s exactly from the curve (as psi_at_k; +HUGE: no cap).
-  IF ( kc < kmx * (1.0 - 1.0e-6) ) THEN
-    r = kc / kmx
+  ! psi_meet exactly from the curve (as psi_at_k; +HUGE: no cap).
+  IF ( kcap_eff < kmax_intact * (1.0 - 1.0e-6) ) THEN
+    r = kcap_eff / kmax_intact
     IF ( lut_sox(pft) ) THEN
-      psi_s = conductance_b_pft(pft)                                           &
-              * (1.0 / r - 1.0)**(1.0 / conductance_c_pft(pft))
+      psi_meet = conductance_b_pft(pft) * (1.0 / r - 1.0)**(1.0 /              &
+              conductance_c_pft(pft))
     ELSE
-      psi_s = conductance_b_pft(pft) * (-LOG(r))**(1.0 / conductance_c_pft(pft))
+      psi_meet = conductance_b_pft(pft) * (-LOG(r))**(1.0 /                    &
+                 conductance_c_pft(pft))
     END IF
   ELSE
-    psi_s = HUGE(1.0_real_jlslsm)
+    psi_meet = HUGE(1.0_real_jlslsm)
   END IF
 
-  IF ( psi_r > psi_s ) THEN
-    e_cap = kc * (psi_r - psi_s)
+  IF ( psi_r > psi_meet ) THEN
+    e_capped = kcap_eff * (psi_r - psi_meet)
   ELSE
-    e_cap = 0.0
+    e_capped = 0.0
   END IF
-  psi_top = MIN(psi_r, psi_s)
+  psi_intact_top = MIN(psi_r, psi_meet)
 
   DO i = 1, n_e_leaf
-    IF ( psi_r > psi_s .AND. e_leaf(i,j) <= e_cap ) THEN
-      leaf_psi(i,j) = psi_r - e_leaf(i,j) / kc
+    IF ( psi_r > psi_meet .AND. e_leaf(i,j) <= e_capped ) THEN
+      leaf_psi(i,j) = psi_r - e_leaf(i,j) / kcap_eff
     ELSE
-      leaf_psi(i,j) = supply_lut_psi(pft, psi_top,                             &
-                      (e_leaf(i,j) - e_cap) / MAX(kmx, TINY(1.0_real_jlslsm)))
+      leaf_psi(i,j) = supply_lut_psi(pft, psi_intact_top, (e_leaf(i,j) -       &
+                      e_capped) / MAX(kmax_intact, TINY(1.0_real_jlslsm)))
     END IF
-    leaf_k(i,j) = MAX(MIN(kmx * supply_lut_f(pft, leaf_psi(i,j)), kc), kcrit(l))
+    leaf_k(i,j) = MAX(MIN(kmax_intact * supply_lut_f(pft, leaf_psi(i,j)),      &
+                  kcap_eff), kcrit(l))
   END DO
 END DO
 
@@ -550,7 +564,7 @@ END FUNCTION table_psi
 ! *****************************************************************************
 ! Fill table tab for the curve with parameters b (Pa) and c (SOX if l_sox,
 ! else Weibull). lut_grid sets the grid, which ends where f = f_floor, or
-! further down where f = f_need if that is smaller. S starts at S(0) = 0,
+! further down where f = f_table_min if that is smaller. S starts at S(0) = 0,
 ! and each grid cell from p0 down to p1 adds the area under f across it by
 ! Simpson's rule (f at the two ends and the middle, weighted 1:4:1):
 !
@@ -563,12 +577,12 @@ END FUNCTION table_psi
 ! in the tail, where a cell adds less than S's last digit, neighbouring
 ! entries can be equal).
 !
-! MDK, 04/11/26
+! MDK, 12/11/26
 ! *****************************************************************************
-SUBROUTINE table_build( tab, b, c, l_sox, f_floor, f_need )
+SUBROUTINE table_build( tab, b, c, l_sox, f_floor, f_table_min )
 
 TYPE(supply_table), INTENT(IN OUT) :: tab
-REAL(KIND=real_jlslsm), INTENT(IN) :: b, c, f_floor, f_need
+REAL(KIND=real_jlslsm), INTENT(IN) :: b, c, f_floor, f_table_min
 LOGICAL, INTENT(IN) :: l_sox
 
 ! Kind of the double-precision sum.
@@ -578,7 +592,7 @@ INTEGER :: i, n
 REAL(KIND=real_jlslsm) :: dpsi
 REAL(KIND=r8) :: dpsi8, p0, pm, p1, s_sum
 
-CALL lut_grid( b, c, l_sox, f_floor, f_need, dpsi, n )
+CALL lut_grid( b, c, l_sox, f_floor, f_table_min, dpsi, n )
 tab%dpsi = dpsi
 tab%n = n
 ALLOCATE( tab%s(n) )
@@ -960,18 +974,18 @@ END SUBROUTINE build_supply_lut_seg
 ! use 0.0005), so a table that stopped at the usual floor (lut_f_floor,
 ! lut_f_floor_kcrit) could end before the failure point.
 !
-! MDK, 20/10/26
+! MDK, 12/11/26
 ! *****************************************************************************
-FUNCTION lut_f_crit( f_kcrit, kfac ) RESULT( f_need )
+FUNCTION lut_f_crit( f_kcrit, kfac ) RESULT( f_table_min )
 
 USE jules_vegetation_mod, ONLY: sl_kfail_frac
 
 REAL(KIND=real_jlslsm), INTENT(IN) :: f_kcrit, kfac
-REAL(KIND=real_jlslsm) :: f_need
+REAL(KIND=real_jlslsm) :: f_table_min
 
-f_need = f_kcrit
-IF ( sl_kfail_frac > 0.0 ) f_need = MIN(f_need, sl_kfail_frac)
-f_need = 0.5 * f_need / kfac
+f_table_min = f_kcrit
+IF ( sl_kfail_frac > 0.0 ) f_table_min = MIN(f_table_min, sl_kfail_frac)
+f_table_min = 0.5 * f_table_min / kfac
 
 END FUNCTION lut_f_crit
 
@@ -1023,18 +1037,18 @@ END FUNCTION newton_psi_drop
 ! Choose the grid of a supply table on the curve with b (Pa) and c (SOX if
 ! l_sox, else Weibull): the spacing dpsi (Pa) and the number of grid
 ! points n.
-! The usual table has n_lut points and ends where f = f_floor. If f_need
+! The usual table has n_lut points and ends where f = f_floor. If f_table_min
 ! (lut_f_crit) is lower, the table is made longer at the same spacing,
-! down to where f = f_need, so the accuracy near psi = 0, where most of
+! down to where f = f_table_min, so the accuracy near psi = 0, where most of
 ! the flow is, does not change. Only beyond n_lut_max points (16 times the
 ! usual length, for example a SOX curve with c near 1 and a very small
 ! sl_kfail_frac) is the spacing widened instead.
 !
-! MDK, 20/10/26
+! MDK, 12/11/26
 ! *****************************************************************************
-SUBROUTINE lut_grid( b, c, l_sox, f_floor, f_need, dpsi, n )
+SUBROUTINE lut_grid( b, c, l_sox, f_floor, f_table_min, dpsi, n )
 
-REAL(KIND=real_jlslsm), INTENT(IN) :: b, c, f_floor, f_need
+REAL(KIND=real_jlslsm), INTENT(IN) :: b, c, f_floor, f_table_min
 LOGICAL, INTENT(IN) :: l_sox
 REAL(KIND=real_jlslsm), INTENT(OUT) :: dpsi
 INTEGER, INTENT(OUT) :: n
@@ -1049,12 +1063,12 @@ ELSE
 END IF
 n = n_lut
 
-IF ( f_need > 0.0 .AND. f_need < f_floor ) THEN
-  ! |psi| where f = f_need, in cells of dpsi.
+IF ( f_table_min > 0.0 .AND. f_table_min < f_floor ) THEN
+  ! |psi| where f = f_table_min, in cells of dpsi.
   IF ( l_sox ) THEN
-    psi_need = ABS(b) * (1.0 / f_need - 1.0)**(1.0 / c)
+    psi_need = ABS(b) * (1.0 / f_table_min - 1.0)**(1.0 / c)
   ELSE
-    psi_need = ABS(b) * (-LOG(f_need))**(1.0 / c)
+    psi_need = ABS(b) * (-LOG(f_table_min))**(1.0 / c)
   END IF
   r = psi_need / dpsi
   IF ( r < REAL(n_lut_max - 1, real_jlslsm) ) THEN
