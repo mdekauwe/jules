@@ -1240,7 +1240,7 @@ CALL stom_opt_profit_max_select(                                               &
     land_pts, open_pts_flat, open_index_flat, veg_index,                       &
     som_n_sample,                                                              &
     al_sample, kl_sample, psi_sample, gl_sample, psi_root_zone, kcrit,         &
-    gl_max, rd,                                                                &
+    gl_max,                                                                    &
     kl_hc_sample, kl_hc_max, l_xylem_impairment,                               &
 ! OUT
     l_good_sample_flat, carbon_gain, hydraulic_cost, profit,                   &
@@ -2099,26 +2099,25 @@ END SUBROUTINE som_path_psi
 ! path conductance is above kcrit, and gl is within gl_max (when set). The
 ! score is
 !
-!   profit = (A + g_off) / A_max - (k_max - k) / (k_max - kcrit)
+!   profit = A / A_max - (k_max - k) / (k_max - kcrit)
 !
-! with A the net photosynthesis, g_off = rd for the gross gain
-! (l_som_gain_gross) and 0 otherwise, A_max the largest A + g_off over the
-! samples the hydraulics allow (leaving out the gl cap), k the conductance
+! with A the net photosynthesis, A_max the largest A over the samples the
+! hydraulics allow (leaving out the gl cap), k the conductance
 ! the cost uses, and k_max the largest such k over the feasible samples
-! (with xylem impairment, kl_hc_max: the intact path with no flow). Both
-! terms run from 0 to 1, so no exchange rate between carbon and water is
-! needed.
+! (with xylem impairment, kl_hc_max: the intact path with no flow, at the
+! root-zone psi of the step). Both terms run from 0 at zero flow to 1 at the
+! hydraulic edge, so no exchange rate between carbon and water is needed.
 !
 ! optimal_index(j) is 0 when no sample is feasible or A_max <= 0. The
 ! caller then takes sample 0, the closed state (see stom_opt_mod_ci).
 !
-! MDK, 04/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_profit_max_select(                                         &
 ! IN
         land_pts, open_pts, open_index, veg_index, n_sample,                   &
         al_sample, kl_sample, psi_sample, gl_sample, psi_root_zone, kcrit,     &
-        gl_max, rd,                                                            &
+        gl_max,                                                                &
         kl_hc_sample, kl_hc_max, l_xylem_impairment,                           &
 ! OUT
         l_good_sample, carbon_gain, hydraulic_cost, profit, optimal_index      &
@@ -2126,7 +2125,6 @@ SUBROUTINE stom_opt_profit_max_select(                                         &
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-USE jules_vegetation_mod, ONLY: l_som_gain_gross
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts                                                                     &
@@ -2162,12 +2160,9 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 , kl_hc_sample(0:n_sample, open_pts)                                           &
                             ! Conductance used for the hydraulic cost - see
                             ! stom_opt_mod_ci.
-, kl_hc_max(land_pts)                                                          &
+, kl_hc_max(land_pts)
                             ! Reference conductance for the hydraulic cost
                             ! with l_xylem_impairment - see stom_opt_mod.
-, rd(land_pts)
-                            ! Dark respiration (mol CO2 m-2 s-1); added back
-                            ! to An for the gross-A gain (l_som_gain_gross).
 
 LOGICAL, INTENT(IN) :: l_xylem_impairment
                             ! See stom_opt_mod.
@@ -2192,10 +2187,8 @@ INTEGER, INTENT(OUT) :: optimal_index(open_pts)
 INTEGER :: j, l
 
 REAL(KIND=real_jlslsm) :: max_al(open_pts), k0_ref(open_pts)
-    ! Gain scale (largest A + gain_off over the hydraulically feasible
-    ! samples) and the reference conductance of the hydraulic cost.
-REAL(KIND=real_jlslsm) :: gain_off(open_pts)
-    ! 0 (net A) or rd (gross A, l_som_gain_gross).
+    ! Gain scale (largest A over the hydraulically feasible samples) and
+    ! the reference conductance of the hydraulic cost.
 LOGICAL :: l_hyd_sample(n_sample)
     ! Hydraulically feasible samples (no gl cap), for max_al.
 
@@ -2220,7 +2213,7 @@ END DO
 ! ----------------------------------------------------------------------------
 !  Calculate the profit for each leaf state.
 !
-!    CG = An/max(An)   (An + Rd with l_som_gain_gross)
+!    CG = An/max(An)
 !    HC = (k0_ref - k)/(k0_ref - k_crit)
 
 !    Profit = CG-HC
@@ -2232,10 +2225,8 @@ END DO
 ! the optimum is where the marginal gain equals the marginal loss of
 ! conductance.
 ! ----------------------------------------------------------------------------
-! gain offset: 0 (net An) or Rd (gross A), see l_som_gain_gross
 DO j = 1, open_pts
   l = veg_index(open_index(j))
-  gain_off(j) = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
 
   ! The gain normalisation over the hydraulically feasible samples, without
   ! the gl cap (as Sperry et al. 2017; see scale_and_ends).
@@ -2243,7 +2234,7 @@ DO j = 1, open_pts
                                   kl_sample(1:,j), gl_sample(1:,j),            &
                                   psi_root_zone(l), kcrit(l), 0.0_real_jlslsm, &
                                   .TRUE. )
-  max_al(j) = MAXVAL(al_sample(1:,j) + gain_off(j), MASK = l_hyd_sample(:))
+  max_al(j) = MAXVAL(al_sample(1:,j), MASK = l_hyd_sample(:))
 END DO
 
 ! (The store coupled to the optimiser needs the bounded search, so its flow
@@ -2274,7 +2265,7 @@ DO j = 1, open_pts
   ! they were initialised to, and MAXLOC below returns 0 for this point).
   IF (max_al(j) > 0.0) THEN
     ! CG = An/max(An)
-    carbon_gain(:,j) = (al_sample(:,j) + gain_off(j)) / max_al(j)
+    carbon_gain(:,j) = al_sample(:,j) / max_al(j)
 
     ! HC = (k0_ref - k)/(k0_ref - k_crit). Without impairment k0_ref(j) is
     ! the largest k of the feasible samples, all of which have k > kcrit,
@@ -2344,7 +2335,7 @@ END SUBROUTINE stom_opt_profit_max_select
 ! returned too (rd_g), so the gross photosynthesis A + Rd is that of the
 ! same leaf temperature.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_bounded_search(                                            &
 ! IN
@@ -2367,7 +2358,6 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 cgain_profit_model, sox_opt_profit_model,      &
                                 cap_profit_model, pm2_profit_model,            &
                                 som_light_k,                                   &
-                                l_som_gain_gross,                              &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_stomatal_response, ximpair_hold_gs,    &
                                 ximpair_hold_psi, l_som_coupled_e,             &
@@ -2562,10 +2552,9 @@ REAL(KIND=real_jlslsm) :: kcrit_hc
                             ! (shared_kcrit_plant).
 
 REAL(KIND=real_jlslsm) ::                                                      &
-  ! Gain offset (0, or rd with l_som_gain_gross), gain scale A_max, reference
-  ! conductance of the hydraulic cost (zero flow), the Ci range and the
-  ! golden-section stop width
-  g_off, max_al, k0_ref, ci_lo, ci_top, tol1,                                  &
+  ! Gain scale A_max, reference conductance of the hydraulic cost (zero
+  ! flow), the Ci range and the golden-section stop width
+  max_al, k0_ref, ci_lo, ci_top, tol1,                                         &
   ! Evaluation state (eval_ci); al0_u is A without the nonstomatal limitation;
   ! khc_u the conductance for the hydraulic cost (kl_u unless impaired)
   last_ci, al_u, gl_u, el_u, psi_u, kl_u, al0_u, khc_u,                        &
@@ -2669,11 +2658,6 @@ CONTAINS
     psi_stem_g(j) = psi_root_zone(l) - grav_node_drop(l)
   IF ( PRESENT(lambda_g) ) lambda_g(j) = 0.0
   idx1(1) = open_index(j)
-  g_off = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
-
-  ! (CMax, CGain, SOX and CAP work on net A, as Wolf et al. 2016 and Lu et
-  ! al. 2020.)
-  IF ( l_abs ) g_off = 0.0
   lai_call = 1.0
 
   ! The leaf area of the call from the intact plant (kmax_ref; = kmax
@@ -2769,7 +2753,7 @@ CONTAINS
 
   ! (al0_u = al_u without the nonstomatal limitation, which can make A at
   ! ci_top <= 0 although the optimum inside the range has A > 0.)
-  IF ( al0_u + g_off <= 0.0 ) THEN
+  IF ( al0_u <= 0.0 ) THEN
     CALL set_closed()
     l_shut = .TRUE.
     RETURN
@@ -2835,12 +2819,12 @@ CONTAINS
     IF ( (gl_max(l) - e_gl) / gl_max(l)                                        &
          < (e_kl - kcrit(l)) / kmax(l) ) CALL hydraulic_edge()
   END IF
-  max_al = hy_al + g_off
+  max_al = hy_al
 
   ! With the nonstomatal limitation, normalise by the unlimited A at the edge
   ! so the gain-to-cost weighting is as without it (and the limitation
   ! lowers the gain fraction).
-  IF ( l_som_nsl ) max_al = photo_al(hy_ci) + g_off
+  IF ( l_som_nsl ) max_al = photo_al(hy_ci)
   IF ( max_al <= 0.0 ) THEN
     CALL set_closed()
     l_shut = .TRUE.
@@ -2851,7 +2835,7 @@ CONTAINS
   ! class's search, and with the whole-plant gain (l_shared_gain_path)
   ! the normalisation by both classes' A at their edges,
   !
-  !   gain = (A + g_off) / (max_al + max_al_o),
+  !   gain = A / (max_al + max_al_o),
   !
   ! max_al_o the other class's, held fixed.
   IF ( l_shared_stem_path ) shared_amax_self(l) = max_al
@@ -3076,7 +3060,7 @@ CONTAINS
   psi_g(j) = best_psi
   el_g(j) = best_el
   kl_g(j) = best_kl
-  carbon_gain_g(j) = (best_al + g_off) / max_al
+  carbon_gain_g(j) = best_al / max_al
 
   ! (Guarded as the flat search: with impairment k0_ref is kl_hc_max, not
   ! taken from a sample.)
@@ -3743,7 +3727,7 @@ CONTAINS
   ! photosynthesis al_in (A), conductance for the hydraulic cost kl_in (k),
   ! leaf water potential psi_in and transpiration el_in (E):
   !
-  !   profit max   (A + g_off) / A_max - (k_max - k) / (k_max - k_crit)
+  !   profit max   A / A_max - (k_max - k) / (k_max - k_crit)
   !                (Sperry et al. 2017; dimensionless)
   !   CMax         A - Theta(psi_leaf)            (Wolf et al. 2016, Eq. 8)
   !   CGain        A - varpi (k_max - k) / k_max  (Lu et al. 2020)
@@ -3751,8 +3735,7 @@ CONTAINS
   !   CAP          A, which carries the nonstomatal limitation
   !   ProfitMax2   A (1 - E / E_crit)             (Wang et al. 2020, Eqn 11)
   !
-  ! For profit max, g_off is rd for the gross gain (l_som_gain_gross) and 0
-  ! otherwise, A_max is the gain scale, k_max the reference conductance and
+  ! For profit max, A_max is the gain scale, k_max the reference conductance and
   ! k_crit the kcrit of the cost (the whole plant's with the shared root and
   ! stem). Theta is the CMax carbon cost (theta_cmax). For CGain, varpi
   ! (cgain_varpi) is the carbon cost of losing all the plant's conductance
@@ -3785,12 +3768,12 @@ CONTAINS
                      * MAX(k0_cgain - kl_in, 0.0_real_jlslsm) / k0_cgain
   ELSE
     ! Profit max (Sperry et al. 2017): relative carbon gain minus relative
-    ! hydraulic cost, both 0-1. g_off = Rd with l_som_gain_gross (gross
-    ! gain), else 0; max_al and k0_ref are the maxima over the Ci range.
+    ! hydraulic cost, both 0-1; max_al and k0_ref are the maxima over the Ci
+    ! range.
     ! (k0_ref > kcrit at any feasible point; the guard is as for the
     ! diagnostic cost in stom_opt_bounded_search.) kcrit_hc: kcrit, or the
     ! whole plant's with the shared root and stem.
-    profit = (al_in + g_off) / max_al - (k0_ref - kl_in)                       &
+    profit = al_in / max_al - (k0_ref - kl_in)                       &
              / MAX(k0_ref - kcrit_hc, TINY(1.0_real_jlslsm))
   END IF
   END FUNCTION profit
