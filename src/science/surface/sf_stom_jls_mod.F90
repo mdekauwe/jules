@@ -839,22 +839,28 @@ REAL(KIND=real_jlslsm) :: lam_sun(land_pts), lam_shd(land_pts)
                             ! for the diagnostic som_lambda_eff_pft.
                             !
                             ! MDK, 23/10/26
-REAL(KIND=real_jlslsm) :: kmax_per_lyr(land_pts), kcrit_per_lyr(land_pts)
-                            ! Multilayer: kmax_pft and its critical
-                            ! conductance (kcrit_of_path), the canopy mean
-                            ! per unit leaf area that kmax_leaf_lyr and
-                            ! kcrit_leaf_lyr spread over the layers.
-REAL(KIND=real_jlslsm) :: kmax_leaf_lyr(land_pts), kcrit_leaf_lyr(land_pts)
-REAL(KIND=real_jlslsm) :: kleaf_prof, kleaf_mean, kleaf_a
-                            ! Conductance profile through the canopy
-                            ! (multilayer): layer value, canopy mean and
-                            ! per-layer decay exponent (see kmax_leaf_lyr).
-                            ! kmax_leaf_lyr is the conductance per unit leaf
-                            ! area of this layer's whole soil-to-leaf path
-                            ! in the multilayer stomatal optimisation:
-                            ! kmax_per_lyr redistributed by the leaf-N
-                            ! profile (canopy mean kmax_pft), each layer on
-                            ! its own parallel path from psi_src.
+REAL(KIND=real_jlslsm) :: kmax_leaf_mean(land_pts)
+                            ! Multilayer: kmax_pft, the canopy mean per unit
+                            ! leaf area of the soil-to-leaf conductance that
+                            ! kmax_leaf_lyr spreads over the layers.
+REAL(KIND=real_jlslsm) :: kcrit_leaf_mean(land_pts)
+                            ! Its critical conductance (kcrit_of_path), spread
+                            ! over the layers as kcrit_leaf_lyr.
+REAL(KIND=real_jlslsm) :: kmax_leaf_lyr(land_pts)
+                            ! Multilayer: this layer's soil-to-leaf
+                            ! conductance per unit leaf area, kmax_leaf_mean
+                            ! redistributed by the leaf-N profile (canopy mean
+                            ! kmax_pft), each layer on its own parallel path
+                            ! from psi_src.
+REAL(KIND=real_jlslsm) :: kcrit_leaf_lyr(land_pts)
+                            ! The same for kcrit_leaf_mean.
+REAL(KIND=real_jlslsm) :: kleaf_lyr_fac
+                            ! This layer's value of the conductance profile
+                            ! through the canopy, exp(-(n - 1) kleaf_decay).
+REAL(KIND=real_jlslsm) :: kleaf_canopy_mean
+                            ! The profile's mean over the layers.
+REAL(KIND=real_jlslsm) :: kleaf_decay
+                            ! The profile's decay exponent per layer.
 REAL(KIND=real_jlslsm) :: fsmc_leaf_resp(land_pts)
                             ! fsmc as applied to leaf dark respiration in the
                             ! GPP/respiration diagnostics below: fsmc for
@@ -906,32 +912,48 @@ REAL(KIND=real_jlslsm) :: gl_max_lf(land_pts), gl_max_bigleaf(land_pts)
                             ! som_gl_max on the basis each stom_opt_mod call
                             ! works on: per leaf area for the multilayer
                             ! calls, canopy (x LAI) for big-leaf.
-REAL(KIND=real_jlslsm) :: ci_sun_ml(land_pts), ci_shd_ml(land_pts),            &
-                          ci_gl_ml(land_pts), ci_lai_ml(land_pts)
+REAL(KIND=real_jlslsm) :: ci_sun_ml(land_pts)
                             ! Multilayer stomatal optimisation: ci of the
-                            ! layer's sunlit / shaded leaf (Pa), and the
-                            ! canopy sums of ci weighted by gl*dlai and by
-                            ! dlai, giving the gl-weighted canopy ci (as
-                            ! two-leaf), or the LAI mean when all are closed.
-REAL(KIND=real_jlslsm) :: vcmax_sun_ml(land_pts), vcmax_shd_ml(land_pts),      &
-                          je_sun_ml(land_pts), je_shd_ml(land_pts),            &
-                          rd_sun_ml(land_pts), rd_shd_ml(land_pts),            &
-                          ones_pts(land_pts)
-                            ! Multilayer with l_leaf_temp: the layer's
-                            ! Vcmax, electron flux and dark respiration
-                            ! (per unit leaf area) of the sunlit / shaded
-                            ! leaves at their temperatures; 1.
-REAL(KIND=real_jlslsm) :: r_bl_sun_ml(land_pts), r_bl_shd_ml(land_pts)
+                            ! layer's sunlit leaves (Pa).
+REAL(KIND=real_jlslsm) :: ci_shd_ml(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: ci_sum_gl_ml(land_pts)
+                            ! Canopy sum of ci weighted by gl dlai, giving the
+                            ! gl-weighted canopy ci (as two-leaf).
+REAL(KIND=real_jlslsm) :: ci_sum_lai_ml(land_pts)
+                            ! Canopy sum of ci weighted by dlai, giving the
+                            ! LAI mean when all the leaves are closed.
+REAL(KIND=real_jlslsm) :: vcmax_sun_ml(land_pts)
+                            ! Multilayer with l_leaf_temp: the layer's Vcmax
+                            ! of the sunlit leaves at their temperature (per
+                            ! unit leaf area).
+REAL(KIND=real_jlslsm) :: vcmax_shd_ml(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: je_sun_ml(land_pts)
+                            ! The layer's electron flux of the sunlit leaves
+                            ! at their temperature (per unit leaf area).
+REAL(KIND=real_jlslsm) :: je_shd_ml(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: rd_sun_ml(land_pts)
+                            ! The layer's dark respiration of the sunlit
+                            ! leaves at their temperature (per unit leaf
+                            ! area).
+REAL(KIND=real_jlslsm) :: rd_shd_ml(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: ones_pts(land_pts)
+                            ! Ones.
+REAL(KIND=real_jlslsm) :: r_bl_sun_ml(land_pts)
                             ! Multilayer with l_leaf_temp: the leaf boundary
-                            ! layer resistance to water vapour of the
-                            ! layer's sunlit / shaded leaves (s m-1, leaf
-                            ! area), from the last leaf energy balance (0
-                            ! before the first). The optimiser's
-                            ! transpiration then goes through the same
-                            ! boundary layer as the latent heat of the
+                            ! layer resistance to water vapour of the layer's
+                            ! sunlit leaves (s m-1, leaf area), from the last
+                            ! leaf energy balance (0 before the first). The
+                            ! optimiser's transpiration then goes through the
+                            ! same boundary layer as the latent heat of the
                             ! balance.
+REAL(KIND=real_jlslsm) :: r_bl_shd_ml(land_pts)
+                            ! The same for the shaded leaves.
                             !
-                            ! MDK, 04/11/26
+                            ! MDK, 12/11/26
 INTEGER :: n_pass_ml
                             ! Number of passes of the multilayer
                             ! optimisation: iter, or leaf_temp_iter with
@@ -1197,17 +1219,17 @@ REAL(KIND=real_jlslsm) :: psi0_store
 LOGICAL :: l_ml_ximp
                             ! Multilayer stomatal optimisation with xylem
                             ! impairment (not in spin-up).
-REAL(KIND=real_jlslsm) :: ml_kfrac(land_pts), kmax_imp_lyr(land_pts)
+REAL(KIND=real_jlslsm) :: kfrac_imp_ml(land_pts)
                             ! Multilayer: the impaired fraction of the
                             ! conductance, k_max / kmax_pft (1 without
-                            ! impairment), and this layer's impaired path
-                            ! conductance per unit leaf area,
+                            ! impairment).
+REAL(KIND=real_jlslsm) :: kmax_imp_lyr(land_pts)
+                            ! This layer's impaired path conductance per unit
+                            ! leaf area (mol H2O m-2 leaf s-1 Pa-1),
                             !
-                            !   kmax_imp_lyr = kmax_leaf_lyr ml_kfrac
+                            !   kmax_imp_lyr = kmax_leaf_lyr kfrac_imp_ml
                             !
-                            ! (mol H2O m-2 leaf s-1 Pa-1).
-                            !
-                            ! MDK, 23/10/26
+                            ! MDK, 12/11/26
 REAL(KIND=real_jlslsm) :: qs_air_leak(land_pts)
                             ! Saturated humidity at the air temperature
                             ! (kg kg-1).
@@ -1685,7 +1707,7 @@ CASE ( 4,5,6 )
 !$OMP PARALLEL DO IF(land_pts > 1)                                             &
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP SHARED(land_pts,anetc,gc,rdc,rdmean,psi_leaf,el,leaf_k,hydraulic_cost,   &
-!$OMP        carbon_gain,kmax_per_lyr,kcrit_per_lyr)                           &
+!$OMP        carbon_gain,kmax_leaf_mean,kcrit_leaf_mean)                       &
 !$OMP PRIVATE(l)                                                               &
 !$OMP SCHEDULE(STATIC)
   DO l = 1, land_pts
@@ -1697,13 +1719,13 @@ CASE ( 4,5,6 )
     ! gs_opt multi-layer.
     !
     ! MDK, 09/06/26
-    psi_leaf(l)  = 0.0
-    el(l) = 0.0
-    leaf_k(l) = 0.0
-    hydraulic_cost(l) = 0.0
-    carbon_gain(l) = 0.0
-    kmax_per_lyr(l) = 0.0
-    kcrit_per_lyr(l) = 0.0
+    psi_leaf(l)        = 0.0
+    el(l)              = 0.0
+    leaf_k(l)          = 0.0
+    hydraulic_cost(l)  = 0.0
+    carbon_gain(l)     = 0.0
+    kmax_leaf_mean(l)  = 0.0
+    kcrit_leaf_mean(l) = 0.0
 
   END DO
 !$OMP END PARALLEL DO
@@ -2338,13 +2360,13 @@ CASE ( 5, 6 )
     ! segment memory under impairment model 3, as big-leaf and two-leaf.
     l_ml_ximp = .NOT. is_spinup .AND.                                          &
                 pft_xylem_impairment_model(ft) /= xylem_impairment_none
-    ml_kfrac(:) = 1.0
+    kfrac_imp_ml(:) = 1.0
     IF ( l_ml_ximp ) THEN
       b_pft_pts(:) = conductance_b(:)
       c_pft_pts(:) = conductance_c(:)
       DO m = 1,veg_pts
         l = veg_index(m)
-        ml_kfrac(l) = k_max(l) / kmax_pft(ft)
+        kfrac_imp_ml(l) = k_max(l) / kmax_pft(ft)
       END DO
     ELSE
       b_pft_pts(:) = conductance_b_pft(ft)
@@ -2419,7 +2441,7 @@ CASE ( 5, 6 )
           DO m = 1,veg_pts
             l                 = veg_index(m)
             kmax_ref_store(l) = kmax_pft(ft) * lai(l)
-            kmax_store(l)     = kmax_ref_store(l) * ml_kfrac(l)
+            kmax_store(l)     = kmax_ref_store(l) * kfrac_imp_ml(l)
             kcrit_store(l)    = kcrit_of_path(ft, kmax_ref_store(l))
           END DO
           CALL store_cpl_supply()
@@ -2446,8 +2468,8 @@ CASE ( 5, 6 )
         leaf_k(:) = 0.0
         carbon_gain(:) = 0.0
         hydraulic_cost(:) = 0.0
-        ci_gl_ml(:) = 0.0
-        ci_lai_ml(:) = 0.0
+        ci_sum_gl_ml(:) = 0.0
+        ci_sum_lai_ml(:) = 0.0
         rdmean(:) = 0.0
         flux_o3(:) = 0.0
         IF ( l_o3_damage ) fo3(:) = 0.0
@@ -2460,11 +2482,13 @@ CASE ( 5, 6 )
             ! and seems to converge pretty quickly anyway.
             !-------------------------------------------------------------------
         !$OMP PARALLEL DO IF(veg_pts > 1) DEFAULT(NONE)                        &
-        !$OMP             PRIVATE(l, m, kleaf_prof, kleaf_mean, kleaf_a)       &
+        !$OMP             PRIVATE(l, m, kleaf_lyr_fac, kleaf_canopy_mean,      &
+        !$OMP                     kleaf_decay)                                 &
         !$OMP             SHARED(ft, gl, ilayers, kn, knl, n, nleaf_top,       &
         !$OMP                    nleaf_layer,                                  &
         !$OMP   veg_index,dlai,can_rad_mod, veg_pts, kmax_pft,                 &
-        !$OMP   kmax_per_lyr, kcrit_per_lyr, kmax_leaf_lyr, kcrit_leaf_lyr,    &
+        !$OMP   kmax_leaf_mean, kcrit_leaf_mean, kmax_leaf_lyr,                &
+        !$OMP   kcrit_leaf_lyr,                                                &
         !$OMP   share_sup, lai) SCHEDULE(STATIC)
             DO m = 1,veg_pts
             l = veg_index(m)
@@ -2484,16 +2508,16 @@ CASE ( 5, 6 )
             ! (fsun), as this represents radiative partitioning rather than
             ! structural limitation.
             !
-            ! kmax_per_lyr is per unit leaf area, as vcmax and nleaf_layer
-            ! are, so the canopy total (sum of kmax_per_lyr * dlai) is
+            ! kmax_leaf_mean is per unit leaf area, as vcmax and nleaf_layer
+            ! are, so the canopy total (sum of kmax_leaf_mean * dlai) is
             ! kmax_pft * LAI.
-            kmax_per_lyr(l) = kmax_pft(ft)
+            kmax_leaf_mean(l) = kmax_pft(ft)
 
             ! Scale kcrit by the same fraction of whole-plant kmax that this
             ! layer received, so the critical-conductance threshold stays
             ! calibrated at (1 - kcrit_fractional_loss) of THIS layer's own
             ! capacity (Brodribb & Cochard, 2009; Sabot et al., 2020).
-            kcrit_per_lyr(l) = kcrit_of_path(ft, kmax_per_lyr(l))
+            kcrit_leaf_mean(l) = kcrit_of_path(ft, kmax_leaf_mean(l))
 
             ! This layer's whole soil-to-leaf path, on its own parallel path
             ! from psi_src (no shared canopy node). kcrit keeps the same
@@ -2507,30 +2531,32 @@ CASE ( 5, 6 )
             ! redistributed from shaded to sunlit layers, not changed in
             ! total. This is the same convention as the two-leaf scheme,
             ! which splits kmax_pft * LAI by N-weighted leaf area.
-            ! kleaf_mean is the closed-form mean of the same discrete
+            ! kleaf_canopy_mean is the closed-form mean of the same discrete
             ! profile as nleaf_layer over the ilayers layers (equal dlai).
             IF ( can_rad_mod == 6 ) THEN
-                kleaf_a = knl(ft) * dlai(l)
+                kleaf_decay = knl(ft) * dlai(l)
             ELSE
-                kleaf_a = kn(ft) / REAL(ilayers)
+                kleaf_decay = kn(ft) / REAL(ilayers)
             END IF
-            kleaf_prof = EXP(-REAL(n-1) * kleaf_a)
-            IF ( kleaf_a > 1.0e-6 ) THEN
-                kleaf_mean = (1.0 - EXP(-REAL(ilayers) * kleaf_a)) /           &
-                             (REAL(ilayers) * (1.0 - EXP(-kleaf_a)))
+            kleaf_lyr_fac = EXP(-REAL(n-1) * kleaf_decay)
+            IF ( kleaf_decay > 1.0e-6 ) THEN
+                kleaf_canopy_mean = (1.0 - EXP(-REAL(ilayers) * kleaf_decay))  &
+                             / (REAL(ilayers) * (1.0 - EXP(-kleaf_decay)))
             ELSE
-                kleaf_mean = 1.0
+                kleaf_canopy_mean = 1.0
             END IF
-            kmax_leaf_lyr(l)  = kmax_per_lyr(l)  * (kleaf_prof / kleaf_mean)
-            kcrit_leaf_lyr(l) = kcrit_per_lyr(l) * (kleaf_prof / kleaf_mean)
+            kmax_leaf_lyr(l) = kmax_leaf_mean(l) * (kleaf_lyr_fac /            &
+                               kleaf_canopy_mean)
+            kcrit_leaf_lyr(l) = kcrit_leaf_mean(l) * (kleaf_lyr_fac /          &
+                                kleaf_canopy_mean)
 
             ! Soil supply cap per unit leaf area (el is per leaf area in
             ! each layer): each leaf may use its kmax share of the supply,
             ! as in the two-leaf scheme. Summed over the canopy (dlai
             ! weights) the shares add to 1. Sunlit and shaded leaves of a
             ! layer have the same kmax per leaf area, so the same share.
-            share_sup(l) = (kleaf_prof / kleaf_mean)                           &
-                           / MAX(lai(l), EPSILON(1.0))
+            share_sup(l) = (kleaf_lyr_fac / kleaf_canopy_mean) / MAX(lai(l),   &
+                           EPSILON(1.0))
 
             END DO
         !$OMP END PARALLEL DO
@@ -2538,7 +2564,7 @@ CASE ( 5, 6 )
             ! This layer's impaired path.
             DO m = 1,veg_pts
               l = veg_index(m)
-              kmax_imp_lyr(l) = kmax_leaf_lyr(l) * ml_kfrac(l)
+              kmax_imp_lyr(l) = kmax_leaf_lyr(l) * kfrac_imp_ml(l)
             END DO
 
             !-------------------------------------------------------------------
@@ -2669,8 +2695,8 @@ CASE ( 5, 6 )
 
 
                 ! Kmax of the layer for sunlit and shaded
-                !dKmax_sun(l,n) = kmax_per_lyr(l) * fsun(l,n)
-                !dKmax_shd(l,n) = kmax_per_lyr(l) * (1.0 - fsun(l,n))
+                !dKmax_sun(l,n) = kmax_leaf_mean(l) * fsun(l,n)
+                !dKmax_shd(l,n) = kmax_leaf_mean(l) * (1.0 - fsun(l,n))
 
                 END DO
 
@@ -2856,7 +2882,8 @@ CASE ( 5, 6 )
         !$OMP        el,el_sun,el_shd,hydraulic_cost,HC_sun,HC_shd,            &
         !$OMP        carbon_gain,                                              &
         !$OMP        CG_sun,CG_shd,psi_leaf,psi_leaf_sun,psi_leaf_shd,leaf_k,  &
-        !$OMP        leaf_k_sun,leaf_k_shd,ci_gl_ml,ci_lai_ml,gl_sun,gl_shd,   &
+        !$OMP        leaf_k_sun,leaf_k_shd,ci_sum_gl_ml,ci_sum_lai_ml,         &
+        !$OMP        gl_sun,gl_shd,                                            &
         !$OMP        ci_sun_ml,ci_shd_ml,l_som_plant_segments,psi_stem,        &
         !$OMP        psi_stem_sun,psi_stem_shd)
             DO m = 1,veg_pts
@@ -2905,12 +2932,10 @@ CASE ( 5, 6 )
                             (fsun(l,n) * psi_stem_sun(l) +                     &
                             (1.0 - fsun(l,n)) * psi_stem_shd(l)) * dlai(l)
 
-            ci_gl_ml(l) = ci_gl_ml(l) +                                        &
-                          (fsun(l,n) * gl_sun(l) * ci_sun_ml(l) +              &
-                          (1.0 - fsun(l,n)) * gl_shd(l) * ci_shd_ml(l)) *      &
-                          dlai(l)
-            ci_lai_ml(l) = ci_lai_ml(l) +                                      &
-                           (fsun(l,n) * ci_sun_ml(l) +                         &
+            ci_sum_gl_ml(l) = ci_sum_gl_ml(l) + (fsun(l,n) * gl_sun(l) *       &
+                          ci_sun_ml(l) + (1.0 - fsun(l,n)) * gl_shd(l) *       &
+                          ci_shd_ml(l)) * dlai(l)
+            ci_sum_lai_ml(l) = ci_sum_lai_ml(l) + (fsun(l,n) * ci_sun_ml(l) +  &
                            (1.0 - fsun(l,n)) * ci_shd_ml(l)) * dlai(l)
 
 
@@ -3020,9 +3045,9 @@ CASE ( 5, 6 )
             ! gl-weighted canopy ci (as two-leaf); the LAI mean when no
             ! stomata are open (closed leaves have ci = ca).
             IF ( gc(l) > TINY(gc(l)) ) THEN
-                ci(l) = ci_gl_ml(l) / gc(l)
+                ci(l) = ci_sum_gl_ml(l) / gc(l)
             ELSE IF ( lai(l) > 0.0 ) THEN
-                ci(l) = ci_lai_ml(l) / lai(l)
+                ci(l) = ci_sum_lai_ml(l) / lai(l)
             ELSE
                 ci(l) = ca(l)
             END IF

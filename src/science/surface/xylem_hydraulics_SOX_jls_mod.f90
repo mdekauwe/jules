@@ -145,8 +145,8 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 , kcrit(open_pnts)                                                             &
                             ! Critical xylem conductance for each open point
                             ! (mol m-2 s-1 Pa-1), scaled to match whatever kmax
-                            ! is being used (e.g. kcrit_per_lyr alongside
-                            ! kmax_per_lyr).
+                            ! is being used (e.g. kcrit_leaf_mean alongside
+                            ! kmax_leaf_mean).
 , conductance_b(open_pnts)                                                     &
                             ! Conductance parameter b for each open point
                             ! (Pa). Per point rather than per PFT so an
@@ -256,12 +256,12 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 , kmax(land_pts)                                                               &
                             ! Maximum xylem conductance for each land point
                             ! (mol m-2 s-1 Pa-1), e.g. kmax_pft(pft) or a
-                            ! layer-scaled value such as kmax_per_lyr.
+                            ! layer-scaled value such as kmax_leaf_mean.
 , kcrit(land_pts)                                                              &
                             ! Critical xylem conductance for each land point
                             ! (mol m-2 s-1 Pa-1), scaled to match whatever kmax
-                            ! is being used (e.g. kcrit_per_lyr alongside
-                            ! kmax_per_lyr).
+                            ! is being used (e.g. kcrit_leaf_mean alongside
+                            ! kmax_leaf_mean).
 , conductance_b(land_pts)                                                      &
                             ! Conductance parameter b for each land point
                             ! (Pa). Per point rather than per PFT so an
