@@ -52,7 +52,7 @@ USE jules_irrig_mod, ONLY: l_irrig_dmd
 USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 USE jules_surface_types_mod, ONLY: lake, npft, soil
 USE jules_hydrology_mod, ONLY: l_soil_evap_or
-USE soil_evap_or_mod, ONLY: w1_or
+USE soil_evap_or_mod, ONLY: w_layer1_evap_or
 USE jules_vegetation_mod, ONLY: l_som_capacitance_on   ! MDK, 04/11/26
 USE plant_water_store_mod, ONLY: store_q_xyl
 USE plant_water_store_mod, ONLY: store_q, store_return, store_wt_root,         &
@@ -216,14 +216,23 @@ REAL(KIND=real_jlslsm) ::                                                      &
 !                            !     esoil_surft less the store's flow out.
 !                            !
 !                            ! MDK, 04/11/26
-,des_or(land_pts,nsurft)
+,esoil_cut_or(land_pts,nsurft)
 !                            ! Or: soil evaporation removed by the CABLE
 !                            !     limit (kg/m2/s); taken off layer 1 only.
+!                            !
+!                            ! MDK, 12/11/26
 
-REAL(KIND=real_jlslsm) ::                                                      &
- es_or, t_or, t1_or
-                       ! Or: soil evaporation, transpiration and its layer-1
-                       ! part on a tile (kg/m2/s).
+REAL(KIND=real_jlslsm) :: esoil_only_or
+                       ! Or: soil evaporation alone on a tile, esoil_surft
+                       ! less its transpiration (kg/m2/s).
+REAL(KIND=real_jlslsm) :: transp_or
+                       ! Or: the transpiration part of esoil_surft on a
+                       ! tile (kg/m2/s).
+REAL(KIND=real_jlslsm) :: transp_layer1_or
+                       ! Or: the transpiration taken from soil layer 1 on
+                       ! a tile (kg/m2/s).
+                       !
+                       ! MDK, 12/11/26
 
 REAL(KIND=real_jlslsm) ::                                                      &
  sum_t, sum_q, excess, dq_cut
@@ -293,7 +302,7 @@ END IF
 !$OMP PARALLEL                                                                 &
 !$OMP DEFAULT(SHARED)                                                          &
 !$OMP PRIVATE(i,j,k,m,l,n,mm,edt,rhokh1_prime,diff_lat_htf,dtstar,             &
-!$OMP diff_sens_htf,es_or,t_or,t1_or)
+!$OMP diff_sens_htf,esoil_only_or,transp_or,transp_layer1_or)
 
 DO n = 1,nsurft
 !$OMP DO SCHEDULE(STATIC)
@@ -301,7 +310,7 @@ DO n = 1,nsurft
     ecan_surft(l,n) = 0.0
     esoil_surft(l,n) = 0.0
     t_stom(l,n) = 0.0
-    des_or(l,n) = 0.0
+    esoil_cut_or(l,n) = 0.0
     IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
       sf_diag%et_stom_surft(l,n) = 0.0
     END IF
@@ -537,18 +546,20 @@ DO n = 1,nsurft
       ! resfs_stom (1 - resfs) / (resfs (1 - resfs_stom)). (The et_stom
       ! share resfs_stom / resfs is larger when gsoil > 0, and would leave
       ! part of the soil evaporation on layer 1 uncapped.)
-      t_or = 0.0
+      transp_or = 0.0
       IF ( n <= npft .AND. resfs(l,n) > EPSILON(1.0) .AND.                     &
            sf_diag%resfs_stom(l,n) < 1.0 )                                     &
-        t_or = esoil_surft(l,n) * MIN(1.0, sf_diag%resfs_stom(l,n)             &
-               * (1.0 - resfs(l,n))                                            &
-               / (resfs(l,n) * (1.0 - sf_diag%resfs_stom(l,n))))
-      es_or = esoil_surft(l,n) - t_or
-      t1_or = MAX(0.0, wt_ext_surft(l,1,n) * esoil_surft(l,n) - es_or)
-      IF ( es_or > 0.0 ) THEN
-        des_or(l,n) = MAX(0.0, es_or                                           &
-                      - MAX(0.0, w1_or(l,mm) / timestep - t1_or))
-        esoil_surft(l,n) = esoil_surft(l,n) - des_or(l,n)
+        transp_or = esoil_surft(l,n) * MIN(1.0, sf_diag%resfs_stom(l,n)        &
+                    * (1.0 - resfs(l,n))                                       &
+                    / (resfs(l,n) * (1.0 - sf_diag%resfs_stom(l,n))))
+      esoil_only_or = esoil_surft(l,n) - transp_or
+      transp_layer1_or = MAX(0.0, wt_ext_surft(l,1,n) * esoil_surft(l,n)       &
+                             - esoil_only_or)
+      IF ( esoil_only_or > 0.0 ) THEN
+        esoil_cut_or(l,n) = MAX(0.0, esoil_only_or                             &
+                            - MAX(0.0, w_layer1_evap_or(l,mm) / timestep       &
+                                       - transp_layer1_or))
+        esoil_surft(l,n) = esoil_surft(l,n) - esoil_cut_or(l,n)
       END IF
     END IF
     ecan(i,j) = ecan(i,j) + tile_frac(l,n) * ecan_surft(l,n)
@@ -761,7 +772,7 @@ DO l = 1,land_pts
       IF ( edt > smc_soilt(l,mm) ) THEN
         DO n = 1,nsurft
           esoil_surft(l,n) = smc_soilt(l,mm) * esoil_surft(l,n) / edt
-          des_or(l,n) = smc_soilt(l,mm) * des_or(l,n) / edt
+          esoil_cut_or(l,n) = smc_soilt(l,mm) * esoil_cut_or(l,n) / edt
           ! The stomatal transpiration diagnostic is part of esoil and is
           ! reduced by the same factor, so TVeg is the water actually taken.
           IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
@@ -783,7 +794,7 @@ DO l = 1,land_pts
         edt = esoil_soilt(i,j,mm) * timestep
         IF ( edt > smc_soilt(l,mm) ) THEN
           esoil_surft(l,n) = smc_soilt(l,mm) * esoil_surft(l,n) / edt
-          des_or(l,n) = smc_soilt(l,mm) * des_or(l,n) / edt
+          esoil_cut_or(l,n) = smc_soilt(l,mm) * esoil_cut_or(l,n) / edt
           esoil_soilt(i,j,mm) = smc_soilt(l,mm) / timestep
           ! As above: reduce the transpiration diagnostic by the same factor.
           IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft) THEN
@@ -801,7 +812,7 @@ DO l = 1,land_pts
   END IF ! l_irrig_dmd
 END DO
 ! No NOWAIT: the SINGLE block below reads esoil_surft, esoil_soilt and
-! des_or at every point, so all threads must have finished the
+! esoil_cut_or at every point, so all threads must have finished the
 ! soil-supply cap above.
 !
 ! MDK, 22/10/26
@@ -855,11 +866,11 @@ IF ( l_store ) THEN
         t_stom(l,n) = 0.0
         IF ( resfs(l,n) > EPSILON(1.0) ) THEN
           IF ( sf_diag%resfs_stom(l,n) < 1.0 ) THEN
-            t_stom(l,n) = ( esoil_surft(l,n) + des_or(l,n) )                   &
+            t_stom(l,n) = ( esoil_surft(l,n) + esoil_cut_or(l,n) )             &
                           * MIN(1.0, sf_diag%resfs_stom(l,n) * (1.0 - resfs(l,n)) &
                           / (resfs(l,n) * (1.0 - sf_diag%resfs_stom(l,n))))
           ELSE
-            t_stom(l,n) = esoil_surft(l,n) + des_or(l,n)
+            t_stom(l,n) = esoil_surft(l,n) + esoil_cut_or(l,n)
           END IF
         END IF
         ! Step 1: the soil gives esoil less the store's flow out, which is at
@@ -915,8 +926,8 @@ IF ( l_store ) THEN
           IF ( tile_frac(l,n) <= 0.0 ) CYCLE
           IF ( l_flake_model .AND. n == lake ) CYCLE
           w_base = w_base + tile_frac(l,n) * wt_ext_surft(l,m,n)               &
-                            * ( esoil_surft(l,n) + des_or(l,n) )
-          IF ( m == 1 ) w_base = w_base - tile_frac(l,n) * des_or(l,n)
+                            * ( esoil_surft(l,n) + esoil_cut_or(l,n) )
+          IF ( m == 1 ) w_base = w_base - tile_frac(l,n) * esoil_cut_or(l,n)
           IF ( n <= npft ) THEN
             w_give   = w_give + tile_frac(l,n) * store_wt_root(l,m,n)          &
                        * MAX(esoil_surft(l,n) - esoil_ext(l,n), 0.0)
@@ -978,16 +989,16 @@ DO m = 1,sm_levels
           IF ( l_store .AND. n <= npft .AND. ALLOCATED(store_wt_root) ) THEN
             ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                              &
                               + tile_frac(l,n) * ( wt_ext_surft(l,m,n)         &
-                              * ( esoil_surft(l,n) + des_or(l,n) )             &
+                              * ( esoil_surft(l,n) + esoil_cut_or(l,n) )       &
                               + store_wt_root(l,m,n)                           &
                               * ( esoil_ext(l,n) - esoil_surft(l,n) ) )
           ELSE
             ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                              &
                               + tile_frac(l,n) * wt_ext_surft(l,m,n)           &
-                              * ( esoil_ext(l,n) + des_or(l,n) )
+                              * ( esoil_ext(l,n) + esoil_cut_or(l,n) )
           END IF
           IF ( m == 1 ) ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                  &
-                                            - tile_frac(l,n) * des_or(l,n)
+                                            - tile_frac(l,n) * esoil_cut_or(l,n)
         END DO
 !$OMP END DO
       END IF
@@ -999,8 +1010,8 @@ DO m = 1,sm_levels
         l = surft_index(k,n)
         ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                                  &
                             + wt_ext_surft(l,m,n)                              &
-                            * ( esoil_ext(l,n) + des_or(l,n) )
-        IF ( m == 1 ) ext_soilt(l,mm,m) = ext_soilt(l,mm,m) - des_or(l,n)
+                            * ( esoil_ext(l,n) + esoil_cut_or(l,n) )
+        IF ( m == 1 ) ext_soilt(l,mm,m) = ext_soilt(l,mm,m) - esoil_cut_or(l,n)
       END DO
 !$OMP END DO
     END IF !nsoilt

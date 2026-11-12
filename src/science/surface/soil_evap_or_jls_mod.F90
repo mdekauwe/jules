@@ -11,14 +11,16 @@ USE um_types, ONLY: real_jlslsm
 IMPLICIT NONE
 
 PRIVATE
-PUBLIC :: gsoil_or, w1_or
+PUBLIC :: gsoil_or, w_layer1_evap_or
 
 ! Water in soil layer 1 available to soil evaporation (kg m-2): liquid water
 ! above half the wilting point, as CABLE's lower limit on soil evaporation
 ! (cable_canopy.F90, flower_limit = wb(1) - swilt/2). Set in physiol each
 ! timestep with l_soil_evap_or and used by sf_evap to cap the soil
 ! evaporation alone (the Or resistance does not stop it in dry soil).
-REAL(KIND=real_jlslsm), ALLOCATABLE :: w1_or(:,:)
+!
+! MDK, 12/11/26
+REAL(KIND=real_jlslsm), ALLOCATABLE :: w_layer1_evap_or(:,:)
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='SOIL_EVAP_OR_MOD'
 
@@ -132,6 +134,8 @@ CONTAINS
 !   - The eddy-size factor's gamma-function ratio is worked out with
 !     logarithms, which gives the same result without overflow for large
 !     eddy shapes.
+!
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 FUNCTION gsoil_or(ua, ustar, hc, lai, t_k, sathh, bexp, satcon,          &
                   theta_liq, theta_sat, litter_dz, z0soil_fac)
@@ -173,12 +177,72 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 REAL(KIND=real_jlslsm) :: gsoil_or
       ! Soil surface conductance (m s-1).
 
-REAL(KIND=real_jlslsm) ::                                                      &
-  hruff, usuh, xx, dh, coexp, visc, us, us_surf, z0soil, eddy_shape, log_em,            &
-  eddy_mod, sublayer_dz, wb_liq, rel_s, hk_zero, soil_moisture_mod, pore_radius,      &
-  pore_size, rtevap, disp, term2, term3, term5, rt0us, rt0
-
-INTEGER :: k, int_eddy_shape
+! The names of the locals follow CABLE's cable_psm.F90 and
+! cable_roughness.F90, for line-by-line comparison with CABLE.
+! Canopy height with a floor of 1e-6 m (m; CABLE name).
+REAL(KIND=real_jlslsm) :: hruff
+! u* / u at the canopy top, capped at usuhm (CABLE name).
+REAL(KIND=real_jlslsm) :: usuh
+! Argument of the d/h equation, SQRT(ccd LAI / 2) (CABLE name).
+REAL(KIND=real_jlslsm) :: xx
+! Displacement height over canopy height, d/h (CABLE name).
+REAL(KIND=real_jlslsm) :: dh
+! Within-canopy wind extinction coefficient (CABLE name).
+REAL(KIND=real_jlslsm) :: coexp
+! Kinematic viscosity of air (m2 s-1; CABLE name).
+REAL(KIND=real_jlslsm) :: visc
+! Friction velocity with a floor of 1e-3 (m s-1; CABLE name).
+REAL(KIND=real_jlslsm) :: us
+! Friction velocity at the soil surface, from the exponential
+! within-canopy wind profile (m s-1).
+REAL(KIND=real_jlslsm) :: us_surf
+! Soil roughness length (m; CABLE name).
+REAL(KIND=real_jlslsm) :: z0soil
+! Shape parameter of the eddy-size distribution at the soil
+! surface (CABLE name).
+REAL(KIND=real_jlslsm) :: eddy_shape
+! Logarithm of the eddy-size factor's gamma-function ratio
+! (CABLE's eddy_mod, worked out in logs).
+REAL(KIND=real_jlslsm) :: log_em
+! Eddy-size factor on the viscous sublayer depth (CABLE name).
+REAL(KIND=real_jlslsm) :: eddy_mod
+! Depth of the viscous sublayer above the soil (m; CABLE
+! name).
+REAL(KIND=real_jlslsm) :: sublayer_dz
+! Liquid water content of the top layer, bounded to (1e-4, pi/4)
+! (m3 m-3; CABLE name).
+REAL(KIND=real_jlslsm) :: wb_liq
+! Relative saturation of the top layer (-).
+REAL(KIND=real_jlslsm) :: rel_s
+! Campbell hydraulic conductivity of the top layer, floored at
+! or_k_min (m s-1; CABLE name).
+REAL(KIND=real_jlslsm) :: hk_zero
+! Moisture factor on the pore size in rtevap (CABLE name).
+REAL(KIND=real_jlslsm) :: soil_moisture_mod
+! Pore radius from the air-entry suction (m; CABLE name).
+REAL(KIND=real_jlslsm) :: pore_radius
+! Pore size, pore_radius SQRT(pi) (m; CABLE name).
+REAL(KIND=real_jlslsm) :: pore_size
+! Resistance inside the soil and its viscous sublayer, capped at
+! rtevap_max (s m-1; CABLE name).
+REAL(KIND=real_jlslsm) :: rtevap
+! Displacement height, dh hruff (m; CABLE name).
+REAL(KIND=real_jlslsm) :: disp
+! EXP(2 csw LAI (1 - d / h)), a term of rt0us (CABLE name).
+REAL(KIND=real_jlslsm) :: term2
+! a33**2 ctl 2 csw LAI, the denominator of rt0us (CABLE name).
+REAL(KIND=real_jlslsm) :: term3
+! Height factor MAX(2 h / (3 d), 1) of rt0us (CABLE name).
+REAL(KIND=real_jlslsm) :: term5
+! Below-canopy turbulent resistance times u* (m s-1 s m-1;
+! CABLE name, eq. 3.54 of the CSIRO SCAM manual).
+REAL(KIND=real_jlslsm) :: rt0us
+! Below-canopy turbulent resistance (s m-1; CABLE name).
+REAL(KIND=real_jlslsm) :: rt0
+! Loop counter over the integer part of eddy_shape.
+INTEGER :: k
+! Integer part of eddy_shape.
+INTEGER :: int_eddy_shape
 
 !-----------------------------------------------------------------------------
 ! Within-canopy wind extinction coefficient (CABLE cable_roughness.F90).
@@ -221,8 +285,6 @@ eddy_mod = EXP(log_em)
 ! 2017 eq. 17, with u* scaled down beneath the canopy, eq. 21), so the
 ! sublayer is thicker under a canopy, consistent with eddy_shape above.
 ! (CABLE trunk multiplies visc/u* by the wind-profile factor instead.)
-!
-! MDK, 24/10/26
 sublayer_dz = MIN(0.05, MAX(eddy_mod * visc / MAX(1.0e-4, us_surf), 1.0e-7))
 
 !-----------------------------------------------------------------------------
