@@ -311,7 +311,7 @@ MODULE triffid_nsc_mod
 ! wood carbon from the prescribed canopy height. The release leaves the
 ! store, as there is no growth to feed, and there is no stem recovery.
 !
-! MDK, 09/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 
 USE um_types, ONLY: real_jlslsm
@@ -358,25 +358,28 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_wpot_pft(:,:)
 ! nsc_wpot_pft (< -1e29 = not yet accumulating: 1 at the next store step).
 ! In dumps with the sink feedback and the growth limits.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_tseas_acc(:,:)
-! Running mean of NPP (kg C m-2 per 360 days) and its weight, for W_max
-! (bias-corrected mean = nsc_npp_mean / nsc_npp_wt). In dumps.
+! Running mean of NPP (kg C m-2 per 360 days), for W_max (bias-corrected
+! mean = nsc_npp_mean / nsc_npp_wt). In dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_mean(:,:)
+! The running mean's weight. In dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_npp_wt(:,:)
-! Diagnostics of the last TRIFFID step (kg C m-2 per 360 days): the carbon
-! released from the store (W, which TRIFFID grows from; with the Trugman
-! response, the release less the repair claim) and the net flux into the
-! store (NPP - W).
+! The carbon released from the store at the last TRIFFID step (W, which
+! TRIFFID grows from; with the Trugman response, the release less the
+! repair claim; kg C m-2 per 360 days). A diagnostic.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_load_pft(:,:)
+! The net flux into the store at the last TRIFFID step, NPP - W (kg C m-2
+! per 360 days). A diagnostic.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_dc_pft(:,:)
 ! Overflow respiration of the last store step (kg C m-2 per 360 days). In
 ! dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_resp_pft(:,:)
 ! Ring renewal (stem recovery), last TRIFFID step: the new ring, TRIFFID's
 ! gross wood production G (kg C m-2 of the PFT per 360 days; the wood
-! TRIFFID grows, not extra; net of nsc_wood_lost), and the share of the
-! stem conductance it renews, w_cond G / X (per 360 days). Diagnostics,
-! but G also caps the Trugman repair claim, so it is in dumps then.
+! TRIFFID grows, not extra; net of nsc_wood_lost). A diagnostic, but G also
+! caps the Trugman repair claim, so it is in dumps then.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_prod_pft(:,:)
+! The share of the stem conductance the new ring renews, w_cond G / X (per
+! 360 days). A diagnostic.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_renew_pft(:,:)
 ! Ring renewal: the wood TRIFFID lost and has not yet regrown, plus the
 ! over-count carried from the last ring year, which the regrowth repays
@@ -396,16 +399,19 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_sapwood(:,:)
 ! wood before it works out the stem N (< 0 = not set: 1 / a_ws is used).
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_sapwood_share(:,:)
 ! Sapwood pool (l_nsc_sapwood_pool): the heartwood H = C_W - X_s of the
-! last TRIFFID step (kg C m-2 of the PFT; < 0 = not yet set), a
-! diagnostic. Pipe-model target (l_nsc_pipe_target): the target sapwood
-! X_t of the last TRIFFID step (kg C m-2; 0 = not yet set), in dumps; and
-! whether a point has been warned that its target was capped at the wood.
+! last TRIFFID step (kg C m-2 of the PFT; < 0 = not yet set). A diagnostic.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_heartwood(:,:)
+! Pipe-model target (l_nsc_pipe_target): the target sapwood X_t of the
+! last TRIFFID step (kg C m-2; 0 = not yet set). In dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_sapwood_target(:,:)
-LOGICAL, ALLOCATABLE, SAVE :: nsc_xt_warned(:,:)
-! Pipe-model target: the ring year's peak LAI so far and last ring year's
-! peak LAI (< 0 = not yet set), in dumps.
+! Pipe-model target: whether a point has been warned that its target was
+! capped at the wood.
+LOGICAL, ALLOCATABLE, SAVE :: nsc_target_warned(:,:)
+! Pipe-model target: the ring year's peak LAI so far (< 0 = not yet set).
+! In dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_lai_peak(:,:)
+! Pipe-model target: last ring year's peak LAI (< 0 = not yet set). In
+! dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_lai_peak_prev(:,:)
 ! Conductance from the sapwood area (l_nsc_k_sapwood): the factor f_A on
 ! the plant's kmax of the last step (0-1, 1 = full area); with the Trugman
@@ -435,10 +441,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_repair_pft(:,:)
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_repair_claim(:,:)
 ! Pipe-model target: the heartwood rate of the last TRIFFID step over
 ! nsc_heartwood_rate (1 with the fixed rate; above 1 when the pipe rule
-! removes sapwood above the target; stays 1 if nsc_heartwood_rate is 0),
-! and the number of TRIFFID steps since the start (or restart) at which
-! the target was capped at the wood. Diagnostics.
+! removes sapwood above the target; stays 1 if nsc_heartwood_rate is 0).
+! A diagnostic.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_heartwood_factor(:,:)
+! Pipe-model target: the number of TRIFFID steps since the start (or
+! restart) at which the target was capped at the wood. A diagnostic.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xt_cap_count(:,:)
 ! Carbon-starvation mortality of the last TRIFFID step (per 360 days), used
 ! by lotka.
@@ -500,7 +507,7 @@ END SUBROUTINE nsc_set_sapwood_share
 ! Several start below 0, which marks them as not yet set; each is filled
 ! at its first use.
 !
-! MDK, 01/11/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_alloc( n_land_pts )
 
@@ -580,9 +587,9 @@ IF (.NOT. ALLOCATED(nsc_lai_peak)) THEN
   nsc_lai_peak(:,:)      = 0.0
   nsc_lai_peak_prev(:,:) = -1.0
 END IF
-IF (.NOT. ALLOCATED(nsc_xt_warned)) THEN
-  ALLOCATE(nsc_xt_warned(n_land_pts, npft))
-  nsc_xt_warned(:,:) = .FALSE.
+IF (.NOT. ALLOCATED(nsc_target_warned)) THEN
+  ALLOCATE(nsc_target_warned(n_land_pts, npft))
+  nsc_target_warned(:,:) = .FALSE.
 END IF
 IF (.NOT. ALLOCATED(nsc_k_area_frac)) THEN
   ALLOCATE(nsc_k_area_frac(n_land_pts, npft))
@@ -685,7 +692,7 @@ END SUBROUTINE triffid_nsc_alloc
 !      call on the release, up to the last ring production
 !      (nsc_repair_claim); TRIFFID grows from the rest.
 !
-! MDK, 09/11/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,         &
                               leafc, rootc, npp, pft_only )
@@ -735,34 +742,52 @@ INTEGER, INTENT(IN), OPTIONAL :: pft_only
 
 ! Local variables
 INTEGER :: n, t, l, n1, n2
-REAL(KIND=real_jlslsm) ::                                                      &
-  ! TRIFFID timestep (360-day years).
-  dt,                                                                          &
-  ! Weight of this step in the running mean of NPP.
-  a_mean,                                                                      &
-  ! Store capacity, reserve and accessible store (kg C m-2).
-  c_max, c_res, c_acc,                                                         &
-  ! Maximum and actual loading, net draw on the store (per 360 days).
-  w_max, w, draw,                                                              &
-  ! Store at the start of the step (kg C m-2).
-  c_old,                                                                       &
-  ! Turgor-limited sink: turgor factor (0-1), and the cold and season
-  ! factor (0-1) of the release with the turgor limit open.
-  f_turg, f_ts,                                                                &
-  ! The store the release for growth draws on: its floor (the reserve, or
-  ! the growth threshold nsc_grow_thresh), the store above it, and that
-  ! when full (kg C m-2).
-  c_thr, c_grow, c_grow_max,                                                   &
-  ! Phenology regrowth drawn from the store (per 360 days).
-  w_regrow
-! Growth limits on, leaf flush on.
-LOGICAL :: l_turg, l_flush
-! Day of year now; day counter, day of year and number of days of
-! this store step.
-INTEGER :: doy_now, k, d, nd
-! Leaf flush: share of the year's flush in this step, flush draw (per
-! 360 days).
-REAL(KIND=real_jlslsm) :: f_flush, w_flush
+! TRIFFID timestep (360-day years).
+REAL(KIND=real_jlslsm) :: dt
+! Weight of this step in the running mean of NPP.
+REAL(KIND=real_jlslsm) :: a_mean
+! Store capacity (kg C m-2).
+REAL(KIND=real_jlslsm) :: c_max
+! Reserve (kg C m-2).
+REAL(KIND=real_jlslsm) :: c_res
+! Accessible store (kg C m-2).
+REAL(KIND=real_jlslsm) :: c_acc
+! Maximum loading (per 360 days).
+REAL(KIND=real_jlslsm) :: w_max
+! Actual loading, the release W (per 360 days).
+REAL(KIND=real_jlslsm) :: w
+! Net draw on the store (per 360 days).
+REAL(KIND=real_jlslsm) :: draw
+! Store at the start of the step (kg C m-2).
+REAL(KIND=real_jlslsm) :: c_old
+! Turgor-limited sink: turgor factor (0-1).
+REAL(KIND=real_jlslsm) :: f_turg
+! The cold and season factor (0-1) of the release with the turgor limit
+! open.
+REAL(KIND=real_jlslsm) :: f_grow_no_turgor
+! The floor of the store the release for growth draws on: the reserve, or
+! the growth threshold nsc_grow_thresh (kg C m-2).
+REAL(KIND=real_jlslsm) :: c_thr
+! The store above that floor (kg C m-2).
+REAL(KIND=real_jlslsm) :: c_grow
+! The store above the floor when full (kg C m-2).
+REAL(KIND=real_jlslsm) :: c_grow_max
+! Phenology regrowth drawn from the store (per 360 days).
+REAL(KIND=real_jlslsm) :: w_regrow
+! Growth limits on.
+LOGICAL :: l_turg
+! Leaf flush on.
+LOGICAL :: l_flush
+! Day of year now.
+INTEGER :: doy_now
+! Day counter and day of year.
+INTEGER :: k, d
+! Number of days of this store step.
+INTEGER :: n_days_step
+! Leaf flush: share of the year's flush in this step.
+REAL(KIND=real_jlslsm) :: f_flush
+! Leaf flush: flush draw (per 360 days).
+REAL(KIND=real_jlslsm) :: w_flush
 ! Days in this year.
 INTEGER :: n_days
 
@@ -787,16 +812,16 @@ DO n = n1,n2
 
   a_mean = MIN(dt / MAX(nsc_tau_load(n), TINY(1.0_real_jlslsm)), 1.0)
   l_turg = nsc_limits_on(n)
-  ! Leaf flush: days of this store step (the nd days up to today) in the
-  ! flush.
+  ! Leaf flush: days of this store step (the n_days_step days up to today)
+  ! in the flush.
   l_flush = is_set(nsc_flush_start_doy(n))
   f_flush = 0.0
   IF (l_flush) THEN
     n_days  = days_in_year(current_time%year, l_360, l_leap)
     doy_now = day_of_year(current_time%year, current_time%month,               &
                           current_time%day, l_360, l_leap)
-    nd = MAX(NINT(dt * 360.0), 1)
-    DO k = 0,nd-1
+    n_days_step = MAX(NINT(dt * 360.0), 1)
+    DO k = 0,n_days_step-1
       d = MODULO(doy_now - k - 1, n_days) + 1
       ! The flush window may cross the year end.
       IF (nsc_in_flush_window(n, d, n_days))                                   &
@@ -885,17 +910,16 @@ DO n = n1,n2
         w = w_max * f_turg * c_grow / (nsc_kc(n) * c_max + c_grow)             &
             * (nsc_kc(n) * c_max + c_grow_max) / c_grow_max
       ! The release with the turgor limit open, for the sink feedback: the
-      ! period's mean cold and season factor f_ts in place of the mean
-      ! growth factor, so it is 0 outside the growing season.
-      f_ts = 1.0
+      ! period's mean cold and season factor f_grow_no_turgor in place of the
+      ! mean growth factor, so it is 0 outside the growing season.
+      f_grow_no_turgor = 1.0
       IF (is_set(nsc_tseas_acc(l,n)))                                          &
-        f_ts = MIN(MAX(nsc_tseas_acc(l,n), 0.0), 1.0)
+        f_grow_no_turgor = MIN(MAX(nsc_tseas_acc(l,n), 0.0), 1.0)
       nsc_tseas_acc(l,n) = 0.0
       nsc_wpot_pft(l,n) = 0.0
-      IF (c_grow > 0.0 .AND. c_grow_max > 0.0)                                 &
-        nsc_wpot_pft(l,n) = w_max * f_ts * c_grow                              &
-                            / (nsc_kc(n) * c_max + c_grow)                     &
-                            * (nsc_kc(n) * c_max + c_grow_max) / c_grow_max
+      IF (c_grow > 0.0 .AND. c_grow_max > 0.0) nsc_wpot_pft(l,n) = w_max *     &
+        f_grow_no_turgor * c_grow / (nsc_kc(n) * c_max + c_grow) * (nsc_kc(n)  &
+        * c_max + c_grow_max) / c_grow_max
     ELSE
       IF (c_grow > 0.0) w = w_max * c_grow / (nsc_kc(n) * c_max + c_grow)
       nsc_wpot_pft(l,n) = w
@@ -1091,7 +1115,7 @@ END SUBROUTINE triffid_nsc_area
 ! year's production still matches g_leaf_0. Leaf renewal does not run in
 ! spin-up, where the stem damage is held fixed.
 !
-! MDK, 01/11/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_turgor( land_pts, veg_pts, veg_index, ft, timestep,     &
                                psi_rz, tair )
@@ -1131,14 +1155,28 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   tair(land_pts)
 
 INTEGER :: j, l
-REAL(KIND=real_jlslsm) :: period, f, a_t, a_yr, d_renew, f_season, doy,        &
-                          doy_start, f_ts
-    ! Store period (s); growth factor (0-1); weights of this time step in
-    ! the daily and annual running means; leaf renewal this time step;
-    ! growing-season factor (0 or 1); day of year now and of the start of
-    ! the release; the growth factor without its turgor part.
-! Growth limits on; growing season set.
-LOGICAL :: l_lim, l_season
+! Store period (s).
+REAL(KIND=real_jlslsm) :: period
+! Growth factor (0-1).
+REAL(KIND=real_jlslsm) :: f_grow
+! Weight of this time step in the daily running mean.
+REAL(KIND=real_jlslsm) :: wt_day
+! Weight of this time step in the annual running mean.
+REAL(KIND=real_jlslsm) :: wt_year
+! Leaf renewal this time step.
+REAL(KIND=real_jlslsm) :: d_renew
+! Growing-season factor (0 or 1).
+REAL(KIND=real_jlslsm) :: f_season
+! Day of year now.
+REAL(KIND=real_jlslsm) :: doy
+! Day of year of the start of the release.
+REAL(KIND=real_jlslsm) :: doy_start
+! The growth factor without its turgor part.
+REAL(KIND=real_jlslsm) :: f_grow_no_turgor
+! Growth limits on.
+LOGICAL :: l_lim
+! Growing season set.
+LOGICAL :: l_season
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -1158,8 +1196,8 @@ IF (l_ximpair_rec_leaf_turn) CALL ximpair_seg_state_alloc( land_pts )
 
 period = 86400.0
 IF (l_triffid) period = 86400.0 * REAL(triffid_period)
-a_t = 1.0 - EXP(-timestep / 86400.0)
-a_yr = 1.0 - EXP(-timestep / (360.0 * 86400.0))
+wt_day = 1.0 - EXP(-timestep / 86400.0)
+wt_year = 1.0 - EXP(-timestep / (360.0 * 86400.0))
 
 ! Growing season: 0 outside the start and end days of the year.
 f_season = 1.0
@@ -1178,45 +1216,47 @@ DO j = 1,veg_pts
 
   ! Turgor: the root-zone psi (MPa) between nsc_psi_turg_zero and
   ! nsc_psi_turg_full.
-  f = 1.0
-  IF (is_set(nsc_psi_turg_zero(ft)))                                           &
-    f = MIN(MAX((1.0e-6 * psi_rz(l) - nsc_psi_turg_zero(ft))                   &
-                / (nsc_psi_turg_full(ft) - nsc_psi_turg_zero(ft)), 0.0), 1.0)
+  f_grow = 1.0
+  IF (is_set(nsc_psi_turg_zero(ft))) f_grow = MIN(MAX((1.0e-6 * psi_rz(l) -    &
+    nsc_psi_turg_zero(ft)) / (nsc_psi_turg_full(ft) - nsc_psi_turg_zero(ft)),  &
+    0.0), 1.0)
 
   ! Cold: the daily running mean of the air temperature (degC) between
   ! nsc_t_grow_zero and nsc_t_grow_full.
-  f_ts = 1.0
+  f_grow_no_turgor = 1.0
   IF (is_set(nsc_t_grow_zero(ft))) THEN
     IF (nsc_t_run(l,ft) < 0.0) nsc_t_run(l,ft) = tair(l)
-    nsc_t_run(l,ft) = nsc_t_run(l,ft) + a_t * (tair(l) - nsc_t_run(l,ft))
-    f_ts = MIN(MAX((nsc_t_run(l,ft) - tm - nsc_t_grow_zero(ft))                &
-                   / (nsc_t_grow_full(ft) - nsc_t_grow_zero(ft)), 0.0), 1.0)
-    f = f * f_ts
+    nsc_t_run(l,ft) = nsc_t_run(l,ft) + wt_day * (tair(l) - nsc_t_run(l,ft))
+    f_grow_no_turgor = MIN(MAX((nsc_t_run(l,ft) - tm - nsc_t_grow_zero(ft)) /  &
+                   (nsc_t_grow_full(ft) - nsc_t_grow_zero(ft)), 0.0), 1.0)
+    f_grow = f_grow * f_grow_no_turgor
   END IF
-  f = f * f_season
-  f_ts = f_ts * f_season
+  f_grow = f_grow * f_season
+  f_grow_no_turgor = f_grow_no_turgor * f_season
 
   ! The store step uses the mean over its period, of f and of the factor
   ! without turgor (for the sink feedback's release with turgor open).
   IF (l_lim) THEN
     IF (.NOT. is_set(nsc_turg_acc(l,ft))) nsc_turg_acc(l,ft) = 0.0
-    nsc_turg_acc(l,ft) = nsc_turg_acc(l,ft) + f * timestep / period
+    nsc_turg_acc(l,ft) = nsc_turg_acc(l,ft) + f_grow * timestep / period
     IF (.NOT. is_set(nsc_tseas_acc(l,ft))) nsc_tseas_acc(l,ft) = 0.0
-    nsc_tseas_acc(l,ft) = nsc_tseas_acc(l,ft) + f_ts * timestep / period
+    nsc_tseas_acc(l,ft) = nsc_tseas_acc(l,ft) + f_grow_no_turgor * timestep /  &
+                          period
   END IF
 
   ! Running annual mean of the growth factor (leaf renewal, l_nsc_wmax_norm).
   IF (l_ximpair_rec_leaf_turn .OR. l_nsc_wmax_norm) THEN
     IF (nsc_ft_mean(l,ft) < 0.0) nsc_ft_mean(l,ft) = 1.0
-    nsc_ft_mean(l,ft) = nsc_ft_mean(l,ft) + a_yr * (f - nsc_ft_mean(l,ft))
+    nsc_ft_mean(l,ft) = nsc_ft_mean(l,ft) + wt_year * (f_grow -                &
+                        nsc_ft_mean(l,ft))
   END IF
 
   ! Leaf renewal: production at the turnover rate, made while growing. Not
   ! in spin-up, where the stem damage is frozen (the update returns), so the
   ! leaf cap does not heal on its own either.
   IF (l_ximpair_rec_leaf_turn .AND. .NOT. is_spinup) THEN
-    d_renew = MIN(g_leaf_0(ft) * f / MAX(nsc_ft_mean(l,ft), 0.05)              &
-                  * timestep / (360.0 * 86400.0), 1.0)
+    d_renew = MIN(g_leaf_0(ft) * f_grow / MAX(nsc_ft_mean(l,ft), 0.05) *       &
+                  timestep / (360.0 * 86400.0), 1.0)
     ximpair_kcap_leaf(l,ft) = 1.0 - (1.0 - ximpair_kcap_leaf(l,ft))            &
                               * (1.0 - d_renew)
   END IF
@@ -1334,7 +1374,7 @@ END SUBROUTINE triffid_nsc_daily
 ! nsc_f_a_min, so the plant keeps a conducting path. f_raw, if present, is
 ! the ratio before the MIN and the floor.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
 FUNCTION nsc_k_area( l, n, f_raw ) RESULT( f_a )
 
@@ -1350,35 +1390,41 @@ REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: f_raw
 ! Area factor on kmax (0-1).
 REAL(KIND=real_jlslsm) :: f_a
 
-! Sapwood and its target (kg C m-2), the rings' equilibrium mean
-! conductivity and the ratio.
-REAL(KIND=real_jlslsm) :: x_s, x_t, c_ref, r
+! Sapwood (kg C m-2).
+REAL(KIND=real_jlslsm) :: sapwood_c
+! Its target (kg C m-2).
+REAL(KIND=real_jlslsm) :: sapwood_target
+! The rings' equilibrium mean conductivity.
+REAL(KIND=real_jlslsm) :: c_ref
+! The ratio before the MIN.
+REAL(KIND=real_jlslsm) :: area_ratio
 
 f_a = 1.0
 IF (PRESENT(f_raw)) f_raw = 1.0
 IF (.NOT. ALLOCATED(nsc_sapwood) .OR. .NOT. ALLOCATED(nsc_sapwood_target))     &
   RETURN
-x_s = nsc_sapwood(l,n)
-x_t = nsc_sapwood_target(l,n)
-IF (x_s < 0.0 .OR. x_t <= 0.0) RETURN
+sapwood_c = nsc_sapwood(l,n)
+sapwood_target = nsc_sapwood_target(l,n)
+IF (sapwood_c < 0.0 .OR. sapwood_target <= 0.0) RETURN
 
-r = x_s / x_t
+area_ratio = sapwood_c / sapwood_target
 IF (l_nsc_sapwood_rings .AND. ALLOCATED(ximpair_ring_frac)) THEN
   IF (ximpair_ring_frac(l,n,1) >= 0.0 .AND.                                   &
       ximpair_ring_year(l,n) >= 0.0) THEN
     c_ref = ximpair_ring_cond_ref(l, n)
-    r = 1.0
+    area_ratio = 1.0
     IF (c_ref > 0.0) THEN
-      r   = x_s * ximpair_ring_cond_mean(l, n) / (x_t * c_ref)
-      f_a = MIN(1.0, r)
+      area_ratio = sapwood_c * ximpair_ring_cond_mean(l, n) / (sapwood_target  &
+                   * c_ref)
+      f_a = MIN(1.0, area_ratio)
     END IF
     f_a = MAX(f_a, nsc_f_a_min)
-    IF (PRESENT(f_raw)) f_raw = r
+    IF (PRESENT(f_raw)) f_raw = area_ratio
     RETURN
   END IF
 END IF
-f_a = MAX(MIN(1.0, x_s / x_t), nsc_f_a_min)
-IF (PRESENT(f_raw)) f_raw = r
+f_a = MAX(MIN(1.0, sapwood_c / sapwood_target), nsc_f_a_min)
+IF (PRESENT(f_raw)) f_raw = area_ratio
 
 END FUNCTION nsc_k_area
 
@@ -1396,7 +1442,7 @@ END FUNCTION nsc_k_area
 ! was set on. Returns -1 when the sapwood, its target or the pipe model is
 ! not set (in spin-up and before the first ring step).
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
 FUNCTION nsc_lai_sapwood( l, n, ht ) RESULT( lai_s )
 
@@ -1413,9 +1459,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: ht
 ! Leaf area index the sapwood can supply (m2 m-2; -1 = not set).
 REAL(KIND=real_jlslsm) :: lai_s
 
-! The sapwood that counts (kg C m-2) and the rings' equilibrium mean
-! conductivity.
-REAL(KIND=real_jlslsm) :: x_a, c_ref
+! The sapwood that counts (kg C m-2).
+REAL(KIND=real_jlslsm) :: sapwood_counted
+! The rings' equilibrium mean conductivity.
+REAL(KIND=real_jlslsm) :: c_ref
 
 lai_s = -1.0
 IF (.NOT. ALLOCATED(nsc_sapwood) .OR. .NOT. ALLOCATED(nsc_sapwood_target))     &
@@ -1423,16 +1470,16 @@ IF (.NOT. ALLOCATED(nsc_sapwood) .OR. .NOT. ALLOCATED(nsc_sapwood_target))     &
 IF (nsc_sapwood(l,n) < 0.0 .OR. nsc_sapwood_target(l,n) <= 0.0) RETURN
 IF (eta_sl(n) <= 0.0 .OR. ht <= 0.0) RETURN
 
-x_a = nsc_sapwood(l,n)
+sapwood_counted = nsc_sapwood(l,n)
 IF (l_nsc_sapwood_rings .AND. ALLOCATED(ximpair_ring_frac)) THEN
   IF (ximpair_ring_frac(l,n,1) < 0.0 .OR. ximpair_ring_year(l,n) < 0.0)      &
     RETURN
   c_ref = ximpair_ring_cond_ref(l, n)
   IF (c_ref <= 0.0) RETURN
-  x_a = x_a * ximpair_ring_cond_mean(l, n) / c_ref
+  sapwood_counted = sapwood_counted * ximpair_ring_cond_mean(l, n) / c_ref
 END IF
 
-lai_s = x_a / (eta_sl(n) * ht)
+lai_s = sapwood_counted / (eta_sl(n) * ht)
 
 END FUNCTION nsc_lai_sapwood
 
@@ -1476,7 +1523,7 @@ END FUNCTION nsc_lai_sapwood
 !      with the pipe-model target this ring year's peak LAI becomes last
 !      year's.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
                                      r_gamma, ht, lai_bal, lai, woodc, dwood,  &
@@ -1536,36 +1583,54 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 
 INTEGER :: n, t, l
 ! New wood counted as ring, net of the wood lost not yet regrown (kg C
-! m-2 per 360 days); conducting sapwood (kg C m-2).
-REAL(KIND=real_jlslsm) :: ring_prod, x_s
-! TRIFFID timestep (360-day years) and the step's gross wood
-! production (kg C m-2, < 0 when wood is lost).
-REAL(KIND=real_jlslsm) :: dt, g_step
-! Sapwood pool: the wood before the step (kg C m-2) and TRIFFID's wood
-! turnover rate (per 360 days).
-REAL(KIND=real_jlslsm) :: wood_old, g_turn
+! m-2 per 360 days).
+REAL(KIND=real_jlslsm) :: ring_prod
+! Conducting sapwood (kg C m-2).
+REAL(KIND=real_jlslsm) :: sapwood_c
+! TRIFFID timestep (360-day years).
+REAL(KIND=real_jlslsm) :: dt
+! The step's gross wood production (kg C m-2, < 0 when wood is lost).
+REAL(KIND=real_jlslsm) :: wood_prod_step
+! Sapwood pool: the wood before the step (kg C m-2).
+REAL(KIND=real_jlslsm) :: wood_old
+! TRIFFID's wood turnover rate (per 360 days).
+REAL(KIND=real_jlslsm) :: wood_turn_rate
 ! The wood before a ring year's net loss (kg C m-2).
 REAL(KIND=real_jlslsm) :: wood_pre
-! Day of year now, days in this year, days of this step, day counter,
-! a day of the step and the ring year's end day.
-INTEGER :: doy_now, n_days, nd, k, d, doy_end
+! Day of year now.
+INTEGER :: doy_now
+! Days in this year.
+INTEGER :: n_days
+! Days of this step.
+INTEGER :: n_days_step
+! Day counter and a day of the step.
+INTEGER :: k, d
+! The ring year's end day.
+INTEGER :: doy_end
 ! The calendar year in which a ring started at this step grows.
 INTEGER :: g_year
 ! This step ends the ring year (it holds the end of the growing season
 ! or, without one, the last day of the year).
 LOGICAL :: l_ring_end
-! The leaf area the sapwood serves and that the target is set on, the
-! pipe-model target sapwood (kg C m-2), the heartwood rate (per 360
-! days), the sapwood after TRIFFID's turnover and the heartwood of the
-! step (kg C m-2).
-REAL(KIND=real_jlslsm) :: lai_ref, lai_pot, x_t, rate_h, x_turn, h_step
+! The leaf area the sapwood serves (m2 m-2).
+REAL(KIND=real_jlslsm) :: lai_ref
+! The leaf area the target is set on (m2 m-2).
+REAL(KIND=real_jlslsm) :: lai_pot
+! The pipe-model target sapwood (kg C m-2).
+REAL(KIND=real_jlslsm) :: sapwood_target
+! The heartwood rate (per 360 days).
+REAL(KIND=real_jlslsm) :: heartwood_rate
+! The sapwood after TRIFFID's turnover (kg C m-2).
+REAL(KIND=real_jlslsm) :: sapwood_after_turn
+! The heartwood of the step (kg C m-2).
+REAL(KIND=real_jlslsm) :: heartwood_step
 ! The target is set on the leaf area the climate allows (pipe heartwood
 ! rule or Trugman response).
 LOGICAL :: l_lai_climate
 ! The new ring's share of the conductance weight.
-REAL(KIND=real_jlslsm) :: w_cw
+REAL(KIND=real_jlslsm) :: ring_cond_share
 ! Xylem repair: damaged sapwood replaced at this step (kg C m-2).
-REAL(KIND=real_jlslsm) :: r_rep
+REAL(KIND=real_jlslsm) :: repair_c
 
 ! Share of the sapwood the pipe heartwood rule always leaves after a
 ! step, so a target far below the sapwood cannot empty it.
@@ -1587,13 +1652,13 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
   CALL triffid_nsc_alloc( land_pts )
   CALL ximpair_memory_alloc( land_pts )
 
-  ! The days of this step: the nd days up to today, as the leaf flush in
-  ! triffid_nsc_store counts them.
+  ! The days of this step: the n_days_step days up to today, as the leaf
+  ! flush in triffid_nsc_store counts them.
   dt      = 1.0 / r_gamma
   n_days  = days_in_year(current_time%year, l_360, l_leap)
   doy_now = day_of_year(current_time%year, current_time%month,                 &
                         current_time%day, l_360, l_leap)
-  nd      = MAX(NINT(dt * 360.0), 1)
+  n_days_step      = MAX(NINT(dt * 360.0), 1)
 
   l_lai_climate = nsc_heartwood_model == nsc_heartwood_pipe .OR.               &
           nsc_damage_response == nsc_damage_trugman
@@ -1607,7 +1672,7 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
     IF (is_set(nsc_grow_end_doy(n)))                                           &
       doy_end = MIN(NINT(nsc_grow_end_doy(n)), n_days)
     l_ring_end = .FALSE.
-    DO k = 0,nd-1
+    DO k = 0,n_days_step-1
       d = MODULO(doy_now - k - 1, n_days) + 1
       IF (d == doy_end) l_ring_end = .TRUE.
     END DO
@@ -1648,40 +1713,42 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       !
       ! or with the pipe-model target at the target. TRIFFID's live
       ! stemwood on lai_ref is the pipe-model target X_t, at most the wood.
-      x_s = live_stemwood(n, ht(l,n), lai_ref)
-      x_t = x_s
-      IF (l_nsc_pipe_target .AND. x_t > wood_old) THEN
+      sapwood_c = live_stemwood(n, ht(l,n), lai_ref)
+      sapwood_target = sapwood_c
+      IF (l_nsc_pipe_target .AND. sapwood_target > wood_old) THEN
         ! The cap is a guard: eta_sl (from LA:SA, form factor and wood
         ! density) and the height give more sapwood than the wood, so a_ws
         ! is below 1. The first time, say by how much and what eta_sl
         ! would fit; count every step.
-        IF (.NOT. nsc_xt_warned(l,n))                                          &
+        IF (.NOT. nsc_target_warned(l,n))                                      &
           CALL log_warn(RoutineName,                                           &
                         "Pipe-model target capped at the wood carbon " //      &
                         "at land point " //                                    &
                         TRIM(to_string(l)) // ", PFT " //                      &
                         TRIM(to_string(n)) // ": X_t / C_W = " //              &
-                        TRIM(to_string(x_t / MAX(wood_old, 1.0e-12))) //       &
+                        TRIM(to_string(sapwood_target                          &
+                                       / MAX(wood_old, 1.0e-12))) //           &
                         "; eta_sl_io at most " //                              &
                         TRIM(to_string(eta_sl(n) * MAX(wood_old, 0.0)          &
-                                       / x_t)) // " would fit, with " //       &
+                                       / sapwood_target)) //                   &
+                        " would fit, with " //                                 &
                         "a_ws_io raised by the same factor.")
-        nsc_xt_warned(l,n) = .TRUE.
+        nsc_target_warned(l,n) = .TRUE.
         nsc_xt_cap_count(l,n) = nsc_xt_cap_count(l,n) + 1.0
-        x_t = MAX(wood_old, 0.0)
+        sapwood_target = MAX(wood_old, 0.0)
       END IF
       IF (l_nsc_sapwood_pool) THEN
-        g_turn   = 0.0
-        IF (wood_old > 0.0) g_turn = wood_litc(l,n) / wood_old
+        wood_turn_rate   = 0.0
+        IF (wood_old > 0.0) wood_turn_rate = wood_litc(l,n) / wood_old
         IF (nsc_sapwood(l,n) < 0.0) THEN
           IF (l_nsc_pipe_target) THEN
-            nsc_sapwood(l,n) = x_t
+            nsc_sapwood(l,n) = sapwood_target
           ELSE
-            nsc_sapwood(l,n) = MAX(wood_old, 0.0) * g_turn                     &
-                               / (nsc_heartwood_rate(n) + g_turn)
+            nsc_sapwood(l,n) = MAX(wood_old, 0.0) * wood_turn_rate /           &
+                               (nsc_heartwood_rate(n) + wood_turn_rate)
           END IF
         END IF
-        x_s = nsc_sapwood(l,n)
+        sapwood_c = nsc_sapwood(l,n)
       END IF
 
       ! Heartwood. With the pipe heartwood rule (and the pipe-model target)
@@ -1691,22 +1758,26 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       !
       !   dH = MAX(X' (1 - EXP(-k_h dt)), X' - X_t),
       !
-      ! taken oldest rings first; rate_h is the rate that removes dH over
-      ! the step, and the heartwood factor (an output) is rate_h / k_h.
+      ! taken oldest rings first; heartwood_rate is the rate that removes dH
+      ! over the step, and the heartwood factor (an output) is heartwood_rate /
+      ! k_h.
       ! Otherwise heartwood forms at k_h.
-      rate_h = nsc_heartwood_rate(n)
+      heartwood_rate = nsc_heartwood_rate(n)
       IF (l_nsc_pipe_target) THEN
-        nsc_sapwood_target(l,n)   = x_t
+        nsc_sapwood_target(l,n)   = sapwood_target
         nsc_heartwood_factor(l,n) = 1.0
         IF (nsc_heartwood_model == nsc_heartwood_pipe) THEN
-          x_turn = x_s * EXP(-g_turn / r_gamma)
-          IF (x_turn > x_min) THEN
-            h_step = MAX(x_turn * (1.0 - EXP(-rate_h / r_gamma)),              &
-                         x_turn - x_t)
-            h_step = MIN(h_step, x_turn * (1.0 - h_keep))
-            rate_h = -LOG(1.0 - h_step / x_turn) * r_gamma
+          sapwood_after_turn = sapwood_c * EXP(-wood_turn_rate / r_gamma)
+          IF (sapwood_after_turn > x_min) THEN
+            heartwood_step = MAX(sapwood_after_turn * (1.0 -                   &
+                         EXP(-heartwood_rate / r_gamma)), sapwood_after_turn - &
+                         sapwood_target)
+            heartwood_step = MIN(heartwood_step, sapwood_after_turn * (1.0 -   &
+                             h_keep))
+            heartwood_rate = -LOG(1.0 - heartwood_step / sapwood_after_turn) * &
+                             r_gamma
             IF (nsc_heartwood_rate(n) > 0.0)                                   &
-              nsc_heartwood_factor(l,n) = rate_h / nsc_heartwood_rate(n)
+              nsc_heartwood_factor(l,n) = heartwood_rate / nsc_heartwood_rate(n)
           END IF
           ! The stand's mean heartwood rate, a running mean over about a
           ! year (from nsc_heartwood_rate at the start), which sets the
@@ -1714,9 +1785,10 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
           IF (l_nsc_sapwood_rings) THEN
             IF (ximpair_hw_rate_mean(l,n) < 0.0)                               &
               ximpair_hw_rate_mean(l,n) = nsc_heartwood_rate(n)
-            ximpair_hw_rate_mean(l,n) = ximpair_hw_rate_mean(l,n)              &
-                                        + (rate_h - ximpair_hw_rate_mean(l,n)) &
-                                        * (1.0 - EXP(-1.0 / r_gamma))
+            ximpair_hw_rate_mean(l,n) = ximpair_hw_rate_mean(l,n) +            &
+                                        (heartwood_rate -                      &
+                                        ximpair_hw_rate_mean(l,n)) * (1.0 -    &
+                                        EXP(-1.0 / r_gamma))
           END IF
         END IF
       END IF
@@ -1726,28 +1798,28 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! the release opens. A step with G < 0 adds its loss to the deficit
       ! D and renews nothing; a step with G > 0 repays D first, and only
       ! the rest is new ring. S sums the ring year's G dt.
-      g_step = dwood(l,n) + wood_litc(l,n) * dt
-      IF (g_step < 0.0) THEN
-        nsc_wood_lost(l,n) = nsc_wood_lost(l,n) - g_step
+      wood_prod_step = dwood(l,n) + wood_litc(l,n) * dt
+      IF (wood_prod_step < 0.0) THEN
+        nsc_wood_lost(l,n) = nsc_wood_lost(l,n) - wood_prod_step
         ring_prod = 0.0
       ELSE
-        ring_prod = MAX(g_step - nsc_wood_lost(l,n), 0.0) * r_gamma
-        nsc_wood_lost(l,n) = MAX(nsc_wood_lost(l,n) - g_step, 0.0)
+        ring_prod = MAX(wood_prod_step - nsc_wood_lost(l,n), 0.0) * r_gamma
+        nsc_wood_lost(l,n) = MAX(nsc_wood_lost(l,n) - wood_prod_step, 0.0)
       END IF
-      nsc_net_wood_growth(l,n)       = nsc_net_wood_growth(l,n) + g_step
-      nsc_xylem_prod_pft(l,n) = ring_prod
+      nsc_net_wood_growth(l,n) = nsc_net_wood_growth(l,n) + wood_prod_step
+      nsc_xylem_prod_pft(l,n)  = ring_prod
 
       ! The ring's share of the stem conductance, queued for the next
       ! impairment update. A sapwood at or below x_min renews nothing, but
       ! its count and state go on. With the ring cohorts the conductance
       ! ratio does not act: the renewal is the new wood's share of the
       ! sapwood, and nothing is queued.
-      IF (x_s > x_min) THEN
+      IF (sapwood_c > x_min) THEN
         IF (l_nsc_sapwood_rings) THEN
-          nsc_xylem_renew_pft(l,n) = ring_prod / x_s
+          nsc_xylem_renew_pft(l,n) = ring_prod / sapwood_c
         ELSE
           nsc_xylem_renew_pft(l,n) = nsc_xylem_cond_ratio(n) * ring_prod       &
-                                     / x_s
+                                     / sapwood_c
           ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n)                  &
                                      + nsc_xylem_renew_pft(l,n) / r_gamma
         END IF
@@ -1763,12 +1835,12 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
           CALL ximpair_ring_init(l, n,                                         &
                                  MIN(ximpair_lock(l,n)                         &
                                      / MAX(ximpair_area_w(l,n), 1.0e-6), 1.0))
-        CALL ximpair_ring_grow(l, n, x_s * EXP(-g_turn / r_gamma),             &
-                               ring_prod / r_gamma, rate_h / r_gamma,          &
-                               l_ring_end, g_year, w_cw)
+        CALL ximpair_ring_grow(l, n, sapwood_c * EXP(-wood_turn_rate /         &
+                               r_gamma), ring_prod / r_gamma, heartwood_rate / &
+                               r_gamma, l_ring_end, g_year, ring_cond_share)
         ! The new ring's share of the conductance weight, per 360 days:
         ! the share of the stem's loss it dilutes.
-        nsc_xylem_renew_cw(l,n) = w_cw * r_gamma
+        nsc_xylem_renew_cw(l,n) = ring_cond_share * r_gamma
       END IF
 
       ! Sapwood pool: the oldest sapwood becomes heartwood, TRIFFID's
@@ -1777,11 +1849,10 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       !   dX_s/dt = G - (k_h + g_t) X_s,   k_h = nsc_heartwood_rate,
       !
       ! so in equilibrium X_s = G / (k_h + g_t) (with the pipe heartwood
-      ! rule, k_h is the step's rate rate_h).
-      IF (l_nsc_sapwood_pool)                                                  &
-        nsc_sapwood(l,n) = nsc_sapwood(l,n)                                    &
-                           * EXP(-(rate_h + g_turn) / r_gamma)                 &
-                           + ring_prod / r_gamma
+      ! rule, k_h is the step's rate heartwood_rate).
+      IF (l_nsc_sapwood_pool) nsc_sapwood(l,n) = nsc_sapwood(l,n) *            &
+        EXP(-(heartwood_rate + wood_turn_rate) / r_gamma) + ring_prod /        &
+        r_gamma
 
       ! Xylem repair (the Trugman response): the release the store step
       ! claimed for repair replaces damaged sapwood above the period's
@@ -1791,8 +1862,8 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       IF (nsc_damage_response == nsc_damage_trugman .AND.                      &
           l_nsc_sapwood_rings) THEN
         CALL ximpair_ring_repair(l, n, nsc_sapwood(l,n),                       &
-                                 nsc_repair_claim(l,n) / r_gamma, r_rep)
-        nsc_xylem_repair_pft(l,n) = r_rep * r_gamma
+                                 nsc_repair_claim(l,n) / r_gamma, repair_c)
+        nsc_xylem_repair_pft(l,n) = repair_c * r_gamma
       END IF
       IF (l_nsc_sapwood_rings) ximpair_ring_peak(l,n) = 0.0
 
