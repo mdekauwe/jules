@@ -1576,7 +1576,7 @@ END SUBROUTINE psi_leaf_impaired_memory
 ! is stored for TRIFFID and, with l_trif_hydmort, for hydraulic
 ! mortality.
 !
-! MDK, 06/11/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment_memory( n_land_pts, n_open_pts,             &
                                            open_index, pft, psi_leaf,          &

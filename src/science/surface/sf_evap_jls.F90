@@ -54,6 +54,7 @@ USE jules_surface_types_mod, ONLY: lake, npft, soil
 USE jules_hydrology_mod, ONLY: l_soil_evap_or
 USE soil_evap_or_mod, ONLY: w1_or
 USE jules_vegetation_mod, ONLY: l_som_capacitance_on   ! MDK, 04/11/26
+USE plant_water_store_mod, ONLY: store_q_xyl
 USE plant_water_store_mod, ONLY: store_q, store_return, store_wt_root,         &
                                  store_w_soil, store_w_root_avail
 USE ereport_mod, ONLY: ereport
@@ -843,7 +844,7 @@ esoil_ext(:,:) = esoil_surft(:,:)
 ! What is not given or not supplied goes back to the store through
 ! store_return.
 !
-! MDK, 02/11/26
+! MDK, 12/11/26
 IF ( l_store ) THEN
   IF ( ALLOCATED(store_q) ) THEN
     DO n = 1,npft
@@ -862,9 +863,13 @@ IF ( l_store ) THEN
           END IF
         END IF
         ! Step 1: the soil gives esoil less the store's flow out, which is at
-        ! most T; the rest of the flow out goes back to the store.
+        ! most T; the rest of the flow out goes back to the store. The water
+        ! that fills new xylem (store_q_xyl, l_ximpair_cav_water) is drawn
+        ! with the refill.
         esoil_ext(l,n) = esoil_surft(l,n)                                      &
                          - MIN(store_q(l,n), MAX(t_stom(l,n), 0.0))
+        IF ( ALLOCATED(store_q_xyl) )                                          &
+          esoil_ext(l,n) = esoil_ext(l,n) + store_q_xyl(l,n)
         IF ( store_q(l,n) > MAX(t_stom(l,n), 0.0) )                            &
           CALL store_return( l, n, timestep,                                   &
                                  store_q(l,n) - MAX(t_stom(l,n), 0.0) )

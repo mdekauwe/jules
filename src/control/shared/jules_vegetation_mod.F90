@@ -1034,6 +1034,28 @@ LOGICAL ::                                                                     &
       !
       ! MDK, 09/11/26
 LOGICAL ::                                                                     &
+  l_ximpair_cav_water = .FALSE.
+      ! Water released by cavitation: when the stem's locked-in loss of
+      ! conductance rises by dL in a timestep, the water held in that share
+      ! of the sapwood's conduits goes to the plant store (the capacitance
+      ! store of the stomatal optimisation), so a failing xylem feeds the
+      ! leaves for a while (as SurEau, Cochard et al. 2021). The water in the
+      ! conduits is the sapwood's volume times the share of it in the
+      ! conduits' lumens, from the TRIFFID sapwood pool X_s (kg C m-2), the
+      ! wood density rho (wood_density) and that share f (xyl_lumen_frac),
+      !
+      !   V_w = rho_w (X_s / (c_w rho)) f   (kg m-2),
+      !
+      ! with c_w = 0.46 the carbon fraction of wood dry mass (Doraisami et
+      ! al. 2022); f unset is all the wood's lumens, 1 - rho / rho_cw, with
+      ! rho_cw = 1500 kg m-3 the density of the wood substance in water
+      ! (Kellogg & Wangaard 1969). The conduits' water is part of the
+      ! plant's water: new xylem draws it from the soil, and embolised
+      ! conduits are not refilled. Needs the plant store, l_triffid_nsc (the
+      ! sapwood pool), the per-segment memory and wood_density_io.
+      !
+      ! MDK, 12/11/26
+LOGICAL ::                                                                     &
   l_ximpair_seg_memory = .FALSE.,                                              &
       ! Memory model (pft_xylem_impairment_model = 3) with segments
       ! (l_som_plant_segments): a separate cap for the stem and the leaf
@@ -1425,7 +1447,7 @@ NAMELIST  / jules_vegetation/                                                  &
     som_base_parm, som_n_sample, som_n_ci_golden_iter,                         &
     l_som_skip_search_wellwatered, som_hc_negligible_tol,                      &
     l_som_fast,                                                                &
-    l_ximpair_seg_memory, l_ximpair_leaf_loss,                                 &
+    l_ximpair_seg_memory, l_ximpair_leaf_loss, l_ximpair_cav_water,            &
     l_ximpair_rec_nsc, l_triffid_nsc, l_ximpair_rec_leaf_turn, l_phen_psi,     &
     l_phen_fuse, l_phen_heat, l_shed_regrow_flush, leaf_shed_combine,          &
     heat_phen_temp,                                                            &
@@ -2705,6 +2727,18 @@ IF ( l_nsc_sapwood_rings .AND. .NOT. l_ximpair_seg_memory ) THEN
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_nsc_sapwood_rings needs l_ximpair_seg_memory=T')
 END IF
+! The water released by cavitation goes to the plant store and comes from
+! the sapwood pool, and the stem's loss is the per-segment memory's.
+!
+! MDK, 12/11/26
+IF ( l_ximpair_cav_water .AND. .NOT. ( l_triffid_nsc .AND.                     &
+     l_ximpair_seg_memory .AND. ( l_som_capacitance .OR.                       &
+     som_cuticular_leak > 0 ) ) ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_ximpair_cav_water needs l_triffid_nsc, '                 //  &
+               'l_ximpair_seg_memory and the plant store')
+END IF
 ! Ring ages need at least two rings: the new ring starts empty at the end
 ! of the ring year while last year's ring still conducts.
 !
@@ -2954,6 +2988,8 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_ximpair_seg_memory = ', l_ximpair_seg_memory
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_ximpair_cav_water = ', l_ximpair_cav_water
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_ximpair_rec_nsc = ', l_ximpair_rec_nsc
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_triffid_nsc = ', l_triffid_nsc
@@ -3146,7 +3182,7 @@ INTEGER, PARAMETER :: n_int = 29
 INTEGER, PARAMETER :: n_real = 21 + (n_photo_coef * 5)
                                   ! The REAL items: 21 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 63 + npft_max
+INTEGER, PARAMETER :: n_log = 64 + npft_max
                                   ! The LOGICAL items: 64 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
@@ -3224,6 +3260,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_shared_gain   ! MDK, 30/10/26
   LOGICAL :: l_som_capacitance   ! MDK, 23/10/26
   LOGICAL :: l_ximpair_seg_memory
+  LOGICAL :: l_ximpair_cav_water   ! MDK, 12/11/26
   LOGICAL :: l_ximpair_rec_nsc
   LOGICAL :: l_triffid_nsc
   LOGICAL :: l_trif_hydmort
@@ -3359,6 +3396,7 @@ IF (mype == 0) THEN
   my_nml % l_som_shared_gain = l_som_shared_gain
   my_nml % l_som_capacitance = l_som_capacitance
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
+  my_nml % l_ximpair_cav_water = l_ximpair_cav_water
   my_nml % l_ximpair_rec_nsc = l_ximpair_rec_nsc
   my_nml % l_triffid_nsc = l_triffid_nsc
   my_nml % l_trif_hydmort = l_trif_hydmort
@@ -3484,6 +3522,7 @@ IF (mype /= 0) THEN
   l_som_shared_gain = my_nml % l_som_shared_gain
   l_som_capacitance = my_nml % l_som_capacitance
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
+  l_ximpair_cav_water = my_nml % l_ximpair_cav_water
   l_ximpair_rec_nsc = my_nml % l_ximpair_rec_nsc
   l_triffid_nsc = my_nml % l_triffid_nsc
   l_trif_hydmort = my_nml % l_trif_hydmort

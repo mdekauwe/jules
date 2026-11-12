@@ -11125,3 +11125,29 @@ DATA metadata(857) / var_metadata(                                             &
 ! Units
     "kg m-2 per 360days"                                                       &
   ) /
+!-----------------------------------------------------------------------------
+! Water in the stem's conduits, with the water released by cavitation
+! (l_ximpair_cav_water)
+!
+! MDK, 12/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(858) / var_metadata(                                             &
+! String identifier
+    'store_w_xyl',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Water in the stem conduits (< 0 = not set; dump)",                        &
+! Units
+    "kg m-2"                                                                   &
+  ) /
+DATA metadata(859) / var_metadata(                                             &
+! String identifier
+    'store_q_xyl_pft',                                                         &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Water drawn from the soil to fill new xylem",                             &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /

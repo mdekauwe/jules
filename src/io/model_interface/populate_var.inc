@@ -24,7 +24,7 @@ USE trifctl, ONLY: asteps_since_triffid
 USE trifctl, ONLY: asteps_phen
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
 USE plant_water_store_mod, ONLY: store_state_alloc, store_w, store_c,          &
-                                 store_q
+                                 store_q, store_w_xyl
 USE sf_stom_state_mod, ONLY: store_e_prev, shared_e_shd_prev,                &
                              shared_amax_shd_prev
 USE phen_budburst_mod, ONLY: phen_bb_alloc, phen_gdd, phen_bb_day,             &
@@ -2157,6 +2157,18 @@ CASE ( 'store_c' )
     CALL cube_get_data(cube_land, store_c(:,:))
   ELSE
     store_c(:,:) = const_val
+  END IF
+
+! Water in the stem's conduits (l_ximpair_cav_water).
+!
+! MDK, 12/11/26
+CASE ( 'store_w_xyl' )
+  CALL store_state_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, store_w_xyl(:,:))
+  ELSE
+    store_w_xyl(:,:) = const_val
   END IF
 
 ! The store's flow and the canopy transpiration of the last timestep.

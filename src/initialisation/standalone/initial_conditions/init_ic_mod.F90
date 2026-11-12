@@ -1158,6 +1158,12 @@ DO i = 1, nvars_required
   CASE ( 'store_c' )
     ! Plant capacitance store: C not yet set.
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  CASE ( 'store_w_xyl' )
+    ! Water in the stem's conduits: not yet set (< 0), so it starts with
+    ! the conduits not lost (1 - L) full.
+    !
+    ! MDK, 12/11/26
+    CALL dict_set(defaults_dict, identifiers(i), -1.0)
   CASE ( 'store_q', 'store_e_prev', 'shared_e_shd_prev',                       &
          'shared_amax_shd_prev' )
     ! Capacitance store and shared stem: no flow and no transpiration yet.

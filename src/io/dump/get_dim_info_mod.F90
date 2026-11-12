@@ -182,7 +182,7 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
            'shed_f_psi', 'shed_nup', 'shed_psi_pd', 'shed_psi_md',             &
            'heat_dam', 'phen_shed_debt',                                       &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
-           'store_w', 'store_c',                                               &
+           'store_w', 'store_c', 'store_w_xyl',                                &
            'store_q', 'store_e_prev',                                          &
            'shared_e_shd_prev', 'shared_amax_shd_prev',                        &
            't_leaf_sun_pft', 't_leaf_shd_pft' )

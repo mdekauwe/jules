@@ -178,7 +178,8 @@ USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_eff_pft,                  &
                             ! MDK, 04/11/26
 USE plant_water_store_mod, ONLY: store_w, store_q, store_c,                    &
                                  store_state_alloc, store_unset,               &
-                                 store_w_shed, leak_e, store_q_gap
+                                 store_w_shed, leak_e, store_q_gap,            &
+                                 store_w_xyl, store_q_xyl
                             ! MDK, 05/11/26
 USE pftparm, ONLY: cap_stem, kcrit_fractional_loss, conductance_b_seg,         &
                    conductance_c_seg
@@ -219,6 +220,10 @@ USE jules_vegetation_mod, ONLY: l_nsc_k_sapwood
                             ! MDK, 31/10/26
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_n
 USE triffid_nsc_mod, ONLY: nsc_sapwood
+USE jules_vegetation_mod, ONLY: l_ximpair_cav_water
+USE xylem_impairment_memory_mod, ONLY: ximpair_lock
+USE pftparm, ONLY: wood_density, xyl_lumen_frac
+                            ! MDK, 12/11/26
                             ! MDK, 04/11/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_k_area, nsc_k_area_frac
                            ! MDK, 31/10/26
@@ -1008,47 +1013,57 @@ REAL(KIND=real_jlslsm) :: q_store(land_pts)
                             ! The capacitance store: the store's flow out
                             ! at the stem node the optimiser sees (mol H2O
                             ! m-2 ground s-1; > 0: it gives, < 0: it refills).
-REAL(KIND=real_jlslsm) :: kref_cpl(land_pts), kmx_cpl(land_pts),              &
-                          kcr_cpl(land_pts)
-                            ! The capacitance store: the canopy's plant path
-                            ! for the store's balance (store_cpl_q): intact
-                            ! kmax, kmax (impaired) and kcrit of the whole
-                            ! canopy (mol m-2 ground s-1 Pa-1), set by each
-                            ! canopy scheme before its first store solve.
-REAL(KIND=real_jlslsm), ALLOCATABLE :: el_sun_lyr(:,:), el_shd_lyr(:,:)
-                            ! The capacitance store, multilayer: each
-                            ! layer's sunlit and shaded E of the last pass
-                            ! (mol H2O m-2 leaf s-1; land_pts, ilayers).
-REAL(KIND=real_jlslsm) :: e_ml_prev(land_pts), q_store_sun_lyr(land_pts),      &
-                          q_store_shd_lyr(land_pts)
-                            ! The canopy E of the last pass (mol H2O m-2
-                            ! ground s-1), and this layer's sunlit and
-                            ! shaded parts of q_store (mol H2O m-2 leaf s-1):
+REAL(KIND=real_jlslsm) :: kmax_ref_store(land_pts)
+                            ! The capacitance store: the whole canopy's intact
+                            ! plant conductance kmax for the store's balance
+                            ! (store_cpl_q; mol m-2 ground s-1 Pa-1), set by
+                            ! each canopy scheme before its first store solve.
+REAL(KIND=real_jlslsm) :: kmax_store(land_pts)
+                            ! The same, with the xylem impairment (mol m-2
+                            ! ground s-1 Pa-1).
+REAL(KIND=real_jlslsm) :: kcrit_store(land_pts)
+                            ! The same canopy's kcrit, the conductance at the
+                            ! critical loss (mol m-2 ground s-1 Pa-1).
+REAL(KIND=real_jlslsm), ALLOCATABLE :: el_sun_lyr(:,:)
+                            ! The capacitance store, multilayer: each layer's
+                            ! sunlit E of the last pass (mol H2O m-2 leaf s-1;
+                            ! land_pts, ilayers).
+REAL(KIND=real_jlslsm), ALLOCATABLE :: el_shd_lyr(:,:)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: e_ml_prev(land_pts)
+                            ! Multilayer: the canopy E of the last pass (mol
+                            ! H2O m-2 ground s-1).
+REAL(KIND=real_jlslsm) :: q_store_sun_lyr(land_pts)
+                            ! This layer's sunlit part of q_store (mol H2O m-2
+                            ! leaf s-1),
                             !
                             !   q_c = q_store E_c / E,
                             !
                             ! from the last pass (by the layer's kmax share,
-                            ! share_sup, in the first pass or where E = 0),
-                            ! so the parts over the canopy add up to q_store.
-REAL(KIND=real_jlslsm) :: q_store_sun(land_pts), q_store_shd(land_pts),        &
-                          share_one(land_pts)
-                            ! The capacitance store: the sunlit and shaded
-                            ! classes' parts of q_store (mol H2O m-2 ground
-                            ! s-1),
-                            ! and a share of 1 for set_store_q_path. Each
-                            ! class's part is in proportion to its flow,
+                            ! share_sup, in the first pass or where E = 0), so
+                            ! the parts over the canopy add up to q_store.
+REAL(KIND=real_jlslsm) :: q_store_shd_lyr(land_pts)
+                            ! The same for the shaded leaves.
+REAL(KIND=real_jlslsm) :: q_store_sun(land_pts)
+                            ! The capacitance store, two-leaf canopy: the
+                            ! sunlit class's part of q_store (mol H2O m-2
+                            ! ground s-1), in proportion to its flow,
                             !
                             !   q_c = q_store E_c / E,
                             !
                             ! from the previous pass's E_c (by the kmax_ref
-                            ! shares in the first pass, or where E = 0), so
-                            ! the class's root flow E_c (1 - q_store / E) is not
+                            ! shares in the first pass, or where E = 0), so the
+                            ! class's root flow E_c (1 - q_store / E) is not
                             ! negative where q_store <= E (no class is searched
                             ! in back-flow, where water is cheap), and with
                             ! q_store = 0 the classes are the independent paths
                             ! of capacitance off. The parts add up to q_store.
+REAL(KIND=real_jlslsm) :: q_store_shd(land_pts)
+                            ! The same for the shaded class.
+REAL(KIND=real_jlslsm) :: share_one(land_pts)
+                            ! A share of 1, for set_store_q_path.
                             !
-                            ! MDK, 25/10/26
+                            ! MDK, 12/11/26
 REAL(KIND=real_jlslsm) :: e_oth_2l(land_pts)
                             ! The shared root and stem (l_som_shared_stem):
                             ! the other class's transpiration (mol H2O m-2
@@ -1073,23 +1088,24 @@ REAL(KIND=real_jlslsm) :: e_sup_use(land_pts)
                             ! e_supply, or with the capacitance store
                             ! e_supply + q_store, as the soil supplies only
                             ! E - q_store.
-REAL(KIND=real_jlslsm) :: e_bal(land_pts)
+REAL(KIND=real_jlslsm) :: e_store_bal(land_pts)
                             ! The capacitance store: the canopy E the
                             ! store's balance is taken at (mol H2O m-2 s-1).
-REAL(KIND=real_jlslsm) :: q_bal(land_pts), psi_st_bal(land_pts),               &
-                          psi_l_bal(land_pts)
-                            ! The capacitance store: the store's balance
-                            ! over the step at the canopy's E (store_cpl_q):
-                            ! its flow out (mol H2O m-2 s-1), the stem node
-                            ! psi at the end of the step and the leaf psi
-                            ! (Pa).
+REAL(KIND=real_jlslsm) :: q_store_bal(land_pts)
+                            ! The capacitance store's balance over the step at
+                            ! the canopy's E (store_cpl_q): the store's flow
+                            ! out (mol H2O m-2 s-1).
+REAL(KIND=real_jlslsm) :: psi_stem_bal(land_pts)
+                            ! The stem node's psi at the end of the step (Pa).
+REAL(KIND=real_jlslsm) :: psi_leaf_bal(land_pts)
+                            ! The leaf psi at the end of the step (Pa).
                             !
-                            ! MDK, 24/10/26
-LOGICAL :: l_fl_hit(land_pts)
+                            ! MDK, 12/11/26
+LOGICAL :: l_leaf_floor_hit(land_pts)
                             ! The capacitance store with the leak: the
-                            ! committed leaf psi was below psi_fl_leaf before
+                            ! committed leaf psi was below psi_floor_leaf before
                             ! its floor (store_cpl_q).
-REAL(KIND=real_jlslsm) :: k_bal(land_pts)
+REAL(KIND=real_jlslsm) :: kplant_bal(land_pts)
                             ! The capacitance store: the canopy's plant
                             ! conductance at the committed E on the path
                             ! without the store's shift (the output
@@ -1114,18 +1130,40 @@ REAL(KIND=real_jlslsm) :: psi_leaf_cls(land_pts,2), w_cls(land_pts,2)
                             ! segment's damage (update_xylem_impairment).
                             !
                             ! MDK, 04/11/26
-LOGICAL :: in_imp_cut(land_pts)
+REAL(KIND=real_jlslsm) :: w_xyl_full
+                            ! l_ximpair_cav_water: the water of the stem's
+                            ! conduits when all are full, V_w (kg m-2).
+REAL(KIND=real_jlslsm) :: w_xyl_hold
+                            ! The water the conduits should hold now, those
+                            ! not lost, V_w (1 - L) (kg m-2).
+REAL(KIND=real_jlslsm) :: w_xyl_excess
+                            ! The conduits' water above w_xyl_hold (kg m-2):
+                            ! > 0 is released to the store (embolism), < 0
+                            ! is drawn from the soil (new xylem).
+REAL(KIND=real_jlslsm) :: w_to_store
+                            ! The part of w_xyl_excess the store takes this
+                            ! step, at most up to full (kg m-2).
+REAL(KIND=real_jlslsm), PARAMETER :: c_w_cav = 0.46
+                            ! Carbon fraction of wood dry mass (Quercus mean,
+                            ! Doraisami et al. 2022).
+REAL(KIND=real_jlslsm), PARAMETER :: rho_cw_cav = 1500.0
+                            ! Density of the wood substance in water, for the
+                            ! wood's lumen volume when xyl_lumen_frac is
+                            ! unset (kg m-3; Kellogg & Wangaard 1969).
+                            !
+                            ! MDK, 12/11/26
+LOGICAL :: l_in_impair(land_pts)
                             ! Points already in the impairment update (the
                             ! lit points), so the leak's other points are
                             ! added once.
                             !
                             ! MDK, 26/10/26
-LOGICAL :: lit_cut(land_pts)
+LOGICAL :: l_leak_lit(land_pts)
                             ! Points where the daytime-only leak may apply
                             ! (l_som_cuticular_day_only): lit points (those
                             ! of the impairment update) with apar >=
-                            ! apar_cut_min.
-REAL(KIND=real_jlslsm), PARAMETER :: apar_cut_min = 2.0
+                            ! apar_leak_min.
+REAL(KIND=real_jlslsm), PARAMETER :: apar_leak_min = 2.0
                             ! Least absorbed PAR (W m-2) for the
                             ! daytime-only leak, about 5 W m-2 of
                             ! shortwave: not apar > 0, as forcing noise at
@@ -1133,7 +1171,7 @@ REAL(KIND=real_jlslsm), PARAMETER :: apar_cut_min = 2.0
                             ! leak on in the dark.
                             !
                             ! MDK, 29/10/26
-REAL(KIND=real_jlslsm), PARAMETER :: dq_ratio_cut_max = 3.0
+REAL(KIND=real_jlslsm), PARAMETER :: dq_ratio_leak_max = 3.0
                             ! Most the leak's conductance is scaled up by
                             ! the ratio of the leaf-to-air deficit to dqc,
                             ! so that a dqc near 0 (tstar near the dew
@@ -1144,11 +1182,11 @@ REAL(KIND=real_jlslsm), PARAMETER :: dq_ratio_cut_max = 3.0
 REAL(KIND=real_jlslsm) :: r_crit
                             ! Fraction of the conductance left at the
                             ! critical loss, 1 - kcrit_fractional_loss (-).
-REAL(KIND=real_jlslsm) :: psi_fl_leaf
+REAL(KIND=real_jlslsm) :: psi_floor_leaf
                             ! Floor on psi_leaf: psi at the critical loss on
                             ! the leaf segment (or PFT) curve (Pa).
-REAL(KIND=real_jlslsm) :: psi_fl_stem
-                            ! Floor on psi_stem, as psi_fl_leaf on the stem
+REAL(KIND=real_jlslsm) :: psi_floor_stem
+                            ! Floor on psi_stem, as psi_floor_leaf on the stem
                             ! segment curve (Pa).
 REAL(KIND=real_jlslsm) :: c_store
                             ! The store's capacitance C (mol H2O m-2 ground
@@ -1170,16 +1208,16 @@ REAL(KIND=real_jlslsm) :: ml_kfrac(land_pts), kmax_imp_lyr(land_pts)
                             ! (mol H2O m-2 leaf s-1 Pa-1).
                             !
                             ! MDK, 23/10/26
-REAL(KIND=real_jlslsm) :: qs_air_cut(land_pts)
+REAL(KIND=real_jlslsm) :: qs_air_leak(land_pts)
                             ! Saturated humidity at the air temperature
                             ! (kg kg-1).
-REAL(KIND=real_jlslsm) :: dq_cut(land_pts)
+REAL(KIND=real_jlslsm) :: dq_leak(land_pts)
                             ! The leaf-to-air deficit driving the leak
                             ! (kg kg-1).
 REAL(KIND=real_jlslsm) :: w_store_new
                             ! The store's water after a fall of C (mol H2O
                             ! m-2 ground).
-LOGICAL :: lk_cut(land_pts)
+LOGICAL :: l_leak_on(land_pts)
                             ! Points where the leak binds.
 REAL(KIND=real_jlslsm), PARAMETER :: lai_store_min = 0.01
                             ! Least LAI (m2 m-2) for the store: below it the
@@ -2254,10 +2292,10 @@ CASE ( 5, 6 )
           e_ml_prev(:) = 0.0
           CALL store_cpl_first_q()
           DO m = 1,veg_pts
-            l = veg_index(m)
-            kref_cpl(l) = kmax_pft(ft) * lai(l)
-            kmx_cpl(l)  = kref_cpl(l) * ml_kfrac(l)
-            kcr_cpl(l)  = kcrit_of_path(ft, kref_cpl(l))
+            l                 = veg_index(m)
+            kmax_ref_store(l) = kmax_pft(ft) * lai(l)
+            kmax_store(l)     = kmax_ref_store(l) * ml_kfrac(l)
+            kcrit_store(l)    = kcrit_of_path(ft, kmax_ref_store(l))
           END DO
           CALL store_cpl_supply()
           IF ( ALLOCATED(el_sun_lyr) ) DEALLOCATE( el_sun_lyr, el_shd_lyr )
@@ -2798,20 +2836,20 @@ CASE ( 5, 6 )
         ! block), and this pass's E for the layers' parts of q_store.
         IF ( l_cap_store .AND. k < n_pass_ml ) THEN
           DO m = 1,veg_pts
-            l = veg_index(m)
-            e_bal(l)      = MAX(el(l), 0.0)
-            e_ml_prev(l) = e_bal(l)
+            l              = veg_index(m)
+            e_store_bal(l) = MAX(el(l), 0.0)
+            e_ml_prev(l)   = e_store_bal(l)
           END DO
-          IF ( ANY(e_bal(veg_index(1:veg_pts)) > 0.0) ) THEN
-            CALL store_cpl_q( .FALSE., e_bal )
+          IF ( ANY(e_store_bal(veg_index(1:veg_pts)) > 0.0) ) THEN
+            CALL store_cpl_q( .FALSE., e_store_bal )
             DO m = 1,veg_pts
               l = veg_index(m)
               ! A point still closed keeps last step's q_store, often a night
               ! refill (< 0): floored at 0, so if it opens in the next pass it
               ! is not searched with its root flow raised by the refill.
               IF ( store_w(l,ft) <= 0.0 .AND. lai(l) >= lai_store_min ) THEN
-                IF ( e_bal(l) > 0.0 ) THEN
-                  q_store(l) = q_bal(l)
+                IF ( e_store_bal(l) > 0.0 ) THEN
+                  q_store(l) = q_store_bal(l)
                 ELSE
                   q_store(l) = MAX(q_store(l), 0.0)
                 END IF
@@ -3429,9 +3467,9 @@ CASE ( 1 )
        !
        ! MDK, 25/10/26
        IF ( l_cap_store ) THEN
-         kref_cpl(:) = kmax_ref_bigleaf(:)
-         kmx_cpl(:)  = kmax_bigleaf(:)
-         kcr_cpl(:)  = kcrit_bigleaf(:)
+         kmax_ref_store(:) = kmax_ref_bigleaf(:)
+         kmax_store(:)     = kmax_bigleaf(:)
+         kcrit_store(:)    = kcrit_bigleaf(:)
          CALL set_store_q_path( land_pts, veg_pts, veg_index, share_sup,       &
                                 q_store )
        END IF
@@ -3466,18 +3504,18 @@ CASE ( 1 )
         IF ( l_cap_store .AND. k < iter ) THEN
           DO m = 1,veg_pts
             l = veg_index(m)
-            e_bal(l) = MAX(el(l), 0.0)
+            e_store_bal(l) = MAX(el(l), 0.0)
           END DO
-          IF ( ANY(e_bal(veg_index(1:veg_pts)) > 0.0) ) THEN
-            CALL store_cpl_q( .FALSE., e_bal )
+          IF ( ANY(e_store_bal(veg_index(1:veg_pts)) > 0.0) ) THEN
+            CALL store_cpl_q( .FALSE., e_store_bal )
             DO m = 1,veg_pts
               l = veg_index(m)
               ! A point still closed keeps last step's q_store, often a night
               ! refill (< 0): floored at 0, so if it opens in the next pass it
               ! is not searched with its root flow raised by the refill.
               IF ( store_w(l,ft) <= 0.0 .AND. lai(l) >= lai_store_min ) THEN
-                IF ( e_bal(l) > 0.0 ) THEN
-                  q_store(l) = q_bal(l)
+                IF ( e_store_bal(l) > 0.0 ) THEN
+                  q_store(l) = q_store_bal(l)
                 ELSE
                   q_store(l) = MAX(q_store(l), 0.0)
                 END IF
@@ -3833,10 +3871,10 @@ CASE ( 7 )
   IF ( l_cap_store ) THEN
     ! The canopy's path for the store's balance: the two classes together.
     DO m = 1,veg_pts
-      l = veg_index(m)
-      kref_cpl(l) = kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l)
-      kmx_cpl(l)  = kmax_sun_2l(l) + kmax_shd_2l(l)
-      kcr_cpl(l)  = kcrit_sun_2l(l) + kcrit_shd_2l(l)
+      l                 = veg_index(m)
+      kmax_ref_store(l) = kmax_ref_sun_2l(l) + kmax_ref_shd_2l(l)
+      kmax_store(l)     = kmax_sun_2l(l) + kmax_shd_2l(l)
+      kcrit_store(l)    = kcrit_sun_2l(l) + kcrit_shd_2l(l)
     END DO
     CALL store_cpl_split( .FALSE. )
   END IF
@@ -3967,22 +4005,22 @@ CASE ( 7 )
     ! transpires: q_store is used only by the next pass's open points, so
     ! with E = 0 everywhere, e.g. at night, the solve is skipped and q_store
     ! keeps its value. The IFs are nested: Fortran need not short-circuit
-    ! .AND., and e_bal is set only with the store coupled.
+    ! .AND., and e_store_bal is set only with the store coupled.
     IF ( l_cap_store .AND. k < n_pass_2l ) THEN
       DO m = 1,veg_pts
         l = veg_index(m)
-        e_bal(l) = MAX(el_sun(l) + el_shd(l), 0.0)
+        e_store_bal(l) = MAX(el_sun(l) + el_shd(l), 0.0)
       END DO
-      IF ( ANY(e_bal(veg_index(1:veg_pts)) > 0.0) ) THEN
-        CALL store_cpl_q( .FALSE., e_bal )
+      IF ( ANY(e_store_bal(veg_index(1:veg_pts)) > 0.0) ) THEN
+        CALL store_cpl_q( .FALSE., e_store_bal )
         DO m = 1,veg_pts
           l = veg_index(m)
           ! A point still closed keeps last step's q_store, often a night refill
           ! (< 0): floored at 0, so if it opens in the next pass it is
           ! not searched with its root flow raised by the refill.
           IF ( store_w(l,ft) <= 0.0 .AND. lai(l) >= lai_store_min ) THEN
-            IF ( e_bal(l) > 0.0 ) THEN
-              q_store(l) = q_bal(l)
+            IF ( e_store_bal(l) > 0.0 ) THEN
+              q_store(l) = q_store_bal(l)
             ELSE
               q_store(l) = MAX(q_store(l), 0.0)
             END IF
@@ -4146,7 +4184,7 @@ CASE ( 7 )
 
   ! The shared root and stem without the store: the plant's conductance
   ! from one solve of the whole plant (kplant_shared_stem). With the store
-  ! it is the store's k_bal, set below.
+  ! it is the store's kplant_bal, set below.
   !
   ! MDK, 04/11/26
   IF ( l_som_shared_stem .AND. .NOT. l_cap_store ) CALL kplant_shared_stem()
@@ -4223,7 +4261,7 @@ IF ( .NOT. l_leaf_temp ) gc_stomatal_pft(:,ft) = gc(:)
 !
 ! Where the optimiser has (nearly) shut the stomata, the canopy's flux is
 ! raised to the leak's, gcuticular * LAI times the leaf-to-air humidity
-! deficit (dq_cut, at most dq_ratio_cut_max times the tile's deficit); the
+! deficit (dq_leak, at most dq_ratio_leak_max times the tile's deficit); the
 ! conductance that gives it is solved from the tile's flux. There is no
 ! carbon trade at that point, so A is unchanged; the leak goes into the
 ! transpiration (and so ET and LE) through gc. Its water comes from the
@@ -4232,10 +4270,10 @@ IF ( .NOT. l_leaf_temp ) gc_stomatal_pft(:,ft) = gc(:)
 ! plant_water_store_mod. In detail:
 ! - with som_cuticular_leak = 2 the closed canopy (gc = min_gl_pft) is
 !   raised to the leak day and night; with som_cuticular_leak = 1 only at
-!   lit points with apar >= apar_cut_min;
+!   lit points with apar >= apar_leak_min;
 ! - the leak is cut back only where it would take the leaf below the psi
 !   of the critical loss of conductance on the leaf (or PFT) curve,
-!   psi_fl_leaf (kcrit_fractional_loss, e.g. 0.95; store_cpl_leak_cut),
+!   psi_floor_leaf (kcrit_fractional_loss, e.g. 0.95; store_cpl_leak_cut),
 !   so in a drought it keeps drying the plant down to that psi;
 ! - the leak drains the capacitance store at the stem node, psi_leaf
 !   follows it, and the impairment update is made after this block, so the
@@ -4266,11 +4304,11 @@ IF ( l_cap_store ) THEN
       END IF
     END DO
   END IF
-  lk_cut(:)  = .FALSE.
-  lit_cut(:) = .FALSE.
+  l_leak_on(:)  = .FALSE.
+  l_leak_lit(:) = .FALSE.
   DO m = 1,n_lit
     l = open_land_index(m)
-    lit_cut(l) = apar(l) >= apar_cut_min
+    l_leak_lit(l) = apar(l) >= apar_leak_min
   END DO
 
   ! The leak is driven by the leaf-to-air deficit (as gmin * VPD): with
@@ -4278,19 +4316,19 @@ IF ( l_cap_store ) THEN
   ! temperatures weighted by leaf area, less q1; otherwise the air deficit,
   ! qs(tair) - q1. Not dqc, at tstar, which in a drought is the hot tile
   ! skin, up to 10 K above the leaves (leak ~2x too large). sf_evap takes
-  ! the flux at tstar, so gc is scaled by dq_cut / dqc. Through ra, shared
+  ! the flux at tstar, so gc is scaled by dq_leak / dqc. Through ra, shared
   ! with the soil conductance, the tile then delivers slightly less than
-  ! gcuticular LAI dq_cut.
+  ! gcuticular LAI dq_leak.
 
-  CALL qsat(qs_air_cut, tair, pstar, land_pts)
+  CALL qsat(qs_air_leak, tair, pstar, land_pts)
   DO m = 1,veg_pts
     l = veg_index(m)
-    dq_cut(l) = MAX(qs_air_cut(l) - q1(l), 0.0)
+    dq_leak(l) = MAX(qs_air_leak(l) - q1(l), 0.0)
     IF ( l_leaf_temp .AND. can_rad_mod == 7 ) THEN
       IF ( lai_sun_2l(l) + lai_shd_2l(l) > EPSILON(0.0) )                      &
-        dq_cut(l) = ( lai_sun_2l(l) * MAX(qs_sun_lt(l) - q1(l), 0.0)           &
-                      + lai_shd_2l(l) * MAX(qs_shd_lt(l) - q1(l), 0.0) )       &
-                    / ( lai_sun_2l(l) + lai_shd_2l(l) )
+        dq_leak(l) = ( lai_sun_2l(l) * MAX(qs_sun_lt(l) - q1(l), 0.0)          &
+                     + lai_shd_2l(l) * MAX(qs_shd_lt(l) - q1(l), 0.0) )        &
+                   / ( lai_sun_2l(l) + lai_shd_2l(l) )
     END IF
   END DO
   DO m = 1,veg_pts
@@ -4300,7 +4338,7 @@ IF ( l_cap_store ) THEN
     ! No leak with capacitance alone (l_som_capacitance).
     IF ( .NOT. l_som_cuticular_loss ) gl_cut(l) = 0.0
     IF ( dqc(l) > 0.0 ) gl_cut(l) = gl_cut(l)                                  &
-                                    * MIN(dq_cut(l) / dqc(l), dq_ratio_cut_max)
+                    * MIN(dq_leak(l) / dqc(l), dq_ratio_leak_max)
     share_sup(l) = 1.0
   END DO
 
@@ -4317,16 +4355,16 @@ IF ( l_cap_store ) THEN
 
   ! The leak acts at every point, lit or not, or with
   ! l_som_cuticular_day_only only at the lit points with apar >=
-  ! apar_cut_min. Without it, at night and in dim light the closed canopy
+  ! apar_leak_min. Without it, at night and in dim light the closed canopy
   ! (gc = min_gl_pft) is raised to the leak as by day. Its deficit is
-  ! dq_cut above (the leaf temperatures, or the air, at night), and its
+  ! dq_leak above (the leaf temperatures, or the air, at night), and its
   ! flux the tile's at tstar, as sf_evap takes it, so where the surface
   ! has cooled below the air (clear nights) the leak is smaller than
   ! gcuticular * LAI * VPD, and nil with dew (qs(tstar) <= q1).
   DO m = 1,veg_pts
     l = veg_index(m)
-    IF ( ( l_som_cuticular_day_only .AND. .NOT. lit_cut(l) ) .OR.             &
-         gl_cut(l) <= 0.0 ) CYCLE
+    IF ( ( l_som_cuticular_day_only .AND. .NOT. l_leak_lit(l) )                &
+         .OR. gl_cut(l) <= 0.0 ) CYCLE
     ! The canopy conductance that gives the leak's flux X = rho gl_cut_eff
     ! dqc (gcuticular LAI times the leaf-to-air deficit, after the supply
     ! cap) through the tile's resistances, as sf_evap takes it (the
@@ -4354,7 +4392,7 @@ IF ( l_cap_store ) THEN
     el(l)     = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)         &
                 * gc(l) / ( 1.0 + ra(l) * ( gc(l) + g_soil_c(l) ) )            &
                 / m_h2o_lt
-    lk_cut(l) = .TRUE.
+    l_leak_on(l) = .TRUE.
   END DO
 
   ! Lower limits on the leaf and stem psi for the store and the leak. Each
@@ -4368,18 +4406,18 @@ IF ( l_cap_store ) THEN
   !
   !   psi_fl = -b (-LOG(r))**(1 / c).
   !
-  ! psi_fl_leaf and psi_fl_stem come from the leaf and stem segment curves
+  ! psi_floor_leaf and psi_floor_stem come from the leaf and stem segment curves
   ! (Weibull), which the store's balance and the optimiser use, in spin-up
   ! and without an impairment model too. The leak is cut where the leaf
-  ! would end below psi_fl_leaf (store_cpl_leak_cut), and the store's stem
-  ! psi is kept at or above psi_fl_stem (store_cpl_q).
+  ! would end below psi_floor_leaf (store_cpl_leak_cut), and the store's stem
+  ! psi is kept at or above psi_floor_stem (store_cpl_q).
   !
   ! MDK, 05/11/26
   r_crit = 1.0 - kcrit_fractional_loss(ft)
-  psi_fl_leaf = -ABS(conductance_b_seg(ft,3))                                  &
-                * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,3))
-  psi_fl_stem = -ABS(conductance_b_seg(ft,2))                                  &
-                * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,2))
+  psi_floor_leaf = -ABS(conductance_b_seg(ft,3))                               &
+                   * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,3))
+  psi_floor_stem = -ABS(conductance_b_seg(ft,2))                               &
+                   * (-LOG(r_crit))**(1.0 / conductance_c_seg(ft,2))
 
   ! Advance the capacitance store over the step. Its state is its water,
   !
@@ -4393,7 +4431,7 @@ IF ( l_cap_store ) THEN
   !
   ! the stem node psi_st where the soil, root and stem carry E_r, and the
   ! leaf psi_leaf where the leaf segment then carries E. With the leak, the
-  ! leak's E is cut where the leaf would end below psi_fl_leaf
+  ! leak's E is cut where the leaf would end below psi_floor_leaf
   ! (store_cpl_leak_cut). q goes to store_q (kg m-2 s-1), which sf_evap
   ! takes off the soil extraction, so the water is conserved. With almost
   ! no leaves (LAI < lai_store_min) the store is dropped (unset), and the
@@ -4403,9 +4441,9 @@ IF ( l_cap_store ) THEN
   ! (first step, or a dump without it) starts at the step's stem psi.
   DO m = 1,veg_pts
     l = veg_index(m)
-    e_bal(l) = MAX(el(l), 0.0)
+    e_store_bal(l) = MAX(el(l), 0.0)
   END DO
-  CALL store_cpl_q( .TRUE., e_bal )
+  CALL store_cpl_q( .TRUE., e_store_bal )
   ! The passes' fixed point: the store's flow at the committed E against
   ! the flow the last pass held fixed, relative to E (store_q_gap).
   !
@@ -4413,8 +4451,8 @@ IF ( l_cap_store ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     store_q_gap(l,ft) = 0.0
-    IF ( e_bal(l) > 0.0 )                                                      &
-      store_q_gap(l,ft) = ABS(q_bal(l) - q_store(l)) / e_bal(l)
+    IF ( e_store_bal(l) > 0.0 )                                                &
+      store_q_gap(l,ft) = ABS(q_store_bal(l) - q_store(l)) / e_store_bal(l)
   END DO
   IF ( l_som_cuticular_loss ) CALL store_cpl_leak_cut()
   DO m = 1,veg_pts
@@ -4440,11 +4478,11 @@ IF ( l_cap_store ) THEN
       ! MDK, 04/11/26
       IF ( can_rad_mod == 7 .AND. c_store > 0.0 ) CALL store_cpl_cls_psi( l )
       psi0_store = store_w(l,ft) / c_store
-      CALL store_commit( l, c_store, psi0_store, psi_st_bal(l) )
-      psi_leaf(l) = psi_l_bal(l)
-      psi_stem(l) = psi_st_bal(l)
-      IF ( k_bal(l) > 0.0 )                                                    &
-        leaf_k(l) = k_bal(l) / MAX(lai(l), TINY(1.0_real_jlslsm))
+      CALL store_commit( l, c_store, psi0_store, psi_stem_bal(l) )
+      psi_leaf(l) = psi_leaf_bal(l)
+      psi_stem(l) = psi_stem_bal(l)
+      IF ( kplant_bal(l) > 0.0 )                                               &
+        leaf_k(l) = kplant_bal(l) / MAX(lai(l), TINY(1.0_real_jlslsm))
       CYCLE
     END IF
     ! The store not yet set: it starts at the step's stem psi.
@@ -4455,7 +4493,7 @@ IF ( l_cap_store ) THEN
   ! where the leak sets the conductance, after its cut.
   DO m = 1,veg_pts
     l = veg_index(m)
-    IF ( lk_cut(l) ) leak_e(l,ft) = MAX(el(l), 0.0) * Water_kg_per_mol
+    IF ( l_leak_on(l) ) leak_e(l,ft) = MAX(el(l), 0.0) * Water_kg_per_mol
   END DO
 
   ! Xylem impairment update, once per timestep, in place of those in the
@@ -4463,13 +4501,13 @@ IF ( l_cap_store ) THEN
   ! potentials of the total (stomatal plus cuticular) flux. Also the unlit
   ! points where the leak acts, so the night leak's psi drives the loss of
   ! conductance.
-  in_imp_cut(:) = .FALSE.
+  l_in_impair(:) = .FALSE.
   DO m = 1,n_lit
-    in_imp_cut(open_land_index(m)) = .TRUE.
+    l_in_impair(open_land_index(m)) = .TRUE.
   END DO
   DO m = 1,veg_pts
     l = veg_index(m)
-    IF ( lk_cut(l) .AND. .NOT. in_imp_cut(l) ) THEN
+    IF ( l_leak_on(l) .AND. .NOT. l_in_impair(l) ) THEN
       n_lit = n_lit + 1
       open_land_index(n_lit) = l
     END IF
@@ -4498,6 +4536,97 @@ IF ( l_cap_store ) THEN
             k_max, psi_leaf_extreme, psi_root_extreme,                         &
           ! IN (recovery)
             lai, canht, anetc )
+  END IF
+
+  ! Water released by cavitation (l_ximpair_cav_water). The water of the
+  ! stem's conduits is part of the plant's water, W_xyl (store_w_xyl), and
+  ! each step it is brought to the conduits not lost,
+  !
+  !   W_xyl = V_w (1 - L),
+  !   V_w = rho_w (X_s / (c_w rho)) f   (kg m-2),
+  !
+  ! with L the stem's locked-in loss, X_s the sapwood carbon (nsc_sapwood),
+  ! rho the wood density (wood_density), c_w = 0.46 the carbon fraction of
+  ! wood dry mass (the mean of live stem wood of 31 Quercus species,
+  ! Doraisami et al. 2022, Sci Data 9: 284) and f the share of the
+  ! sapwood's volume in the conduits' lumens (xyl_lumen_frac); unset, f is
+  ! all the wood's lumens, 1 - rho / rho_cw, with rho_cw = 1500 kg m-3 the
+  ! density of the wood substance in water (hardwoods, Kellogg & Wangaard
+  ! 1969, Wood Fiber 1: 180). The difference is exchanged with the plant
+  ! store, so the water in soil, store and conduits adds up:
+  !
+  !   - conduits that embolise (L rises, or sapwood is lost) give their
+  !     water to the store, up to full (psi = 0); what the store cannot
+  !     take stays in W_xyl until it has room;
+  !   - new xylem (a new ring, which also lowers L, or more sapwood)
+  !     starts with its conduits full, and that water is drawn from the
+  !     soil over the step (store_q_xyl, which sf_evap takes from the soil
+  !     with the store's refill).
+  !
+  ! MDK, 12/11/26
+  IF ( l_ximpair_cav_water .AND. ALLOCATED(ximpair_lock) .AND.                 &
+       ALLOCATED(nsc_sapwood) ) THEN
+    ! The water drawn for new xylem is this step's only.
+    store_q_xyl(:,ft) = 0.0
+
+    IF ( wood_density(ft) > 0.0 ) THEN
+      DO m = 1,veg_pts
+        l = veg_index(m)
+
+        ! Nothing is exchanged while the store is not set or before
+        ! TRIFFID has set the sapwood; the conduits' water waits.
+        IF ( store_w(l,ft) > 0.0 .OR. nsc_sapwood(l,ft) < 0.0 ) CYCLE
+
+        ! The water of the sapwood's conduits when all are full, V_w
+        ! (kg m-2): the sapwood's volume, X_s / (c_w rho), times the share
+        ! of it in the conduits' lumens, f, times rho_w,
+        !
+        !   V_w = rho_w (X_s / (c_w rho)) f,
+        !
+        ! with f = xyl_lumen_frac, or unset all the wood's lumens,
+        ! f = 1 - rho / rho_cw.
+        IF ( xyl_lumen_frac(ft) >= 0.0 ) THEN
+          w_xyl_full = rho_water * nsc_sapwood(l,ft)                           &
+                       / (c_w_cav * wood_density(ft)) * xyl_lumen_frac(ft)
+        ELSE
+          w_xyl_full = rho_water * nsc_sapwood(l,ft) / c_w_cav                 &
+                       * (1.0 / wood_density(ft) - 1.0 / rho_cw_cav)
+        END IF
+
+        ! The water the conduits should hold now: the share not lost,
+        ! 1 - L.
+        w_xyl_hold = w_xyl_full * (1.0 - MIN(MAX(ximpair_lock(l,ft), 0.0), 1.0))
+
+        ! First time here: the conduits not lost start full. This is an
+        ! initial condition, so nothing is exchanged.
+        IF ( store_w_xyl(l,ft) < 0.0 ) THEN
+          store_w_xyl(l,ft) = w_xyl_hold
+          CYCLE
+        END IF
+
+        ! The conduits' water above what they should now hold (kg m-2):
+        ! > 0 when conduits have embolised (or the sapwood has shrunk)
+        ! since the last step, plus any water held back while the store
+        ! was full; < 0 when new xylem has formed.
+        w_xyl_excess = store_w_xyl(l,ft) - w_xyl_hold
+
+        IF ( w_xyl_excess > 0.0 ) THEN
+          ! Embolism: the water goes to the store, at most up to full
+          ! (store_w = 0); the rest stays in the conduits' water and goes
+          ! when the store has room.
+          w_to_store = MIN(w_xyl_excess, -store_w(l,ft) * Water_kg_per_mol)
+          store_w(l,ft) = store_w(l,ft) + w_to_store / Water_kg_per_mol
+          store_w_xyl(l,ft) = store_w_xyl(l,ft) - w_to_store
+        ELSE
+          ! New xylem starts with its conduits full: that water is drawn
+          ! from the soil over this step (sf_evap); what the soil cannot
+          ! give comes from the store (store_return).
+          store_q_xyl(l,ft) = -w_xyl_excess / timestep
+          store_w_xyl(l,ft) = w_xyl_hold
+        END IF
+
+      END DO
+    END IF
   END IF
 END IF
 
@@ -5010,7 +5139,7 @@ END SUBROUTINE store_cpl_supply
 ! did not transpire, each gets its share of the canopy's hydraulic
 ! conductance (kmax_ref_sun_2l, kmax_ref_shd_2l) instead.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_split( l_pass )
 
@@ -5019,7 +5148,11 @@ IMPLICIT NONE
 LOGICAL, INTENT(IN) :: l_pass
 
 INTEGER :: m, l
-REAL(KIND=real_jlslsm) :: s_sun, e_t
+REAL(KIND=real_jlslsm) :: s_sun
+                            ! The sunlit leaves' share of q_store (-).
+REAL(KIND=real_jlslsm) :: e_t
+                            ! The canopy's transpiration on the last pass
+                            ! (mol H2O m-2 ground s-1).
 
 DO m = 1,veg_pts
   l = veg_index(m)
@@ -5087,10 +5220,10 @@ END SUBROUTINE store_cpl_ml_q
 ! the leak drying the leaf past its critical point.
 !
 ! Where the stomata are shut, water still leaks out through the cuticle
-! (lk_cut). If that leak would take the leaf's water potential below
-! psi_fl_leaf, where the leaf has lost its critical share of conductance,
+! (l_leak_on). If that leak would take the leaf's water potential below
+! psi_floor_leaf, where the leaf has lost its critical share of conductance,
 ! the leak is reduced to the largest transpiration that keeps the leaf at
-! psi_fl_leaf at the end of the step.
+! psi_floor_leaf at the end of the step.
 !
 ! That transpiration is found by bisection between 0 and the leak's own
 ! value, solving the store's balance (store_cpl_q) at each guess. 20 steps
@@ -5099,7 +5232,7 @@ END SUBROUTINE store_cpl_ml_q
 ! store's balance is committed. Only these points are solved again; the
 ! others keep the balance already committed.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_leak_cut()
 
@@ -5108,43 +5241,49 @@ IMPLICIT NONE
 INTEGER, PARAMETER :: n_it_fl = 20
 INTEGER :: m, l, it
 LOGICAL :: l_cut(land_pts)
-REAL(KIND=real_jlslsm) :: e_lo(land_pts), e_hi(land_pts)
-REAL(KIND=real_jlslsm) :: a_cut, em_cut
-                            ! rho (qs(tstar) - q1) (kg m-3) and the cut E
-                            ! (kg m-2 s-1), for the exact gc.
+                            ! Points where the leak's E is cut.
+REAL(KIND=real_jlslsm) :: e_lo(land_pts)
+                            ! Lower end of the bisection bracket on E (mol
+                            ! H2O m-2 s-1).
+REAL(KIND=real_jlslsm) :: e_hi(land_pts)
+                            ! Upper end of that bracket (mol H2O m-2 s-1).
+REAL(KIND=real_jlslsm) :: a_cut
+                            ! rho (qs(tstar) - q1) (kg m-3), for the exact gc.
+REAL(KIND=real_jlslsm) :: em_cut
+                            ! The cut E (kg m-2 s-1), for the exact gc.
 
-! The points to cut: the leak sets the conductance (lk_cut), the committed
-! leaf psi fell below psi_fl_leaf (l_fl_hit), the canopy transpires, and the
-! store is set up there. The bisection bracket on E runs from 0 to the
-! committed E (the leak's own value).
+! The points to cut: the leak sets the conductance (l_leak_on), the committed
+! leaf psi fell below psi_floor_leaf (l_leaf_floor_hit), the canopy
+! transpires, and the store is set up there. The bisection bracket on E runs
+! from 0 to the committed E (the leak's own value).
 l_cut(:) = .FALSE.
 DO m = 1,veg_pts
   l = veg_index(m)
-  l_cut(l) = lk_cut(l) .AND. l_fl_hit(l) .AND. el(l) > 0.0 .AND.               &
-             store_w(l,ft) <= 0.0 .AND. lai(l) >= lai_store_min
+  l_cut(l) = l_leak_on(l) .AND. l_leaf_floor_hit(l) .AND. el(l) > 0.0          &
+             .AND. store_w(l,ft) <= 0.0 .AND. lai(l) >= lai_store_min
   e_lo(l) = 0.0
-  e_hi(l) = e_bal(l)
+  e_hi(l) = e_store_bal(l)
 END DO
 IF ( .NOT. ANY(l_cut) ) RETURN
 
 ! Bisection on E. At each guess, solve the store's balance (with the
 ! search's solver: Newton steps, or the lookup tables with som_psi_solver =
 ! 3; cut points only) for the leaf psi at the end of the step. A leaf below
-! psi_fl_leaf means E is too large, so the guess becomes the upper end;
+! psi_floor_leaf means E is too large, so the guess becomes the upper end;
 ! otherwise it becomes the lower end. e_lo is always an E the leaf survives.
 DO it = 1,n_it_fl
   DO m = 1,veg_pts
     l = veg_index(m)
-    IF ( l_cut(l) ) e_bal(l) = 0.5 * (e_lo(l) + e_hi(l))
+    IF ( l_cut(l) ) e_store_bal(l) = 0.5 * (e_lo(l) + e_hi(l))
   END DO
-  CALL store_cpl_q( .FALSE., e_bal, l_sel = l_cut )
+  CALL store_cpl_q( .FALSE., e_store_bal, l_sel = l_cut )
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( .NOT. l_cut(l) ) CYCLE
-    IF ( psi_l_bal(l) < psi_fl_leaf ) THEN
-      e_hi(l) = e_bal(l)
+    IF ( psi_leaf_bal(l) < psi_floor_leaf ) THEN
+      e_hi(l) = e_store_bal(l)
     ELSE
-      e_lo(l) = e_bal(l)
+      e_lo(l) = e_store_bal(l)
     END IF
   END DO
 END DO
@@ -5164,7 +5303,7 @@ END DO
 DO m = 1,veg_pts
   l = veg_index(m)
   IF ( .NOT. l_cut(l) ) CYCLE
-  e_bal(l) = e_lo(l)
+  e_store_bal(l) = e_lo(l)
   a_cut   = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)
   em_cut  = e_lo(l) * m_h2o_lt
 
@@ -5183,7 +5322,7 @@ DO m = 1,veg_pts
 END DO
 
 ! Commit the store's balance at the cut E, with the exact segment solves.
-CALL store_cpl_q( .TRUE., e_bal, l_sel = l_cut )
+CALL store_cpl_q( .TRUE., e_store_bal, l_sel = l_cut )
 
 END SUBROUTINE store_cpl_leak_cut
 
@@ -5217,13 +5356,13 @@ END SUBROUTINE store_cpl_leak_cut
 ! (kplant) is recorded as if there were no store. Before that, only points
 ! that transpire are solved, and with l_sel only the chosen points.
 !
-! Sets q_bal (the store's flow, as store_commit takes it), psi_st_bal (the
-! stem), psi_l_bal (the leaf), k_bal (kplant) and l_fl_hit (the leaf passed
-! its critical point). Points without a store keep the soil-only values.
-! It also sets share_sup to 1; each canopy scheme sets it again before
-! using it.
+! Sets q_store_bal (the store's flow, as store_commit takes it),
+! psi_stem_bal (the stem), psi_leaf_bal (the leaf), kplant_bal (kplant) and
+! l_leaf_floor_hit (the leaf passed its critical point). Points without a
+! store keep the soil-only values. It also sets share_sup to 1; each canopy
+! scheme sets it again before using it.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_q( l_ex, e_c, l_sel )
 
@@ -5248,29 +5387,62 @@ REAL(KIND=real_jlslsm), PARAMETER :: rtol_bal = 1.0e-6
                             ! its first width.
 
 INTEGER :: m, l, j, it, n_bal, n_only
-INTEGER :: idx_bal(land_pts), idx_only(land_pts)
-                            ! Positions in veg_index of the points solved,
-                            ! and of those where the store gives all of E.
-LOGICAL :: l_imp_bal, l_all_done
-LOGICAL :: l_only(land_pts), l_bis(land_pts), l_done(land_pts)
-                            ! The store pays all of E; next step bisects;
-                            ! converged.
+INTEGER :: idx_bal(land_pts)
+                            ! Positions in veg_index of the points solved.
+INTEGER :: idx_only(land_pts)
+                            ! Positions in veg_index of the points where the
+                            ! store gives all of E.
+LOGICAL :: l_imp_bal
+                            ! Xylem impairment active.
+LOGICAL :: l_all_done
+                            ! Every point solved has converged.
+LOGICAL :: l_only(land_pts)
+                            ! The store pays all of E.
+LOGICAL :: l_bis(land_pts)
+                            ! The next step bisects (Illinois fallback).
+LOGICAL :: l_done(land_pts)
+                            ! Converged.
 INTEGER :: side_bal(land_pts)
                             ! Illinois: the end replaced last (-1 lo, 1 hi).
-REAL(KIND=real_jlslsm) ::                                                      &
-  c_p(land_pts), psi_x0(land_pts),                                             &
-      ! C / dt (mol m-2 s-1 Pa-1) and the store's psi at the start (Pa).
-  q_lo(land_pts), q_hi(land_pts), f_lo(land_pts), f_hi(land_pts),              &
-      ! The bracket on q and R at its ends (mol m-2 s-1).
-  q_try(land_pts), f_try(land_pts), w_tol(land_pts), w_old(land_pts),          &
-      ! Guessed q and the mismatch there; the converged width and the last
-      ! width.
-  kref_c(land_pts), kmx_c(land_pts), kcr_c(land_pts), kcap_c(land_pts)
-      ! The canopy's intact and impaired kmax, kcrit and their ratio.
-REAL(KIND=real_jlslsm) :: psi1(1,land_pts), st1(1,land_pts), k1(1,land_pts)
-                            ! One sample per point: the leaf and stem psi of
-                            ! the chain, and its conductance (k1, with
-                            ! l_ex).
+REAL(KIND=real_jlslsm) :: c_p(land_pts)
+                            ! C / dt (mol m-2 s-1 Pa-1).
+REAL(KIND=real_jlslsm) :: psi_x0(land_pts)
+                            ! The store's psi at the start of the step (Pa).
+REAL(KIND=real_jlslsm) :: q_lo(land_pts)
+                            ! Lower end of the bracket on the store's flow q
+                            ! (mol m-2 s-1).
+REAL(KIND=real_jlslsm) :: q_hi(land_pts)
+                            ! Upper end of that bracket (mol m-2 s-1).
+REAL(KIND=real_jlslsm) :: f_lo(land_pts)
+                            ! The mismatch R at q_lo (mol m-2 s-1).
+REAL(KIND=real_jlslsm) :: f_hi(land_pts)
+                            ! The mismatch R at q_hi (mol m-2 s-1).
+REAL(KIND=real_jlslsm) :: q_try(land_pts)
+                            ! The guessed q (mol m-2 s-1).
+REAL(KIND=real_jlslsm) :: f_try(land_pts)
+                            ! The mismatch R at q_try (mol m-2 s-1).
+REAL(KIND=real_jlslsm) :: w_tol(land_pts)
+                            ! The bracket width at which q has converged
+                            ! (mol m-2 s-1).
+REAL(KIND=real_jlslsm) :: w_old(land_pts)
+                            ! The bracket width at the last step (mol m-2
+                            ! s-1).
+REAL(KIND=real_jlslsm) :: kref_c(land_pts)
+                            ! The canopy's intact kmax (mol m-2 s-1 Pa-1).
+REAL(KIND=real_jlslsm) :: kmx_c(land_pts)
+                            ! The canopy's impaired kmax (mol m-2 s-1 Pa-1).
+REAL(KIND=real_jlslsm) :: kcr_c(land_pts)
+                            ! The canopy's kcrit (mol m-2 s-1 Pa-1).
+REAL(KIND=real_jlslsm) :: kcap_c(land_pts)
+                            ! kmx_c / kref_c, the impaired fraction (-).
+REAL(KIND=real_jlslsm) :: psi1(1,land_pts)
+                            ! One sample per point: the leaf psi of the chain
+                            ! (Pa).
+REAL(KIND=real_jlslsm) :: st1(1,land_pts)
+                            ! The stem psi of the chain (Pa).
+REAL(KIND=real_jlslsm) :: k1(1,land_pts)
+                            ! The chain's conductance, with l_ex (mol m-2 s-1
+                            ! Pa-1).
 REAL(KIND=real_jlslsm) :: psi_from(land_pts)
                             ! Where the chain starts (Pa): psi_src, or the
                             ! store's psi where it pays all of E.
@@ -5281,18 +5453,18 @@ REAL(KIND=real_jlslsm) :: psi_from(land_pts)
 ! earlier call gave them.
 IF ( PRESENT(l_sel) ) THEN
   WHERE ( l_sel(:) )
-    q_bal(:)      = 0.0
-    psi_st_bal(:) = psi_zf(:)
-    psi_l_bal(:)  = psi_leaf(:)
-    k_bal(:)      = 0.0
-    l_fl_hit(:)  = .FALSE.
+    q_store_bal(:)      = 0.0
+    psi_stem_bal(:)     = psi_zf(:)
+    psi_leaf_bal(:)     = psi_leaf(:)
+    kplant_bal(:)       = 0.0
+    l_leaf_floor_hit(:) = .FALSE.
   END WHERE
 ELSE
-  q_bal(:)      = 0.0
-  psi_st_bal(:) = psi_zf(:)
-  psi_l_bal(:)  = psi_leaf(:)
-  k_bal(:)      = 0.0
-  l_fl_hit(:)  = .FALSE.
+  q_store_bal(:)      = 0.0
+  psi_stem_bal(:)     = psi_zf(:)
+  psi_leaf_bal(:)     = psi_leaf(:)
+  kplant_bal(:)       = 0.0
+  l_leaf_floor_hit(:) = .FALSE.
 END IF
 
 ! The guessed store flow at every point. q_try is passed whole to
@@ -5300,8 +5472,8 @@ END IF
 q_try(:)     = 0.0
 
 ! The plant's hydraulics for the whole canopy, as the canopy scheme set
-! them: intact conductance (kref_cpl), conductance with today's damage
-! (kmx_cpl), the critical conductance (kcr_cpl) and the damaged share of
+! them: intact conductance (kmax_ref_store), conductance with today's damage
+! (kmax_store), the critical conductance (kcrit_store) and the damaged share of
 ! the intact one (kcap_c). The soil-to-root link is the whole canopy's
 ! (share_sup = 1). l_imp_bal: xylem damage is on, so the damaged path is
 ! used.
@@ -5309,9 +5481,9 @@ l_imp_bal = .NOT. is_spinup .AND.                                              &
            pft_xylem_impairment_model(ft) /= xylem_impairment_none
 DO m = 1,veg_pts
   l = veg_index(m)
-  kref_c(l) = kref_cpl(l)
-  kmx_c(l)  = kmx_cpl(l)
-  kcr_c(l)  = kcr_cpl(l)
+  kref_c(l) = kmax_ref_store(l)
+  kmx_c(l)  = kmax_store(l)
+  kcr_c(l)  = kcrit_store(l)
   kcap_c(l) = kmx_c(l) / MAX(kref_c(l), TINY(1.0_real_jlslsm))
   share_sup(l) = 1.0
 END DO
@@ -5350,9 +5522,9 @@ DO m = 1,veg_pts
   ! give more than E: it gives all of E, the soil gives nothing, and the
   ! store dries by E over the step. No search is needed.
   IF ( q_lo(l) >= q_hi(l) ) THEN
-    l_only(l)    = .TRUE.
-    q_bal(l)      = e_c(l)
-    psi_st_bal(l) = psi_x0(l) - e_c(l) / c_p(l)
+    l_only(l)       = .TRUE.
+    q_store_bal(l)  = e_c(l)
+    psi_stem_bal(l) = psi_x0(l) - e_c(l) / c_p(l)
   END IF
 
   ! Search bookkeeping: no forced halving yet, which end moved last (none),
@@ -5437,7 +5609,7 @@ END DO
 
 ! The answer: the middle of the final range (q = E where the store gives
 ! all of E). Solve the plant once more there, exactly on the final call
-! (l_ex), and take the stem and leaf water potentials from it. q_bal is
+! (l_ex), and take the stem and leaf water potentials from it. q_store_bal is
 ! worked out again from the stem, so the store's water balances exactly.
 DO j = 1,n_bal
   l = veg_index(idx_bal(j))
@@ -5449,9 +5621,9 @@ CALL store_cpl_eval( n_bal, idx_bal, l_imp_bal, l_ex, e_c, q_try, c_p, psi_x0, &
 DO j = 1,n_bal
   l = veg_index(idx_bal(j))
   IF ( .NOT. l_only(l) ) THEN
-    psi_st_bal(l) = st1(1,j)
-    psi_l_bal(l)  = psi1(1,j)
-    q_bal(l)      = c_p(l) * (psi_x0(l) - psi_st_bal(l))
+    psi_stem_bal(l) = st1(1,j)
+    psi_leaf_bal(l) = psi1(1,j)
+    q_store_bal(l)  = c_p(l) * (psi_x0(l) - psi_stem_bal(l))
   END IF
 END DO
 
@@ -5474,14 +5646,14 @@ IF ( n_only > 0 ) THEN
   psi_from(:) = psi_src(:)
   DO j = 1,n_only
     l = veg_index(idx_only(j))
-    psi_from(l) = psi_st_bal(l) + grav_node_drop(l)
+    psi_from(l) = psi_stem_bal(l) + grav_node_drop(l)
   END DO
   CALL store_cpl_eval( n_only, idx_only, l_imp_bal, l_ex, e_c, q_try, c_p,     &
                        psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1, f_try, &
                        psi_from = psi_from )
   DO j = 1,n_only
     l = veg_index(idx_only(j))
-    psi_l_bal(l) = psi1(1,j)
+    psi_leaf_bal(l) = psi1(1,j)
   END DO
 END IF
 
@@ -5493,19 +5665,19 @@ END IF
 ! the leak cut.
 IF ( l_ex ) THEN
   DO j = 1,n_bal
-    l = veg_index(idx_bal(j))
-    l_fl_hit(l) = psi_l_bal(l) < psi_fl_leaf
-    psi_st_bal(l) = MAX(psi_st_bal(l), psi_fl_stem)
-    q_bal(l)     = c_p(l) * (psi_x0(l) - psi_st_bal(l))
-    IF ( q_bal(l) > e_c(l) ) THEN
-      psi_st_bal(l) = psi_x0(l) - e_c(l) / c_p(l)
-      q_bal(l)      = e_c(l)
+    l                   = veg_index(idx_bal(j))
+    l_leaf_floor_hit(l) = psi_leaf_bal(l) < psi_floor_leaf
+    psi_stem_bal(l)     = MAX(psi_stem_bal(l), psi_floor_stem)
+    q_store_bal(l)      = c_p(l) * (psi_x0(l) - psi_stem_bal(l))
+    IF ( q_store_bal(l) > e_c(l) ) THEN
+      psi_stem_bal(l) = psi_x0(l) - e_c(l) / c_p(l)
+      q_store_bal(l)  = e_c(l)
     END IF
 
     ! The leaf floor, but never wetter than the stem it draws from (with
-    ! a leaf segment more vulnerable than the stem, psi_fl_leaf can lie
+    ! a leaf segment more vulnerable than the stem, psi_floor_leaf can lie
     ! above the floored stem).
-    psi_l_bal(l) = MAX(psi_l_bal(l), MIN(psi_fl_leaf, psi_st_bal(l)))
+    psi_leaf_bal(l) = MAX(psi_leaf_bal(l), MIN(psi_floor_leaf, psi_stem_bal(l)))
   END DO
 END IF
 
@@ -5518,7 +5690,7 @@ IF ( l_ex ) THEN
                        psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1, f_try, &
                        k1_out = k1 )
   DO j = 1,n_bal
-    k_bal(veg_index(idx_bal(j))) = k1(1,j)
+    kplant_bal(veg_index(idx_bal(j))) = k1(1,j)
   END DO
 END IF
 
@@ -5530,11 +5702,12 @@ END SUBROUTINE store_cpl_q
 ! store's balance is committed (store_cpl_q), for the leaf segment's
 ! damage (update_xylem_impairment).
 !
-! Each class's leaf segment draws from the committed stem psi psi_st_bal
-! and carries its share of the canopy flow the commit used, e_bal (the
+! Each class's leaf segment draws from the committed stem psi psi_stem_bal
+! and carries its share of the canopy flow the commit used, e_store_bal (the
 ! stomatal flow, or the leak's after its cut),
 !
-!   E_c = s_c e_bal,   s_sun = E_sun / (E_sun + E_shd),   s_shd = 1 - s_sun,
+!   E_c = s_c e_store_bal,
+!   s_sun = E_sun / (E_sun + E_shd),   s_shd = 1 - s_sun,
 !
 ! with E_sun and E_shd the classes' stomatal transpiration (el_sun,
 ! el_shd), or s_sun = f_sun, the sunlit share of the leaf area, where they
@@ -5546,9 +5719,9 @@ END SUBROUTINE store_cpl_q
 ! is solved by one step of the lookup-table chain (lut_seg_step), with
 ! either som_psi_solver (the tables are built here when needed), and
 ! floored as the canopy leaf psi is in store_cpl_q. Where E_c / kmax_c is
-! the same for both classes, both get the canopy leaf psi psi_l_bal.
+! the same for both classes, both get the canopy leaf psi psi_leaf_bal.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_cls_psi( l )
 
@@ -5560,12 +5733,15 @@ INTEGER, INTENT(IN) :: l
 INTEGER :: ic
 LOGICAL :: l_cap_c
                             ! The leaf segment is capped.
-REAL(KIND=real_jlslsm) :: s_c(2), kmx_c(2)
-                            ! Each class's share of e_bal, and its leaf
-                            ! segment's maximum conductance.
-REAL(KIND=real_jlslsm) :: e_t, fr_c
+REAL(KIND=real_jlslsm) :: s_c(2)
+                            ! Each class's share of e_store_bal (-).
+REAL(KIND=real_jlslsm) :: kmx_c(2)
+                            ! Each class's leaf segment maximum conductance.
+REAL(KIND=real_jlslsm) :: e_t
                             ! The classes' stomatal transpiration (mol m-2
-                            ! s-1); the leaf segment's cap fraction.
+                            ! s-1).
+REAL(KIND=real_jlslsm) :: fr_c
+                            ! The leaf segment's cap fraction (-).
 
 CALL build_supply_lut_seg( ft )
 
@@ -5585,8 +5761,9 @@ IF ( .NOT. is_spinup .AND.                                                     &
      pft_xylem_impairment_model(ft) /= xylem_impairment_none ) THEN
   kmx_c(1) = kmax_ref_sun_2l(l)
   kmx_c(2) = kmax_ref_shd_2l(l)
-  fr_c     = MIN(MAX(ximpair_seg_frac(ft, l, 3, kmx_cpl(l)                     &
-                     / MAX(kref_cpl(l), TINY(1.0_real_jlslsm))), 1.0e-12),     &
+  fr_c     = MIN(MAX(ximpair_seg_frac(ft, l, 3, kmax_store(l)                  &
+                     / MAX(kmax_ref_store(l),                                  &
+                           TINY(1.0_real_jlslsm))), 1.0e-12),                  &
                  1.0)
   l_cap_c  = fr_c < 1.0 - 1.0e-6
 ELSE
@@ -5595,11 +5772,12 @@ ELSE
 END IF
 
 DO ic = 1,2
-  psi_leaf_cls(l,ic) = lut_seg_step( ft, 3, psi_st_bal(l), s_c(ic) * e_bal(l), &
+  psi_leaf_cls(l,ic) = lut_seg_step( ft, 3, psi_stem_bal(l),                   &
+                                     s_c(ic) * e_store_bal(l),                 &
                                      kmx_c(ic) * seg_kmax_fac(ft, l, 3), fr_c, &
                                      l_cap_c, .FALSE. )
   psi_leaf_cls(l,ic) = MAX(psi_leaf_cls(l,ic),                                 &
-                           MIN(psi_fl_leaf, psi_st_bal(l)))
+                           MIN(psi_floor_leaf, psi_stem_bal(l)))
 END DO
 
 END SUBROUTINE store_cpl_cls_psi
@@ -5688,7 +5866,7 @@ END SUBROUTINE kplant_shared_stem
 ! It is 0 at the answer, below 0 when the guess is too small and above 0
 ! when it is too large. Only the n_bal points being solved are worked out.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE store_cpl_eval( n_bal, idx_bal, l_imp_bal, l_ex, e_c, q_try, c_p,   &
                            psi_x0, kref_c, kmx_c, kcr_c, kcap_c, psi1, st1,    &
@@ -5700,18 +5878,30 @@ INTEGER, INTENT(IN) :: n_bal
                             ! Number of points solved.
 INTEGER, INTENT(IN) :: idx_bal(land_pts)
                             ! Their positions in veg_index.
-LOGICAL, INTENT(IN) :: l_imp_bal, l_ex
-                            ! Xylem impairment active; exact segment solves.
-REAL(KIND=real_jlslsm), INTENT(IN) :: e_c(land_pts), q_try(land_pts),          &
-                                      c_p(land_pts), psi_x0(land_pts)
-                            ! Canopy E and guessed q (mol m-2 s-1), C / dt
-                            ! (mol m-2 s-1 Pa-1), the store's psi (Pa).
-REAL(KIND=real_jlslsm), INTENT(IN) :: kref_c(land_pts), kmx_c(land_pts),       &
-                                      kcr_c(land_pts), kcap_c(land_pts)
-                            ! The canopy's intact and impaired kmax, kcrit
-                            ! and their ratio.
-REAL(KIND=real_jlslsm), INTENT(OUT) :: psi1(1,land_pts), st1(1,land_pts)
-                            ! Leaf and stem psi at each point solved (Pa).
+LOGICAL, INTENT(IN) :: l_imp_bal
+                            ! Xylem impairment active.
+LOGICAL, INTENT(IN) :: l_ex
+                            ! Exact segment solves.
+REAL(KIND=real_jlslsm), INTENT(IN) :: e_c(land_pts)
+                            ! Canopy E (mol m-2 s-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: q_try(land_pts)
+                            ! The guessed store flow q (mol m-2 s-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: c_p(land_pts)
+                            ! C / dt (mol m-2 s-1 Pa-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_x0(land_pts)
+                            ! The store's psi at the start of the step (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: kref_c(land_pts)
+                            ! The canopy's intact kmax (mol m-2 s-1 Pa-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: kmx_c(land_pts)
+                            ! The canopy's impaired kmax (mol m-2 s-1 Pa-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: kcr_c(land_pts)
+                            ! The canopy's kcrit (mol m-2 s-1 Pa-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: kcap_c(land_pts)
+                            ! kmx_c / kref_c, the impaired fraction (-).
+REAL(KIND=real_jlslsm), INTENT(OUT) :: psi1(1,land_pts)
+                            ! Leaf psi at each point solved (Pa).
+REAL(KIND=real_jlslsm), INTENT(OUT) :: st1(1,land_pts)
+                            ! Stem psi at each point solved (Pa).
 REAL(KIND=real_jlslsm), INTENT(OUT) :: f_try(land_pts)
                             ! R at q_try (mol m-2 s-1).
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: k1_out(1,land_pts)
@@ -5721,7 +5911,12 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: psi_from(land_pts)
                             ! absent).
 
 INTEGER :: j, l
-REAL(KIND=real_jlslsm) :: e1(1,land_pts), k1(1,land_pts), psi_in(land_pts)
+REAL(KIND=real_jlslsm) :: e1(1,land_pts)
+                            ! Canopy E at each point solved (mol m-2 s-1).
+REAL(KIND=real_jlslsm) :: k1(1,land_pts)
+                            ! The chain's conductance (mol m-2 s-1 Pa-1).
+REAL(KIND=real_jlslsm) :: psi_in(land_pts)
+                            ! Where the chain starts (Pa).
 
 DO j = 1,n_bal
   e1(1,j) = e_c(veg_index(idx_bal(j)))

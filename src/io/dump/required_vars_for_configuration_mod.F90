@@ -42,6 +42,7 @@ USE jules_vegetation_mod, ONLY: l_trif_hydmort
 USE jules_vegetation_mod, ONLY: l_phen_fuse, l_phen_heat   ! MDK, 09/11/26
 USE jules_vegetation_mod, ONLY: l_leaf_temp
 USE jules_vegetation_mod, ONLY: l_som_shared_stem
+USE jules_vegetation_mod, ONLY: l_ximpair_cav_water
   ! MDK, 04/11/26
 USE jules_vegetation_mod, ONLY: xylem_impairment_memory
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
@@ -374,6 +375,11 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
   CALL add_to_list( 'psi_leaf_extreme', nvars, identifiers )
   CALL add_to_list( 'psi_root_extreme', nvars, identifiers )
   CALL add_to_list( 'ximpair_lock', nvars, identifiers )
+  ! Water in the stem's conduits, with the water released by cavitation.
+  !
+  ! MDK, 12/11/26
+  IF ( l_ximpair_cav_water )                                                   &
+    CALL add_to_list( 'store_w_xyl', nvars, identifiers )
   ! Per-segment memory: the leaf segment's own cap, and the stem psi for
   ! the PLC output until the first update.
   !

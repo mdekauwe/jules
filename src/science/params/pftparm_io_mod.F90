@@ -298,6 +298,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
   hydmort_plc_bg_io(npft_max) = rmdi,                                          &
   nsc_psi_turg_full_io(npft_max) = rmdi,                                       &
   nsc_psi_turg_zero_io(npft_max) = rmdi,                                       &
+  wood_density_io(npft_max) = rmdi,                                            &
+  xyl_lumen_frac_io(npft_max) = rmdi,                                          &
   nsc_t_grow_zero_io(npft_max) = rmdi,                                         &
   nsc_t_grow_full_io(npft_max) = rmdi,                                         &
   nsc_grow_start_doy_io(npft_max) = rmdi,                                      &
@@ -414,6 +416,7 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_g_starv_io,                                                              &
   hydmort_mu_io, hydmort_width_io, hydmort_plc_bg_io,                          &
   nsc_psi_turg_full_io, nsc_psi_turg_zero_io, nsc_t_grow_zero_io,              &
+  wood_density_io, xyl_lumen_frac_io,                                          &
   nsc_t_grow_full_io, nsc_overflow_resp_io,                                    &
   nsc_grow_start_doy_io, nsc_grow_end_doy_io, nsc_flush_start_doy_io,         &
   nsc_flush_days_io,                                                          &
@@ -472,7 +475,7 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 185 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 187 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
@@ -641,6 +644,8 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: hydmort_plc_bg_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_psi_turg_full_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_psi_turg_zero_io(npft_max)
+  REAL(KIND=real_jlslsm) :: wood_density_io(npft_max)
+  REAL(KIND=real_jlslsm) :: xyl_lumen_frac_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_t_grow_zero_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_t_grow_full_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_grow_start_doy_io(npft_max)
@@ -852,6 +857,8 @@ IF (mype == 0) THEN
   my_nml % hydmort_plc_bg_io = hydmort_plc_bg_io
   my_nml % nsc_psi_turg_full_io = nsc_psi_turg_full_io
   my_nml % nsc_psi_turg_zero_io = nsc_psi_turg_zero_io
+  my_nml % wood_density_io = wood_density_io
+  my_nml % xyl_lumen_frac_io = xyl_lumen_frac_io
   my_nml % nsc_t_grow_zero_io = nsc_t_grow_zero_io
   my_nml % nsc_t_grow_full_io = nsc_t_grow_full_io
   my_nml % nsc_grow_start_doy_io = nsc_grow_start_doy_io
@@ -1051,6 +1058,8 @@ IF (mype /= 0) THEN
   hydmort_plc_bg_io = my_nml % hydmort_plc_bg_io
   nsc_psi_turg_full_io = my_nml % nsc_psi_turg_full_io
   nsc_psi_turg_zero_io = my_nml % nsc_psi_turg_zero_io
+  wood_density_io = my_nml % wood_density_io
+  xyl_lumen_frac_io = my_nml % xyl_lumen_frac_io
   nsc_t_grow_zero_io = my_nml % nsc_t_grow_zero_io
   nsc_t_grow_full_io = my_nml % nsc_t_grow_full_io
   nsc_grow_start_doy_io = my_nml % nsc_grow_start_doy_io
@@ -1170,6 +1179,7 @@ USE pftparm, ONLY:                                                             &
   nsc_g_starv,                                                                 &
   hydmort_mu,      hydmort_width,    hydmort_plc_bg,                         &
   nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero, nsc_t_grow_full,      &
+  wood_density, xyl_lumen_frac,                                                &
   nsc_overflow_resp,                                                           &
   nsc_grow_start_doy, nsc_grow_end_doy, nsc_flush_start_doy, nsc_flush_days,  &
   nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min,          &
@@ -1207,6 +1217,7 @@ USE jules_vegetation_mod, ONLY: l_nsc_sink_feedback   ! MDK, 31/10/26
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
                                 ! MDK, 31/10/26
 USE jules_vegetation_mod, ONLY: l_nsc_pipe_target   ! MDK, 04/11/26
+USE jules_vegetation_mod, ONLY: l_ximpair_cav_water   ! MDK, 12/11/26
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1541,6 +1552,10 @@ DO i = 1, npft
     nsc_psi_turg_full(i) = nsc_psi_turg_full_io(i)
   IF (ABS(nsc_psi_turg_zero_io(i) - rmdi) > EPSILON(1.0))                      &
     nsc_psi_turg_zero(i) = nsc_psi_turg_zero_io(i)
+  IF (ABS(wood_density_io(i) - rmdi) > EPSILON(1.0))                           &
+    wood_density(i) = wood_density_io(i)
+  IF (ABS(xyl_lumen_frac_io(i) - rmdi) > EPSILON(1.0))                         &
+    xyl_lumen_frac(i) = xyl_lumen_frac_io(i)
   IF (ABS(nsc_t_grow_zero_io(i) - rmdi) > EPSILON(1.0))                        &
     nsc_t_grow_zero(i) = nsc_t_grow_zero_io(i)
   IF (ABS(nsc_t_grow_full_io(i) - rmdi) > EPSILON(1.0))                        &
@@ -1853,6 +1868,28 @@ IF ( l_ximpair_rec_nsc .AND.                                                   &
                'TRIFFID wood growth) needs l_triffid_nsc=T, l_triffid=T '  //  &
                'and l_trif_eq=F; without them the stem would never '       //  &
                'recover.')
+END IF
+! The water released by cavitation (l_ximpair_cav_water) needs the wood
+! density of each PFT on the memory impairment model, and a lumen fraction,
+! where given, between 0 and 1.
+!
+! MDK, 12/11/26
+IF ( l_ximpair_cav_water ) THEN
+  DO i = 1,npft
+    IF ( pft_xylem_impairment_model(i) == xylem_impairment_memory .AND.        &
+         wood_density(i) <= 0.0 ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode,                                       &
+                   'l_ximpair_cav_water needs wood_density_io for the ' //     &
+                   'PFTs on the memory impairment model.')
+    END IF
+    IF ( ABS(xyl_lumen_frac_io(i) - rmdi) > EPSILON(1.0) .AND.                 &
+         ( xyl_lumen_frac_io(i) <= 0.0 .OR. xyl_lumen_frac_io(i) > 1.0 ) ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode,                                       &
+                   'xyl_lumen_frac_io must be > 0 and <= 1.')
+    END IF
+  END DO
 END IF
 ! The retired annual reset of the embolism (ximpair_reset_mmdd_io): it
 ! refilled the embolised xylem, which the model does not do. Old namelists

@@ -367,6 +367,14 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts at 0 " //  &
              "(restart not exact in daylight).")
+        CASE ( 'store_w_xyl' )
+          ! Water in the stem's conduits: dumps written without it start
+          ! with the conduits not lost full.
+          !
+          ! MDK, 12/11/26
+          CALL log_warn("read_dump_shared",                                    &
+             "store_w_xyl is not in the dump so the conduits not lost " //   &
+             "start full.")
         CASE ( 'store_w', 'store_c' )
           ! Plant capacitance store: dumps written without it start it at
           ! the first step's stem psi (the restart is then not exact).

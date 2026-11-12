@@ -29,7 +29,8 @@ USE trifctl, ONLY: asteps_phen
 USE sf_stom_state_mod, ONLY: f_vcmax_state, cpl_state, store_e_prev,          &
                              shared_e_shd_prev, shared_amax_shd_prev
 USE plant_water_store_mod, ONLY: store_q, store_w, store_unset, store_c,       &
-                                 store_w_shed, leak_e, store_q_gap
+                                 store_w_shed, leak_e, store_q_gap,            &
+                                 store_w_xyl, store_q_xyl
 USE water_constants_mod, ONLY: Water_kg_per_mol
 USE phen_budburst_mod, ONLY: phen_gdd, phen_bb_day, phen_dormant
 USE triffid_hydmort_mod, ONLY: hydmort_g_pft, hydmort_m_pft,                   &
@@ -4147,6 +4148,24 @@ CASE ( 'store_w' )
 CASE ( 'store_c' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(store_c) ) workspace_pft(:,:) = store_c(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! Water in the stem's conduits (kg m-2; < 0 not yet set).
+!
+! MDK, 12/11/26
+CASE ( 'store_w_xyl' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(store_w_xyl) ) workspace_pft(:,:) = store_w_xyl(:,:)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! Water drawn from the soil to fill new xylem (kg m-2 s-1).
+!
+! MDK, 12/11/26
+CASE ( 'store_q_xyl_pft' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(store_q_xyl) ) workspace_pft(:,:) = store_q_xyl(:,:)
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 

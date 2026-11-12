@@ -640,6 +640,18 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  store period). Set (> -1e29), the release is also
                  !  normalised so that the full store releases W_max.
                  !  Unset = Trugman et al. (2018) release.
+,wood_density(:)                                                              &
+                 ! Wood density (kg dry mass m-3). Set (> -1e29), it gives
+                 !  the water held in the sapwood's conduits for the release
+                 !  of water by cavitation (l_ximpair_cav_water).
+                 !  MDK, 12/11/26
+,xyl_lumen_frac(:)                                                            &
+                 ! Share of the sapwood's volume in the lumens of the
+                 !  conduits that embolise (-), for the release of water by
+                 !  cavitation (l_ximpair_cav_water), e.g. the vessel lumen
+                 !  area over the sapwood area. Unset (< 0): all the wood's
+                 !  lumens, 1 - wood_density / 1500.
+                 !  MDK, 12/11/26
 ,nsc_t_grow_zero(:)                                                           &
 ,nsc_t_grow_full(:)                                                           &
                  ! Cold limit on the growth sink (degC, daily running mean
@@ -1227,6 +1239,8 @@ ALLOCATE( hydmort_width(npft))
 ALLOCATE( hydmort_plc_bg(npft))
 ALLOCATE( nsc_psi_turg_full(npft))
 ALLOCATE( nsc_psi_turg_zero(npft))
+ALLOCATE( wood_density(npft))
+ALLOCATE( xyl_lumen_frac(npft))
 ALLOCATE( nsc_t_grow_zero(npft))
 ALLOCATE( nsc_t_grow_full(npft))
 ALLOCATE( nsc_grow_start_doy(npft))
@@ -1303,6 +1317,8 @@ hydmort_width(:) = 0.08
 hydmort_plc_bg(:) = 0.1
 nsc_psi_turg_full(:) = -1.0e30
 nsc_psi_turg_zero(:) = -1.0e30
+wood_density(:) = -1.0e30
+xyl_lumen_frac(:) = -1.0
 nsc_t_grow_zero(:) = -1.0e30
 nsc_t_grow_full(:) = -1.0e30
 nsc_grow_start_doy(:) = -1.0e30
@@ -1667,6 +1683,10 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_psi_turg_full = ',nsc_psi_turg_full
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_psi_turg_zero = ',nsc_psi_turg_zero
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' wood_density = ',wood_density
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' xyl_lumen_frac = ',xyl_lumen_frac
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_t_grow_zero = ',nsc_t_grow_zero
 CALL jules_print('pftparm',lineBuffer)

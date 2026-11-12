@@ -46,7 +46,7 @@ MODULE plant_water_store_mod
 !      soil-to-stem path, so it relaxes with the time constant
 !      tau = C / k_x, with k_x the conductance of that path.
 !   2. C does not depend on psi: the store gives the same water per MPa
-!      down to the stem's critical-loss psi (psi_fl_stem).
+!      down to the stem's critical-loss psi (psi_floor_stem).
 !   3. The optimiser sees the store's flow q as fixed within its search,
 !      so stored water costs nothing at the margin; its cost appears
 !      through the lower psi_x of later steps.
@@ -70,7 +70,7 @@ MODULE plant_water_store_mod
 ! W, C and the flow are carried between timesteps and written to the
 ! dump.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 
 USE um_types, ONLY: real_jlslsm
 USE water_constants_mod, ONLY: Water_kg_per_mol
@@ -79,6 +79,7 @@ IMPLICIT NONE
 
 PRIVATE
 PUBLIC :: store_w, store_q, store_c, store_w_shed, leak_e, store_q_gap,        &
+          store_w_xyl, store_q_xyl,                                            &
           store_state_alloc, store_unset, store_return, store_wt_root,         &
           store_w_soil, store_w_root_avail
 
@@ -110,6 +111,25 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_q(:,:)
 !
 ! carried between timesteps (dumped) to apply the rule for a change of C.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_c(:,:)
+! Water in the stem's conducting xylem of each PFT (kg H2O m-2 ground; < 0:
+! not yet set), with the water released by cavitation
+! (l_ximpair_cav_water). It is part of the plant's water: the conduits
+! that embolise give their water to the store, and the conduits that are
+! refilled (repair, new sapwood) take it back from the soil. sf_stom keeps
+! it at
+!
+!   W_xyl = V_w (1 - L)
+!
+! with V_w the water of the sapwood's conduits when all are full and L the
+! stem's locked-in loss, except for water released while the store was
+! full, which is held here until the store has room.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_w_xyl(:,:)
+! Water drawn from the soil this timestep to fill new xylem (kg H2O m-2
+! ground s-1, >= 0; l_ximpair_cav_water): new rings and new sapwood start
+! with their conduits full. sf_evap takes it from the soil with the
+! store's refill; what the soil cannot give is taken from the store
+! (store_return). Set each timestep by sf_stom and not carried over.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_q_xyl(:,:)
 
 ! Water deficit carried away by shed tissue this timestep (kg H2O m-2
 ! ground, >= 0): the store's water rises by this with no flow, as C falls
@@ -161,7 +181,7 @@ CONTAINS
 ! layer 1 and the soil water at 0; physiol sets them each timestep before
 ! sf_evap uses them.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE store_state_alloc( n_land_pts )
 
@@ -184,13 +204,16 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 IF (.NOT. ALLOCATED(store_w)) THEN
   ALLOCATE(store_w(n_land_pts, npft), store_q(n_land_pts, npft),               &
            store_c(n_land_pts, npft), store_w_shed(n_land_pts, npft),          &
-           leak_e(n_land_pts, npft), store_q_gap(n_land_pts, npft))
+           leak_e(n_land_pts, npft), store_q_gap(n_land_pts, npft),            &
+           store_w_xyl(n_land_pts, npft), store_q_xyl(n_land_pts, npft))
   store_w(:,:)      = store_unset
   store_q(:,:)      = 0.0
   store_c(:,:)      = 0.0
   store_w_shed(:,:) = 0.0
   leak_e(:,:)       = 0.0
   store_q_gap(:,:)  = 0.0
+  store_w_xyl(:,:)  = -1.0
+  store_q_xyl(:,:)  = 0.0
 END IF
 
 IF (.NOT. ALLOCATED(store_wt_root)) THEN
@@ -222,11 +245,13 @@ END SUBROUTINE store_state_alloc
 !   dW = dq dt / M_w      (mol H2O m-2 ground)
 !
 ! where dt is the timestep (s) and M_w the molar mass of water
-! (kg mol-1). The store's water is kept no wetter than full (0). The flow
-! out (store_q) is reduced by dq. Nothing is done where the store is not
-! yet set.
+! (kg mol-1). The store's water is kept no wetter than full (0); with the
+! water of the stem's conduits (store_w_xyl set) the water above full is
+! kept there, as water released by the conduits that the store has no
+! room for yet, so none is lost. The flow out (store_q) is reduced by dq.
+! Nothing is done where the store is not yet set.
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE store_return( l, ft, timestep, dq )
 
@@ -246,6 +271,13 @@ REAL(KIND=real_jlslsm) :: dw
 IF ( store_c(l,ft) <= 0.0 .OR. store_w(l,ft) > 0.0 ) RETURN
 
 dw = dq / Water_kg_per_mol * timestep
+
+! The water above full goes to the stem's conduits when they are tracked.
+IF ( ALLOCATED(store_w_xyl) ) THEN
+  IF ( store_w_xyl(l,ft) >= 0.0 .AND. store_w(l,ft) + dw > 0.0 )               &
+    store_w_xyl(l,ft) = store_w_xyl(l,ft)                                      &
+                        + ( store_w(l,ft) + dw ) * Water_kg_per_mol
+END IF
 
 ! The store's water, no wetter than full (psi = 0).
 store_w(l,ft) = MIN(store_w(l,ft) + dw, 0.0)

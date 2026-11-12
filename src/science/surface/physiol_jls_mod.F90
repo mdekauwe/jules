@@ -110,6 +110,7 @@ USE jules_surface_types_mod, ONLY:                                             &
 
 USE nvegparm, ONLY: ch_nvg, emis_nvg, gs_nvg, vf_nvg
 ! MDK, 01/11/26
+USE plant_water_store_mod, ONLY: store_q_xyl
 USE plant_water_store_mod, ONLY: store_q, store_wt_root, store_w_soil,         &
                                  store_w_root_avail
 
@@ -1713,10 +1714,14 @@ DO n = 1,npft
       ! Where the store gives more than E the excess goes back to the soil
       ! (store_return in sf_evap) and E_root is 0 here.
       !
-      ! MDK, 23/10/26
+      ! MDK, 12/11/26
       e_root_rs = el_pft(l,n)
       IF ( l_som_capacitance_on )                                              &
         e_root_rs = MAX(el_pft(l,n) - store_q(l,n) / m_h2o_rs, 0.0)
+      ! The roots also carry the water that fills new xylem (store_q_xyl,
+      ! l_ximpair_cav_water).
+      IF ( l_som_capacitance_on .AND. ALLOCATED(store_q_xyl) )                 &
+        e_root_rs = e_root_rs + store_q_xyl(l,n) / m_h2o_rs
       psi_root_rs = psi_root_zone_pft(l,n)                                     &
                     - e_root_rs * m_h2o_rs * rho_water * g / ksum_rs
 

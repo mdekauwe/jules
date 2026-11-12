@@ -18,7 +18,7 @@ USE trifctl, ONLY: asteps_since_triffid
 USE trifctl, ONLY: asteps_phen
 USE sf_stom_state_mod, ONLY: sf_stom_state_alloc, f_vcmax_state, cpl_state
 USE plant_water_store_mod, ONLY: store_state_alloc, store_w, store_c,          &
-                                 store_q
+                                 store_q, store_w_xyl
 USE sf_stom_state_mod, ONLY: store_e_prev, shared_e_shd_prev,                &
                              shared_amax_shd_prev
 USE jules_fields_mod, ONLY: crop_vars, psparms, toppdm, ainfo, trif_vars,      &
@@ -279,7 +279,7 @@ DO i = 1,nvars
            'shed_f_psi', 'shed_nup', 'shed_psi_pd', 'shed_psi_md',             &
            'heat_dam', 'phen_shed_debt',                                       &
            'phen_gdd', 'phen_bb_day', 'phen_dormant',                          &
-           'store_w', 'store_c',                                               &
+           'store_w', 'store_c', 'store_w_xyl',                                &
            'store_q', 'store_e_prev',                                          &
            'shared_e_shd_prev', 'shared_amax_shd_prev',                        &
            't_leaf_sun_pft', 't_leaf_shd_pft' )
@@ -833,6 +833,14 @@ DO i = 1,nvars
     CALL store_state_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), store_c(:,n))
+    END DO
+  ! Water in the stem's conduits (l_ximpair_cav_water).
+  !
+  ! MDK, 12/11/26
+  CASE ( 'store_w_xyl' )
+    CALL store_state_alloc( land_pts )
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), store_w_xyl(:,n))
     END DO
   ! The store's flow and the canopy transpiration of the last timestep,
   ! the next step's first guess.
