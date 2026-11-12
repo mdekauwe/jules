@@ -16,7 +16,7 @@ MODULE xylem_impairment_memory_mod
 ! updates; ximpair_lock, ximpair_repair_pend, ximpair_area_w (with
 ! l_veg_compete) and the ring arrays are written to and read from dumps.
 !
-! MDK, 06/11/26
+! MDK, 12/11/26
 
 USE um_types, ONLY: real_jlslsm
 
@@ -35,9 +35,8 @@ PUBLIC :: ximpair_memory_alloc, ximpair_dilute_area,                           &
           psi_leaf_impaired_memory,                                            &
           update_xylem_impairment_memory
 
-PRIVATE :: k_intact, antideriv, psi_at_k, ring_cond, ring_age, ring_steady,   &
-           ring_q,                                                             &
-           ring_sums, ring_hi, ring_hit, ring_add_intact
+PRIVATE :: k_intact, k_intact_integral, psi_at_k, ring_cond, ring_age,         &
+           ring_steady, ring_q, ring_sums, ring_hi, ring_hit, ring_add_intact
 
 ! ximpair_memory_alloc allocates the first three arrays below.
 
@@ -144,10 +143,10 @@ CONTAINS
 ! not remove exactly m frac_old (without l_ht_compete, or at the minimum
 ! cover frac_seed).
 !
-! MDK, 05/11/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_dilute_area( land_pts, trif_pts, trif_index, frac, dfrac,   &
-                                m_kill )
+                                frac_killed_hydmort )
 
 USE jules_surface_types_mod, ONLY: npft, nnpft, ntype
 USE jules_vegetation_mod, ONLY: xylem_impairment_memory
@@ -167,13 +166,17 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   dfrac(land_pts,npft)
 ! Fraction of each PFT's old cover killed in the step (hydraulic
 ! mortality, l_trif_hydmort).
-REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: m_kill(land_pts,npft)
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
+          frac_killed_hydmort(land_pts,npft)
 
 ! PFT, TRIFFID point and land point counters.
 INTEGER :: n, t, l
-! The old cover's share of the new cover, the share killed and the
-! surviving cover.
-REAL(KIND=real_jlslsm) :: w, m, frac_surv
+! The old cover's share of the new cover.
+REAL(KIND=real_jlslsm) :: w_old_cover
+! The share of the old cover killed (hydraulic mortality).
+REAL(KIND=real_jlslsm) :: frac_killed
+! The surviving cover.
+REAL(KIND=real_jlslsm) :: frac_surv
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -191,22 +194,23 @@ IF ( ALLOCATED(ximpair_lock) ) THEN
     DO t = 1,trif_pts
       l = trif_index(t)
       IF ( frac(l,n) <= 0.0 ) CYCLE
-      m = 0.0
-      IF ( PRESENT(m_kill) ) m = m_kill(l,n)
-      frac_surv = MAX(frac(l,n) - dfrac(l,n), 0.0) * (1.0 - m)
-      IF ( m > 0.0 ) THEN
+      frac_killed = 0.0
+      IF ( PRESENT(frac_killed_hydmort) ) frac_killed = frac_killed_hydmort(l,n)
+      frac_surv = MAX(frac(l,n) - dfrac(l,n), 0.0) * (1.0 - frac_killed)
+      IF ( frac_killed > 0.0 ) THEN
         IF ( frac(l,n) <= frac_surv ) CYCLE
       ELSE
         IF ( dfrac(l,n) <= 0.0 ) CYCLE
       END IF
-      w = frac_surv / frac(l,n)
-      ximpair_area_w(l,n)      = ximpair_area_w(l,n) * w
-      ximpair_lock(l,n)        = ximpair_lock(l,n) * w
+      w_old_cover         = frac_surv / frac(l,n)
+      ximpair_area_w(l,n) = ximpair_area_w(l,n) * w_old_cover
+      ximpair_lock(l,n)   = ximpair_lock(l,n) * w_old_cover
       IF ( ALLOCATED(ximpair_kcap_leaf) )                                      &
-        ximpair_kcap_leaf(l,n) = 1.0 - (1.0 - ximpair_kcap_leaf(l,n)) * w
+        ximpair_kcap_leaf(l,n) = 1.0 - (1.0 - ximpair_kcap_leaf(l,n))          &
+                                 * w_old_cover
       ! Additive recovery: the queued share renews the old cover only.
       IF ( l_nsc_ring_additive )                                               &
-        ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n) * w
+        ximpair_repair_pend(l,n) = ximpair_repair_pend(l,n) * w_old_cover
     END DO
   END DO
 END IF
@@ -1215,15 +1219,23 @@ END FUNCTION ximpair_ring_working
 ! represent drought damage. It uses the cumulative Weibull curve,
 ! kmax EXP(-(psi / b)^c), or the SOX curve, kmax / (1 + (psi / b)^c).
 !
-! MDK, 01/11/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
 FUNCTION k_intact( pft, n, psi, kmax, b, c ) RESULT( k )
 
 USE pftparm, ONLY: pft_conductance_model
 USE jules_vegetation_mod, ONLY: CW_conductance
 
+! Plant functional type and number of samples.
 INTEGER, INTENT(IN) :: pft, n
-REAL(KIND=real_jlslsm), INTENT(IN) :: psi(n), kmax, b, c
+! Water potential of each sample (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi(n)
+! Maximum conductance of the curve.
+REAL(KIND=real_jlslsm), INTENT(IN) :: kmax
+! The curve's b (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: b
+! The curve's c.
+REAL(KIND=real_jlslsm), INTENT(IN) :: c
 REAL(KIND=real_jlslsm) :: k(n)
 
 IF (pft_conductance_model(pft) == CW_conductance) THEN
@@ -1246,17 +1258,25 @@ END FUNCTION k_intact
 ! cumulative Weibull curve and the 2F1 function for the SOX curve, as the
 ! Newton solvers in psi_leaf_CW_jls and psi_leaf_SOX_jls do.
 !
-! MDK, 24/10/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
-FUNCTION antideriv( pft, n, psi, kmax, b, c ) RESULT( a )
+FUNCTION k_intact_integral( pft, n, psi, kmax, b, c ) RESULT( a )
 
 USE pftparm, ONLY: pft_conductance_model
 USE jules_vegetation_mod, ONLY: CW_conductance
 USE xylem_hydraulics_CW_jls_mod, ONLY: incomplete_gamma
 USE xylem_hydraulics_SOX_jls_mod, ONLY: SOX_2F1
 
+! Plant functional type and number of samples.
 INTEGER, INTENT(IN) :: pft, n
-REAL(KIND=real_jlslsm), INTENT(IN) :: psi(n), kmax, b, c
+! Water potential of each sample (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi(n)
+! Maximum conductance of the curve.
+REAL(KIND=real_jlslsm), INTENT(IN) :: kmax
+! The curve's b (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: b
+! The curve's c.
+REAL(KIND=real_jlslsm), INTENT(IN) :: c
 REAL(KIND=real_jlslsm) :: a(n)
 
 IF (pft_conductance_model(pft) == CW_conductance) THEN
@@ -1266,7 +1286,7 @@ ELSE
   a = - kmax * psi * SOX_2F1(n, 1 + 1/c, -(psi/b)**c)
 END IF
 
-END FUNCTION antideriv
+END FUNCTION k_intact_integral
 
 ! ---------------------------------------------------------------------
 ! Return the water potential (Pa) at which the undamaged curve falls to
@@ -1278,8 +1298,15 @@ FUNCTION psi_at_k( pft, r, b, c ) RESULT( psi )
 USE pftparm, ONLY: pft_conductance_model
 USE jules_vegetation_mod, ONLY: CW_conductance
 
+! Plant functional type.
 INTEGER, INTENT(IN) :: pft
-REAL(KIND=real_jlslsm), INTENT(IN) :: r, b, c
+! Conductance relative to kmax (0-1).
+REAL(KIND=real_jlslsm), INTENT(IN) :: r
+! The curve's b (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: b
+! The curve's c.
+REAL(KIND=real_jlslsm), INTENT(IN) :: c
+! Water potential where the curve is at r kmax (Pa).
 REAL(KIND=real_jlslsm) :: psi
 
 IF (pft_conductance_model(pft) == CW_conductance) THEN
@@ -1381,7 +1408,7 @@ END SUBROUTINE leaf_conductance_impaired_memory_jls
 ! The conductance returned is MIN(k_intact(psi_l), k_cap), no lower than
 ! kcrit.
 !
-! MDK, 25/10/26
+! MDK, 12/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE psi_leaf_impaired_memory( pft,                                      &
                                      n_e_leaf,                                 &
@@ -1431,18 +1458,35 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 ! Local variables
 INTEGER :: i, j, l
 
-REAL(KIND=real_jlslsm) :: kmx, kc, bb, cc, psi_r, psi_s, psi_top, psi_floor
-                            ! Per-point curve, cap, root zone psi, psi where
-                            ! the intact curve meets the cap, top of the
-                            ! intact-curve part of the path, and lower
-                            ! bound for the Newton iteration.
+REAL(KIND=real_jlslsm) :: kmax_intact
+                            ! The point's intact kmax.
+REAL(KIND=real_jlslsm) :: kcap_eff
+                            ! The point's cap, clipped to [kcrit, kmax].
+REAL(KIND=real_jlslsm) :: b_curve
+                            ! The point's curve b (Pa).
+REAL(KIND=real_jlslsm) :: c_curve
+                            ! The point's curve c.
+REAL(KIND=real_jlslsm) :: psi_r
+                            ! Root-zone water potential (Pa).
+REAL(KIND=real_jlslsm) :: psi_meet
+                            ! psi where the intact curve meets the cap (Pa).
+REAL(KIND=real_jlslsm) :: psi_intact_top
+                            ! Top of the intact-curve part of the path (Pa).
+REAL(KIND=real_jlslsm) :: psi_newton_floor
+                            ! Lower bound for the Newton iteration (Pa).
 REAL(KIND=real_jlslsm) :: e_capped
                             ! Transpiration carried by the capped part of the
-                            ! path when psi_l < psi_s.
-REAL(KIND=real_jlslsm) :: a_top(1)
-                            ! A(psi_top).
-REAL(KIND=real_jlslsm) :: psi_vec(n_e_leaf), e_vec(n_e_leaf),                  &
-                          k_vec(n_e_leaf), dpsi_vec(n_e_leaf)
+                            ! path when psi_l < psi_meet.
+REAL(KIND=real_jlslsm) :: a_intact_top(1)
+                            ! A(psi_intact_top).
+REAL(KIND=real_jlslsm) :: psi_try(n_e_leaf)
+                            ! Newton: the current leaf psi of each sample (Pa).
+REAL(KIND=real_jlslsm) :: e_try(n_e_leaf)
+                            ! Newton: the flow the path carries at psi_try.
+REAL(KIND=real_jlslsm) :: k_try(n_e_leaf)
+                            ! Newton: the conductance at psi_try.
+REAL(KIND=real_jlslsm) :: dpsi_step(n_e_leaf)
+                            ! Newton: the step in psi (Pa).
 LOGICAL :: l_capped(n_e_leaf)
                             ! Samples solved within the capped part.
 LOGICAL :: l_nr_active(n_e_leaf)
@@ -1476,68 +1520,70 @@ END IF
 DO j = 1, open_pnts
   l = veg_index(open_index(j))
 
-  kmx   = kmax_ref(l)
-  kc    = MAX(MIN(kcap(l), kmx), kcrit(l))
-  bb    = conductance_b(l)
-  cc    = conductance_c(l)
-  psi_r = root_zone_psi(l)
-  psi_floor = psi_r - 5.0 * ABS(bb)
+  kmax_intact      = kmax_ref(l)
+  kcap_eff         = MAX(MIN(kcap(l), kmax_intact), kcrit(l))
+  b_curve          = conductance_b(l)
+  c_curve          = conductance_c(l)
+  psi_r            = root_zone_psi(l)
+  psi_newton_floor = psi_r - 5.0 * ABS(b_curve)
 
   ! Water potential where the intact curve meets the cap (+HUGE when there
   ! is no cap, so the whole path is on the intact curve).
-  IF (kc < kmx * (1.0 - 1.0e-6)) THEN
-    psi_s = psi_at_k(pft, kc / kmx, bb, cc)
+  IF (kcap_eff < kmax_intact * (1.0 - 1.0e-6)) THEN
+    psi_meet = psi_at_k(pft, kcap_eff / kmax_intact, b_curve, c_curve)
   ELSE
-    psi_s = HUGE(1.0_real_jlslsm)
+    psi_meet = HUGE(1.0_real_jlslsm)
   END IF
 
   !-------------------------------------------------------------------------
-  ! Capped part: constant conductance kc from psi_r down to psi_s.
+  ! Capped part: constant conductance kcap_eff from psi_r down to psi_meet.
   !-------------------------------------------------------------------------
-  IF (psi_r > psi_s) THEN
-    psi_vec(:) = psi_r - e_leaf(:,j) / kc
-    l_capped(:) = psi_vec(:) >= psi_s
-    e_capped = kc * (psi_r - psi_s)
+  IF (psi_r > psi_meet) THEN
+    psi_try(:) = psi_r - e_leaf(:,j) / kcap_eff
+    l_capped(:) = psi_try(:) >= psi_meet
+    e_capped = kcap_eff * (psi_r - psi_meet)
   ELSE
     l_capped(:) = .FALSE.
     e_capped = 0.0
   END IF
 
   !-------------------------------------------------------------------------
-  ! Intact part: solve e = e_capped + A(psi_l) - A(psi_top) by Newton-
+  ! Intact part: solve e = e_capped + A(psi_l) - A(psi_intact_top) by Newton-
   ! Raphson (dE/dpsi_l = -k_intact(psi_l)). E is concave and decreasing in
-  ! psi_l, so starting from psi_top the iterates approach the root
+  ! psi_l, so starting from psi_intact_top the iterates approach the root
   ! monotonically from above.
   !-------------------------------------------------------------------------
   IF (.NOT. ALL(l_capped)) THEN
-    psi_top = MIN(psi_r, psi_s)
-    a_top = antideriv(pft, 1, (/ psi_top /), kmx, bb, cc)
+    psi_intact_top = MIN(psi_r, psi_meet)
+    a_intact_top = k_intact_integral(pft, 1, (/ psi_intact_top /),             &
+                   kmax_intact, b_curve, c_curve)
 
-    WHERE (.NOT. l_capped) psi_vec(:) = psi_top
+    WHERE (.NOT. l_capped) psi_try(:) = psi_intact_top
 
     l_nr_active(:) = .NOT. l_capped(:)
     DO i = 1, max_nr_iter
-      e_vec(:) = e_capped + antideriv(pft, n_e_leaf, psi_vec, kmx, bb, cc)     &
-                 - a_top(1)
-      k_vec(:) = MAX(k_intact(pft, n_e_leaf, psi_vec, kmx, bb, cc),            &
-                     TINY(1.0_real_jlslsm))
-      dpsi_vec(:) = (e_vec(:) - e_leaf(:,j)) / k_vec(:)
-      WHERE (l_capped) dpsi_vec(:) = 0.0
+      e_try(:) = e_capped + k_intact_integral(pft, n_e_leaf, psi_try,          &
+                 kmax_intact, b_curve, c_curve) - a_intact_top(1)
+      k_try(:) = MAX(k_intact(pft, n_e_leaf, psi_try, kmax_intact, b_curve,    &
+                     c_curve), TINY(1.0_real_jlslsm))
+      dpsi_step(:) = (e_try(:) - e_leaf(:,j)) / k_try(:)
+      WHERE (l_capped) dpsi_step(:) = 0.0
 
       ! Only the samples on the intact part of the path are iterated (and
-      ! bounded above by psi_top): the capped samples were solved exactly
-      ! above and lie above psi_top.
+      ! bounded above by psi_intact_top): the capped samples were solved exactly
+      ! above and lie above psi_intact_top.
       ! Each sample stops when its own step is below psi_tol.
       WHERE (l_nr_active)                                                      &
-        psi_vec(:) = MIN(MAX(psi_vec(:) + dpsi_vec(:), psi_floor), psi_top)
-      WHERE (ABS(dpsi_vec(:)) < psi_tol) l_nr_active(:) = .FALSE.
+        psi_try(:) = MIN(MAX(psi_try(:) + dpsi_step(:), psi_newton_floor),     &
+                         psi_intact_top)
+      WHERE (ABS(dpsi_step(:)) < psi_tol) l_nr_active(:) = .FALSE.
       IF ( .NOT. ANY(l_nr_active(:)) ) EXIT
     END DO
   END IF
 
-  leaf_psi(:,j) = psi_vec(:)
-  leaf_k(:,j) = MAX(MIN(k_intact(pft, n_e_leaf, psi_vec, kmx, bb, cc), kc),    &
-                    kcrit(l))
+  leaf_psi(:,j) = psi_try(:)
+  leaf_k(:,j) = MAX(MIN(k_intact(pft, n_e_leaf, psi_try, kmax_intact, b_curve, &
+                    c_curve), kcap_eff), kcrit(l))
 END DO
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -1643,8 +1689,10 @@ USE yomhook, ONLY: lhook, dr_hook
 ! each, and the plant functional type.
 INTEGER, INTENT(IN) :: n_land_pts, n_open_pts, open_index(n_open_pts), pft
 
-! Leaf and root-zone water potential (Pa).
-REAL(KIND=real_jlslsm), INTENT(IN) :: psi_leaf(n_land_pts), psi_root(n_land_pts)
+! Leaf water potential (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_leaf(n_land_pts)
+! Root-zone water potential (Pa).
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi_root(n_land_pts)
 ! Stem water potential (Pa; leaf-side end of the stem segment, = psi_root
 ! without segments).
 REAL(KIND=real_jlslsm), INTENT(IN) :: psi_stem(n_land_pts)
@@ -1662,24 +1710,31 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
 ! Point counters, an error code and a ring counter.
 INTEGER :: j, l, errcode, i_r
 ! The leaf classes are given.
-LOGICAL :: l_cls
+LOGICAL :: l_leaf_classes
 ! Damage is held at points with a mostly frozen root zone.
-LOGICAL :: l_frozen
+LOGICAL :: l_frozen_hold
 ! Relative intact conductance of the leaf segment at this step's leaf
 ! water potential.
-REAL(KIND=real_jlslsm) :: f_leaf
+REAL(KIND=real_jlslsm) :: f_leaf_intact
 ! Queued ring share at one point.
-REAL(KIND=real_jlslsm) :: rep_l
+REAL(KIND=real_jlslsm) :: repair_share
 
-! Damage-driving water potential (Pa), the intact conductance there, and
-! the PFT's intact curve (kmax, kcrit, b in Pa, c) on each point.
-REAL(KIND=real_jlslsm) ::                                                      &
-  psi_x(n_land_pts), k_x(n_land_pts), kmax_pts(n_land_pts),                    &
-  kcrit_pts(n_land_pts), b_pts(n_land_pts), c_pts(n_land_pts)
+! Damage-driving water potential (Pa).
+REAL(KIND=real_jlslsm) :: psi_damage(n_land_pts)
+! The intact conductance at psi_damage.
+REAL(KIND=real_jlslsm) :: k_intact_damage(n_land_pts)
+! The PFT's intact kmax on each point.
+REAL(KIND=real_jlslsm) :: kmax_pts(n_land_pts)
+! The PFT's kcrit on each point.
+REAL(KIND=real_jlslsm) :: kcrit_pts(n_land_pts)
+! The PFT's curve b on each point (Pa).
+REAL(KIND=real_jlslsm) :: b_pts(n_land_pts)
+! The PFT's curve c on each point.
+REAL(KIND=real_jlslsm) :: c_pts(n_land_pts)
 ! This timestep in years, for the leaf segment's recovery.
 REAL(KIND=real_jlslsm) :: dt_years
 ! kcrit / kmax (floor of the leaf segment's cap).
-REAL(KIND=real_jlslsm) :: frac_crit
+REAL(KIND=real_jlslsm) :: kcrit_over_kmax
 
 ! Seconds in a year.
 REAL(KIND=real_jlslsm), PARAMETER :: sec_per_year = 365.25 * 86400.0
@@ -1702,13 +1757,13 @@ IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 ! Damage-driving water potential.
 SELECT CASE (ximpair_psi_driver(pft))
 CASE (ximpair_driver_leaf)
-  psi_x(:) = psi_leaf(:)
+  psi_damage(:) = psi_leaf(:)
 CASE (ximpair_driver_mean)
-  psi_x(:) = 0.5 * (psi_leaf(:) + psi_root(:))
+  psi_damage(:) = 0.5 * (psi_leaf(:) + psi_root(:))
 CASE (ximpair_driver_root)
-  psi_x(:) = psi_root(:)
+  psi_damage(:) = psi_root(:)
 CASE (ximpair_driver_stem)
-  psi_x(:) = psi_stem(:)
+  psi_damage(:) = psi_stem(:)
 CASE DEFAULT
   errcode = 101  !  a hard error
   CALL ereport(RoutineName, errcode,                                           &
@@ -1799,14 +1854,14 @@ IF (l_ximpair_rec_nsc) THEN
     END DO
   ELSE
     DO l = 1, n_land_pts
-      rep_l = ximpair_repair_pend(l,pft)
-      IF (rep_l <= 0.0) CYCLE
+      repair_share = ximpair_repair_pend(l,pft)
+      IF (repair_share <= 0.0) CYCLE
       IF (l_nsc_ring_additive) THEN
         kcap(l) = kmax_pts(l) * (1.0 - MAX(1.0 - kcap(l) / kmax_pts(l)        &
-                                           - rep_l, 0.0))
+                                           - repair_share, 0.0))
       ELSE
         kcap(l) = kmax_pts(l) * (1.0 - MAX(1.0 - kcap(l) / kmax_pts(l), 0.0)  &
-                                       * (1.0 - MIN(rep_l, 1.0)))
+                                       * (1.0 - MIN(repair_share, 1.0)))
       END IF
     END DO
   END IF
@@ -1844,17 +1899,17 @@ END IF
 ! and with l_ximpair_frozen_hold not those whose root zone is mostly
 ! frozen.
 !-----------------------------------------------------------------------------
-l_frozen = l_ximpair_frozen_hold .AND. ALLOCATED(ximpair_root_frozen)
+l_frozen_hold = l_ximpair_frozen_hold .AND. ALLOCATED(ximpair_root_frozen)
 
 IF (l_ximpair_seg_memory) THEN
   ! Per segment: the stem by psi_stem on the stem curve, the leaf by
   ! psi_leaf on the leaf curve (the segments' intact Weibull curves), or
   ! with the leaf classes by the weighted mean of their conductances.
-  l_cls = PRESENT(psi_leaf_cls) .AND. PRESENT(w_cls)
+  l_leaf_classes = PRESENT(psi_leaf_cls) .AND. PRESENT(w_cls)
   DO j = 1, n_open_pts
     l = open_index(j)
 
-    IF (l_frozen) THEN
+    IF (l_frozen_hold) THEN
       IF (ximpair_root_frozen(l) > ximpair_frozen_frac) CYCLE
     END IF
 
@@ -1865,32 +1920,33 @@ IF (l_ximpair_seg_memory) THEN
     ELSE
       kcap(l) = MIN(kcap(l), kmax_pts(l) * seg_rel_k(pft, 2, psi_stem(l)))
     END IF
-    IF (l_cls) THEN
-      f_leaf = w_cls(l,1) * seg_rel_k(pft, 3, psi_leaf_cls(l,1))               &
-               + w_cls(l,2) * seg_rel_k(pft, 3, psi_leaf_cls(l,2))
+    IF (l_leaf_classes) THEN
+      f_leaf_intact = w_cls(l,1) * seg_rel_k(pft, 3, psi_leaf_cls(l,1)) +      &
+               w_cls(l,2) * seg_rel_k(pft, 3, psi_leaf_cls(l,2))
     ELSE
-      f_leaf = seg_rel_k(pft, 3, psi_leaf(l))
+      f_leaf_intact = seg_rel_k(pft, 3, psi_leaf(l))
     END IF
-    ximpair_kcap_leaf(l,pft) = MIN(ximpair_kcap_leaf(l,pft), f_leaf)
+    ximpair_kcap_leaf(l,pft) = MIN(ximpair_kcap_leaf(l,pft), f_leaf_intact)
   END DO
-  frac_crit = kcrit(pft) / MAX(kmax_pft(pft), TINY(1.0_real_jlslsm))
-  ximpair_kcap_leaf(:,pft) = MAX(MIN(ximpair_kcap_leaf(:,pft), 1.0), frac_crit)
+  kcrit_over_kmax = kcrit(pft) / MAX(kmax_pft(pft), TINY(1.0_real_jlslsm))
+  ximpair_kcap_leaf(:,pft) = MAX(MIN(ximpair_kcap_leaf(:,pft), 1.0),           &
+                             kcrit_over_kmax)
 ELSE
-  CALL leaf_conductance_jls( pft, n_land_pts, psi_x, kmax_pts, kcrit_pts,      &
-                             b_pts, c_pts, k_x )
+  CALL leaf_conductance_jls( pft, n_land_pts, psi_damage, kmax_pts, kcrit_pts, &
+                             b_pts, c_pts, k_intact_damage )
   DO j = 1, n_open_pts
     l = open_index(j)
 
-    IF (l_frozen) THEN
+    IF (l_frozen_hold) THEN
       IF (ximpair_root_frozen(l) > ximpair_frozen_frac) CYCLE
     END IF
 
     IF (l_nsc_sapwood_rings) THEN
       ! Every ring takes at least the imposed loss.
-      CALL ring_damage(l, 1.0 - k_x(l) / kmax_pts(l))
+      CALL ring_damage(l, 1.0 - k_intact_damage(l) / kmax_pts(l))
       kcap(l) = kmax_pts(l) * (1.0 - ximpair_ring_loss_mean(l, pft))
     ELSE
-      kcap(l) = MIN(kcap(l), k_x(l))
+      kcap(l) = MIN(kcap(l), k_intact_damage(l))
     END IF
   END DO
 END IF

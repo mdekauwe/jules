@@ -85,7 +85,7 @@ SUBROUTINE sf_stom  (land_pts,land_index                                       &
 ,                    isoprene,terpene,methanol,acetone                         &
 ,                    open_index,open_pts                                       &
 ,                    carbon_gain,hydraulic_cost,gc_som                         &
-,                    k_max,conductance_b,conductance_c                         &
+,                    kmax_impaired,conductance_b,conductance_c                 &
 ,                    psi_leaf_extreme, psi_root_extreme                        &
                      !New arguments replacing USE statements
                      !crop_vars_mod (IN)
@@ -435,7 +435,7 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 ,f_nsc(land_pts)                                                               &
                             ! INOUT Non-structural carbohydrate mass fraction
                             !      (kgC/kgC)
-,k_max(land_pts)                                                               &
+,kmax_impaired(land_pts)                                                       &
                             ! INOUT Maximum plant conductance with the xylem
                             ! impairment (mol H2O m-2 leaf s-1 Pa-1, per
                             ! unit leaf area).
@@ -896,11 +896,13 @@ REAL(KIND=real_jlslsm) :: vcmax_top_d(land_pts), jmax_top_d(land_pts),         &
                             !
                             ! MDK, 30/10/26
 REAL(KIND=real_jlslsm) :: psi_src(land_pts)
-                            ! Water potential at the base of the plant path
-                            ! seen by the stomatal optimisation (Pa):
-                            ! psi_root_zone, less the gravitational drop
-                            ! rho_water g ht with l_som_gravity on a plant
-                            ! without segments.
+                            ! Water potential where the plant path starts,
+                            ! the source of the water the stomatal
+                            ! optimisation draws on (Pa): psi_root_zone,
+                            ! less the gravity drop rho_water g ht with
+                            ! l_som_gravity on a plant without segments.
+                            ! The supply curves, the leaf psi solve and the
+                            ! store's balance start from it.
 REAL(KIND=real_jlslsm) :: psi_zf(land_pts)
                             ! Water potential of the stem and leaf at zero
                             ! flow (Pa): psi_root_zone, less rho_water g ht
@@ -992,8 +994,8 @@ INTEGER :: open_land_index(land_pts)
                             ! veg_index(open_index(:))), for the impairment
                             ! update.
 REAL(KIND=real_jlslsm) :: kmax_bigleaf(land_pts), kcrit_bigleaf(land_pts)
-                            ! Big leaf: the canopy kmax (k_max * LAI, times
-                            ! kplant_scale) and its kcrit, on land_pts for
+                            ! Big leaf: the canopy kmax (kmax_impaired * LAI,
+                            ! times kplant_scale) and its kcrit, on land_pts for
                             ! stom_opt_mod.
 REAL(KIND=real_jlslsm) :: gl_max_eff(land_pts), share_sup(land_pts)
                             ! gl_max for a stom_opt_mod call with the soil
@@ -1171,16 +1173,16 @@ REAL(KIND=real_jlslsm) :: w_xyl_excess
 REAL(KIND=real_jlslsm) :: w_to_store
                             ! The part of w_xyl_excess the store takes this
                             ! step, at most up to full (kg m-2).
-REAL(KIND=real_jlslsm), PARAMETER :: c_w_cav = 0.46
+REAL(KIND=real_jlslsm), PARAMETER :: c_frac_wood = 0.46
                             ! Carbon fraction of wood dry mass (Quercus mean,
                             ! Doraisami et al. 2022).
-REAL(KIND=real_jlslsm), PARAMETER :: rho_cw_cav = 1500.0
+REAL(KIND=real_jlslsm), PARAMETER :: rho_wood_substance = 1500.0
                             ! Density of the wood substance in water, for the
                             ! wood's lumen volume when xyl_lumen_frac is
                             ! unset (kg m-3; Kellogg & Wangaard 1969).
                             !
                             ! MDK, 12/11/26
-LOGICAL :: l_in_impair(land_pts)
+LOGICAL :: l_impair_done(land_pts)
                             ! Points already in the impairment update (the
                             ! lit points), so the leak's other points are
                             ! added once.
@@ -1222,12 +1224,12 @@ REAL(KIND=real_jlslsm) :: c_store
 REAL(KIND=real_jlslsm) :: psi0_store
                             ! The store's (stem node) psi at the start of the
                             ! step, W / C (Pa).
-LOGICAL :: l_ml_ximp
+LOGICAL :: l_ml_impair
                             ! Multilayer stomatal optimisation with xylem
                             ! impairment (not in spin-up).
 REAL(KIND=real_jlslsm) :: kfrac_imp_ml(land_pts)
                             ! Multilayer: the impaired fraction of the
-                            ! conductance, k_max / kmax_pft (1 without
+                            ! conductance, kmax_impaired / kmax_pft (1 without
                             ! impairment).
 REAL(KIND=real_jlslsm) :: kmax_imp_lyr(land_pts)
                             ! This layer's impaired path conductance per unit
@@ -2352,23 +2354,23 @@ CASE ( 5, 6 )
   ! ---------------------
   IF (leaf_flux_mod == leaf_flux_stom_opt) THEN
 
-    ! Vulnerability curve: the PFT's, or with xylem impairment the
-    ! point's impaired curve (conductance_b, conductance_c), and the
-    ! impaired fraction of the plant conductance, k_max / kmax_pft, which
-    ! scales each layer's path (kmax_imp_lyr) while the intact path
-    ! (kmax_leaf_lyr) is the reference for the hydraulic cost, as the
-    ! two-leaf classes. With plant segments each leaf's parallel path is
-    ! the root, stem and leaf segments in series (stom_opt_mod), with the
-    ! segment memory under impairment model 3, as big-leaf and two-leaf.
-    l_ml_ximp = .NOT. is_spinup .AND.                                          &
-                pft_xylem_impairment_model(ft) /= xylem_impairment_none
+    ! Vulnerability curve: the PFT's, or with xylem impairment the point's
+    ! impaired curve (conductance_b, conductance_c), and the impaired fraction
+    ! of the plant conductance, kmax_impaired / kmax_pft, which scales each
+    ! layer's path (kmax_imp_lyr) while the intact path (kmax_leaf_lyr) is the
+    ! reference for the hydraulic cost, as the two-leaf classes. With plant
+    ! segments each leaf's parallel path is the root, stem and leaf segments in
+    ! series (stom_opt_mod), with the segment memory under impairment model 3,
+    ! as big-leaf and two-leaf.
+    l_ml_impair = .NOT. is_spinup .AND.                                        &
+                  pft_xylem_impairment_model(ft) /= xylem_impairment_none
     kfrac_imp_ml(:) = 1.0
-    IF ( l_ml_ximp ) THEN
+    IF ( l_ml_impair ) THEN
       b_pft_pts(:) = conductance_b(:)
       c_pft_pts(:) = conductance_c(:)
       DO m = 1,veg_pts
         l = veg_index(m)
-        kfrac_imp_ml(l) = k_max(l) / kmax_pft(ft)
+        kfrac_imp_ml(l) = kmax_impaired(l) / kmax_pft(ft)
       END DO
     ELSE
       b_pft_pts(:) = conductance_b_pft(ft)
@@ -3107,7 +3109,7 @@ CASE ( 5, 6 )
         ! psi_leaf and, with segments, psi_stem drive one damage state per
         ! point, at the lit points. With the plant capacitance the update
         ! is made after the store, below.
-        IF ( l_ml_ximp .AND. .NOT. l_cap_store ) THEN
+        IF ( l_ml_impair .AND. .NOT. l_cap_store ) THEN
           n_lit = 0
           DO m = 1,veg_pts
             l = veg_index(m)
@@ -3121,7 +3123,7 @@ CASE ( 5, 6 )
                   land_pts, n_lit, open_land_index, ft, psi_leaf, psi_src,     &
                   psi_stem,                                                    &
                 ! IN OUT
-                  k_max, psi_leaf_extreme, psi_root_extreme,                   &
+                  kmax_impaired, psi_leaf_extreme, psi_root_extreme,           &
                 ! IN (recovery)
                   lai, canht, anetc )
         END IF
@@ -3587,25 +3589,25 @@ CASE ( 1 )
                                 zeros_pts, r_ca_opt, g_soil_c )
        CALL set_ksr_path( land_pts, veg_pts, veg_index, share_sup )
 
-       ! Xylem impairment: k_max/conductance_b/conductance_c hold
+       ! Xylem impairment: kmax_impaired/conductance_b/conductance_c hold
        ! the (leaf-basis) impaired vulnerability curve for each point, so
-       ! scale the impaired k_max by LAI in exactly the same way as
+       ! scale kmax_impaired by LAI in exactly the same way as
        ! kmax_pft above, keeping kmax_pft(ft) * LAI as the unimpaired
        ! reference for the hydraulic cost.
        kmax_ref_bigleaf(:) = kmax_bigleaf(:)
-       kmax_bigleaf(:) = k_max(:) * lai(:)
+       kmax_bigleaf(:) = kmax_impaired(:) * lai(:)
        ! In spin-up, or without an impairment model, the intact kmax: the
-       ! impairment is off there (stom_opt_mod), so a damaged k_max from a
-       ! dump must not act as if it were intact.
+       ! impairment is off there (stom_opt_mod), so a damaged kmax_impaired from
+       ! a dump must not act as if it were intact.
        !
        ! MDK, 24/10/26
        IF ( is_spinup .OR. pft_xylem_impairment_model(ft) ==                   &
                            xylem_impairment_none )                             &
          kmax_bigleaf(:) = kmax_ref_bigleaf(:)
-       ! kplant_model = 1: root and stem per unit ground area, the whole
-       ! plant in series. The same factor on the impaired and intact plant
-       ! and kcrit, so the damage fraction (k_max / kmax_pft) is unchanged;
-       ! the impairment update below uses the unscaled leaf-basis values.
+       ! kplant_model = 1: root and stem per unit ground area, the whole plant
+       ! in series. The same factor on the impaired and intact plant and kcrit,
+       ! so the damage fraction (kmax_impaired / kmax_pft) is unchanged; the
+       ! impairment update below uses the unscaled leaf-basis values.
        !
        ! MDK, 21/10/26
        IF ( l_kscale ) THEN
@@ -3715,7 +3717,7 @@ CASE ( 1 )
                     psi_src,                                                   &
                     psi_stem,                                                  &
                   ! IN OUT
-                    k_max,                                                     &
+                    kmax_impaired,                                             &
                     psi_leaf_extreme,                                          &
                     psi_root_extreme,                                          &
                   ! IN (recovery)
@@ -3889,17 +3891,19 @@ CASE ( 7 )
     ! leaf-segment profile). CABLE itself uses kmax_pft * scalex, which
     ! lowers the canopy total by fpar/LAI.
     !
-    ! Xylem impairment: both classes draw on the one (impaired) plant, so
-    ! the impaired leaf-basis k_max (= kmax_pft when unimpaired) is shared
-    ! the same way, and the unimpaired kmax_pft share is the reference for
-    ! the hydraulic cost; kcrit stays on the unimpaired curve, as big-leaf.
+    ! Xylem impairment: both classes draw on the one (impaired) plant, so the
+    ! impaired leaf-basis kmax_impaired (= kmax_pft when unimpaired) is shared
+    ! the same way, and the unimpaired kmax_pft share is the reference for the
+    ! hydraulic cost; kcrit stays on the unimpaired curve, as big-leaf.
     nweight_tot_2l = MAX(nweight_sun_2l(l) + nweight_shd_2l(l), TINY(1.0))
     kmax_ref_sun_2l(l) = kmax_pft(ft) * lai(l) * nweight_sun_2l(l) /           &
                          nweight_tot_2l
     kmax_ref_shd_2l(l) = kmax_pft(ft) * lai(l) * nweight_shd_2l(l) /           &
                          nweight_tot_2l
-    kmax_sun_2l(l) = k_max(l) * lai(l) * nweight_sun_2l(l) / nweight_tot_2l
-    kmax_shd_2l(l) = k_max(l) * lai(l) * nweight_shd_2l(l) / nweight_tot_2l
+    kmax_sun_2l(l) = kmax_impaired(l) * lai(l) * nweight_sun_2l(l)             &
+                     / nweight_tot_2l
+    kmax_shd_2l(l) = kmax_impaired(l) * lai(l) * nweight_shd_2l(l)             &
+                     / nweight_tot_2l
 
     ! In spin-up, or without an impairment model, the intact kmax (as big
     ! leaf).
@@ -3915,7 +3919,7 @@ CASE ( 7 )
     ! path in series. One factor for both classes (so the shares are
     ! unchanged) and for the impaired, intact and critical conductances
     ! (so the damage fraction is unchanged). The impairment update gets the
-    ! unscaled k_max, so it never sees the factor.
+    ! unscaled kmax_impaired, so it never sees the factor.
     IF ( l_kscale ) THEN
       kmax_sun_2l(l)     = kmax_sun_2l(l)     * kplant_scale(l)
       kmax_shd_2l(l)     = kmax_shd_2l(l)     * kplant_scale(l)
@@ -4374,7 +4378,7 @@ CASE ( 7 )
             land_pts, n_lit, open_land_index, ft, psi_leaf, psi_src,           &
             psi_stem,                                                          &
           ! IN OUT
-            k_max, psi_leaf_extreme, psi_root_extreme,                         &
+            kmax_impaired, psi_leaf_extreme, psi_root_extreme,                 &
           ! IN (recovery)
             lai, canht, anetc,                                                 &
           ! IN (leaf classes)
@@ -4661,13 +4665,13 @@ IF ( l_cap_store ) THEN
   ! potentials of the total (stomatal plus cuticular) flux. Also the unlit
   ! points where the leak acts, so the night leak's psi drives the loss of
   ! conductance.
-  l_in_impair(:) = .FALSE.
+  l_impair_done(:) = .FALSE.
   DO m = 1,n_lit
-    l_in_impair(open_land_index(m)) = .TRUE.
+    l_impair_done(open_land_index(m)) = .TRUE.
   END DO
   DO m = 1,veg_pts
     l = veg_index(m)
-    IF ( l_leak_on(l) .AND. .NOT. l_in_impair(l) ) THEN
+    IF ( l_leak_on(l) .AND. .NOT. l_impair_done(l) ) THEN
       n_lit = n_lit + 1
       open_land_index(n_lit) = l
     END IF
@@ -4682,7 +4686,7 @@ IF ( l_cap_store ) THEN
             land_pts, n_lit, open_land_index, ft, psi_leaf, psi_src,           &
             psi_stem,                                                          &
           ! IN OUT
-            k_max, psi_leaf_extreme, psi_root_extreme,                         &
+            kmax_impaired, psi_leaf_extreme, psi_root_extreme,                 &
           ! IN (recovery)
             lai, canht, anetc,                                                 &
           ! IN (leaf classes)
@@ -4693,7 +4697,7 @@ IF ( l_cap_store ) THEN
             land_pts, n_lit, open_land_index, ft, psi_leaf, psi_src,           &
             psi_stem,                                                          &
           ! IN OUT
-            k_max, psi_leaf_extreme, psi_root_extreme,                         &
+            kmax_impaired, psi_leaf_extreme, psi_root_extreme,                 &
           ! IN (recovery)
             lai, canht, anetc )
   END IF
@@ -4747,10 +4751,10 @@ IF ( l_cap_store ) THEN
         ! f = 1 - rho / rho_cw.
         IF ( xyl_lumen_frac(ft) >= 0.0 ) THEN
           w_xyl_full = rho_water * nsc_sapwood(l,ft)                           &
-                       / (c_w_cav * wood_density(ft)) * xyl_lumen_frac(ft)
+                       / (c_frac_wood * wood_density(ft)) * xyl_lumen_frac(ft)
         ELSE
-          w_xyl_full = rho_water * nsc_sapwood(l,ft) / c_w_cav                 &
-                       * (1.0 / wood_density(ft) - 1.0 / rho_cw_cav)
+          w_xyl_full = rho_water * nsc_sapwood(l,ft) / c_frac_wood             &
+                       * (1.0 / wood_density(ft) - 1.0 / rho_wood_substance)
         END IF
 
         ! The water the conduits should hold now: the share not lost,
@@ -6206,7 +6210,7 @@ CALL stom_opt_mod (                                                            &
     kmax_imp_lyr, kcrit_leaf_lyr, gl_max_eff, ipar,                            &
     l_multilayer, r_bl_x, zeros_pts, zeros_pts,                                &
     kmax_leaf_lyr, b_pft_pts, c_pft_pts,                                       &
-    psi_leaf_extreme, psi_root_extreme, l_ml_ximp,                             &
+    psi_leaf_extreme, psi_root_extreme, l_ml_impair,                           &
     ! IN OUT
     rd_c,                                                                      &
     ! OUT
