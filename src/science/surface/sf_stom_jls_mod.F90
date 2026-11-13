@@ -177,7 +177,7 @@ USE stom_opt_jls_mod, ONLY: stom_opt_mod, som_lambda_eff_pft,                  &
                             set_leaf_temp_ci, clear_leaf_temp_ci
                             ! MDK, 04/11/26
 USE plant_water_store_mod, ONLY: store_w, store_q, store_c,                    &
-                                 store_state_alloc, store_unset,               &
+                                 store_state_alloc,                            &
                                  store_w_shed, leak_e, store_q_gap,            &
                                  store_w_xyl, store_q_xyl
                             ! MDK, 05/11/26
@@ -1251,10 +1251,11 @@ LOGICAL :: l_leak_on(land_pts)
                             ! Points where the leak binds.
 REAL(KIND=real_jlslsm), PARAMETER :: lai_store_min = 0.01
                             ! Least LAI (m2 m-2) for the store: below it the
-                            ! store is dropped, as psi = W / C has no
+                            ! store is not used (its deficit is refilled and
+                            ! it is counted full), as psi = W / C has no
                             ! meaning as C goes to 0.
                             !
-                            ! MDK, 22/10/26
+                            ! MDK, 13/11/26
 REAL(KIND=real_jlslsm) :: dq_opt(land_pts)
                             ! Humidity deficit the stomatal optimisation
                             ! uses (kg kg-1), with and without coupled
@@ -4598,11 +4599,14 @@ IF ( l_cap_store ) THEN
   ! leak's E is cut where the leaf would end below psi_floor_leaf
   ! (store_cpl_leak_limit). q goes to store_q (kg m-2 s-1), which sf_evap
   ! takes off the soil extraction, so the water is conserved. With almost
-  ! no leaves (LAI < lai_store_min) the store is dropped (unset), and the
-  ! water it has given and not yet taken back (its deficit, store_w
-  ! <= 0) is drawn from the soil over the step, as a refill, so a store set
-  ! again later starts full without making water; a store not yet set
-  ! (first step, or a dump without it) starts at the step's stem psi.
+  ! no leaves (LAI < lai_store_min) the store is not used: the water it has
+  ! given and not yet taken back (its deficit, store_w <= 0) is drawn from
+  ! the soil over the step, as a refill, and the store is counted full
+  ! (store_w = 0). What the soil cannot give goes back to the store's
+  ! deficit (store_return) and is drawn again on the next step, so the
+  ! store comes back into use full, without making or losing water. A
+  ! store not yet set (first step, or a dump without it) starts at the
+  ! step's stem psi.
   DO m = 1,veg_pts
     l = veg_index(m)
     e_store_bal(l) = MAX(el(l), 0.0)
@@ -4624,13 +4628,17 @@ IF ( l_cap_store ) THEN
     ! The store's capacitance (mol m-2 Pa-1).
     c_store = store_c(l,ft)
 
-    ! Almost no leaves: the store is dropped, its deficit refilled from
-    ! the soil over the step.
+    ! Almost no leaves: the store is not used, its deficit is refilled
+    ! from the soil over the step and it is counted full. A store not yet
+    ! set stays unset.
+    !
+    ! MDK, 13/11/26
     IF ( lai(l) < lai_store_min ) THEN
-      store_q(l,ft)  = 0.0
-      IF ( store_w(l,ft) <= 0.0 )                                              &
+      store_q(l,ft) = 0.0
+      IF ( store_w(l,ft) <= 0.0 ) THEN
         store_q(l,ft) = store_w(l,ft) * Water_kg_per_mol / timestep
-      store_w(l,ft)  = store_unset
+        store_w(l,ft) = 0.0
+      END IF
       CYCLE
     END IF
     ! The store set: its balance at the final E, and kplant without the
