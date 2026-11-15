@@ -2361,7 +2361,8 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 cgain_profit_model, sox_opt_profit_model,      &
                                 cap_profit_model, pm2_profit_model,            &
                                 som_light_k, som_gain_model, som_gain_rd0,     &
-                                som_gain_gross, l_som_edge_bound,              &
+                                som_gain_gross, som_gain_net,                  &
+                                l_som_edge_bound,                              &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_stomatal_response,                     &
                                 ximpair_damage_lowers_psi_leaf,                &
@@ -3038,6 +3039,15 @@ CONTAINS
     l_shut = .TRUE.
     RETURN
   END IF
+
+  ! The net gain: the scale is no smaller than the leaf's dark respiration.
+  ! Where the most the leaf can earn is less than it respires, the gain is
+  ! then below 1 at the edge, so the stomata close gradually as A_max nears
+  ! 0, not in one step where it reaches 0.
+  !
+  ! MDK, 15/11/26
+  IF ( som_gain_model == som_gain_net .AND. .NOT. l_profit_absolute )          &
+    max_al = MAX(max_al, rd(l))
 
   ! The shared root and stem: this class's A at its edge for the other
   ! class's search, and with the whole-plant gain (l_shared_gain_path)

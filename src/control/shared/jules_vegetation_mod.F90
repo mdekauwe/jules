@@ -552,10 +552,17 @@ INTEGER ::                                                                     &
   som_gain_model = som_gain_net
       ! The carbon gain of profit max in the bounded search
       ! (som_ci_search = 2), each over its value at the hydraulic edge of
-      ! the search:
+      ! the search unless stated:
       !
-      ! 0 (som_gain_net, default): net photosynthesis, A. The stomata are
-      !   closed where A at the edge is 0 or less.
+      ! 0 (som_gain_net, default): net photosynthesis, A, over the larger
+      !   of its value at the edge, A_max, and the leaf's dark respiration,
+      !
+      !     gain = A / MAX(A_max, Rd)
+      !
+      !   Where the most the leaf can earn is less than it respires, the
+      !   gain is below 1 at the edge and falls with the carbon on offer,
+      !   so the stomata close gradually as A_max nears 0 (heat). They are
+      !   closed where A_max is 0 or less.
       ! 1 (som_gain_rd0): the photosynthesis of the leaf with no dark
       !   respiration at the candidate's stomatal conductance (Sperry et
       !   al. 2017). It is above 0 and rises with the conductance whenever
