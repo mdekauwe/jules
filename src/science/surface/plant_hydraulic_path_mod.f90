@@ -64,10 +64,10 @@ PUBLIC :: set_ksr_path                                                         &
 ! reference in stom_opt_mod.
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
 
-! Hydraulic redistribution (som_soil_root_model = 1): the water each PFT's
-! roots move between the soil layers (kg m-2 s-1, per m2 of the PFT's
-! tile; > 0 taken from the layer, < 0 put into it). It sums to zero over
-! the layers. Set by physiol, added to the layers' extraction by sf_evap.
+! Hydraulic redistribution (l_som_hydraulic_redistribution): the water each
+! PFT's roots move between the soil layers (kg m-2 s-1, per m2 of the PFT's
+! tile; > 0 taken from the layer, < 0 put into it). It sums to zero over the
+! layers. Set by physiol, added to the layers' extraction by sf_evap.
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: hr_ext_pft(:,:,:)
 
 ! Plant capacitance coupled to the optimiser (the capacitance store): the

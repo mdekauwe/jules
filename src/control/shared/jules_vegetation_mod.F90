@@ -582,22 +582,25 @@ LOGICAL ::                                                                     &
       !
       ! MDK, 15/11/26
 
-INTEGER ::                                                                     &
-  som_soil_root_model = 0
-      ! How the soil layers feed the roots under the stomatal optimisation
-      ! (with the soil-to-root link, l_som_rhizo_series):
-      !   0 (default) each layer's link is its soil-to-root conductance
-      !     k_i (Bonan et al. 2014), at the layer's water potential psi_i;
-      !     layers drier than the root give nothing.
-      !   1 the soil layers of the CLM5 plant hydraulics (Kennedy et al.
-      !     2019): each layer's potential is less the height of water above
-      !     it, psi_i - rho_w g z_i; each layer's link is the soil k_i in
-      !     series with the layer's roots, the root segment's intact
-      !     conductance shared by the root fraction and lowered by the
-      !     root's vulnerability curve at the layer's potential; and layer
-      !     flows may be negative, so the roots move water between layers
-      !     (hydraulic redistribution), never into the top layer (as CLM5,
-      !     so it does not feed soil evaporation).
+LOGICAL ::                                                                     &
+  l_som_hydraulic_redistribution = .FALSE.
+      ! Hydraulic redistribution under the stomatal optimisation (with the
+      ! soil-to-root link, l_som_rhizo_series), as the soil layers of the
+      ! CLM5 plant hydraulics (Kennedy et al. 2019). When .TRUE.:
+      !   - layer flows may be negative, so the roots move water from wet
+      !     layers into dry ones (mostly at night);
+      !   - each layer's link is the soil-to-root conductance k_i in series
+      !     with the layer's roots, the root segment's intact conductance
+      !     shared by the root fraction and lowered by the root's
+      !     vulnerability curve at the layer's potential, which sets how
+      !     the uptake is split between the layers and limits the
+      !     redistribution;
+      !   - each layer counts at its water potential less the height of
+      !     water above it, psi_i - rho_w g z_i.
+      ! The plant's own hydraulics (its total soil-to-root conductance and
+      ! the root segment) are unchanged. .FALSE.: each layer's share is
+      ! set by its soil conductance at its water potential, and layers
+      ! drier than the root give nothing.
       !
       ! MDK, 15/11/26
 
@@ -1560,7 +1563,7 @@ NAMELIST  / jules_vegetation/                                                  &
     leaf_shelter, leaf_aero_model, leaf_wind_ext,                              &
     kplant_model,                                                              &
     l_som_gain_gross,                                                          &
-    som_cuticular_leak, som_soil_root_model,                                   &
+    som_cuticular_leak, l_som_hydraulic_redistribution,                        &
     l_som_shared_stem, l_som_shared_gain,                                      &
     l_som_closed_refix, l_som_edge_bound, som_gain_model,                      &
     l_rd_heskel, rd_heskel_b, rd_heskel_c,                                     &
@@ -2546,20 +2549,15 @@ END IF
 ! the plant hydraulics of the profit max.
 l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt )
 
-! The CLM5 soil layers (som_soil_root_model = 1) work on the soil-to-root
-! link of the stomatal optimisation and take the root segment's curve.
+! Hydraulic redistribution works on the soil-to-root link of the stomatal
+! optimisation and takes the root segment's curve.
 !
 ! MDK, 15/11/26
-IF ( som_soil_root_model < 0 .OR. som_soil_root_model > 1 ) THEN
+IF ( l_som_hydraulic_redistribution .AND. ( .NOT. l_som_rhizo_series .OR.      &
+                                            .NOT. l_som_plant_segments ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'som_soil_root_model should be 0 or 1 (CLM5 soil layers)')
-END IF
-IF ( som_soil_root_model == 1 .AND. ( .NOT. l_som_rhizo_series .OR.            &
-                                      .NOT. l_som_plant_segments ) ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'som_soil_root_model = 1 requires the stomatal ' //             &
+               'l_som_hydraulic_redistribution requires the stomatal ' //      &
                'optimisation (stomata_model = 4 to 7 or 9 to 11) and ' //      &
                'l_som_plant_segments')
 END IF
@@ -3097,7 +3095,8 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' som_cuticular_leak = ', som_cuticular_leak
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 04/11/26
 
-WRITE(lineBuffer,*) ' som_soil_root_model = ', som_soil_root_model
+WRITE(lineBuffer,*) ' l_som_hydraulic_redistribution = ',                     &
+  l_som_hydraulic_redistribution
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 15/11/26
 
 WRITE(lineBuffer,*) ' l_som_shared_stem = ', l_som_shared_stem
@@ -3309,12 +3308,12 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 31
+INTEGER, PARAMETER :: n_int = 30
                                   ! The INTEGER items of my_namelist.
 INTEGER, PARAMETER :: n_real = 22 + (n_photo_coef * 5)
                                   ! The REAL items: 22 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 68 + npft_max
+INTEGER, PARAMETER :: n_log = 69 + npft_max
                                   ! The LOGICAL items: 64 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
@@ -3334,7 +3333,6 @@ TYPE :: my_namelist
   INTEGER :: nsc_heartwood_model   ! MDK, 04/11/26
   INTEGER :: nsc_damage_response   ! MDK, 04/11/26
   INTEGER :: som_cuticular_leak   ! MDK, 04/11/26
-  INTEGER :: som_soil_root_model   ! MDK, 15/11/26
   INTEGER :: nsc_n_ring   ! MDK, 30/10/26
   INTEGER :: ilayers
   INTEGER :: leaf_flux_mod !JBaguley
@@ -3396,6 +3394,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_shared_gain   ! MDK, 30/10/26
   LOGICAL :: l_som_closed_refix   ! MDK, 15/11/26
   LOGICAL :: l_som_edge_bound   ! MDK, 15/11/26
+  LOGICAL :: l_som_hydraulic_redistribution   ! MDK, 15/11/26
   LOGICAL :: l_rd_heskel   ! MDK, 15/11/26
   LOGICAL :: l_som_capacitance   ! MDK, 23/10/26
   LOGICAL :: l_ximpair_seg_memory
@@ -3528,7 +3527,7 @@ IF (mype == 0) THEN
   my_nml % nsc_heartwood_model = nsc_heartwood_model   ! MDK, 04/11/26
   my_nml % nsc_damage_response = nsc_damage_response   ! MDK, 04/11/26
   my_nml % som_cuticular_leak = som_cuticular_leak   ! MDK, 04/11/26
-  my_nml % som_soil_root_model = som_soil_root_model   ! MDK, 15/11/26
+  my_nml % l_som_hydraulic_redistribution = l_som_hydraulic_redistribution
   my_nml % leaf_shelter = leaf_shelter
   my_nml % leaf_width = leaf_width
   my_nml % leaf_wind_ext = leaf_wind_ext
@@ -3661,7 +3660,7 @@ IF (mype /= 0) THEN
   nsc_heartwood_model = my_nml % nsc_heartwood_model   ! MDK, 04/11/26
   nsc_damage_response = my_nml % nsc_damage_response   ! MDK, 04/11/26
   som_cuticular_leak = my_nml % som_cuticular_leak   ! MDK, 04/11/26
-  som_soil_root_model = my_nml % som_soil_root_model   ! MDK, 15/11/26
+  l_som_hydraulic_redistribution = my_nml % l_som_hydraulic_redistribution
   leaf_shelter = my_nml % leaf_shelter
   leaf_width = my_nml % leaf_width
   leaf_wind_ext = my_nml % leaf_wind_ext

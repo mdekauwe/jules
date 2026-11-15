@@ -11152,12 +11152,13 @@ DATA metadata(859) / var_metadata(                                             &
     "kg m-2 s-1"                                                               &
   ) /
 !-----------------------------------------------------------------------------
-! Metadata for hr_flux_pft (som_soil_root_model = 1)
+! Metadata for hydraulic_redistribution_flux_pft
+! (l_som_hydraulic_redistribution)
 ! MDK, 15/11/26
 !-----------------------------------------------------------------------------
 DATA metadata(860) / var_metadata(                                             &
 ! String identifier
-    'hr_flux_pft',                                                             &
+    'hydraulic_redistribution_flux_pft',                                       &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name

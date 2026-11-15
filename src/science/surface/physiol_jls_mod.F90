@@ -136,7 +136,7 @@ USE pftparm, ONLY: pft_xylem_impairment_model
   ! Memory model PFTs need the frozen share (l_ximpair_frozen_hold).
   ! MDK, 06/11/26
 USE jules_vegetation_mod, ONLY: l_phen_psi, l_phen_fuse
-USE jules_vegetation_mod, ONLY: som_soil_root_model
+USE jules_vegetation_mod, ONLY: l_som_hydraulic_redistribution
 USE pftparm, ONLY: is_set, phen_psi_tlp, shed_la50
   ! Leaf shedding PFTs need the frozen share too (l_phen_psi, l_phen_fuse).
   !
@@ -763,7 +763,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
       !
       ! MDK, 01/11/26
 
-! The CLM5 soil layers (som_soil_root_model = 1), at one point:
+! Hydraulic redistribution (l_som_hydraulic_redistribution), at one point:
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_lay(sm_levels),                                                          &
       ! Each layer's water potential less the height of water above it,
@@ -782,9 +782,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! A layer's root conductance (kg m-3 s-1).
   psi_node,                                                                    &
       ! The root node's water potential on these links (Pa).
-  hr_give, hr_take, hr_fac, z_mid
-      ! Water given and taken by the layers (kg m-2 s-1), the factor that
-      ! balances or limits them, and a layer's mid-depth (m).
+  hr_fac, z_mid
+      ! The factor that limits the redistribution, and a layer's
+      ! mid-depth (m).
       !
       ! MDK, 15/11/26
 LOGICAL, SAVE :: l_warned_ksr = .FALSE.
@@ -1724,7 +1724,7 @@ DO n = 1,npft
     ! The CLM5 soil layers: this PFT's redistribution, set below.
     !
     ! MDK, 15/11/26
-    IF ( som_soil_root_model == 1 ) THEN
+    IF ( l_som_hydraulic_redistribution ) THEN
       IF ( .NOT. ALLOCATED(hr_ext_pft) )                                       &
         ALLOCATE(hr_ext_pft(land_pts, sm_levels, npft))
       hr_ext_pft(:,:,n) = 0.0
@@ -1777,7 +1777,7 @@ DO n = 1,npft
         wt_ext_type(l,:,n) = q_rs(:) / SUM(q_rs(:))
       END IF
 
-      IF ( som_soil_root_model == 1 ) CALL clm5_layers()
+      IF ( l_som_hydraulic_redistribution ) CALL clm5_layers()
     END DO
   END IF
 
@@ -2803,8 +2803,8 @@ CONTAINS
 
 !-----------------------------------------------------------------------------
 ! The soil layers of the CLM5 plant hydraulics (Kennedy et al. 2019;
-! som_soil_root_model = 1) at point l of PFT n: the extraction weights and
-! the hydraulic redistribution.
+! l_som_hydraulic_redistribution) at point l of PFT n: the extraction
+! weights and the hydraulic redistribution.
 !
 !   1. Each layer counts at its water potential less the height of water
 !      above it, psi_i - rho_w g z_i (z_i the layer's mid-depth).
@@ -2828,11 +2828,9 @@ CONTAINS
 !
 !        r_i = q_i - w_i E,   sum r_i = 0
 !
-!      so sf_evap takes the transpiration with w_i and adds r_i.
-!   5. The top layer receives no redistributed water (as CLM5, so it does
-!      not feed soil evaporation): its r_1 < 0 is set to 0 and the givers
-!      are scaled to what the other layers take.
-!   6. No layer gives more than a tenth of its unfrozen water in a step to
+!      so sf_evap takes the transpiration with w_i and adds r_i. Every
+!      layer, the top one too, can give and receive.
+!   5. No layer gives more than a tenth of its unfrozen water in a step to
 !      the redistribution, which keeps the explicit step stable.
 !
 ! MDK, 15/11/26
@@ -2870,15 +2868,7 @@ IF ( SUM(q_rs(:)) > TINY(1.0_real_jlslsm) )                                    &
   wt_ext_type(l,:,n) = q_rs(:) / SUM(q_rs(:))
 hr_lay(:) = q_lay(:) - wt_ext_type(l,:,n) * SUM(q_lay(:))
 
-! 5. Nothing into the top layer.
-hr_lay(1) = MAX(hr_lay(1), 0.0)
-hr_give = SUM(MAX(hr_lay(:), 0.0))
-hr_take = SUM(MAX(-hr_lay(:), 0.0))
-IF ( hr_give <= TINY(1.0_real_jlslsm) .OR.                                     &
-     hr_take <= TINY(1.0_real_jlslsm) ) RETURN
-WHERE ( hr_lay(:) > 0.0 ) hr_lay(:) = hr_lay(:) * hr_take / hr_give
-
-! 6. At most a tenth of a giving layer's unfrozen water in a step.
+! 5. At most a tenth of a giving layer's unfrozen water in a step.
 hr_fac = 1.0
 DO kk = 1,sm_levels
   IF ( hr_lay(kk) > 0.0 )                                                      &

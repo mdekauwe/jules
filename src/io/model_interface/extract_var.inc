@@ -4171,10 +4171,10 @@ CASE ( 'store_q_xyl_pft' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-! The water the roots move between the soil layers (som_soil_root_model =
-! 1): the sum of the giving layers' flows.
+! The water the roots move between the soil layers
+! (l_som_hydraulic_redistribution): the sum of the giving layers' flows.
 ! MDK, 15/11/26
-CASE ( 'hr_flux_pft' )
+CASE ( 'hydraulic_redistribution_flux_pft' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(hr_ext_pft) )                                                 &
     workspace_pft(:,:) = SUM(MAX(hr_ext_pft(:,:,:), 0.0), DIM = 2)

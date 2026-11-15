@@ -34,7 +34,8 @@ USE pftparm, ONLY: calc_rz_psi, fsmc_mod, root_psi_crit
 USE hyd_psi_mod, ONLY: psi_from_sthu, bound_soil_psi
 USE jules_vegetation_mod, ONLY: fsmc_shape, leaf_flux_mod, leaf_flux_stom_opt, &
                                 stomata_model, stomata_sox_analytical,         &
-                                l_som_rhizo_series, som_soil_root_model
+                                l_som_rhizo_series,                            &
+                                l_som_hydraulic_redistribution
 USE water_constants_mod, ONLY: rho_water
 USE planet_constants_mod, ONLY: g
 USE hyd_con_ic_mod, ONLY: hyd_con_ic
@@ -193,7 +194,7 @@ REAL(KIND=real_jlslsm), PARAMETER :: sthu_min = 0.01 ! required by psi_from_sthu
 REAL(KIND=real_jlslsm) :: ones(npnts)
 REAL(KIND=real_jlslsm) :: soil_to_root_k_ft(npnts,nshyd)
 REAL(KIND=real_jlslsm) :: psi_grav(npnts,nshyd)
-                      ! The CLM5 soil layers (som_soil_root_model = 1): each
+                      ! Hydraulic redistribution (the CLM5 layers): each
                       ! layer's water potential less the height of water
                       ! above it, psi - rho_w g z, z the layer's mid-depth
                       ! (Pa). MDK, 15/11/26
@@ -474,11 +475,11 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
     psi_root_zone = calc_weighted_mean(npnts, nshyd, surft_pts, surft_index,   &
                                        psi, wt_ext)
 
-    ! The CLM5 soil layers (som_soil_root_model = 1): water from a deeper
+    ! Hydraulic redistribution (the CLM5 layers): water from a deeper
     ! layer has further to rise, so each layer counts at psi - rho_w g z.
     !
     ! MDK, 15/11/26
-    IF ( som_soil_root_model == 1 .AND. l_som_rhizo_series ) THEN
+    IF ( l_som_hydraulic_redistribution .AND. l_som_rhizo_series ) THEN
       psi_grav(:,:) = 0.0
       DO n = 1,nshyd
         z_mid = SUM(dzsoil(1:n)) - 0.5 * dzsoil(n)
