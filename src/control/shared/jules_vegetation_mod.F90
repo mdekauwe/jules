@@ -542,17 +542,38 @@ INTEGER ::                                                                     &
       !
       ! JBaguley; MDK, 25/10/26
 
+INTEGER, PARAMETER ::                                                          &
+  som_gain_net   = 0,                                                          &
+  som_gain_rd0   = 1,                                                          &
+  som_gain_gross = 2
+      ! Values of som_gain_model.
+
+INTEGER ::                                                                     &
+  som_gain_model = som_gain_net
+      ! The carbon gain of profit max in the bounded search
+      ! (som_ci_search = 2), each over its value at the hydraulic edge of
+      ! the search:
+      !
+      ! 0 (som_gain_net, default): net photosynthesis, A. The stomata are
+      !   closed where A at the edge is 0 or less.
+      ! 1 (som_gain_rd0): the photosynthesis of the leaf with no dark
+      !   respiration at the candidate's stomatal conductance (Sperry et
+      !   al. 2017). It is above 0 and rises with the conductance whenever
+      !   there is light. The net photosynthesis and internal CO2 of the
+      !   leaf are those of the leaf with its dark respiration at the
+      !   chosen conductance, and can be below 0 and above the air's CO2.
+      !   With the nonstomatal limitation the gain is that of option 0.
+      ! 2 (som_gain_gross): net photosynthesis plus dark respiration,
+      !   A + Rd, of the leaf with its dark respiration.
+      !
+      ! MDK, 15/11/26
+
 LOGICAL ::                                                                     &
   l_som_gain_gross = .FALSE.
-      ! When .TRUE., the carbon gain in the profit-max search is normalised
-      ! gross assimilation, (An + Rd)/max(An + Rd), instead of net An/max(An).
-      ! Rd does not depend on gs, so it cannot be traded against water, but
-      ! normalising net A stretches the gain when Rd is a large part of A
-      ! (low light) and fails near the compensation point. GPP/NPP are
-      ! unaffected (only the optimisation's gain changes). Bounded search
-      ! only (som_ci_search = 2).
+      ! Retired: read so that namelists that set it still run. When .TRUE.
+      ! and som_gain_model is 0, som_gain_model is set to 2.
       !
-      ! MDK, 14/11/26
+      ! MDK, 15/11/26
 
 INTEGER ::                                                                     &
   som_cuticular_leak = 0
@@ -1515,7 +1536,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_gain_gross,                                                          &
     som_cuticular_leak,                                                        &
     l_som_shared_stem, l_som_shared_gain,                                      &
-    l_som_closed_refix, l_som_edge_bound,                                      &
+    l_som_closed_refix, l_som_edge_bound, som_gain_model,                      &
     l_rd_heskel, rd_heskel_b, rd_heskel_c,                                     &
     l_som_capacitance,                                                         &
     l_som_gravity,                                                             &
@@ -2460,6 +2481,33 @@ IF ( .NOT. l_som_closed_refix ) THEN
   l_som_closed_refix = .TRUE.
 END IF
 
+! The retired l_som_gain_gross selects som_gain_model = 2 where
+! som_gain_model is left at its default.
+!
+! MDK, 15/11/26
+IF ( l_som_gain_gross ) THEN
+  errcode = -101
+
+  IF ( som_gain_model == som_gain_net ) THEN
+    som_gain_model = som_gain_gross
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'l_som_gain_gross is retired: som_gain_model set to 2 ' //    &
+                 '(net photosynthesis plus dark respiration)')
+  ELSE
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 'l_som_gain_gross is retired and ignored: ' //                &
+                 'som_gain_model is set')
+  END IF
+
+  l_som_gain_gross = .FALSE.
+END IF
+
+IF ( som_gain_model < som_gain_net .OR. som_gain_model > som_gain_gross ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'som_gain_model must be 0, 1 or 2')
+END IF
+
 IF ( l_som_root_supply ) THEN
   errcode = -101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -3013,6 +3061,8 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 30/10/26
 
 WRITE(lineBuffer,*) ' l_som_closed_refix = ', l_som_closed_refix
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 14/11/26
+WRITE(lineBuffer,*) ' som_gain_model = ', som_gain_model
+CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 15/11/26
 WRITE(lineBuffer,*) ' l_som_edge_bound = ', l_som_edge_bound
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 15/11/26
 WRITE(lineBuffer,*) ' l_rd_heskel = ', l_rd_heskel, rd_heskel_b, rd_heskel_c
@@ -3212,7 +3262,7 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 29
+INTEGER, PARAMETER :: n_int = 30
                                   ! The INTEGER items of my_namelist.
 INTEGER, PARAMETER :: n_real = 22 + (n_photo_coef * 5)
                                   ! The REAL items: 22 scalars and the five
@@ -3231,6 +3281,7 @@ TYPE :: my_namelist
   INTEGER :: can_rad_mod
   INTEGER :: leaf_aero_model
   INTEGER :: kplant_model
+  INTEGER :: som_gain_model   ! MDK, 15/11/26
   INTEGER :: leaf_shed_combine   ! MDK, 09/11/26
   INTEGER :: heat_phen_temp   ! MDK, 09/11/26
   INTEGER :: nsc_heartwood_model   ! MDK, 04/11/26
@@ -3438,6 +3489,7 @@ IF (mype == 0) THEN
   my_nml % l_som_shared_gain = l_som_shared_gain
   my_nml % l_som_closed_refix = l_som_closed_refix
   my_nml % l_som_edge_bound = l_som_edge_bound
+  my_nml % som_gain_model = som_gain_model
   my_nml % l_rd_heskel = l_rd_heskel
   my_nml % l_som_capacitance = l_som_capacitance
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
@@ -3569,6 +3621,7 @@ IF (mype /= 0) THEN
   l_som_shared_gain = my_nml % l_som_shared_gain
   l_som_closed_refix = my_nml % l_som_closed_refix
   l_som_edge_bound = my_nml % l_som_edge_bound
+  som_gain_model = my_nml % som_gain_model
   l_rd_heskel = my_nml % l_rd_heskel
   l_som_capacitance = my_nml % l_som_capacitance
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory

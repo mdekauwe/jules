@@ -2360,8 +2360,8 @@ USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 cgain_profit_model, sox_opt_profit_model,      &
                                 cap_profit_model, pm2_profit_model,            &
-                                som_light_k, l_som_gain_gross,                 &
-                                l_som_edge_bound,                              &
+                                som_light_k, som_gain_model, som_gain_rd0,     &
+                                som_gain_gross, l_som_edge_bound,              &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_stomatal_response,                     &
                                 ximpair_damage_lowers_psi_leaf,                &
@@ -2609,10 +2609,18 @@ REAL(KIND=real_jlslsm) :: kcrit_hc
 
 REAL(KIND=real_jlslsm) :: max_al
                             ! Gain scale A_max.
+LOGICAL :: l_rd0
+                            ! The gain is the photosynthesis of the leaf
+                            ! with no dark respiration (som_gain_model 1,
+                            ! profit max).
+REAL(KIND=real_jlslsm) :: rd_s
+                            ! The dark respiration in the photosynthesis of
+                            ! the search's candidates: rd, or 0 with l_rd0.
+                            ! MDK, 15/11/26
 REAL(KIND=real_jlslsm) :: g_off
-                            ! Gain offset: rd for the gross gain
-                            ! (l_som_gain_gross, profit max), 0 otherwise.
-                            ! MDK, 14/11/26
+                            ! Gain offset: rd with the gain A + Rd
+                            ! (som_gain_model 2, profit max), 0 otherwise.
+                            ! MDK, 15/11/26
 REAL(KIND=real_jlslsm) :: k0_ref
                             ! Reference conductance of the hydraulic cost (zero
                             ! flow).
@@ -2784,6 +2792,7 @@ DO j = 1, open_pts
   CALL lambda_diag()
   CALL chosen_state()
   IF ( l_intact_search .AND. gl_chosen(j) > 0.0 ) CALL hold_leaf_psi()
+  IF ( l_rd0 .AND. gl_chosen(j) > 0.0 ) CALL respiring_leaf()
   CALL stem_psi_of_choice()
 END DO
 
@@ -2806,12 +2815,25 @@ CONTAINS
   IF ( PRESENT(lambda_chosen) ) lambda_chosen(j) = 0.0
   idx_one_pt(1) = open_index(j)
 
-  ! Gross gain (l_som_gain_gross): rd is added to A in the profit max gain
-  ! and its scale. The other scores work on net A.
+  ! The carbon gain of profit max (som_gain_model). With A + Rd, rd is
+  ! added to A in the gain and its scale. With the gain of the leaf with
+  ! no dark respiration, the candidates of the search are that leaf's
+  ! (rd_s = 0), and the leaf with its respiration is solved at the chosen
+  ! conductance (respiring_leaf). The other scores work on net A.
   !
-  ! MDK, 14/11/26
-  g_off = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
-  IF ( l_profit_absolute ) g_off = 0.0
+  ! MDK, 15/11/26
+  g_off = 0.0
+  IF ( som_gain_model == som_gain_gross .AND. .NOT. l_profit_absolute )        &
+    g_off = rd(l)
+  l_rd0 = som_gain_model == som_gain_rd0 .AND. .NOT. l_profit_absolute         &
+          .AND. .NOT. l_som_nsl
+  rd_s  = rd(l)
+
+  IF ( l_rd0 ) THEN
+    g_off = 0.0
+    rd_s  = 0.0
+  END IF
+
   lai_call = 1.0
 
   ! The leaf area of the call from the intact plant (kmax_ref; = kmax
@@ -3662,7 +3684,7 @@ CONTAINS
     al_ev = leaf_net_photo( pft, pft_photo_model, l_multilayer, ci, vcmax(l) * &
                            f(1), kc(l) * f(3), ko(l) * f(4), oi(l), ccp(l) *   &
                            f(5), km(l) * f(6), je(l) * f(2), acr(l), apar(l),  &
-                           fapar_lf(l), ipar(l), je_ratio(l), pstar(l), rd(l)  &
+                           fapar_lf(l), ipar(l), je_ratio(l), pstar(l), rd_s   &
                            * f(7) )
     al_full = al_ev
     IF ( f_nsl < 1.0 ) al_ev = f_nsl * (al_full + rd(l) * f(7)) - rd(l) * f(7)
@@ -3909,7 +3931,7 @@ CONTAINS
   photo_al = leaf_net_photo( pft, pft_photo_model, l_multilayer, ci,           &
                              vcmax(l), kc(l), ko(l), oi(l), ccp(l), km(l),     &
                              je(l), acr(l), apar(l), fapar_lf(l), ipar(l),     &
-                             je_ratio(l), pstar(l), rd(l) )
+                             je_ratio(l), pstar(l), rd_s )
   END FUNCTION photo_al
 
   !---------------------------------------------------------------------------
@@ -4270,6 +4292,8 @@ CONTAINS
   REAL(KIND=real_jlslsm) :: c_lo, c_hi, c_md, a_hi
   INTEGER :: it
 
+  ! (The closed leaf respires, whatever the gain of the search.)
+  rd_s = rd(l)
   c_lo = ci_lo
   c_hi = closed_ci_fac * ca(l)
   a_hi = photo_al(c_hi)
@@ -4291,7 +4315,98 @@ CONTAINS
     ci_chosen(j) = 0.5 * (c_lo + c_hi)
     al_chosen(j) = 0.0
   END IF
+
+  IF ( l_rd0 ) rd_s = 0.0
   END SUBROUTINE closed_refix
+
+  !---------------------------------------------------------------------------
+  ! With the gain of the leaf with no dark respiration (som_gain_model 1):
+  ! give the chosen stomatal conductance gl the internal CO2 and net
+  ! photosynthesis of the leaf with its respiration. Ci is where
+  ! photosynthesis equals the CO2 supply through the stomata and the leaf
+  ! boundary layer,
+  !
+  !   A(ci) = (ca - ci) / (R T (1.6 / gl + 1.37 r_bl))
+  !
+  ! found by bisection between 0 and resp_ci_fac times ca (A rises with ci
+  ! and the supply falls). Where respiration exceeds photosynthesis, ci is
+  ! above ca and A is below 0. With l_leaf_temp_ci the leaf temperature T is
+  ! that of the conductance,
+  !
+  !   T = (ltc_a - ltc_b c_e (dq0 - ltc_s T0)) / (1 + ltc_b c_e ltc_s)
+  !
+  ! as in state_at_leaf_temp, and the photosynthesis parameters and Rd are
+  ! scaled from T0 to T. The transpiration, leaf water potential and
+  ! conductances stay those of the search.
+  !
+  ! MDK, 15/11/26
+  !---------------------------------------------------------------------------
+  SUBROUTINE respiring_leaf()
+  REAL(KIND=real_jlslsm), PARAMETER :: resp_ci_fac = 20.0, dt_resp = 10.0
+  INTEGER, PARAMETER :: n_t_iter = 4, n_ci_bis = 40
+  REAL(KIND=real_jlslsm) :: g, tl, f(n_ltc_par), c_e, g_co2, c_lo, c_hi, c_md
+  REAL(KIND=real_jlslsm) :: a_md
+  LOGICAL :: l_bl
+  INTEGER :: it
+
+  g = gl_chosen(j)
+  l_ltc_pt = .FALSE.
+  IF ( l_ltc ) l_ltc_pt = ltc_b(l) > 0.0
+  l_bl = l_som_coupled_e .OR. r_bl(l) > 0.0
+  tl = t_leaf(l)
+  f(:) = 1.0
+
+  IF ( l_ltc_pt ) THEN
+    DO it = 1, n_t_iter
+      IF ( l_bl ) THEN
+        c_e = e_of_g(g_eff_e(g, r_bl(l), r_ca(l), g_oth(l)), 1.0_real_jlslsm,  &
+                     pstar(l), tl)
+      ELSE
+        c_e = e_of_g(g, 1.0_real_jlslsm, pstar(l), tl)
+      END IF
+
+      tl = ( ltc_a(l) - ltc_b(l) * c_e * (dq(l) - ltc_s(l) * t_leaf(l)) )      &
+           / ( 1.0 + ltc_b(l) * c_e * ltc_s(l) )
+      tl = MIN(MAX(tl, t_leaf(l) - dt_resp), t_leaf(l) + dt_resp)
+    END DO
+    f(:) = EXP(ltc_dl(l,:) * (tl - t_leaf(l)))
+  END IF
+
+  ! The conductance to CO2 of the stomata and boundary layer (mol m-2 s-1
+  ! Pa-1).
+  IF ( l_bl ) THEN
+    g_co2 = 1.0 / ( rmol * tl * (ratio / g + r_bl_co2_fac * r_bl(l)) )
+  ELSE
+    g_co2 = g / ( rmol * tl * ratio )
+  END IF
+
+  c_lo = 0.0
+  c_hi = resp_ci_fac * ca(l)
+
+  DO it = 0, n_ci_bis
+    c_md = 0.5 * (c_lo + c_hi)
+
+    ! (First the top of the range: taken if A is still below the supply.)
+    IF ( it == 0 ) c_md = c_hi
+    a_md = leaf_net_photo( pft, pft_photo_model, l_multilayer, c_md,           &
+                           vcmax(l) * f(1), kc(l) * f(3), ko(l) * f(4), oi(l), &
+                           ccp(l) * f(5), km(l) * f(6), je(l) * f(2), acr(l),  &
+                           apar(l), fapar_lf(l), ipar(l), je_ratio(l),         &
+                           pstar(l), rd(l) * f(7) )
+
+    IF ( a_md < g_co2 * (ca(l) - c_md) ) THEN
+      IF ( it == 0 ) EXIT
+      c_lo = c_md
+    ELSE
+      c_hi = c_md
+    END IF
+
+  END DO
+
+  ci_chosen(j) = c_md
+  al_chosen(j) = a_md
+  IF ( PRESENT(rd_chosen) ) rd_chosen(j) = rd(l) * f(7)
+  END SUBROUTINE respiring_leaf
 
 END SUBROUTINE stom_opt_bounded_search
 
