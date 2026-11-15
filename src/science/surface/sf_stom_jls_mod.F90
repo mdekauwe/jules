@@ -345,6 +345,12 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! IN Root zone water potential (Pa). Used by the
                             !    stomatal optimisation and by SOX
                             !    (stomata_model = stomata_sox_analytical).
+                            !    The root zone's effective soil water
+                            !    potential: with the stomatal optimisation
+                            !    the layers' potentials weighted by their
+                            !    soil-to-root conductances, sum(k psi) /
+                            !    sum(k) (smc_ext).
+                            !    MDK, 15/11/26
 ,e_supply(land_pts)                                                            &
                             ! IN Transpiration the soil can supply this
                             !    timestep (kg m-2 s-1); negative = no limit

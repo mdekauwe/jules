@@ -123,6 +123,11 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
  psi_root_zone(npnts)                                                          &
 !                     ! (negative) soil water potential (in Pa) in root zone
+!                     ! The root zone's effective soil water potential: the
+!                     ! layers' potentials weighted by the extraction
+!                     ! weights wt_ext, with the stomatal optimisation the
+!                     ! soil-to-root conductances, sum(k psi) / sum(k).
+!                     ! MDK, 15/11/26
 ,fsmc(npnts)
 !                     ! Soil moisture availability factor.
 

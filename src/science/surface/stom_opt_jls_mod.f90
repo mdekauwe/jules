@@ -433,7 +433,11 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
  ca(land_pts)                                                                  &
                              ! Atmospheric CO2 pressure (Pa)
 ,psi_root_zone(land_pts)                                                       &
-                             ! Root zone water potential (Pa)
+                             ! Root zone water potential (Pa): the soil
+                             ! layers' potentials weighted by their
+                             ! soil-to-root conductances, sum(k psi) /
+                             ! sum(k) (smc_ext), the root's potential with
+                             ! no flow.
 ,acr(land_pts)                                                                 &
                              ! Absorbed PAR (mol photons/m2/s).
 ,apar(land_pts)                                                                &
