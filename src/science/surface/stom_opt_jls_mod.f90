@@ -2597,6 +2597,9 @@ REAL(KIND=real_jlslsm) :: k0_sox
                             ! psi_root_zone), which normalises the SOX
                             ! factor (a constant for the point, so it does
                             ! not move the optimum).
+REAL(KIND=real_jlslsm) :: kmax_sox
+                            ! SOX_opt: the kmax of its factor (kmax_ref with
+                            ! xylem impairment).
 REAL(KIND=real_jlslsm) :: kcrit_hc
                             ! kcrit of the hydraulic cost: kcrit, or with
                             ! the shared root and stem the whole plant's
@@ -2842,7 +2845,11 @@ CONTAINS
     l_shared_whole_path = .TRUE.
   END IF
 
-  IF ( l_sox ) k0_sox = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
+  ! SOX_opt with xylem impairment: the factor is on the intact plant
+  ! (kmax_ref), as the profit max cost is with either stomatal response.
+  kmax_sox = kmax(l)
+  IF ( l_xylem_impairment ) kmax_sox = kmax_ref(l)
+  IF ( l_sox ) k0_sox = k_path_zero_flow(pft, l, kmax_sox, psi_root_zone(l))
 
   ! (The plant's k_max: without the soil-to-root link, which would shrink
   ! the reference, and so the cost of a given embolism, as the soil dries.
@@ -4051,10 +4058,11 @@ CONTAINS
   ! part at psi_bar, and k_ref that conductance with no flow (psi_bar at the
   ! root-zone water potential). With the shared root and stem, psi is the
   ! whole plant's leaf psi, the path the whole plant's and kcrit its kcrit.
+  ! With xylem impairment the path is the intact plant's (kmax_sox).
   REAL(KIND=real_jlslsm) FUNCTION sox_factor(psi)
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
   l_shared_whole_path = l_shared_stem_path
-  sox_factor = ( k_path_zero_flow(pft, l, kmax(l),                             &
+  sox_factor = ( k_path_zero_flow(pft, l, kmax_sox,                           &
                                    0.5 * (psi + psi_root_zone(l)))             &
                  - kcrit_hc ) / MAX(k0_sox - kcrit_hc, TINY(1.0_real_jlslsm))
   sox_factor = MAX(sox_factor, 0.0_real_jlslsm)
