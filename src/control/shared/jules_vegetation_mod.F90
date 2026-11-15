@@ -602,6 +602,17 @@ LOGICAL ::                                                                     &
       ! MDK, 30/10/26
 
 LOGICAL ::                                                                     &
+  l_som_closed_refix = .FALSE.
+      ! Profit max with the bounded search (som_ci_search = 2): when
+      ! .TRUE., a leaf that is closed in daylight is at its CO2
+      ! compensation point, where the respired CO2 is refixed and the net
+      ! photosynthesis is 0 (below 0 only where photosynthesis cannot reach
+      ! the dark respiration at any internal CO2). When .FALSE., the closed
+      ! leaf has internal CO2 = ca and net photosynthesis = -Rd.
+      !
+      ! MDK, 14/11/26
+
+LOGICAL ::                                                                     &
   l_som_shared_gain = .FALSE.
       ! With l_som_shared_stem: when .TRUE., the carbon gain of either
       ! class is on the whole plant's basis, A over the sum of both
@@ -1474,6 +1485,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_gain_gross,                                                          &
     som_cuticular_leak,                                                        &
     l_som_shared_stem, l_som_shared_gain,                                      &
+    l_som_closed_refix,                                                        &
     l_som_capacitance,                                                         &
     l_som_gravity,                                                             &
     l_som_rhizo_mfp,                                                           &
@@ -2981,6 +2993,9 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 30/10/26
 WRITE(lineBuffer,*) ' l_som_shared_gain = ', l_som_shared_gain
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 30/10/26
 
+WRITE(lineBuffer,*) ' l_som_closed_refix = ', l_som_closed_refix
+CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 14/11/26
+
 WRITE(lineBuffer,*) ' l_som_capacitance = ', l_som_capacitance   ! MDK, 23/10/26
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
@@ -3180,7 +3195,7 @@ INTEGER, PARAMETER :: n_int = 29
 INTEGER, PARAMETER :: n_real = 21 + (n_photo_coef * 5)
                                   ! The REAL items: 21 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 65 + npft_max
+INTEGER, PARAMETER :: n_log = 66 + npft_max
                                   ! The LOGICAL items: 64 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
@@ -3257,6 +3272,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_shared_stem   ! MDK, 30/10/26
   LOGICAL :: l_som_shared_gain   ! MDK, 30/10/26
+  LOGICAL :: l_som_closed_refix   ! MDK, 15/11/26
   LOGICAL :: l_som_capacitance   ! MDK, 23/10/26
   LOGICAL :: l_ximpair_seg_memory
   LOGICAL :: l_ximpair_cav_water   ! MDK, 12/11/26
@@ -3394,6 +3410,7 @@ IF (mype == 0) THEN
   my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_shared_stem = l_som_shared_stem
   my_nml % l_som_shared_gain = l_som_shared_gain
+  my_nml % l_som_closed_refix = l_som_closed_refix
   my_nml % l_som_capacitance = l_som_capacitance
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
   my_nml % l_ximpair_cav_water = l_ximpair_cav_water
@@ -3521,6 +3538,7 @@ IF (mype /= 0) THEN
   l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_shared_stem = my_nml % l_som_shared_stem
   l_som_shared_gain = my_nml % l_som_shared_gain
+  l_som_closed_refix = my_nml % l_som_closed_refix
   l_som_capacitance = my_nml % l_som_capacitance
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
   l_ximpair_cav_water = my_nml % l_ximpair_cav_water

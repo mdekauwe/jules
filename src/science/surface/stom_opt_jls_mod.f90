@@ -2359,6 +2359,7 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 cgain_profit_model, sox_opt_profit_model,      &
                                 cap_profit_model, pm2_profit_model,            &
                                 som_light_k, l_som_gain_gross,                 &
+                                l_som_closed_refix,                            &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_stomatal_response, ximpair_hold_gs,    &
                                 ximpair_hold_psi, l_som_coupled_e,             &
@@ -3188,6 +3189,7 @@ CONTAINS
 
   ! gl = 0 means closed: al = -rd, as in set_closed.
   IF (gl_chosen(j) <= 0.0) al_chosen(j) = -rd(l)
+  IF ( gl_chosen(j) <= 0.0 .AND. l_som_closed_refix ) CALL closed_refix()
 
   ! The Rd inside al_chosen: the candidate's own with l_leaf_temp_ci.
   IF ( PRESENT(rd_chosen) ) THEN
@@ -3310,6 +3312,7 @@ CONTAINS
     al_chosen(j) = MAX(-rd(l), al_ev)
     gl_chosen(j) = MAX(0.0, gl_ev)
     IF (gl_chosen(j) <= 0.0) al_chosen(j) = -rd(l)
+    IF ( gl_chosen(j) <= 0.0 .AND. l_som_closed_refix ) CALL closed_refix()
     IF ( PRESENT(rd_chosen) ) THEN
       rd_chosen(j) = rd(l)
       IF ( gl_chosen(j) > 0.0 .AND. al_ev >= -rd(l) ) rd_chosen(j) =           &
@@ -4074,6 +4077,10 @@ CONTAINS
   ! Close the stomata at this point: Ci = ca, A = -rd, no conductance or
   ! transpiration, the leaf at the root-zone water potential, and a carbon
   ! gain and hydraulic cost of 0.
+  !
+  ! With l_som_closed_refix, Ci and A are those of closed_refix.
+  !
+  ! MDK, 15/11/26
   !---------------------------------------------------------------------------
   SUBROUTINE set_closed()
 
@@ -4096,6 +4103,8 @@ CONTAINS
 
   ci_chosen(j) = ca(l)
   al_chosen(j) = -rd(l)
+  IF ( l_som_closed_refix ) CALL closed_refix()
+
   IF ( PRESENT(rd_chosen) ) rd_chosen(j) = rd(l)
   gl_chosen(j) = 0.0
   kl_chosen(j) = kl0(1,1)
@@ -4104,6 +4113,54 @@ CONTAINS
   carbon_gain_chosen(j) = 0.0
   hydraulic_cost_chosen(j) = 0.0
   END SUBROUTINE set_closed
+
+  !---------------------------------------------------------------------------
+  ! Give a leaf with no stomatal conductance in daylight the Ci and A of its
+  ! CO2 compensation point (l_som_closed_refix): the respired CO2 stays in
+  ! the leaf and Ci moves until photosynthesis refixes it, so
+  !
+  !   A(Ci) = 0
+  !
+  ! Ci is found by bisection between the bottom of the search range and
+  ! closed_ci_fac times ca (A rises with Ci). Where A is still below 0 at
+  ! the top (photosynthesis cannot reach the dark respiration), the leaf
+  ! keeps that A and Ci, and A is no lower than -rd.
+  !
+  ! MDK, 15/11/26
+  !---------------------------------------------------------------------------
+  SUBROUTINE closed_refix()
+
+  ! Top of the Ci range of the closed leaf, as a multiple of ca.
+  REAL(KIND=real_jlslsm), PARAMETER :: closed_ci_fac = 20.0
+
+  ! Bisection steps for the compensation point.
+  INTEGER, PARAMETER :: n_closed_iter = 40
+
+  REAL(KIND=real_jlslsm) :: c_lo, c_hi, c_md, a_hi
+  INTEGER :: it
+
+  c_lo = ci_lo
+  c_hi = closed_ci_fac * ca(l)
+  a_hi = photo_al(c_hi)
+
+  IF ( a_hi <= 0.0 ) THEN
+    ci_chosen(j) = c_hi
+    al_chosen(j) = MAX(-rd(l), a_hi)
+  ELSE
+    DO it = 1, n_closed_iter
+      c_md = 0.5 * (c_lo + c_hi)
+
+      IF ( photo_al(c_md) > 0.0 ) THEN
+        c_hi = c_md
+      ELSE
+        c_lo = c_md
+      END IF
+
+    END DO
+    ci_chosen(j) = 0.5 * (c_lo + c_hi)
+    al_chosen(j) = 0.0
+  END IF
+  END SUBROUTINE closed_refix
 
 END SUBROUTINE stom_opt_bounded_search
 
