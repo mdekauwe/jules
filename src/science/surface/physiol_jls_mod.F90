@@ -128,12 +128,15 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_root_frozen
   ! Frozen share of the root zone's soil water (l_ximpair_frozen_hold).
   ! MDK, 06/11/26
 USE plant_hydraulic_path_mod, ONLY: ksr
+USE plant_hydraulic_path_mod, ONLY: hr_ext_pft, kplant_scale, seg_kscale,     &
+                                    l_kscale
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: fsmc_mod
 USE pftparm, ONLY: pft_xylem_impairment_model
   ! Memory model PFTs need the frozen share (l_ximpair_frozen_hold).
   ! MDK, 06/11/26
 USE jules_vegetation_mod, ONLY: l_phen_psi, l_phen_fuse
+USE jules_vegetation_mod, ONLY: som_soil_root_model
 USE pftparm, ONLY: is_set, phen_psi_tlp, shed_la50
   ! Leaf shedding PFTs need the frozen share too (l_phen_psi, l_phen_fuse).
   !
@@ -155,6 +158,7 @@ USE canopy_diag_mod, ONLY: canopy_diag_alloc, gsoil_pft
   ! MDK, 24/10/26
 USE pftparm, ONLY: sigl, lma, rmass, kmax_pft, conductance_b_pft,              &
                    conductance_c_pft
+USE pftparm, ONLY: seg_kfac, seg_rel_k
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs,                    &
                                l_spec_alb_bs
@@ -758,6 +762,31 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! (store_q), floored at 0.
       !
       ! MDK, 01/11/26
+
+! The CLM5 soil layers (som_soil_root_model = 1), at one point:
+REAL(KIND=real_jlslsm) ::                                                      &
+  psi_lay(sm_levels),                                                          &
+      ! Each layer's water potential less the height of water above it,
+      ! psi - rho_w g z (Pa).
+  k_lay(sm_levels),                                                            &
+      ! Each layer's link: soil in series with the layer's roots
+      ! (kg m-3 s-1).
+  q_lay(sm_levels),                                                            &
+      ! The flow from each layer to the roots (kg m-2 s-1; < 0 into it).
+  hr_lay(sm_levels),                                                           &
+      ! The part of q_lay that moves water between layers (kg m-2 s-1),
+      ! summing to zero.
+  k_root_tot,                                                                  &
+      ! The root segment's intact conductance (kg m-3 s-1).
+  k_root_lay,                                                                  &
+      ! A layer's root conductance (kg m-3 s-1).
+  psi_node,                                                                    &
+      ! The root node's water potential on these links (Pa).
+  hr_give, hr_take, hr_fac, z_mid
+      ! Water given and taken by the layers (kg m-2 s-1), the factor that
+      ! balances or limits them, and a layer's mid-depth (m).
+      !
+      ! MDK, 15/11/26
 LOGICAL, SAVE :: l_warned_ksr = .FALSE.
                             ! Warned once about fsmc_mod /= 2.
 REAL(KIND=real_jlslsm), PARAMETER :: m_h2o_rs = Water_kg_per_mol
@@ -1692,6 +1721,14 @@ DO n = 1,npft
   ! MDK, 23/10/26
   !-----------------------------------------------------------------------
   IF ( l_som_rhizo_series .AND. fsmc_mod(n) == 2 .AND. irrig_tile(n) /= 1 ) THEN
+    ! The CLM5 soil layers: this PFT's redistribution, set below.
+    !
+    ! MDK, 15/11/26
+    IF ( som_soil_root_model == 1 ) THEN
+      IF ( .NOT. ALLOCATED(hr_ext_pft) )                                       &
+        ALLOCATE(hr_ext_pft(land_pts, sm_levels, npft))
+      hr_ext_pft(:,:,n) = 0.0
+    END IF
     DO j = 1,surft_pts(n)
       l = surft_index(j,n)
 
@@ -1739,6 +1776,8 @@ DO n = 1,npft
       IF ( SUM(q_rs(:)) > TINY(1.0_real_jlslsm) ) THEN
         wt_ext_type(l,:,n) = q_rs(:) / SUM(q_rs(:))
       END IF
+
+      IF ( som_soil_root_model == 1 ) CALL clm5_layers()
     END DO
   END IF
 
@@ -2760,6 +2799,96 @@ END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
+CONTAINS
+
+!-----------------------------------------------------------------------------
+! The soil layers of the CLM5 plant hydraulics (Kennedy et al. 2019;
+! som_soil_root_model = 1) at point l of PFT n: the extraction weights and
+! the hydraulic redistribution.
+!
+!   1. Each layer counts at its water potential less the height of water
+!      above it, psi_i - rho_w g z_i (z_i the layer's mid-depth).
+!   2. Each layer's link is the soil k_i in series with the layer's roots,
+!
+!        k'_i = 1 / (1 / k_i + 1 / k_r,i),   k_r,i = K_r f_i R(psi_i)
+!
+!      K_r the root segment's intact conductance (kmax_pft LAI seg_kfac,
+!      on the ground basis with kplant_model = 1), f_i the layer's root
+!      fraction and R the root's vulnerability curve (seg_rel_k), so the
+!      roots in a dry layer conduct less.
+!   3. The root node sits where the layer flows carry the flow through the
+!      roots E (e_root_rs),
+!
+!        psi_node = (sum k'_i psi_i - E) / sum k'_i
+!        q_i      = k'_i (psi_i - psi_node),   sum q_i = E
+!
+!      q_i < 0 is water the roots put into a layer drier than the node.
+!   4. The extraction weights are the positive q_i, normalised, and the
+!      redistribution is the rest,
+!
+!        r_i = q_i - w_i E,   sum r_i = 0
+!
+!      so sf_evap takes the transpiration with w_i and adds r_i.
+!   5. The top layer receives no redistributed water (as CLM5, so it does
+!      not feed soil evaporation): its r_1 < 0 is set to 0 and the givers
+!      are scaled to what the other layers take.
+!   6. No layer gives more than a tenth of its unfrozen water in a step to
+!      the redistribution, which keeps the explicit step stable.
+!
+! MDK, 15/11/26
+!-----------------------------------------------------------------------------
+SUBROUTINE clm5_layers()
+
+IMPLICIT NONE
+
+INTEGER :: kk
+
+! 1. and 2.: the layers' potentials and links.
+k_root_tot = kmax_pft(n) * lai_pft(l,n) * seg_kfac(n,1)
+IF ( l_kscale ) k_root_tot = k_root_tot * kplant_scale(l) * seg_kscale(l,1)
+k_root_tot = k_root_tot * m_h2o_rs * rho_water * g
+IF ( k_root_tot <= TINY(1.0_real_jlslsm) ) RETURN
+
+DO kk = 1,sm_levels
+  z_mid = SUM(dzsoil(1:kk)) - 0.5 * dzsoil(kk)
+  psi_lay(kk) = soil_wp_soilt(l,m,kk) - rho_water * g * z_mid
+  k_root_lay = k_root_tot * f_root(l,kk) * seg_rel_k(n, 1, psi_lay(kk))
+  k_lay(kk) = 0.0
+  IF ( soil_root_k_soilt(l,m,kk) > 0.0 .AND. k_root_lay > 0.0 )                &
+    k_lay(kk) = 1.0 / ( 1.0 / soil_root_k_soilt(l,m,kk) + 1.0 / k_root_lay )
+END DO
+IF ( SUM(k_lay(:)) <= TINY(1.0_real_jlslsm) ) RETURN
+
+! 3. The root node and the layer flows (kg m-2 s-1).
+psi_node = ( SUM(k_lay(:) * psi_lay(:))                                        &
+             - e_root_rs * m_h2o_rs * rho_water * g ) / SUM(k_lay(:))
+q_lay(:) = k_lay(:) * (psi_lay(:) - psi_node) / (rho_water * g)
+
+! 4. The weights and the redistribution.
+q_rs(:) = MAX(q_lay(:), 0.0)
+IF ( SUM(q_rs(:)) > TINY(1.0_real_jlslsm) )                                    &
+  wt_ext_type(l,:,n) = q_rs(:) / SUM(q_rs(:))
+hr_lay(:) = q_lay(:) - wt_ext_type(l,:,n) * SUM(q_lay(:))
+
+! 5. Nothing into the top layer.
+hr_lay(1) = MAX(hr_lay(1), 0.0)
+hr_give = SUM(MAX(hr_lay(:), 0.0))
+hr_take = SUM(MAX(-hr_lay(:), 0.0))
+IF ( hr_give <= TINY(1.0_real_jlslsm) .OR.                                     &
+     hr_take <= TINY(1.0_real_jlslsm) ) RETURN
+WHERE ( hr_lay(:) > 0.0 ) hr_lay(:) = hr_lay(:) * hr_take / hr_give
+
+! 6. At most a tenth of a giving layer's unfrozen water in a step.
+hr_fac = 1.0
+DO kk = 1,sm_levels
+  IF ( hr_lay(kk) > 0.0 )                                                      &
+    hr_fac = MIN(hr_fac, 0.1 * rho_water * dzsoil(kk) * sthu_soilt(l,m,kk)     &
+                         * smvcst_soilt(l,m,kk) / (hr_lay(kk) * timestep))
+END DO
+hr_ext_pft(l,:,n) = MAX(hr_fac, 0.0) * hr_lay(:)
+
+END SUBROUTINE clm5_layers
+
 END SUBROUTINE physiol
 
 

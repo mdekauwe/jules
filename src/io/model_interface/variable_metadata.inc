@@ -11151,3 +11151,17 @@ DATA metadata(859) / var_metadata(                                             &
 ! Units
     "kg m-2 s-1"                                                               &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for hr_flux_pft (som_soil_root_model = 1)
+! MDK, 15/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(860) / var_metadata(                                             &
+! String identifier
+    'hr_flux_pft',                                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Water the roots move between soil layers (hydraulic redistribution)",     &
+! Units
+    "kg m-2 s-1"                                                               &
+  ) /

@@ -54,6 +54,8 @@ USE jules_surface_types_mod, ONLY: lake, npft, soil
 USE jules_hydrology_mod, ONLY: l_soil_evap_or
 USE soil_evap_or_mod, ONLY: w_layer1_evap_or
 USE jules_vegetation_mod, ONLY: l_som_capacitance_on   ! MDK, 04/11/26
+USE jules_vegetation_mod, ONLY: som_soil_root_model   ! MDK, 15/11/26
+USE plant_hydraulic_path_mod, ONLY: hr_ext_pft   ! MDK, 15/11/26
 USE plant_water_store_mod, ONLY: store_q_xyl
 USE plant_water_store_mod, ONLY: store_q, store_return, store_wt_root,         &
                                  store_w_soil, store_w_root_avail
@@ -297,6 +299,15 @@ IF ( l_store .AND. ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
   CALL ereport('sf_evap', errcode, 'The plant water store of the stomatal ' //&
                'optimisation is coded for nsoilt = 1, ' //                     &
                'no l_irrig_dmd and no l_aggregate')
+END IF
+! The CLM5 soil layers' redistribution (som_soil_root_model = 1) is added
+! per PFT tile to the one soil tile's extraction.
+! MDK, 15/11/26
+IF ( som_soil_root_model == 1 .AND.                                            &
+     ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
+  errcode = 101
+  CALL ereport('sf_evap', errcode, 'som_soil_root_model = 1 is coded ' //      &
+               'for nsoilt = 1, no l_irrig_dmd and no l_aggregate')
 END IF
 
 !$OMP PARALLEL                                                                 &
@@ -999,6 +1010,13 @@ DO m = 1,sm_levels
           END IF
           IF ( m == 1 ) ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                  &
                                             - tile_frac(l,n) * esoil_cut_or(l,n)
+          ! The roots' redistribution between layers (som_soil_root_model
+          ! = 1; it sums to zero over the layers). MDK, 15/11/26
+          IF ( som_soil_root_model == 1 .AND. n <= npft ) THEN
+            IF ( ALLOCATED(hr_ext_pft) )                                       &
+              ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                            &
+                                  + tile_frac(l,n) * hr_ext_pft(l,m,n)
+          END IF
         END DO
 !$OMP END DO
       END IF
