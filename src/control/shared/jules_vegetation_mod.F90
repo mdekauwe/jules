@@ -1041,13 +1041,14 @@ LOGICAL ::                                                                     &
       ! optional floor (psi_vcmax_fmin_io) and a fixed 5-day recovery after
       ! rewetting (see vcmax_psi_factor in sf_stom). Unlike l_som_nsl it
       ! does not act in wet soil and does not depend on the midday leaf psi.
-      ! Stomatal optimisation models 4-7 and 9-11 with photo_model = 2 or 4;
-      ! C4 PFTs (Collatz) get no down-regulation, as it is applied in the
-      ! Farquhar branch only. Dark respiration is not scaled (it is set from
-      ! Vcmax before the factor), so neither is the stem and root
-      ! maintenance respiration scaled from it.
+      ! Stomatal optimisation models 4-7 and 9-11 with photo_model = 1, 2
+      ! or 4. On the Farquhar path (photo_model 2 and 4) it scales Vcmax and
+      ! Jmax; on the Collatz path (photo_model 1, and C4 PFTs) Vcmax. Dark
+      ! respiration is not scaled (it is set from Vcmax before the factor),
+      ! so neither is the stem and root maintenance respiration scaled from
+      ! it.
       !
-      ! MDK, 25/10/26
+      ! MDK, 15/11/26
 ! How the stomata respond to xylem impairment (ximpair_stomatal_response).
 ! In both, the stomata decide on the intact (undamaged) path; they differ in
 ! what is held when the damaged path cannot do what the intact one would.
@@ -2541,9 +2542,10 @@ IF ( ximpair_stomatal_response == ximpair_hold_psi .AND.                       &
 END IF
 
 ! Johnson-Berry C3 leaves take the Farquhar path, so the factor scales Vcmax
-! and Vqmax (held in jmax) as it scales Vcmax and Jmax.
+! and Vqmax (held in jmax) as it scales Vcmax and Jmax. On the Collatz path
+! (photo_model = 1) it scales Vcmax.
 !
-! MDK, 30/10/26
+! MDK, 15/11/26
 IF ( l_som_vcmax_psi .AND. ( ( stomata_model /= stomata_profit_max .AND.       &
                                stomata_model /= stomata_sox_opt .AND.          &
                                stomata_model /= stomata_cmax .AND.             &
@@ -2551,13 +2553,12 @@ IF ( l_som_vcmax_psi .AND. ( ( stomata_model /= stomata_profit_max .AND.       &
                                stomata_model /= stomata_supply_loss .AND.      &
                                stomata_model /= stomata_cap .AND.              &
                                stomata_model /= stomata_pm2 ) .OR.             &
-                             ( photo_model /= photo_farquhar .AND.             &
-                               photo_model /= photo_johnson ) ) ) THEN
+                             photo_model == photo_sox_collatz ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_som_vcmax_psi requires stomata_model=4 to 7 or 9 to 11 ' //  &
                'and ' //                                                       &
-               'photo_model=2 or 4')
+               'photo_model=1, 2 or 4')
 END IF
 
 IF ( l_som_nsl .AND. ( ( stomata_model /= stomata_profit_max .AND.             &

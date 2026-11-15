@@ -7582,10 +7582,13 @@ IF ( l_rd_heskel ) THEN
   END DO
 END IF
 
-! The soil-water factor (l_som_vcmax_psi), after Rd.
+! The down-regulation of photosynthetic capacity (l_som_vcmax_psi, with the
+! sink feedback l_nsc_sink_feedback), after Rd. On the Farquhar path it
+! scales Vcmax and Jmax; on the Collatz path (C4 leaves, and all leaves
+! with photo_model = collatz) Vcmax is the capacity, and jmax is not used.
 !
-! MDK, 25/10/26
-IF ( PRESENT(f_vcmax_down) .AND. pft_photo_model == photo_farquhar ) THEN
+! MDK, 13/11/26
+IF ( PRESENT(f_vcmax_down) ) THEN
   DO m = 1,veg_pts
     l        = veg_index(m)
     vcmax(l) = vcmax(l) * f_vcmax_down(l)
