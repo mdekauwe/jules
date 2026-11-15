@@ -782,9 +782,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! A layer's root conductance (kg m-3 s-1).
   psi_node,                                                                    &
       ! The root node's water potential on these links (Pa).
-  hr_fac, z_mid
-      ! The factor that limits the redistribution, and a layer's
-      ! mid-depth (m).
+  hr_fac,                                                                      &
+      ! The factor that limits the redistribution.
+  w_lay,                                                                       &
+      ! A layer's unfrozen water, or its unfilled pore space (kg m-2).
+  z_lay(sm_levels)
+      ! Each layer's mid-depth (m).
       !
       ! MDK, 15/11/26
 LOGICAL, SAVE :: l_warned_ksr = .FALSE.
@@ -1720,15 +1723,22 @@ DO n = 1,npft
   !
   ! MDK, 23/10/26
   !-----------------------------------------------------------------------
-  IF ( l_som_rhizo_series .AND. fsmc_mod(n) == 2 .AND. irrig_tile(n) /= 1 ) THEN
-    ! The CLM5 soil layers: this PFT's redistribution, set below.
-    !
-    ! MDK, 15/11/26
-    IF ( l_som_hydraulic_redistribution ) THEN
-      IF ( .NOT. ALLOCATED(hr_ext_pft) )                                       &
-        ALLOCATE(hr_ext_pft(land_pts, sm_levels, npft))
-      hr_ext_pft(:,:,n) = 0.0
+  ! Hydraulic redistribution: this PFT's flows start at zero (set below
+  ! for the PFTs on the soil-to-root link), and the layers' mid-depths.
+  !
+  ! MDK, 15/11/26
+  IF ( l_som_hydraulic_redistribution ) THEN
+    IF ( .NOT. ALLOCATED(hr_ext_pft) ) THEN
+      ALLOCATE(hr_ext_pft(land_pts, sm_levels, npft))
+      hr_ext_pft(:,:,:) = 0.0
     END IF
+    hr_ext_pft(:,:,n) = 0.0
+    DO k = 1,sm_levels
+      z_lay(k) = SUM(dzsoil(1:k)) - 0.5 * dzsoil(k)
+    END DO
+  END IF
+
+  IF ( l_som_rhizo_series .AND. fsmc_mod(n) == 2 .AND. irrig_tile(n) /= 1 ) THEN
     DO j = 1,surft_pts(n)
       l = surft_index(j,n)
 
@@ -1770,6 +1780,13 @@ DO n = 1,npft
       ! cancel in the weights. Layers drier than the root are set to zero.
       q_rs(:) = MAX(soil_root_k_soilt(l,m,:)                                   &
                     * (soil_wp_soilt(l,m,:) - psi_root_rs), 0.0)
+      ! With hydraulic redistribution psi_root_zone counts each layer at
+      ! psi - rho_w g z, so the layers do here too.
+      ! MDK, 15/11/26
+      IF ( l_som_hydraulic_redistribution )                                    &
+        q_rs(:) = MAX(soil_root_k_soilt(l,m,:)                                 &
+                      * (soil_wp_soilt(l,m,:) - rho_water * g * z_lay(:)       &
+                         - psi_root_rs), 0.0)
 
       ! Normalise to extraction weights. If no layer can supply water
       ! (all at or below psi_root), keep the smc_ext weights.
@@ -2814,8 +2831,9 @@ CONTAINS
 !
 !      K_r the root segment's intact conductance (kmax_pft LAI seg_kfac,
 !      on the ground basis with kplant_model = 1), f_i the layer's root
-!      fraction and R the root's vulnerability curve (seg_rel_k), so the
-!      roots in a dry layer conduct less.
+!      fraction and R the root's vulnerability curve (seg_rel_k) at the
+!      layer's own water potential, so the roots in a dry layer conduct
+!      less.
 !   3. The root node sits where the layer flows carry the flow through the
 !      roots E (e_root_rs),
 !
@@ -2830,8 +2848,10 @@ CONTAINS
 !
 !      so sf_evap takes the transpiration with w_i and adds r_i. Every
 !      layer, the top one too, can give and receive.
-!   5. No layer gives more than a tenth of its unfrozen water in a step to
-!      the redistribution, which keeps the explicit step stable.
+!   5. In a step a giving layer gives at most a tenth of the unfrozen
+!      water its transpiration share leaves, and a receiving layer takes
+!      at most a tenth of its unfilled pore space, which keeps the
+!      explicit step stable and the layers between dry and saturated.
 !
 ! MDK, 15/11/26
 !-----------------------------------------------------------------------------
@@ -2848,9 +2868,9 @@ k_root_tot = k_root_tot * m_h2o_rs * rho_water * g
 IF ( k_root_tot <= TINY(1.0_real_jlslsm) ) RETURN
 
 DO kk = 1,sm_levels
-  z_mid = SUM(dzsoil(1:kk)) - 0.5 * dzsoil(kk)
-  psi_lay(kk) = soil_wp_soilt(l,m,kk) - rho_water * g * z_mid
-  k_root_lay = k_root_tot * f_root(l,kk) * seg_rel_k(n, 1, psi_lay(kk))
+  psi_lay(kk) = soil_wp_soilt(l,m,kk) - rho_water * g * z_lay(kk)
+  k_root_lay = k_root_tot * f_root(l,kk)                                       &
+               * seg_rel_k(n, 1, soil_wp_soilt(l,m,kk))
   k_lay(kk) = 0.0
   IF ( soil_root_k_soilt(l,m,kk) > 0.0 .AND. k_root_lay > 0.0 )                &
     k_lay(kk) = 1.0 / ( 1.0 / soil_root_k_soilt(l,m,kk) + 1.0 / k_root_lay )
@@ -2868,14 +2888,22 @@ IF ( SUM(q_rs(:)) > TINY(1.0_real_jlslsm) )                                    &
   wt_ext_type(l,:,n) = q_rs(:) / SUM(q_rs(:))
 hr_lay(:) = q_lay(:) - wt_ext_type(l,:,n) * SUM(q_lay(:))
 
-! 5. At most a tenth of a giving layer's unfrozen water in a step.
+! 5. A giving layer gives at most a tenth of the unfrozen water its
+!    transpiration share leaves, and a receiving layer takes at most a
+!    tenth of its unfilled pore space, in a step.
 hr_fac = 1.0
 DO kk = 1,sm_levels
-  IF ( hr_lay(kk) > 0.0 )                                                      &
-    hr_fac = MIN(hr_fac, 0.1 * rho_water * dzsoil(kk) * sthu_soilt(l,m,kk)     &
-                         * smvcst_soilt(l,m,kk) / (hr_lay(kk) * timestep))
+  IF ( hr_lay(kk) > 0.0 ) THEN
+    w_lay = rho_water * dzsoil(kk) * sthu_soilt(l,m,kk) * smvcst_soilt(l,m,kk) &
+            - wt_ext_type(l,kk,n) * e_root_rs * m_h2o_rs * timestep
+    hr_fac = MIN(hr_fac, 0.1 * MAX(w_lay, 0.0) / (hr_lay(kk) * timestep))
+  ELSE IF ( hr_lay(kk) < 0.0 ) THEN
+    w_lay = rho_water * dzsoil(kk) * smvcst_soilt(l,m,kk)                      &
+            * (1.0 - sthu_soilt(l,m,kk) - sthf_soilt(l,m,kk))
+    hr_fac = MIN(hr_fac, 0.1 * MAX(w_lay, 0.0) / (-hr_lay(kk) * timestep))
+  END IF
 END DO
-hr_ext_pft(l,:,n) = MAX(hr_fac, 0.0) * hr_lay(:)
+hr_ext_pft(l,:,n) = hr_fac * hr_lay(:)
 
 END SUBROUTINE clm5_layers
 

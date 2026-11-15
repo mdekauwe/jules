@@ -3314,7 +3314,7 @@ INTEGER, PARAMETER :: n_real = 22 + (n_photo_coef * 5)
                                   ! The REAL items: 22 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
 INTEGER, PARAMETER :: n_log = 69 + npft_max
-                                  ! The LOGICAL items: 64 scalars and
+                                  ! The LOGICAL items: 69 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
                                   ! MDK, 09/11/26

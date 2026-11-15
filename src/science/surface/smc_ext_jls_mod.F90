@@ -193,17 +193,19 @@ REAL(KIND=real_jlslsm), PARAMETER :: sthu_min = 0.01 ! required by psi_from_sthu
 
 REAL(KIND=real_jlslsm) :: ones(npnts)
 REAL(KIND=real_jlslsm) :: soil_to_root_k_ft(npnts,nshyd)
-REAL(KIND=real_jlslsm) :: psi_grav(npnts,nshyd)
-                      ! Hydraulic redistribution (the CLM5 layers): each
-                      ! layer's water potential less the height of water
-                      ! above it, psi - rho_w g z, z the layer's mid-depth
-                      ! (Pa). MDK, 15/11/26
-REAL(KIND=real_jlslsm) :: z_mid
-                      ! A layer's mid-depth (m). MDK, 15/11/26
                       ! soil_to_root_conductance result for this PFT, copied
                       ! into soil_to_root_k at this PFT's surft points only
                       ! (see the note on the psi/soil_k/soil_to_root_k
                       ! declaration).
+REAL(KIND=real_jlslsm) :: psi_grav(npnts,nshyd)
+                      ! Hydraulic redistribution (the CLM5 layers): each
+                      ! layer's water potential less the height of water
+                      ! above it, psi - rho_w g z, z the layer's mid-depth
+                      ! (Pa).
+                      ! MDK, 15/11/26
+REAL(KIND=real_jlslsm) :: z_mid
+                      ! A layer's mid-depth (m).
+                      ! MDK, 15/11/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1

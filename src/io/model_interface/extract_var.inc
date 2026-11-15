@@ -4174,7 +4174,7 @@ CASE ( 'store_q_xyl_pft' )
 ! The water the roots move between the soil layers
 ! (l_som_hydraulic_redistribution): the sum of the giving layers' flows.
 ! MDK, 15/11/26
-CASE ( 'hydraulic_redistribution_flux_pft' )
+CASE ( 'hydraulic_redistribution_pft' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(hr_ext_pft) )                                                 &
     workspace_pft(:,:) = SUM(MAX(hr_ext_pft(:,:,:), 0.0), DIM = 2)

@@ -1013,7 +1013,8 @@ DO m = 1,sm_levels
                                             - tile_frac(l,n) * esoil_cut_or(l,n)
           ! The roots' redistribution between layers
           ! (l_som_hydraulic_redistribution; it sums to zero over the
-          ! layers). MDK, 15/11/26
+          ! layers).
+          ! MDK, 15/11/26
           IF ( l_som_hydraulic_redistribution .AND. n <= npft ) THEN
             IF ( ALLOCATED(hr_ext_pft) )                                       &
               ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                            &
