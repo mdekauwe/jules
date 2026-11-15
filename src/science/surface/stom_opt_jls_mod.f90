@@ -4321,9 +4321,10 @@ END SUBROUTINE stom_opt_bounded_search
 ! With coupled transpiration (l_som_coupled_e) or a leaf boundary layer
 ! (r_bl > 0), gl comes from A through the boundary layer (gl_co2_bl) and E
 ! from gl through the boundary layer and the canopy air (g_eff_e), as in the
-! searches. With xylem impairment the supply function is that of the
-! impaired path; with the store's flow held fixed or the shared root and
-! stem, P0 is the leaf psi of the path at no transpiration of these leaves.
+! searches. With xylem impairment the allowed drop comes from the intact
+! supply function and the regulated E from the impaired one (Sperry et al.
+! 2016); with the store's flow held fixed or the shared root and stem, P0 is
+! the leaf psi of the path at no transpiration of these leaves.
 ! Every search here keeps a bracket, so none can diverge near the failure
 ! point.
 !
@@ -4472,6 +4473,9 @@ REAL(KIND=real_jlslsm) :: k_fail
                             ! or sl_kfail_frac kmax.
 REAL(KIND=real_jlslsm) :: psi_zero_flow
                             ! P0, the leaf psi at zero flow (Pa).
+LOGICAL :: l_rule_intact
+                            ! The supply function is the intact path's (the
+                            ! allowed drop with xylem impairment).
 REAL(KIND=real_jlslsm) :: el_stem(1,1)
                             ! The chosen E, for the stem water potential.
 REAL(KIND=real_jlslsm) :: psi_stem_tmp(1,1)
@@ -4573,6 +4577,7 @@ DO j = 1, open_pts
   e_per_gl = e_of_g(1.0_real_jlslsm, dq(l), pstar(l), t_leaf(l))
   psi_zero_flow = psi_root_zone(l) - grav_node_drop(l)
   psi_stem_g(j) = psi_zero_flow
+  l_rule_intact = .FALSE.
 
   ! P0 with the store's flow held fixed or the shared root and stem: the
   ! leaf psi of the path at no transpiration of these leaves, which the store
@@ -4603,15 +4608,24 @@ DO j = 1, open_pts
 
   !---------------------------------------------------------------------------
   ! 2. Zero flow (P0, k0) and the demand on the supply function (P', k').
+  !    With xylem impairment the allowed drop (steps 2 and the search for its
+  !    largest value) is set on the intact supply function, and the regulated
+  !    E (step 3) comes from the impaired one (Sperry et al. 2016: protective
+  !    regulation is set by the inherent vulnerability, so past cavitation
+  !    leaves dP unchanged and lowers E).
   !---------------------------------------------------------------------------
+  l_rule_intact = l_xylem_impairment
   CALL supply(0.0_real_jlslsm, psi_trial, k_zero_flow)
 
   ! With the store's flow held fixed the path at no transpiration carries the
   ! store's flow back towards the soil, a state the store never takes, so k0
   ! is that of the path without the store at zero flow (as the profit max's
   ! reference, kl_hc_max).
-  IF ( l_store_q_path .AND. .NOT. l_xylem_impairment )                         &
+  IF ( l_store_q_path .AND. l_xylem_impairment ) THEN
+    k_zero_flow = k_path_zero_flow(pft, l, kmax_ref(l), psi_root_zone(l))
+  ELSE IF ( l_store_q_path ) THEN
     k_zero_flow = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
+  END IF
   IF ( k_zero_flow <= k_fail ) THEN
     ! The path has failed at zero flow: no supply.
     CALL set_closed()
@@ -4742,6 +4756,7 @@ DO j = 1, open_pts
   !    psi(xb) - psi_target <= 0 (dP <= dP'(xb)). (Illinois as in eval_ci.)
   !---------------------------------------------------------------------------
   psi_target = psi_zero_flow - dpsi_allowed
+  l_rule_intact = .FALSE.
   ill_lo = 0.0
   ill_f_lo = dpsi_allowed
   e_tol = e_rtol * ill_hi
@@ -4886,7 +4901,13 @@ CONTAINS
   REAL(KIND=real_jlslsm), INTENT(OUT) :: psi, k
   REAL(KIND=real_jlslsm) :: el1(1,1), psi1(1,1), kl1(1,1)
   el1(1,1) = e
-  IF ( l_xylem_impairment ) THEN
+  IF ( l_rule_intact ) THEN
+    ! The intact path, for the allowed drop (step 2), as the hold-psi search
+    ! of the other models.
+    CALL psi_leaf_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,              &
+                       psi_root_zone, kmax_ref, kcrit, b_curve, c_curve,       &
+                       psi1, kl1 )
+  ELSE IF ( l_xylem_impairment ) THEN
     ! The impaired path, as the searches of the other models (impaired_state).
     CALL som_path_psi( pft, 1, land_pts, 1, veg_index, idx1, el1,              &
                        psi_root_zone, kmax_ref, kmax, kcrit, conductance_b,    &
@@ -4977,6 +4998,7 @@ CONTAINS
   ! stom_opt_bounded_search).
   REAL(KIND=real_jlslsm) :: psi0, k0c
 
+  l_rule_intact = .FALSE.
   CALL supply(0.0_real_jlslsm, psi0, k0c)
   ci_g(j) = ca(l)
   al_g(j) = -rd(l)
