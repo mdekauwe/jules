@@ -2361,6 +2361,7 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 cgain_profit_model, sox_opt_profit_model,      &
                                 cap_profit_model, pm2_profit_model,            &
                                 som_light_k, l_som_gain_gross,                 &
+                                l_som_edge_bound,                              &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_stomatal_response, ximpair_hold_gs,    &
                                 ximpair_hold_psi, l_som_coupled_e,             &
@@ -3973,7 +3974,12 @@ CONTAINS
   ! of (kl - kcrit) / kmax and, when the gl cap applies,
   ! (gl_max - gl) / gl_max. It falls as Ci rises. It is forced above 0 for a
   ! feasible Ci and below 0 for an infeasible one, so its sign always agrees
-  ! with l_ok_ev.
+  ! with l_ok_ev. With l_som_edge_bound it is no lower than -1: a
+  ! conductance the leaf boundary layer cannot supply (gl_unreach) would
+  ! otherwise give a margin so large that the steps of edge_by_margin from
+  ! the feasible end are too small to reach the edge.
+  !
+  ! MDK, 15/11/26
   REAL(KIND=real_jlslsm) FUNCTION margin()
   margin = (kl_ev - kcrit(l)) / kmax(l)
   IF ( gl_max(l) > 0.0 .AND. .NOT. l_no_glcap )                                &
@@ -3982,6 +3988,7 @@ CONTAINS
     margin = MAX(margin, TINY(1.0_real_jlslsm))
   ELSE
     margin = MIN(margin, -TINY(1.0_real_jlslsm))
+    IF ( l_som_edge_bound ) margin = MAX(margin, -1.0_real_jlslsm)
   END IF
   END FUNCTION margin
 

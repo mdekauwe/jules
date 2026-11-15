@@ -613,6 +613,17 @@ LOGICAL ::                                                                     &
       ! MDK, 15/11/26
 
 LOGICAL ::                                                                     &
+  l_som_edge_bound = .FALSE.
+      ! The bounded search (som_ci_search = 2), the search for the upper
+      ! edge of the feasible internal CO2 range: when .TRUE., the margin by
+      ! which a candidate misses a limit is no lower than -1, so the search
+      ! reaches the edge within its iterations. When .FALSE., the margin of
+      ! a stomatal conductance that the leaf boundary layer cannot supply
+      ! is very large, and the search can stop below the edge.
+      !
+      ! MDK, 15/11/26
+
+LOGICAL ::                                                                     &
   l_rd_heskel = .FALSE.
       ! When .TRUE., leaf dark respiration has its own temperature
       ! response (Heskel et al. 2016, PNAS 113: 3832),
@@ -1500,7 +1511,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_som_gain_gross,                                                          &
     som_cuticular_leak,                                                        &
     l_som_shared_stem, l_som_shared_gain,                                      &
-    l_som_closed_refix,                                                        &
+    l_som_closed_refix, l_som_edge_bound,                                      &
     l_rd_heskel, rd_heskel_b, rd_heskel_c,                                     &
     l_som_capacitance,                                                         &
     l_som_gravity,                                                             &
@@ -2998,6 +3009,8 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 30/10/26
 
 WRITE(lineBuffer,*) ' l_som_closed_refix = ', l_som_closed_refix
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 14/11/26
+WRITE(lineBuffer,*) ' l_som_edge_bound = ', l_som_edge_bound
+CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 15/11/26
 WRITE(lineBuffer,*) ' l_rd_heskel = ', l_rd_heskel, rd_heskel_b, rd_heskel_c
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 15/11/26
 
@@ -3200,7 +3213,7 @@ INTEGER, PARAMETER :: n_int = 29
 INTEGER, PARAMETER :: n_real = 22 + (n_photo_coef * 5)
                                   ! The REAL items: 22 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 67 + npft_max
+INTEGER, PARAMETER :: n_log = 68 + npft_max
                                   ! The LOGICAL items: 64 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
@@ -3279,6 +3292,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_shared_stem   ! MDK, 30/10/26
   LOGICAL :: l_som_shared_gain   ! MDK, 30/10/26
   LOGICAL :: l_som_closed_refix   ! MDK, 15/11/26
+  LOGICAL :: l_som_edge_bound   ! MDK, 15/11/26
   LOGICAL :: l_rd_heskel   ! MDK, 15/11/26
   LOGICAL :: l_som_capacitance   ! MDK, 23/10/26
   LOGICAL :: l_ximpair_seg_memory
@@ -3419,6 +3433,7 @@ IF (mype == 0) THEN
   my_nml % l_som_shared_stem = l_som_shared_stem
   my_nml % l_som_shared_gain = l_som_shared_gain
   my_nml % l_som_closed_refix = l_som_closed_refix
+  my_nml % l_som_edge_bound = l_som_edge_bound
   my_nml % l_rd_heskel = l_rd_heskel
   my_nml % l_som_capacitance = l_som_capacitance
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
@@ -3549,6 +3564,7 @@ IF (mype /= 0) THEN
   l_som_shared_stem = my_nml % l_som_shared_stem
   l_som_shared_gain = my_nml % l_som_shared_gain
   l_som_closed_refix = my_nml % l_som_closed_refix
+  l_som_edge_bound = my_nml % l_som_edge_bound
   l_rd_heskel = my_nml % l_rd_heskel
   l_som_capacitance = my_nml % l_som_capacitance
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
