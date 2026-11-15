@@ -544,10 +544,15 @@ INTEGER ::                                                                     &
 
 LOGICAL ::                                                                     &
   l_som_gain_gross = .FALSE.
-      ! Retired: profit max always normalises the net gain, An/max(An). Read
-      ! only so that old namelists still work; .TRUE. stops the run.
+      ! When .TRUE., the carbon gain in the profit-max search is normalised
+      ! gross assimilation, (An + Rd)/max(An + Rd), instead of net An/max(An).
+      ! Rd does not depend on gs, so it cannot be traded against water, but
+      ! normalising net A stretches the gain when Rd is a large part of A
+      ! (low light) and fails near the compensation point. GPP/NPP are
+      ! unaffected (only the optimisation's gain changes). Bounded search
+      ! only (som_ci_search = 2).
       !
-      ! MDK, 12/11/26
+      ! MDK, 14/11/26
 
 INTEGER ::                                                                     &
   som_cuticular_leak = 0
@@ -2764,16 +2769,6 @@ IF ( l_ximpair_leaf_loss ) THEN
                'l_ximpair_leaf_loss is retired: for a canopy capped by '   //  &
                'the working xylem use nsc_damage_response=1')
 END IF
-! The retired l_som_gain_gross: stop rather than run a gain that is no
-! longer there.
-!
-! MDK, 12/11/26
-IF ( l_som_gain_gross ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_gain_gross is retired: profit max uses the net '     //  &
-               'gain, An/max(An)')
-END IF
 IF ( l_phen_fuse .AND. .NOT. l_phenol ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2972,6 +2967,9 @@ WRITE(lineBuffer,*) ' l_som_seg_whole = ', l_som_seg_whole
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 26/10/26
 
 WRITE(lineBuffer,*) ' kplant_model = ', kplant_model   ! MDK, 21/10/26
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+
+WRITE(lineBuffer,*) ' l_som_gain_gross = ', l_som_gain_gross
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' som_cuticular_leak = ', som_cuticular_leak
@@ -3256,6 +3254,7 @@ TYPE :: my_namelist
   LOGICAL :: l_leaf_temp_gc_eq
   LOGICAL :: l_leaf_temp_ci
   LOGICAL :: l_som_plant_segments
+  LOGICAL :: l_som_gain_gross
   LOGICAL :: l_som_shared_stem   ! MDK, 30/10/26
   LOGICAL :: l_som_shared_gain   ! MDK, 30/10/26
   LOGICAL :: l_som_capacitance   ! MDK, 23/10/26
@@ -3392,6 +3391,7 @@ IF (mype == 0) THEN
   my_nml % leaf_width = leaf_width
   my_nml % leaf_wind_ext = leaf_wind_ext
   my_nml % l_som_plant_segments = l_som_plant_segments
+  my_nml % l_som_gain_gross = l_som_gain_gross
   my_nml % l_som_shared_stem = l_som_shared_stem
   my_nml % l_som_shared_gain = l_som_shared_gain
   my_nml % l_som_capacitance = l_som_capacitance
@@ -3518,6 +3518,7 @@ IF (mype /= 0) THEN
   leaf_width = my_nml % leaf_width
   leaf_wind_ext = my_nml % leaf_wind_ext
   l_som_plant_segments = my_nml % l_som_plant_segments
+  l_som_gain_gross = my_nml % l_som_gain_gross
   l_som_shared_stem = my_nml % l_som_shared_stem
   l_som_shared_gain = my_nml % l_som_shared_gain
   l_som_capacitance = my_nml % l_som_capacitance

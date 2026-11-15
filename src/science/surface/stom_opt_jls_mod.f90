@@ -2358,7 +2358,7 @@ USE yomhook, ONLY: lhook, dr_hook
 USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 cgain_profit_model, sox_opt_profit_model,      &
                                 cap_profit_model, pm2_profit_model,            &
-                                som_light_k,                                   &
+                                som_light_k, l_som_gain_gross,                 &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_stomatal_response, ximpair_hold_gs,    &
                                 ximpair_hold_psi, l_som_coupled_e,             &
@@ -2601,6 +2601,10 @@ REAL(KIND=real_jlslsm) :: kcrit_hc
 
 REAL(KIND=real_jlslsm) :: max_al
                             ! Gain scale A_max.
+REAL(KIND=real_jlslsm) :: g_off
+                            ! Gain offset: rd for the gross gain
+                            ! (l_som_gain_gross, profit max), 0 otherwise.
+                            ! MDK, 14/11/26
 REAL(KIND=real_jlslsm) :: k0_ref
                             ! Reference conductance of the hydraulic cost (zero
                             ! flow).
@@ -2778,6 +2782,13 @@ CONTAINS
     grav_node_drop(l)
   IF ( PRESENT(lambda_chosen) ) lambda_chosen(j) = 0.0
   idx_one_pt(1) = open_index(j)
+
+  ! Gross gain (l_som_gain_gross): rd is added to A in the profit max gain
+  ! and its scale. The other scores work on net A.
+  !
+  ! MDK, 14/11/26
+  g_off = MERGE(rd(l), 0.0_real_jlslsm, l_som_gain_gross)
+  IF ( l_profit_absolute ) g_off = 0.0
   lai_call = 1.0
 
   ! The leaf area of the call from the intact plant (kmax_ref; = kmax
@@ -2873,7 +2884,7 @@ CONTAINS
 
   ! (al_no_nsl_ev = al_ev without the nonstomatal limitation, which can make A
   ! at ci_top <= 0 although the optimum inside the range has A > 0.)
-  IF ( al_no_nsl_ev <= 0.0 ) THEN
+  IF ( al_no_nsl_ev + g_off <= 0.0 ) THEN
     CALL set_closed()
     l_shut = .TRUE.
     RETURN
@@ -2939,12 +2950,12 @@ CONTAINS
     IF ( (gl_max(l) - edge_gl) / gl_max(l) < (edge_kl - kcrit(l)) / kmax(l) )  &
          CALL hydraulic_edge()
   END IF
-  max_al = hyd_edge_al
+  max_al = hyd_edge_al + g_off
 
   ! With the nonstomatal limitation, normalise by the unlimited A at the edge
   ! so the gain-to-cost weighting is as without it (and the limitation
   ! lowers the gain fraction).
-  IF ( l_som_nsl ) max_al = photo_al(hyd_edge_ci)
+  IF ( l_som_nsl ) max_al = photo_al(hyd_edge_ci) + g_off
   IF ( max_al <= 0.0 ) THEN
     CALL set_closed()
     l_shut = .TRUE.
@@ -3187,7 +3198,7 @@ CONTAINS
   psi_chosen(j) = best_psi
   el_chosen(j) = best_el
   kl_chosen(j) = best_kl
-  carbon_gain_chosen(j) = best_al / max_al
+  carbon_gain_chosen(j) = (best_al + g_off) / max_al
 
   ! (Guarded as the flat search: with impairment k0_ref is kl_hc_max, not
   ! taken from a sample.)
@@ -3918,7 +3929,7 @@ CONTAINS
     ! (k0_ref > kcrit at any feasible point; the guard is as for the
     ! diagnostic cost in stom_opt_bounded_search.) kcrit_hc: kcrit, or the
     ! whole plant's with the shared root and stem.
-    profit = al_in / max_al - (k0_ref - kl_in)                       &
+    profit = (al_in + g_off) / max_al - (k0_ref - kl_in)             &
              / MAX(k0_ref - kcrit_hc, TINY(1.0_real_jlslsm))
   END IF
   END FUNCTION profit
