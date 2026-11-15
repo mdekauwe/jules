@@ -1204,8 +1204,9 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 l_som_seg_whole,                               &
                                 l_som_vcmax_psi, stomata_model, stomata_cmax,  &
                                 stomata_cgain, stomata_supply_loss,            &
-                                stomata_profit_max,                            &
+                                stomata_profit_max, stomata_cap,               &
                                 stomata_sox_opt, stomata_pm2,                  &
+                                som_ci_search, som_ci_bounded,                 &
                                 xylem_impairment_memory,                       &
                                 ximpair_driver_stem, l_triffid_nsc,            &
                                 l_ximpair_rec_nsc, l_veg_compete,              &
@@ -2145,48 +2146,45 @@ DO i = 1, npft
     CALL ereport(RoutineName, errcode,                                         &
                  'ximpair_psi_driver = 4 (stem) needs l_som_plant_segments.')
   END IF
-  ! SOX_opt with xylem impairment is not allowed. SOX's objective,
-  ! A K(psi_bar)/K_max, already prices embolism as a proportional loss of
-  ! future carbon, so with the stored damage and repair cost of the
-  ! impairment model the cost is counted twice; a uniform loss of kmax
-  ! cancels in K/K_max, so the damage cannot change regulation; and with
-  ! impairment the code would use the intact k at psi_leaf over kmax_ref,
-  ! so even zero damage would change the answer. Use the profit max (4) or
-  ! CMax (6) with impairment.
+  ! SOX_opt with xylem impairment needs the bounded search, which returns
+  ! the stem water potential for the stem damage; the flat search does not.
   !
-  ! MDK, 22/10/26
+  ! MDK, 15/11/26
   IF ( ( pft_xylem_impairment_model(i) /= 0 .OR. l_ximpair_seg_memory ) .AND.  &
-       stomata_model == stomata_sox_opt ) THEN
+       stomata_model == stomata_sox_opt .AND.                                  &
+       som_ci_search /= som_ci_bounded ) THEN
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
-                 'SOX_opt (stomata_model = 5) cannot be used with xylem ' //   &
-                 'impairment (pft_xylem_impairment_model /= 0 or ' //          &
-                 'l_ximpair_seg_memory): use ' //                              &
-                 'stomata_model = 4 (profit max) or 6 (CMax).')
+                 'SOX_opt (stomata_model = 5) with xylem impairment ' //       &
+                 'needs som_ci_search = 2 (bounded).')
   END IF
   ! A list of the models it works with, not of those it doesn't: Jacobs,
   ! Medlyn and SOX-analytical never see the impaired curve, so
   ! impairment would silently do nothing with them.
   !
-  ! MDK, 22/10/26
+  ! The models on the plant hydraulics all take their supply from the
+  ! impaired path. The costs: profit max and CGain are relative to the
+  ! intact plant (kl_hc_max, kmax_ref), so the stored damage counts; CMax
+  ! is per unit of intact leaf area; ProfitMax2 takes E_crit from the path
+  ! the search runs on, so damage shrinks E_crit with ximpair_hold_gs (Wang
+  ! et al. 2020: drought history reduces E_crit); SOX_opt's factor is on the
+  ! impaired path. With ximpair_hold_psi the search is on the intact path.
+  ! CAP has no cost and supply-loss no optimisation: both see the damage
+  ! through the supply alone.
+  !
+  ! MDK, 15/11/26
   IF ( pft_xylem_impairment_model(i) /= 0 .AND.                                &
        stomata_model /= stomata_profit_max .AND.                               &
        stomata_model /= stomata_sox_opt .AND.                                  &
        stomata_model /= stomata_cmax .AND.                                     &
+       stomata_model /= stomata_cgain .AND.                                    &
+       stomata_model /= stomata_supply_loss .AND.                              &
+       stomata_model /= stomata_cap .AND.                                      &
        stomata_model /= stomata_pm2 ) THEN
-    ! Xylem impairment is coded and tested for the profit max (4) and CMax
-    ! (6) only (SOX_opt is rejected above): CGain, supply-loss and CAP do
-    ! not see the impaired curve consistently (e.g. CGain's k_max uses the
-    ! impaired kmax). CMax takes its supply from the impaired curve and its
-    ! cost per unit of intact leaf area (kmax_ref), on the bounded search
-    ! as the profit max. ProfitMax2 (11) takes E_crit from the path the
-    ! search runs on, so damage shrinks E_crit with ximpair_hold_gs (Wang
-    ! et al. 2020: drought history reduces E_crit); with ximpair_hold_psi
-    ! the search is on the intact path, as the profit max.
     errcode = 101
     CALL ereport(RoutineName, errcode,                                         &
                  'pft_xylem_impairment_model /= 0 needs stomata_model = 4 ' // &
-                 '(profit max), 6 (CMax) or 11 (ProfitMax2).')
+                 'to 7 or 9 to 11 (a model on the plant hydraulics).')
   END IF
   IF ( ANY(seg_frac(:) <= 0.0) ) THEN
     errcode = 101

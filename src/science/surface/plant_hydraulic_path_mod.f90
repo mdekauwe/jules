@@ -25,7 +25,7 @@ IMPLICIT NONE
 ! and shaded leaves set on the path while the stomatal optimiser
 ! searches.
 !
-! MDK, 12/11/26
+! MDK, 15/11/26
 PRIVATE
 
 CHARACTER(LEN=*),PARAMETER,PRIVATE :: ModuleName='PLANT_HYDRAULIC_PATH_MOD'
@@ -124,11 +124,19 @@ LOGICAL, PUBLIC :: l_store_q_path = .FALSE.
 !                    max_al in stom_opt_bounded_search), held fixed.
 !   shared_amax_self   : this class's, set by the search (0 where it does
 !                    not search), for the other class's next search.
+! The models with a cost in carbon (CMax, CGain, SOX_opt, ProfitMax2) take
+! their cost on the whole plant too, with the whole canopy's leaf area, and
+! ProfitMax2 and SOX_opt scale the whole canopy's A:
+!   shared_an_other  : the other class's net photosynthesis, held fixed, on
+!                    the basis of the class's A.
+!   shared_lai_other : the other class's leaf area (m2 m-2).
 REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: shared_k_fac(:),                &
                                                shared_e_other(:),              &
                                                shared_kcrit_plant(:),          &
                                                shared_amax_other(:),           &
-                                               shared_amax_self(:)
+                                               shared_amax_self(:),            &
+                                               shared_an_other(:),             &
+                                               shared_lai_other(:)
 LOGICAL, PUBLIC :: l_shared_stem_path = .FALSE.
 LOGICAL, PUBLIC :: l_shared_whole_path = .FALSE.
 LOGICAL, PUBLIC :: l_shared_gain_path = .FALSE.
@@ -383,13 +391,16 @@ END FUNCTION grav_node_drop
 ! critical conductance (in the units of this group's kmax), amax_other is
 ! the other group's photosynthesis at the largest transpiration its
 ! hydraulics allow, and l_gain measures the gain on the whole plant
-! (l_som_shared_gain). A leaf group with no share keeps its own root and
+! (l_som_shared_gain). an_other and lai_other are the other group's net
+! photosynthesis and leaf area, for the whole-plant cost of CMax, CGain,
+! SOX_opt and ProfitMax2. A leaf group with no share keeps its own root and
 ! stem.
 !
-! MDK, 12/11/26
+! MDK, 15/11/26
 ! *****************************************************************************
 SUBROUTINE set_shared_stem( land_pts, veg_pts, veg_index, share, e_other,      &
-                            kcrit_plant, amax_other, l_gain )
+                            kcrit_plant, amax_other, l_gain, an_other,         &
+                            lai_other )
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -401,6 +412,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: share(land_pts), e_other(land_pts),     &
                                       kcrit_plant(land_pts),                   &
                                       amax_other(land_pts)
 LOGICAL, INTENT(IN) :: l_gain
+REAL(KIND=real_jlslsm), INTENT(IN) :: an_other(land_pts), lai_other(land_pts)
 
 INTEGER :: l, m
 
@@ -417,16 +429,22 @@ IF ( .NOT. ALLOCATED(shared_k_fac) ) THEN
   ALLOCATE(shared_kcrit_plant(land_pts))
   ALLOCATE(shared_amax_other(land_pts))
   ALLOCATE(shared_amax_self(land_pts))
+  ALLOCATE(shared_an_other(land_pts))
+  ALLOCATE(shared_lai_other(land_pts))
 END IF
 shared_k_fac(:)       = 1.0
 shared_e_other(:)     = 0.0
 shared_kcrit_plant(:) = 0.0
 shared_amax_other(:)  = 0.0
 shared_amax_self(:)   = 0.0
+shared_an_other(:)    = 0.0
+shared_lai_other(:)   = 0.0
 DO m = 1,veg_pts
   l = veg_index(m)
   shared_kcrit_plant(l) = kcrit_plant(l)
   shared_amax_other(l)  = MAX(amax_other(l), 0.0_real_jlslsm)
+  shared_an_other(l)    = an_other(l)
+  shared_lai_other(l)   = MAX(lai_other(l), 0.0_real_jlslsm)
   IF ( share(l) > TINY(1.0_real_jlslsm) ) THEN
     shared_k_fac(l)   = 1.0 / share(l)
     shared_e_other(l) = MAX(e_other(l), 0.0_real_jlslsm)

@@ -324,7 +324,7 @@ END FUNCTION g_of_geff
 !   carbon and water fluxes in a temperate oak forest despite hydraulic
 !   impairment. Biogeosciences, in review
 !
-! MDK, 04/11/26
+! MDK, 15/11/26
 ! *********************************************************************
 
 SUBROUTINE stom_opt_mod (                                                      &
@@ -975,13 +975,13 @@ CASE (sox_opt_profit_model)
   !-------------------------------------------------------------------
   ! sox_opt_profit_model: with som_ci_search = 2 the bounded search (as
   ! the profit max), otherwise a
-  ! single-pass search at som_n_sample resolution over [ccp, ca]. SOX_opt
-  ! cannot run with xylem impairment (rejected at start-up, see
-  ! pftparm_io), so neither search has an impaired branch.
+  ! single-pass search at som_n_sample resolution over [ccp, ca]. With
+  ! xylem impairment SOX_opt needs the bounded search (pftparm_io), which
+  ! returns the stem water potential for the stem damage.
   !-------------------------------------------------------------------
   IF (som_ci_search == som_ci_bounded) THEN
     CALL bounded_search( open_pts, open_index )
-    CALL scatter_bnd( open_pts, open_index, .FALSE. )
+    CALL scatter_bnd( open_pts, open_index, l_xylem_impairment )
   ELSE
     CALL sox_flat_search()
   END IF  ! som_ci_search (SOX)
@@ -998,13 +998,15 @@ CASE (supply_loss_model)
       land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,         &
       rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,         &
       km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,               &
-      gl_max, l_multilayer,                                                    &
+      gl_max, l_multilayer, kmax_ref, conductance_b, conductance_c,            &
+      psi_leaf_extreme, psi_root_extreme, l_xylem_impairment, r_bl, r_ca,      &
+      g_oth,                                                                   &
   ! OUT
       ci_bnd, al_bnd, gl_bnd, kl_bnd, psi_bnd,                                 &
-      el_bnd, carbon_gain_bnd, hydraulic_cost_bnd                              &
+      el_bnd, carbon_gain_bnd, hydraulic_cost_bnd, psi_stem_bnd                &
           )
 
-  CALL scatter_bnd( open_pts, open_index, .FALSE. )
+  CALL scatter_bnd( open_pts, open_index, l_xylem_impairment )
 
 CASE DEFAULT
   errcode = 101  !  a hard error
@@ -2335,7 +2337,7 @@ END SUBROUTINE stom_opt_profit_max_select
 ! returned too (rd_g), so the gross photosynthesis A + Rd is that of the
 ! same leaf temperature.
 !
-! MDK, 12/11/26
+! MDK, 15/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_bounded_search(                                            &
 ! IN
@@ -2369,7 +2371,8 @@ USE plant_hydraulic_path_mod, ONLY: k_path_zero_flow, kplant_scale,            &
                                     l_store_q_path, l_shared_stem_path,        &
                                     l_shared_whole_path, l_shared_gain_path,   &
                                     shared_kcrit_plant, shared_amax_other,     &
-                                    shared_amax_self
+                                    shared_amax_self, shared_e_other,          &
+                                    shared_an_other, shared_lai_other
 USE pftparm, ONLY: psi_nsl_onset, psi_nsl0,                                    &
                    cmax_a, cmax_b, kmax_pft, cgain_varpi,                      &
                    conductance_b_pft, conductance_c_pft,                       &
@@ -2628,6 +2631,16 @@ REAL(KIND=real_jlslsm) :: al_no_nsl_ev
 REAL(KIND=real_jlslsm) :: khc_ev
                             ! The latest evaluation's conductance for the
                             ! hydraulic cost (kl_ev unless impaired).
+REAL(KIND=real_jlslsm) :: psi_hc_ev
+                            ! The latest evaluation's leaf psi for the
+                            ! hydraulic cost (Pa): psi_ev, or with the shared
+                            ! root and stem the whole plant's.
+REAL(KIND=real_jlslsm) :: an_other
+                            ! The shared root and stem: the other class's
+                            ! net A, for ProfitMax2 and SOX_opt (0 otherwise).
+REAL(KIND=real_jlslsm) :: e_other
+                            ! The shared root and stem: the other class's E,
+                            ! for ProfitMax2 (0 otherwise).
 REAL(KIND=real_jlslsm) :: rd_ev
                             ! Rd inside al_ev with l_leaf_temp_ci
                             ! (state_at_leaf_temp).
@@ -2645,6 +2658,8 @@ REAL(KIND=real_jlslsm) :: edge_kl
                             ! Path conductance at the edge.
 REAL(KIND=real_jlslsm) :: edge_khc
                             ! Conductance for the hydraulic cost at the edge.
+REAL(KIND=real_jlslsm) :: edge_psi_hc
+                            ! Leaf psi for the hydraulic cost at the edge (Pa).
 REAL(KIND=real_jlslsm) :: margin_edge
                             ! The edge's feasibility margin.
 REAL(KIND=real_jlslsm) :: edge_bad_ci
@@ -2672,6 +2687,9 @@ REAL(KIND=real_jlslsm) :: best_kl
 REAL(KIND=real_jlslsm) :: best_khc
                             ! Conductance for the hydraulic cost of the best
                             ! state seen.
+REAL(KIND=real_jlslsm) :: best_psi_hc
+                            ! Leaf psi for the hydraulic cost of the best
+                            ! state seen (Pa).
 REAL(KIND=real_jlslsm) :: golden_lo_ci
                             ! Low end of the golden-section Ci bracket (Pa).
 REAL(KIND=real_jlslsm) :: golden_hi_ci
@@ -2798,13 +2816,37 @@ CONTAINS
   kcrit_hc = kcrit(l)
   IF ( l_shared_stem_path ) kcrit_hc = shared_kcrit_plant(l)
 
+  ! The shared root and stem: the costs in carbon are the whole plant's,
+  ! as the profit max cost is (psi_k_at_e). The leaf area is the whole
+  ! canopy's, the reference conductances those of the whole plant
+  ! (l_shared_whole_path), and ProfitMax2 and SOX_opt scale the whole
+  ! canopy's A, with the other class's A and E held fixed.
+  an_other = 0.0
+  e_other = 0.0
+  IF ( l_shared_stem_path ) THEN
+    IF ( l_profit_absolute .AND. PRESENT(lai_cost) )                           &
+      lai_call = lai_cost(l) + shared_lai_other(l)
+    an_other = shared_an_other(l)
+    e_other = shared_e_other(l)
+    l_shared_whole_path = .TRUE.
+  END IF
+
   IF ( l_sox ) k0_sox = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
 
   ! (The plant's k_max: without the soil-to-root link, which would shrink
-  ! the reference, and so the cost of a given embolism, as the soil dries.)
-  IF ( l_cgain ) k0_cgain = MAX(k_path_zero_flow(pft, l, kmax(l),              &
-                                0.0_real_jlslsm, l_plant_only = .TRUE.),       &
-                                TINY(1.0_real_jlslsm))
+  ! the reference, and so the cost of a given embolism, as the soil dries.
+  ! With xylem impairment the intact plant's, kmax_ref, so the stored damage
+  ! counts in the cost as with the profit max.)
+  IF ( l_cgain .AND. l_xylem_impairment ) THEN
+    k0_cgain = MAX(k_path_zero_flow(pft, l, kmax_ref(l), 0.0_real_jlslsm,      &
+                                    l_plant_only = .TRUE.),                    &
+                   TINY(1.0_real_jlslsm))
+  ELSE IF ( l_cgain ) THEN
+    k0_cgain = MAX(k_path_zero_flow(pft, l, kmax(l), 0.0_real_jlslsm,          &
+                                    l_plant_only = .TRUE.),                    &
+                   TINY(1.0_real_jlslsm))
+  END IF
+  l_shared_whole_path = .FALSE.
 
   ci_lo = MAX(ccp(l), 0.0)
 
@@ -2867,6 +2909,7 @@ CONTAINS
   edge_psi = psi_ev
   edge_kl = kl_ev
   edge_khc = khc_ev
+  edge_psi_hc = psi_hc_ev
   margin_edge = margin()
 
   CALL eval_ci(ci_top)
@@ -2899,6 +2942,7 @@ CONTAINS
     edge_psi = psi_ev
     edge_kl = kl_ev
     edge_khc = khc_ev
+    edge_psi_hc = psi_hc_ev
   ELSE
     CALL edge_by_margin()
   END IF
@@ -2967,9 +3011,9 @@ CONTAINS
   IF ( l_pm2 ) CALL find_e_crit()
 
   ! Both ends of the feasible range are candidates.
-  best_f = profit(best_al, best_khc, best_psi, best_el)
-  IF ( profit(edge_al, edge_khc, edge_psi, edge_el) > best_f ) THEN
-    best_f = profit(edge_al, edge_khc, edge_psi, edge_el)
+  best_f = profit(best_al, best_khc, best_psi_hc, best_el)
+  IF ( profit(edge_al, edge_khc, edge_psi_hc, edge_el) > best_f ) THEN
+    best_f = profit(edge_al, edge_khc, edge_psi_hc, edge_el)
     best_ci = edge_ci
     best_al = edge_al
     best_gl = edge_gl
@@ -2977,6 +3021,7 @@ CONTAINS
     best_psi = edge_psi
     best_kl = edge_kl
     best_khc = edge_khc
+    best_psi_hc = edge_psi_hc
   END IF
   END SUBROUTINE scale_and_ends
 
@@ -2991,6 +3036,8 @@ CONTAINS
   REAL(KIND=real_jlslsm) :: s_ci, s_al, s_gl, s_el, s_psi, s_kl, s_khc, s_mrg
                             ! The capped edge e_* and its margin, kept while
                             ! the hydraulic edge is found.
+  REAL(KIND=real_jlslsm) :: s_psi_hc
+                            ! The capped edge's leaf psi for the cost.
 
   s_ci       = edge_ci
   s_al       = edge_al
@@ -2999,6 +3046,7 @@ CONTAINS
   s_psi      = edge_psi
   s_kl       = edge_kl
   s_khc      = edge_khc
+  s_psi_hc   = edge_psi_hc
   s_mrg      = margin_edge
   l_no_glcap = .TRUE.
 
@@ -3023,6 +3071,7 @@ CONTAINS
   edge_psi    = s_psi
   edge_kl     = s_kl
   edge_khc    = s_khc
+  edge_psi_hc = s_psi_hc
   margin_edge = s_mrg
   END SUBROUTINE hydraulic_edge
 
@@ -3197,10 +3246,10 @@ CONTAINS
   ! CMax, CGain: the cost as a fraction of the maximum A on the range.
   ! ProfitMax2: Theta = A_n E / E_crit, as a fraction of max A.
   IF ( l_cmax .OR. l_cgain .OR. l_pm2 ) hydraulic_cost_chosen(j) = (best_al -  &
-    profit(best_al, best_khc, best_psi, best_el)) / max_al
+    profit(best_al, best_khc, best_psi_hc, best_el)) / max_al
 
   ! SOX: 1 - the factor on A (as the flat-grid SOX).
-  IF ( l_sox ) hydraulic_cost_chosen(j) = 1.0 - sox_factor(best_psi)
+  IF ( l_sox ) hydraulic_cost_chosen(j) = 1.0 - sox_factor(best_psi_hc)
 
   ! CAP: the nonstomatal loss of A as a fraction of the maximum A.
   IF ( l_cap ) hydraulic_cost_chosen(j) = (photo_al(best_ci) - best_al) / max_al
@@ -3376,7 +3425,7 @@ CONTAINS
   l_ltc_pt = .FALSE.
   IF ( l_ltc ) l_ltc_pt = ltc_b(l) > 0.0
   IF ( l_ltc_pt ) THEN
-    CALL state_at_leaf_temp(ci)
+    CALL state_at_leaf_temp(ci, 1.0_real_jlslsm)
     CALL psi_k_at_e()
   ELSE
     al_no_nsl_ev = photo_al(ci)
@@ -3435,14 +3484,14 @@ CONTAINS
       ! The same with the shared root and stem, where the other class's
       ! flow keeps the leaf below psi_root_zone.
       IF ( l_store_q_path .OR. l_shared_stem_path ) THEN
-        CALL hydraulic_state(ci, -rd(l))
+        CALL nsl_state(ci, 0.0_real_jlslsm, a_gross_unlim)
         nsl_resid_lo = -nsl_factor(psi_ev)
       END IF
 
       IF ( nsl_resid_lo >= 0.0 ) THEN
         ! The leaf at no transpiration (the soil, or the store) alone stops
         ! photosynthesis (psi <= psi_nsl0).
-        CALL hydraulic_state(ci, -rd(l))
+        CALL nsl_state(ci, 0.0_real_jlslsm, a_gross_unlim)
       ELSE
         ! The Illinois method (a modified regula falsi), used for every root
         ! find in this module: it keeps a bracket, so it cannot diverge or
@@ -3457,7 +3506,7 @@ CONTAINS
           ! bracket ends, then the hydraulics and g at that f.
           nsl_f_new = nsl_f_lo - nsl_resid_lo * (nsl_f_hi - nsl_f_lo) /        &
                       (nsl_resid_hi - nsl_resid_lo)
-          CALL hydraulic_state(ci, nsl_f_new * a_gross_unlim - rd(l))
+          CALL nsl_state(ci, nsl_f_new, a_gross_unlim)
           nsl_resid_new = nsl_f_new - nsl_factor(psi_ev)
           IF ( ABS(nsl_resid_new) < nsl_tol ) EXIT
 
@@ -3496,6 +3545,22 @@ CONTAINS
            l_store_q_path ) .AND. kl_ev > kcrit(l) .AND. (gl_max(l) <= 0.0     &
            .OR. l_no_glcap .OR. gl_ev <= gl_max(l)) .AND. gl_ev < gl_unreach
   END SUBROUTINE eval_ci
+
+  ! Work out the state at candidate ci with gross photosynthesis scaled by
+  ! the nonstomatal limitation factor f_nsl (a_gross: the unlimited gross
+  ! photosynthesis at the call's leaf temperature). With l_leaf_temp_ci the
+  ! state is at the candidate's own leaf temperature (state_at_leaf_temp),
+  ! where A and Rd depend on T; otherwise at the call's leaf temperature,
+  ! A = f_nsl a_gross - Rd.
+  SUBROUTINE nsl_state(ci, f_nsl, a_gross)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: ci, f_nsl, a_gross
+  IF ( l_ltc_pt ) THEN
+    CALL state_at_leaf_temp(ci, f_nsl)
+    CALL psi_k_at_e()
+  ELSE
+    CALL hydraulic_state(ci, f_nsl * a_gross - rd(l))
+  END IF
+  END SUBROUTINE nsl_state
 
   ! Work out how much water a candidate Ci costs: for net photosynthesis al at
   ! internal CO2 ci, the stomatal conductance that supplies it,
@@ -3547,11 +3612,18 @@ CONTAINS
   ! profit, does not jump from one Ci to the next; the temperature worked
   ! out after the last evaluation is not used. T stays within dt_ltc of T0.
   ! E is floored at 0, so a leaf cooled below the dew point does not count
-  ! as taking up water.
+  ! as taking up water. With the nonstomatal limitation (l_som_nsl) the
+  ! gross photosynthesis at each T is scaled by f_nsl,
+  !
+  !   A = f_nsl (A_unlimited(T) + Rd(T)) - Rd(T)
+  !
+  ! (f_nsl = 1: no scaling), and al_no_nsl_ev is A_unlimited.
   !-------------------------------------------------------------------------
-  SUBROUTINE state_at_leaf_temp(ci)
-  REAL(KIND=real_jlslsm), INTENT(IN) :: ci
+  SUBROUTINE state_at_leaf_temp(ci, f_nsl)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: ci, f_nsl
   REAL(KIND=real_jlslsm) :: tl, tl_new, f(n_ltc_par), c_e
+  REAL(KIND=real_jlslsm) :: al_full
+                            ! A at T without the nonstomatal limitation.
   INTEGER :: it
   INTEGER, PARAMETER :: n_ltc_iter = 4
   REAL(KIND=real_jlslsm), PARAMETER :: dt_ltc = 10.0
@@ -3566,6 +3638,8 @@ CONTAINS
                            f(5), km(l) * f(6), je(l) * f(2), acr(l), apar(l),  &
                            fapar_lf(l), ipar(l), je_ratio(l), pstar(l), rd(l)  &
                            * f(7) )
+    al_full = al_ev
+    IF ( f_nsl < 1.0 ) al_ev = f_nsl * (al_full + rd(l) * f(7)) - rd(l) * f(7)
     gl_ev = ratio * (al_ev * rmol * tl) / MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
     IF ( l_som_coupled_e .OR. r_bl(l) > 0.0 ) THEN
       gl_ev = gl_co2_bl(al_ev, MAX(ca(l) - ci, 1.0e-2_real_jlslsm), rmol * tl, &
@@ -3586,7 +3660,7 @@ CONTAINS
 
   ! The state at the last T at which A and gl were evaluated, and the Rd
   ! inside that A.
-  al_no_nsl_ev = al_ev
+  al_no_nsl_ev = al_full
   rd_ev        = rd(l) * f(7)
 
   ! E floored at 0 with or without coupled E, as in hydraulic_state: a leaf
@@ -3634,6 +3708,7 @@ CONTAINS
   khc_ev = kl_ev
   IF ( l_xylem_impairment .AND. .NOT. l_intact_search .AND.                    &
        ximpair_stomatal_response == ximpair_hold_gs ) khc_ev = khc1(1,1)
+  psi_hc_ev = psi_ev
 
   ! The shared root and stem (l_shared_stem_path): the cost conductance is
   ! the whole plant's at the whole canopy's flow E + E_o, on the same
@@ -3665,6 +3740,9 @@ CONTAINS
                          conductance_c, psi1, kl1 )
       khc_ev = kl1(1,1)
     END IF
+    ! The leaf psi of the whole plant's leaf segment (the sunlit and shaded
+    ! leaves together), for the CMax and SOX_opt costs.
+    psi_hc_ev = psi1(1,1)
     l_shared_whole_path = .FALSE.
   END IF
   END SUBROUTINE psi_k_at_e
@@ -3682,6 +3760,9 @@ CONTAINS
   !   2. Halve that bracket (bisection) until its width is within
   !      ecrit_rtol of its upper end.
   !
+  ! With the shared root and stem it is where the whole plant's conductance
+  ! falls to the whole plant's kcrit (khc_ev, kcrit_hc).
+  !
   ! edge_el is a lower limit on E_crit, since the edge is set by kcrit only
   ! when gl_max and ci_top do not bind first. E_crit is never below edge_el,
   ! and is kept above 0 so that E / E_crit stays finite when there is no
@@ -3690,6 +3771,16 @@ CONTAINS
   SUBROUTINE find_e_crit()
   REAL(KIND=real_jlslsm) :: e_lo, e_hi
   INTEGER :: it
+  LOGICAL :: l_whole
+                            ! The shared root and stem: E_crit is where the
+                            ! whole plant's conductance (khc_ev) falls to its
+                            ! kcrit, as the cost of the other models.
+  LOGICAL :: l_above
+                            ! The conductance at el_ev is above kcrit.
+
+  l_whole = l_shared_stem_path .AND. .NOT. ( l_xylem_impairment .AND.          &
+            .NOT. l_intact_search .AND.                                        &
+            ximpair_stomatal_response == ximpair_hold_psi )
 
   e_lo = MAX(edge_el, 0.0_real_jlslsm)
 
@@ -3701,7 +3792,9 @@ CONTAINS
   DO it = 1, n_ecrit_iter
     el_ev = e_hi
     CALL psi_k_at_e()
-    IF ( .NOT. ( kl_ev > kcrit(l) ) ) EXIT
+    l_above = kl_ev > kcrit(l)
+    IF ( l_whole ) l_above = khc_ev > kcrit_hc
+    IF ( .NOT. l_above ) EXIT
     e_lo = e_hi
     e_hi = 2.0 * e_hi
   END DO
@@ -3712,7 +3805,9 @@ CONTAINS
     IF ( e_hi - e_lo <= ecrit_rtol * e_hi ) EXIT
     el_ev = 0.5 * (e_lo + e_hi)
     CALL psi_k_at_e()
-    IF ( kl_ev > kcrit(l) ) THEN
+    l_above = kl_ev > kcrit(l)
+    IF ( l_whole ) l_above = khc_ev > kcrit_hc
+    IF ( l_above ) THEN
       e_lo = el_ev
     ELSE
       e_hi = el_ev
@@ -3839,6 +3934,7 @@ CONTAINS
       edge_psi = psi_ev
       edge_kl = kl_ev
       edge_khc = khc_ev
+      edge_psi_hc = psi_hc_ev
       margin_edge = margin_ev
       IF ( edge_side == 1 ) margin_bad = 0.5 * margin_bad
       edge_side = 1
@@ -3888,13 +3984,20 @@ CONTAINS
   ! SOX_opt factor (sox_factor), and E_crit the transpiration at which the
   ! path conductance falls to kcrit (find_e_crit). The last five scores are
   ! in mol CO2 m-2 s-1, on the basis of the call (whole canopy, the sunlit
-  ! or shaded leaves, or a layer's leaves).
+  ! or shaded leaves, or a layer's leaves). With the shared root and stem
+  ! every cost is the whole plant's, at the whole canopy's flow: k_in and
+  ! psi_in are the whole plant's, CMax and CGain use the whole canopy's leaf
+  ! area, and ProfitMax2 and SOX_opt scale the whole canopy's A (see
+  ! point_setup).
   REAL(KIND=real_jlslsm) FUNCTION profit(al_in, kl_in, psi_in, el_in)
   REAL(KIND=real_jlslsm), INTENT(IN) :: al_in, kl_in, psi_in, el_in
   IF ( l_pm2 ) THEN
     ! ProfitMax2 (Wang et al. 2020): no cost parameter; the gain falls to
-    ! zero as E reaches E_crit (find_e_crit).
-    profit = al_in * (1.0 - el_in / e_crit)
+    ! zero as E reaches E_crit (find_e_crit). With the shared root and stem,
+    ! the whole canopy's A and E, the other class's (an_other, e_other)
+    ! held fixed (both 0 otherwise).
+    profit = (al_in + an_other)                                                &
+             * (1.0 - (el_in + e_other) / (e_crit + e_other))
   ELSE IF ( l_cmax ) THEN
     ! CMax (Wolf et al. 2016): a carbon cost Theta that rises as psi_leaf
     ! falls, in the same units as A.
@@ -3904,8 +4007,9 @@ CONTAINS
     profit = al_in
   ELSE IF ( l_sox ) THEN
     ! SOX_opt (Eller et al. 2018): A scaled by the hydraulic factor at
-    ! psi_leaf.
-    profit = al_in * sox_factor(psi_in)
+    ! psi_leaf; with the shared root and stem the whole canopy's A and the
+    ! whole plant's factor.
+    profit = (al_in + an_other) * sox_factor(psi_in)
   ELSE IF ( l_cgain ) THEN
     ! Lu et al. (2020) / Sabot et al. (2022, Eq. 15), varpi per unit leaf
     ! area (umol m-2 s-1) scaled to this call.
@@ -3931,13 +4035,16 @@ CONTAINS
   ! where psi_bar is the mean of psi and the root-zone water potential,
   ! k(psi_bar) the conductance of the whole soil-to-leaf path with every
   ! part at psi_bar, and k_ref that conductance with no flow (psi_bar at the
-  ! root-zone water potential).
+  ! root-zone water potential). With the shared root and stem, psi is the
+  ! whole plant's leaf psi, the path the whole plant's and kcrit its kcrit.
   REAL(KIND=real_jlslsm) FUNCTION sox_factor(psi)
   REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+  l_shared_whole_path = l_shared_stem_path
   sox_factor = ( k_path_zero_flow(pft, l, kmax(l),                             &
                                    0.5 * (psi + psi_root_zone(l)))             &
-                 - kcrit(l) ) / MAX(k0_sox - kcrit(l), TINY(1.0_real_jlslsm))
+                 - kcrit_hc ) / MAX(k0_sox - kcrit_hc, TINY(1.0_real_jlslsm))
   sox_factor = MAX(sox_factor, 0.0_real_jlslsm)
+  l_shared_whole_path = .FALSE.
   END FUNCTION sox_factor
 
   ! Return the CMax carbon cost of leaf water potential psi (Pa), from Anderegg
@@ -3961,7 +4068,7 @@ CONTAINS
   ! If it is the best so far, the state is kept (store_best).
   REAL(KIND=real_jlslsm) FUNCTION profit_u()
   IF ( l_ok_ev ) THEN
-    profit_u = profit(al_ev, khc_ev, psi_ev, el_ev)
+    profit_u = profit(al_ev, khc_ev, psi_hc_ev, el_ev)
   ELSE
     profit_u = -HUGE(1.0_real_jlslsm)
   END IF
@@ -4017,6 +4124,7 @@ CONTAINS
   best_psi = psi_ev
   best_kl = kl_ev
   best_khc = khc_ev
+  best_psi_hc = psi_hc_ev
   END SUBROUTINE store_best
 
   ! The dark respiration inside A at candidate ci: with l_leaf_temp_ci, Rd at
@@ -4034,7 +4142,7 @@ CONTAINS
   s_gl  = gl_ev
   s_el  = el_ev
   s_al0 = al_no_nsl_ev
-  CALL state_at_leaf_temp(ci)
+  CALL state_at_leaf_temp(ci, 1.0_real_jlslsm)
   rd_at_ci     = rd_ev
   al_ev        = s_al
   gl_ev        = s_gl
@@ -4142,6 +4250,12 @@ END SUBROUTINE stom_opt_bounded_search
 !
 ! k_fail is kcrit, or sl_kfail_frac kmax when that is set. som_gl_max is
 ! not used: gl_max carries only the soil supply limit (l_som_supply_limit).
+! With coupled transpiration (l_som_coupled_e) or a leaf boundary layer
+! (r_bl > 0), gl comes from A through the boundary layer (gl_co2_bl) and E
+! from gl through the boundary layer and the canopy air (g_eff_e), as in the
+! searches. With xylem impairment the supply function is that of the
+! impaired path; with the store's flow held fixed or the shared root and
+! stem, P0 is the leaf psi of the path at no transpiration of these leaves.
 ! Every search here keeps a bracket, so none can diverge near the failure
 ! point.
 !
@@ -4154,16 +4268,19 @@ END SUBROUTINE stom_opt_bounded_search
 !   predicts stomatal responses to climatic water deficits. New Phytol,
 !   212: 577-589. https://doi.org/10.1111/nph.14059
 !
-! MDK, 12/11/26
+! MDK, 15/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE stom_opt_supply_loss(                                               &
 ! IN
         land_pts, pft, open_pts, open_index, pft_photo_model, veg_index,       &
         rd, ca, psi_root_zone, acr, apar, oi, vcmax, kc, ko, ccp, pstar,       &
         km, dq, je, t_leaf, je_ratio, fapar_lf, ipar, kmax, kcrit,             &
-        gl_max, l_multilayer,                                                  &
+        gl_max, l_multilayer, kmax_ref, conductance_b, conductance_c,          &
+        psi_leaf_extreme, psi_root_extreme, l_xylem_impairment, r_bl, r_ca,    &
+        g_oth,                                                                 &
 ! OUT
-        ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g   &
+        ci_g, al_g, gl_g, kl_g, psi_g, el_g, carbon_gain_g, hydraulic_cost_g,  &
+        psi_stem_g                                                             &
 )
 
 USE parkind1, ONLY: jprb, jpim
@@ -4173,7 +4290,9 @@ USE pftparm, ONLY: sl_cica_well_watered, conductance_b_pft, conductance_c_pft
 USE jules_surface_mod, ONLY: ratio
 USE c_rmol, ONLY: rmol
 USE xylem_hydraulics_jls_mod, ONLY: psi_leaf_jls
-USE plant_hydraulic_path_mod, ONLY: grav_node_drop
+USE plant_hydraulic_path_mod, ONLY: grav_node_drop, k_path_zero_flow,          &
+                                    l_store_q_path, l_shared_stem_path
+USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_coupled_e
 
 INTEGER, INTENT(IN) ::                                                         &
   land_pts, pft, open_pts, open_index(land_pts), pft_photo_model,              &
@@ -4194,9 +4313,34 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: gl_max(land_pts)
 
 LOGICAL, INTENT(IN) :: l_multilayer
 
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  kmax_ref(land_pts), conductance_b(land_pts), conductance_c(land_pts),        &
+  psi_leaf_extreme(land_pts), psi_root_extreme(land_pts)
+                            ! With xylem impairment, the intact kmax, each
+                            ! point's impaired curve and the impairment
+                            ! memory, as passed to stom_opt_mod.
+
+LOGICAL, INTENT(IN) :: l_xylem_impairment
+                            ! Impairment active for this PFT: the supply
+                            ! function is that of the impaired path
+                            ! (som_path_psi).
+
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
   ci_g(open_pts), al_g(open_pts), gl_g(open_pts), kl_g(open_pts),              &
   psi_g(open_pts), el_g(open_pts)
+
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  r_bl(land_pts), r_ca(land_pts), g_oth(land_pts)
+                            ! Leaf boundary layer and canopy air
+                            ! resistances (s m-1) and the other leaves'
+                            ! conductance into the canopy air (m s-1), as
+                            ! for the searches (g_eff_e, gl_co2_bl).
+
+REAL(KIND=real_jlslsm), INTENT(OUT) :: psi_stem_g(open_pts)
+                            ! The stem water potential at the chosen E (Pa),
+                            ! for the stem damage, with xylem impairment and
+                            ! segments; psi_root_zone less the gravity drop
+                            ! otherwise.
 
 REAL(KIND=real_jlslsm), INTENT(OUT) :: carbon_gain_g(open_pts)
                             ! A / A_d, the fraction of the demand's net
@@ -4247,6 +4391,11 @@ REAL(KIND=real_jlslsm) :: c_curve(land_pts)
 
 REAL(KIND=real_jlslsm) :: rmol_t
                             ! rmol t_leaf (J mol-1).
+LOGICAL :: l_cpl
+                            ! E through the leaf boundary layer and the
+                            ! canopy air (l_som_coupled_e or r_bl > 0), as
+                            ! the searches: gl from A by gl_co2_bl and E from
+                            ! gl by g_eff_e.
 REAL(KIND=real_jlslsm) :: e_per_gl
                             ! E per unit gl, E = e_per_gl gl (mol m-2 s-1 per
                             ! m s-1).
@@ -4255,6 +4404,14 @@ REAL(KIND=real_jlslsm) :: k_fail
                             ! or sl_kfail_frac kmax.
 REAL(KIND=real_jlslsm) :: psi_zero_flow
                             ! P0, the leaf psi at zero flow (Pa).
+REAL(KIND=real_jlslsm) :: el_stem(1,1)
+                            ! The chosen E, for the stem water potential.
+REAL(KIND=real_jlslsm) :: psi_stem_tmp(1,1)
+                            ! Leaf psi of that solve (not used).
+REAL(KIND=real_jlslsm) :: k_stem_tmp(1,1)
+                            ! Path conductance of that solve (not used).
+REAL(KIND=real_jlslsm) :: psi_stem_out(1,1)
+                            ! The stem water potential of that solve (Pa).
 REAL(KIND=real_jlslsm) :: k_zero_flow
                             ! k0, the path conductance at zero flow.
 REAL(KIND=real_jlslsm) :: ci_demand
@@ -4347,6 +4504,13 @@ DO j = 1, open_pts
   ! E (mol m-2 s-1) = e_per_gl * gl (m s-1), as stom_opt_mod_ci.
   e_per_gl = e_of_g(1.0_real_jlslsm, dq(l), pstar(l), t_leaf(l))
   psi_zero_flow = psi_root_zone(l) - grav_node_drop(l)
+  psi_stem_g(j) = psi_zero_flow
+
+  ! P0 with the store's flow held fixed or the shared root and stem: the
+  ! leaf psi of the path at no transpiration of these leaves, which the store
+  ! keeps wetter, or the other leaves' flow drier, than the root zone.
+  IF ( l_store_q_path .OR. l_shared_stem_path )                                &
+    CALL supply(0.0_real_jlslsm, psi_zero_flow, k_trial)
   k_fail = kcrit(l)
   IF ( sl_kfail_frac > 0.0 ) k_fail = sl_kfail_frac * kmax(l)
 
@@ -4362,11 +4526,24 @@ DO j = 1, open_pts
   gl_demand = ratio * al_demand * rmol_t / MAX(ca(l) - ci_demand,              &
               1.0e-2_real_jlslsm)
   e_demand = MAX(0.0, e_per_gl * gl_demand)
+  l_cpl = l_som_coupled_e .OR. r_bl(l) > 0.0
+  IF ( l_cpl ) THEN
+    gl_demand = gl_co2_bl(al_demand, MAX(ca(l) - ci_demand,                    &
+                          1.0e-2_real_jlslsm), rmol_t, r_bl(l))
+    e_demand = MAX(0.0, e_of_gl(gl_demand))
+  END IF
 
   !---------------------------------------------------------------------------
   ! 2. Zero flow (P0, k0) and the demand on the supply function (P', k').
   !---------------------------------------------------------------------------
   CALL supply(0.0_real_jlslsm, psi_trial, k_zero_flow)
+
+  ! With the store's flow held fixed the path at no transpiration carries the
+  ! store's flow back towards the soil, a state the store never takes, so k0
+  ! is that of the path without the store at zero flow (as the profit max's
+  ! reference, kl_hc_max).
+  IF ( l_store_q_path .AND. .NOT. l_xylem_impairment )                         &
+    k_zero_flow = k_path_zero_flow(pft, l, kmax(l), psi_root_zone(l))
   IF ( k_zero_flow <= k_fail ) THEN
     ! The path has failed at zero flow: no supply.
     CALL set_closed()
@@ -4533,6 +4710,9 @@ DO j = 1, open_pts
   END IF
 
   gl_reg = MIN(gl_demand, e_reg / MAX(e_per_gl, TINY(1.0_real_jlslsm)))
+  IF ( l_cpl ) gl_reg = MIN(gl_demand, g_of_geff(e_reg /                       &
+                            MAX(e_per_gl, TINY(1.0_real_jlslsm)), r_bl(l),     &
+                            r_ca(l), g_oth(l)))
 
   ! Soil supply limit (l_som_supply_limit, via gl_max): cap gl and take E,
   ! psi_leaf and k at the capped transpiration. A cap at ~0 (no water to
@@ -4544,6 +4724,7 @@ DO j = 1, open_pts
     END IF
     gl_reg = gl_max(l)
     e_reg = e_per_gl * gl_reg
+    IF ( l_cpl ) e_reg = e_of_gl(gl_reg)
     CALL supply(e_reg, psi_reg, k_reg)
   END IF
 
@@ -4568,8 +4749,7 @@ DO j = 1, open_pts
   !    eval_ci).
   !---------------------------------------------------------------------------
   ill_lo = MAX(ccp(l), 0.0)
-  ill_f_lo = gl_reg * MAX(ca(l) - ill_lo, 1.0e-2_real_jlslsm) - ratio * rmol_t &
-             * photo_al(ill_lo)
+  ill_f_lo = h_ci(ill_lo)
   ill_hi = ci_demand
   ill_f_hi = (gl_reg - gl_demand) * MAX(ca(l) - ci_demand, 1.0e-2_real_jlslsm)
   ill_new = ill_hi
@@ -4580,8 +4760,7 @@ DO j = 1, open_pts
       ill_new = (ill_lo * ill_f_hi - ill_hi * ill_f_lo) / (ill_f_hi - ill_f_lo)
       IF ( .NOT. ( ill_new > ill_lo .AND. ill_new < ill_hi ) )                 &
         ill_new = 0.5 * (ill_lo + ill_hi)
-      ill_f_new = gl_reg * MAX(ca(l) - ill_new, 1.0e-2_real_jlslsm) - ratio *  &
-           rmol_t * photo_al(ill_new)
+      ill_f_new = h_ci(ill_new)
       IF ( ill_f_new > 0.0 ) THEN
         ill_lo = ill_new
         ill_f_lo = ill_f_new
@@ -4597,11 +4776,34 @@ DO j = 1, open_pts
     ill_new = 0.5 * (ill_lo + ill_hi)
   END IF
 
-  ! A consistent with gl and ci (gl = ratio A R T/(ca - ci)).
-  CALL set_state(ill_new, gl_reg * MAX(ca(l) - ill_new, 1.0e-2_real_jlslsm) /  &
-                 (ratio * rmol_t), gl_reg, e_reg, psi_reg, k_reg)
+  ! A consistent with gl and ci (gl = ratio A R T/(ca - ci)); through the
+  ! boundary layer, A at that ci.
+  IF ( l_cpl ) THEN
+    CALL set_state(ill_new, photo_al(ill_new), gl_reg, e_reg, psi_reg, k_reg)
+  ELSE
+    CALL set_state(ill_new, gl_reg * MAX(ca(l) - ill_new, 1.0e-2_real_jlslsm)  &
+                   / (ratio * rmol_t), gl_reg, e_reg, psi_reg, k_reg)
+  END IF
   carbon_gain_g(j) = al_g(j) / al_demand
 END DO
+
+! The stem water potential at the chosen E, for the stem damage (xylem
+! impairment with segments), from the same path solve as the supply function.
+IF ( l_xylem_impairment .AND. l_som_plant_segments ) THEN
+  DO j = 1, open_pts
+    IF ( gl_g(j) > 0.0 ) THEN
+      l = veg_index(open_index(j))
+      idx1(1) = open_index(j)
+      el_stem(1,1) = el_g(j)
+      CALL som_path_psi( pft, 1, land_pts, 1, veg_index, idx1, el_stem,        &
+                         psi_root_zone, kmax_ref, kmax, kcrit, conductance_b,  &
+                         conductance_c, psi_leaf_extreme, psi_root_extreme,    &
+                         .TRUE., psi_stem_tmp, k_stem_tmp,                     &
+                         psi_stem = psi_stem_out )
+      psi_stem_g(j) = psi_stem_out(1,1)
+    END IF
+  END DO
+END IF
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
@@ -4609,20 +4811,56 @@ CONTAINS
 
   ! Return the supply function at transpiration e (mol H2O m-2 s-1): the leaf
   ! water potential psi (Pa) and the path conductance k = -dE/dpsi_leaf, from
-  ! psi_leaf_jls on the PFT's vulnerability curve.
+  ! psi_leaf_jls on the PFT's vulnerability curve, or with xylem impairment
+  ! from the impaired path (som_path_psi).
   SUBROUTINE supply(e, psi, k)
   REAL(KIND=real_jlslsm), INTENT(IN) :: e
   REAL(KIND=real_jlslsm), INTENT(OUT) :: psi, k
   REAL(KIND=real_jlslsm) :: el1(1,1), psi1(1,1), kl1(1,1)
   el1(1,1) = e
-  CALL psi_leaf_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,                &
-                     psi_root_zone, kmax, kcrit, b_curve, c_curve,             &
-                     psi1, kl1 )
+  IF ( l_xylem_impairment ) THEN
+    ! The impaired path, as the searches of the other models (impaired_state).
+    CALL som_path_psi( pft, 1, land_pts, 1, veg_index, idx1, el1,              &
+                       psi_root_zone, kmax_ref, kmax, kcrit, conductance_b,    &
+                       conductance_c, psi_leaf_extreme, psi_root_extreme,      &
+                       .TRUE., psi1, kl1 )
+  ELSE
+    CALL psi_leaf_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,              &
+                       psi_root_zone, kmax, kcrit, b_curve, c_curve,           &
+                       psi1, kl1 )
+  END IF
   psi = psi1(1,1)
   k = kl1(1,1)
   END SUBROUTINE supply
 
 
+
+  ! Return the transpiration (mol H2O m-2 s-1) at stomatal conductance gl
+  ! (m s-1) through the leaf boundary layer and the canopy air (l_cpl).
+  REAL(KIND=real_jlslsm) FUNCTION e_of_gl(gl)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: gl
+  e_of_gl = e_of_g(g_eff_e(MAX(gl, 0.0_real_jlslsm), r_bl(l), r_ca(l),         &
+                           g_oth(l)), dq(l), pstar(l), t_leaf(l))
+  END FUNCTION e_of_gl
+
+  ! Return h(ci), which falls through 0 at the ci that the regulated gl
+  ! supports (step 4):
+  !
+  !   h = gl (ca - ci) - ratio R T A(ci)
+  !
+  ! or with l_cpl, through the boundary layer (gl_co2_bl),
+  !
+  !   h = (gl - gl_co2_bl(A(ci), ca - ci)) (ca - ci)
+  REAL(KIND=real_jlslsm) FUNCTION h_ci(ci)
+  REAL(KIND=real_jlslsm), INTENT(IN) :: ci
+  REAL(KIND=real_jlslsm) :: dc
+  dc = MAX(ca(l) - ci, 1.0e-2_real_jlslsm)
+  IF ( l_cpl ) THEN
+    h_ci = (gl_reg - gl_co2_bl(photo_al(ci), dc, rmol_t, r_bl(l))) * dc
+  ELSE
+    h_ci = gl_reg * dc - ratio * rmol_t * photo_al(ci)
+  END IF
+  END FUNCTION h_ci
 
   ! Return the allowed drop in leaf water potential (Pa) for a state with leaf
   ! water potential psi and path conductance k (Sperry et al. 2016, Eqn 5):
@@ -4680,6 +4918,7 @@ CONTAINS
   el_g(j) = 0.0
   carbon_gain_g(j) = 0.0
   hydraulic_cost_g(j) = 0.0
+  IF ( l_store_q_path .OR. l_shared_stem_path ) psi_g(j) = psi_zero_flow
   END SUBROUTINE set_closed
 
   ! Return the net photosynthesis (mol CO2 m-2 s-1) at internal CO2 ci (Pa) for

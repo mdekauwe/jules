@@ -1704,7 +1704,7 @@ CASE ( 4 )
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
                  'can_rad_mod=4 has no stomatal optimisation: '             // &
-                 'stomata_model=4 to 7, 9 or 10 needs can_rad_mod=1, 5, '   // &
+                 'stomata_model=4 to 7 or 9 to 11 needs can_rad_mod=1, 5, ' // &
                  '6 or 7')
   END IF
 CASE ( 7 )
@@ -1712,7 +1712,7 @@ CASE ( 7 )
   IF ( leaf_flux_mod /= leaf_flux_stom_opt ) THEN
     errcode = 101
     CALL ereport("check_jules_vegetation", errcode,                            &
-                 'can_rad_mod=7 requires stomata_model=4 to 7 or 9')
+                 'can_rad_mod=7 requires stomata_model=4 to 7 or 9 to 11')
   END IF
 CASE DEFAULT
   errcode = 101
@@ -1863,10 +1863,11 @@ IF ( ( stomata_model == stomata_cmax .OR. stomata_model == stomata_cgain       &
                'som_ci_search = 2')
 END IF
 ! Coupled transpiration in the optimisation: big leaf and two-leaf only (the
-! multilayer canopy and the supply-loss rule keep the fixed-deficit E).
+! multilayer canopy keeps the fixed-deficit E).
 ! It is on by default, so elsewhere it is turned off rather than an error.
+!
+! MDK, 15/11/26
 IF ( l_som_coupled_e .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.          &
-                             stomata_model == stomata_supply_loss .OR.         &
                              ( can_rad_mod /= 1 .AND. can_rad_mod /= 7 ) ) )   &
   THEN
   l_som_coupled_e = .FALSE.
@@ -1874,7 +1875,7 @@ IF ( l_som_coupled_e .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.          &
   IF ( leaf_flux_mod == leaf_flux_stom_opt )                                   &
     CALL jules_print('check_jules_vegetation',                                 &
                      'Coupled transpiration (l_som_coupled_e) is off: it ' //  &
-                     'applies only to stomata_model = 4 to 7, 10 or 11 ' //    &
+                     'applies only to stomata_model = 4 to 7 or 9 to 11 ' //   &
                      'with can_rad_mod 1 or 7')
 END IF
 ! Supply-loss stomata: the profit-max hydraulics, on the Ci axis.
@@ -1883,17 +1884,6 @@ IF ( stomata_model == stomata_supply_loss .AND.                                &
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'stomata_model = 9 (supply-loss) requires som_base_parm = 1')
-END IF
-! Supply-loss stomata do not take the leaf boundary layer that the
-! multilayer leaf energy balance gives the other stomatal optimisations.
-!
-! MDK, 04/11/26
-IF ( stomata_model == stomata_supply_loss .AND. l_leaf_temp .AND.              &
-     ( can_rad_mod == 5 .OR. can_rad_mod == 6 ) ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'stomata_model = 9 (supply-loss) with l_leaf_temp needs ' //    &
-               'can_rad_mod = 7')
 END IF
 ! The loss rule needs the supply function and its slope k = -dE/dpsi_leaf
 ! consistently.
@@ -2278,7 +2268,8 @@ IF ( l_som_plant_segments .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.     &
                                   can_rad_mod == 4 ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_plant_segments requires stomata_model=4 to 7 or 9, ' //  &
+               'l_som_plant_segments requires stomata_model=4 to 7 or ' //    &
+               '9 to 11, ' //                                                  &
                'som_psi_solver=2 or 3 and can_rad_mod=1, 5, 6 or 7')
 END IF
 ! kplant_model 1 (root and stem per unit ground area) is not set up for the
@@ -2324,12 +2315,13 @@ END IF
 ! The plant capacitance store sits at the stem node of the plant segments
 ! (given on the PFT curve when l_som_plant_segments is off, above),
 ! seen by the optimiser (its flow out held fixed in each pass of the
-! search). It is coded for profit max with the root, stem and leaf segments
+! search). It is coded for the stomatal models on the plant hydraulics
+! (stomata_model = 4 to 7, 9 to 11) with the root, stem and leaf segments
 ! and the Newton or lookup-table solver, the bounded Ci search and the
 ! big-leaf, multilayer and two-leaf canopies (with or without the cuticular
 ! loss).
 !
-! MDK, 31/10/26
+! MDK, 15/11/26
 IF ( l_som_capacitance_on ) THEN
   IF ( .NOT. l_som_plant_segments .OR.                                         &
        ( som_psi_solver /= psi_solver_newton .AND.                             &
@@ -2347,13 +2339,6 @@ IF ( l_som_capacitance_on ) THEN
                  'Plant capacitance (l_som_capacitance or ' //                 &
                  'som_cuticular_leak > 0) is only coded for can_rad_mod = ' // &
                  '1, 5, 6 or 7')
-  END IF
-  IF ( stomata_model /= stomata_profit_max ) THEN
-    errcode = 101
-    CALL ereport("check_jules_vegetation", errcode,                            &
-                 'Plant capacitance (l_som_capacitance or ' //                 &
-                 'som_cuticular_leak > 0) is only coded for profit max ' //    &
-                 '(stomata_model = 4)')
   END IF
   IF ( som_ci_search /= som_ci_bounded ) THEN
     errcode = 101
@@ -2412,14 +2397,15 @@ END IF
 IF ( l_som_gravity .AND. leaf_flux_mod /= leaf_flux_stom_opt ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_gravity requires stomata_model=4 to 7 or 9')
+               'l_som_gravity requires stomata_model=4 to 7 or 9 to 11')
 END IF
 
 IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
                                 .NOT. l_use_pft_psi ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'l_som_supply_limit requires stomata_model=4 to 7 or 9 and ' // &
+               'l_som_supply_limit requires stomata_model=4 to 7 or 9 to ' //  &
+               '11 and ' //                                                    &
                'l_use_pft_psi=T')
 END IF
 
@@ -2459,7 +2445,7 @@ IF ( l_leaf_temp .AND. ( can_rad_mod < 5 .OR. can_rad_mod > 7 .OR.             &
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_leaf_temp is only coded for can_rad_mod=5, 6 or 7 with ' //  &
-               'stomata_model=4 to 7 or 9')
+               'stomata_model=4 to 7 or 9 to 11')
 END IF
 
 IF ( l_leaf_temp .AND. ( leaf_shelter <= 0.0 .OR. leaf_aero_model /= 0 ) ) THEN
@@ -2481,15 +2467,15 @@ IF ( l_leaf_temp .AND. leaf_width <= 0.0 ) THEN
                'l_leaf_temp needs leaf_width > 0')
 END IF
 
-! MDK, 24/10/26
+! MDK, 15/11/26
 IF ( l_leaf_temp_ci .AND. ( .NOT. l_leaf_temp .OR. can_rad_mod /= 7 .OR.       &
      leaf_flux_mod /= leaf_flux_stom_opt .OR.                                  &
-     som_ci_search /= som_ci_bounded .OR. l_som_nsl ) ) THEN
+     som_ci_search /= som_ci_bounded ) ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_leaf_temp_ci needs l_leaf_temp, the two-leaf canopy ' //     &
-               '(can_rad_mod = 7), stomatal optimisation with the ' //         &
-               'bounded Ci search (som_ci_search = 2), and not l_som_nsl')
+               '(can_rad_mod = 7) and stomatal optimisation with the ' //      &
+               'bounded Ci search (som_ci_search = 2)')
 END IF
 
 IF ( ximpair_stomatal_response /= ximpair_hold_gs .AND.                        &

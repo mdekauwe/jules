@@ -1112,6 +1112,15 @@ REAL(KIND=real_jlslsm) :: a_oth_2l(land_pts), amax_sun_2l(land_pts),          &
                             ! and each class's, from its last search.
                             !
                             ! MDK, 30/10/26
+REAL(KIND=real_jlslsm) :: an_oth_2l(land_pts)
+                            ! The shared root and stem: the other class's
+                            ! net A (mol CO2 m-2 ground s-1), taken as
+                            ! e_oth_2l, for the whole-plant cost of CMax,
+                            ! CGain, SOX_opt and ProfitMax2. In the first
+                            ! pass the shaded leaves' A at their edge of the
+                            ! last timestep stands in for it.
+                            !
+                            ! MDK, 15/11/26
 REAL(KIND=real_jlslsm) :: e_sup_use(land_pts)
                             ! The soil supply the optimiser is capped by, in
                             ! every canopy (kg m-2 s-1; < 0: no cap):
@@ -4051,6 +4060,7 @@ CASE ( 7 )
   ! first).
   e_oth_2l(:) = 0.0
   a_oth_2l(:) = 0.0
+  an_oth_2l(:) = 0.0
   amax_sun_2l(:) = 0.0
   amax_shd_2l(:) = 0.0
   IF ( l_som_shared_stem ) THEN
@@ -4112,9 +4122,11 @@ CASE ( 7 )
         IF ( k == 1 ) THEN
           e_oth_2l(l) = shared_e_shd_prev(l,ft)
           a_oth_2l(l) = shared_amax_shd_prev(l,ft)
+          an_oth_2l(l) = shared_amax_shd_prev(l,ft)
         ELSE
           e_oth_2l(l) = MAX(el_shd(l), 0.0)
           a_oth_2l(l) = amax_shd_2l(l)
+          an_oth_2l(l) = anetl_shd(l)
         END IF
       END DO
     END IF
@@ -4126,7 +4138,7 @@ CASE ( 7 )
                          anetl_sun, el_sun, flux_o3_l_sun, fo3_l_sun, gl_sun,  &
                          psi_leaf_sun, CG_sun, HC_sun, leaf_k_sun,             &
                          psi_stem_sun, lam_sun, q_store_sun, e_oth_2l,         &
-                         a_oth_2l, amax_sun_2l )
+                         a_oth_2l, amax_sun_2l, an_oth_2l, lai_shd_2l )
     IF ( l_leaf_temp_ci .AND. k > 1 ) THEN
       CALL clear_leaf_temp_ci()
       CALL ltc_set( 2, t_shd_lt, nweight_shd_2l, i2_shd, ccp_shd_lt,           &
@@ -4139,6 +4151,7 @@ CASE ( 7 )
         l = veg_index(m)
         e_oth_2l(l) = MAX(el_sun(l), 0.0)
         a_oth_2l(l) = amax_sun_2l(l)
+        an_oth_2l(l) = anetl_sun(l)
       END DO
     END IF
     CALL two_leaf_class( apar_shd_2l, lai_shd_2l, kmax_ref_shd_2l, qs_shd_lt,  &
@@ -4149,7 +4162,7 @@ CASE ( 7 )
                          anetl_shd, el_shd, flux_o3_l_shd, fo3_l_shd, gl_shd,  &
                          psi_leaf_shd, CG_shd, HC_shd, leaf_k_shd,             &
                          psi_stem_shd, lam_shd, q_store_shd, e_oth_2l,         &
-                         a_oth_2l, amax_shd_2l )
+                         a_oth_2l, amax_shd_2l, an_oth_2l, lai_sun_2l )
     IF ( l_leaf_temp_ci .AND. k > 1 ) CALL clear_leaf_temp_ci()
 
     DO m = 1,veg_pts
@@ -6254,9 +6267,10 @@ END SUBROUTINE ml_class
 ! less the other leaves' use are seen here, while these leaves keep their
 ! own share of the leaf conductance. The critical conductance (kcrit) stays
 ! the same fraction of the plant's intact conductance, now of the whole
-! plant's root and stem.
+! plant's root and stem. The other leaves' net A and leaf area (an_o_c,
+! lai_o_c) give the models with a cost in carbon their whole-plant cost.
 !
-! MDK, 12/11/26
+! MDK, 15/11/26
 !-----------------------------------------------------------------------------
 SUBROUTINE two_leaf_class( apar_c, lai_c, kmax_ref_c, qs_lt_c, dq_lt_c,        &
                            gbw_c, gbw_o, gl_o, t_lt_c, gl_max_c, acr_c,        &
@@ -6264,7 +6278,7 @@ SUBROUTINE two_leaf_class( apar_c, lai_c, kmax_ref_c, qs_lt_c, dq_lt_c,        &
                            je_c, kmax_c, kcrit_c, rd_c, ci_c, anetl_c, el_c,   &
                            flux_o3_c, fo3_c, gl_c, psi_leaf_c, cg_c, hc_c,     &
                            leaf_k_c, psi_stem_c, lam_c, q_store_cls, e_o_c,    &
-                           a_o_c, amax_c )
+                           a_o_c, amax_c, an_o_c, lai_o_c )
 IMPLICIT NONE
 
 REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
@@ -6299,6 +6313,12 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) :: amax_c(land_pts)
                             ! The shared root and stem: this class's A at its
                             ! hydraulic edge from this search (0 where it was
                             ! not searched); unchanged otherwise.
+REAL(KIND=real_jlslsm), INTENT(IN) :: an_o_c(land_pts)
+                            ! The shared root and stem: the other class's
+                            ! net A (mol CO2 m-2 ground s-1), held fixed.
+REAL(KIND=real_jlslsm), INTENT(IN) :: lai_o_c(land_pts)
+                            ! The shared root and stem: the other class's
+                            ! leaf area (m2 m-2).
 
 INTEGER :: i, l, m
 REAL(KIND=real_jlslsm) :: kcrit_use(land_pts), k_own(land_pts),               &
@@ -6371,7 +6391,7 @@ IF ( l_som_shared_stem ) THEN
     kcrit_pl(l) = kcrit_c(l) / MAX(share_sup(l), TINY(1.0_real_jlslsm))
   END DO
   CALL set_shared_stem( land_pts, veg_pts, veg_index, share_sup, e_o_c,        &
-                        kcrit_pl, a_o_c, l_som_shared_gain )
+                        kcrit_pl, a_o_c, l_som_shared_gain, an_o_c, lai_o_c )
   DO m = 1,veg_pts
     l = veg_index(m)
     IF ( k_own(l) > TINY(1.0_real_jlslsm) )                                    &
