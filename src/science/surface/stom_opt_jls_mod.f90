@@ -2325,9 +2325,9 @@ END SUBROUTINE stom_opt_profit_max_select
 !      assumes one peak, which holds when A is concave in Ci and the cost
 !      convex in E (Weibull c >= 1); where that may fail (l_multi_peak) a
 !      coarse scan picks the peak first.
-!   5. With xylem impairment and ximpair_hold_psi, steps 1 to 4 run on the
-!      intact path, and Ci is then lowered until the impaired path gives
-!      the same leaf water potential (hold_leaf_psi).
+!   5. With xylem impairment and ximpair_damage_lowers_e, steps 1 to 4 run
+!      on the intact path, and Ci is then lowered until the impaired path
+!      gives the same leaf water potential (hold_leaf_psi).
 !
 ! The best Ci seen at any step, both ends included, is returned, with the
 ! marginal water price dA/dE there (lambda_diag) when it is output
@@ -2363,8 +2363,9 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 som_light_k, l_som_gain_gross,                 &
                                 l_som_edge_bound,                              &
                                 l_som_plant_segments, l_som_nsl,               &
-                                ximpair_stomatal_response, ximpair_hold_gs,    &
-                                ximpair_hold_psi, l_som_coupled_e,             &
+                                ximpair_stomatal_response,                     &
+                                ximpair_damage_lowers_psi_leaf,                &
+                                ximpair_damage_lowers_e, l_som_coupled_e,      &
                                 photo_johnson, l_lambda_diag
 USE plant_hydraulic_path_mod, ONLY: l_kscale
 USE plant_hydraulic_path_mod, ONLY: grav_node_drop
@@ -2488,9 +2489,9 @@ INTEGER, PARAMETER :: n_ecrit_iter = 60
 REAL(KIND=real_jlslsm), PARAMETER :: ecrit_rtol = 1.0e-4
                             ! ProfitMax2: relative tolerance on E_crit.
 INTEGER, PARAMETER :: n_hold_iter = 40
-                            ! Hold leaf psi: maximum bisection steps.
+                            ! hold_leaf_psi: maximum bisection steps.
 REAL(KIND=real_jlslsm), PARAMETER :: hold_psi_tol = 100.0
-                            ! Hold leaf psi: tolerance on psi_leaf (Pa).
+                            ! hold_leaf_psi: tolerance on psi_leaf (Pa).
 
 INTEGER :: i, j, l
                             ! Loop counter, the open point and its land
@@ -2501,7 +2502,7 @@ INTEGER :: edge_side
 INTEGER :: idx_one_pt(land_pts)
                             ! The one-point open index for the path solvers.
 LOGICAL :: l_intact_search
-                            ! Hold leaf psi (ximpair_hold_psi): .TRUE.
+                            ! ximpair_damage_lowers_e: .TRUE.
                             ! while the search runs on the intact path.
 LOGICAL :: l_no_glcap
                             ! .TRUE. while the hydraulic edge is found for
@@ -2516,41 +2517,41 @@ LOGICAL :: l_shut
                             ! The point was closed by a step of the point
                             ! loop.
 REAL(KIND=real_jlslsm) :: hold_psi_target
-                            ! Hold leaf psi: the target psi_leaf (Pa).
+                            ! hold_leaf_psi: the target psi_leaf (Pa).
 REAL(KIND=real_jlslsm) :: hold_hc_intact
-                            ! Hold leaf psi: the intact path's hydraulic
+                            ! hold_leaf_psi: the intact path's hydraulic
                             ! cost.
 REAL(KIND=real_jlslsm) :: hold_cg_intact
-                            ! Hold leaf psi: the intact path's carbon gain.
+                            ! hold_leaf_psi: the intact path's carbon gain.
 REAL(KIND=real_jlslsm) :: hold_ci_lo
-                            ! Hold leaf psi: low end of the Ci bisection.
+                            ! hold_leaf_psi: low end of the Ci bisection.
 REAL(KIND=real_jlslsm) :: hold_ci_hi
-                            ! Hold leaf psi: high end of the Ci bisection.
+                            ! hold_leaf_psi: high end of the Ci bisection.
 REAL(KIND=real_jlslsm) :: hold_ci_mid
-                            ! Hold leaf psi: the bisection's midpoint Ci.
+                            ! hold_leaf_psi: the bisection's midpoint Ci.
 REAL(KIND=real_jlslsm) :: lambda_ci_lo
                             ! lambda_chosen: the lower Ci of the difference.
 REAL(KIND=real_jlslsm) :: lambda_ci_hi
                             ! lambda_chosen: the upper Ci of the difference.
 REAL(KIND=real_jlslsm) :: hold_best_ci
-                            ! Hold leaf psi: Ci of the feasible evaluation on
+                            ! hold_leaf_psi: Ci of the feasible evaluation on
                             ! the impaired path with the largest Ci (Pa).
 REAL(KIND=real_jlslsm) :: hold_best_al
-                            ! Hold leaf psi: A of that evaluation.
+                            ! hold_leaf_psi: A of that evaluation.
 REAL(KIND=real_jlslsm) :: hold_best_gl
-                            ! Hold leaf psi: gl of that evaluation.
+                            ! hold_leaf_psi: gl of that evaluation.
 REAL(KIND=real_jlslsm) :: hold_best_el
-                            ! Hold leaf psi: E of that evaluation.
+                            ! hold_leaf_psi: E of that evaluation.
 REAL(KIND=real_jlslsm) :: hold_best_psi
-                            ! Hold leaf psi: leaf psi of that evaluation (Pa).
+                            ! hold_leaf_psi: leaf psi of that evaluation (Pa).
 REAL(KIND=real_jlslsm) :: hold_best_kl
-                            ! Hold leaf psi: path conductance of that
+                            ! hold_leaf_psi: path conductance of that
                             ! evaluation.
 LOGICAL :: l_hold_best
                             ! There is such an evaluation.
 REAL(KIND=real_jlslsm) :: b_curve(land_pts)
                             ! The PFT's intact vulnerability curve on
-                            ! land_pts, for the hold-psi search on the
+                            ! land_pts, for the intact search on the
                             ! intact path: b (Pa). (The other evaluations use
                             ! the point's own curve, conductance_b/c, as the
                             ! flat search does.)
@@ -2883,11 +2884,11 @@ CONTAINS
   ! Step 1: evaluate the bottom (ccp) and top (ci_top) of the Ci range. The
   ! bottom gives the largest path conductance, which is the k_max of the
   ! hydraulic cost unless the cost uses the intact path with no flow
-  ! (kl_hc_max: impairment with ximpair_hold_gs, the store's flow held
-  ! fixed, or the shared root and stem). l_shut is .TRUE. when the point is
-  ! closed: the bottom is infeasible, or A is 0 or less at the top. (That
-  ! test uses A without the nonstomatal limitation, which could otherwise
-  ! hide an open optimum.)
+  ! (kl_hc_max: impairment with ximpair_damage_lowers_psi_leaf, the store's
+  ! flow held fixed, or the shared root and stem). l_shut is .TRUE. when the
+  ! point is closed: the bottom is infeasible, or A is 0 or less at the top.
+  ! (That test uses A without the nonstomatal limitation, which could
+  ! otherwise hide an open optimum.)
   !---------------------------------------------------------------------------
   SUBROUTINE range_ends( l_shut )
   LOGICAL, INTENT(OUT) :: l_shut
@@ -2897,17 +2898,19 @@ CONTAINS
   !---------------------------------------------------------------------------
   ! 1. Lower end (max k) and top of the range.
   !---------------------------------------------------------------------------
-  ! Hold leaf psi: search on the intact path (as no impairment, at kmax_ref);
+  ! ximpair_damage_lowers_e: search on the intact path (as no impairment, at
+  ! kmax_ref);
   ! the impaired path is used after the search (section 4).
   l_intact_search = l_xylem_impairment .AND.                                   &
-                    ximpair_stomatal_response == ximpair_hold_psi
+                    ximpair_stomatal_response == ximpair_damage_lowers_e
   CALL eval_ci(ci_lo)
   k0_ref = kl_ev
 
-  ! Impairment, hold gs: the cost is relative to the intact path at zero
-  ! flow (as the flat search). Hold leaf psi: the intact path's (kl_ev, the
-  ! search being on it).
-  IF ( l_xylem_impairment .AND. ximpair_stomatal_response == ximpair_hold_gs ) &
+  ! Impairment, ximpair_damage_lowers_psi_leaf: the cost is relative to the
+  ! intact path at zero flow (as the flat search). ximpair_damage_lowers_e:
+  ! the intact path's (kl_ev, the search being on it).
+  IF ( l_xylem_impairment .AND.                                                &
+       ximpair_stomatal_response == ximpair_damage_lowers_psi_leaf )           &
     k0_ref = kl_hc_max(l)
 
   ! The store's flow held fixed: the unshifted path at zero flow (see
@@ -3277,8 +3280,9 @@ CONTAINS
   END SUBROUTINE chosen_state
 
   !---------------------------------------------------------------------------
-  ! Step 5, with xylem impairment and ximpair_hold_psi: narrow the stomata until
-  ! the leaf water potential on the damaged path is back at hold_psi_target,
+  ! Step 5, with xylem impairment and ximpair_damage_lowers_e: narrow the
+  ! stomata until the leaf water potential on the damaged path is back at
+  ! hold_psi_target,
   ! that of the optimum found on the intact path. The damaged path carries less
   ! water at hold_psi_target. Ci is lowered from that optimum towards ccp until
   ! the impaired path gives psi_leaf = hold_psi_target, by halving the bracket
@@ -3290,12 +3294,12 @@ CONTAINS
   !---------------------------------------------------------------------------
   SUBROUTINE hold_leaf_psi()
   !---------------------------------------------------------------------------
-  ! 4. Hold leaf psi: the regulated psi_leaf is that of the intact optimum;
-  !    the impaired path delivers less at it. Find Ci in [ci_lo, best_ci]
-  !    whose transpiration on the impaired path gives psi_leaf = hold_psi_target
-  !    (psi falls as Ci, gl and E rise), by bisection. If even ci_lo is
-  !    below hold_psi_target, take ci_lo. The gain and cost are those of the
-  !    intact-path optimum.
+  ! 4. Hold leaf psi (ximpair_damage_lowers_e): the regulated psi_leaf is
+  !    that of the intact optimum; the impaired path delivers less at it.
+  !    Find Ci in [ci_lo, best_ci] whose transpiration on the impaired path
+  !    gives psi_leaf = hold_psi_target (psi falls as Ci, gl and E rise), by
+  !    bisection. If even ci_lo is below hold_psi_target, take ci_lo. The
+  !    gain and cost are those of the intact-path optimum.
   !---------------------------------------------------------------------------
   ! Keep the intact optimum: its leaf psi is the target, and its gain and
   ! cost are reported.
@@ -3695,9 +3699,10 @@ CONTAINS
   ! Work out the leaf water potential psi_ev, path conductance kl_ev and
   ! conductance for the hydraulic cost khc_ev at transpiration el_ev, on the
   ! path the search runs on: the impaired path, the intact path (during a
-  ! hold-psi search) or the point's own vulnerability curve. khc_ev is kl_ev,
-  ! except with impairment and ximpair_hold_gs, where it is the intact path's at
-  ! the same water potentials. With the shared root and stem it is the whole
+  ! intact search of ximpair_damage_lowers_e) or the point's own
+  ! vulnerability curve. khc_ev is kl_ev, except with impairment and
+  ! ximpair_damage_lowers_psi_leaf, where it is the intact path's at the same
+  ! water potentials. With the shared root and stem it is the whole
   ! plant's conductance at the whole canopy's flow. Kept apart from
   ! hydraulic_state so that find_e_crit can call it with E alone.
   SUBROUTINE psi_k_at_e()
@@ -3709,7 +3714,8 @@ CONTAINS
     psi_ev = psi1(1,1)
     kl_ev = kl1(1,1)
   ELSE IF ( l_intact_search ) THEN
-    ! Hold-psi search: the intact path (kmax_ref, PFT curve).
+    ! Intact search (ximpair_damage_lowers_e): the intact path (kmax_ref, PFT
+    ! curve).
     el1(1,1) = el_ev
     CALL psi_leaf_jls( pft, 1, land_pts, 1, veg_index, idx_one_pt, el1,        &
                        psi_root_zone, kmax_ref, kcrit, b_curve, c_curve, psi1, &
@@ -3729,28 +3735,32 @@ CONTAINS
 
   khc_ev = kl_ev
   IF ( l_xylem_impairment .AND. .NOT. l_intact_search .AND.                    &
-       ximpair_stomatal_response == ximpair_hold_gs ) khc_ev = khc1(1,1)
+       ximpair_stomatal_response == ximpair_damage_lowers_psi_leaf )           &
+    khc_ev = khc1(1,1)
   psi_hc_ev = psi_ev
 
   ! The shared root and stem (l_shared_stem_path): the cost conductance is
   ! the whole plant's at the whole canopy's flow E + E_o, on the same
   ! basis as above (the search's path; the intact segments at the impaired
-  ! water potentials with impairment and ximpair_hold_gs). The leaf psi
-  ! and the conductance of the feasibility test stay the class's own.
+  ! water potentials with impairment and ximpair_damage_lowers_psi_leaf).
+  ! The leaf psi and the conductance of the feasibility test stay the
+  ! class's own.
   ! With a cost common to both classes, of their total flow, and their
   ! own gains, the passes (sunlit, then shaded, each with the other's flow
   ! held) seek the joint optimum, where the marginal gain of E is the same
-  ! in both classes. (Not after a hold-psi search, section 4, where the
+  ! in both classes. (Not after the intact search of
+  ! ximpair_damage_lowers_e, section 4, where the
   ! cost is not used.)
   IF ( l_shared_stem_path .AND. .NOT. ( l_xylem_impairment .AND.               &
        .NOT. l_intact_search .AND.                                             &
-       ximpair_stomatal_response == ximpair_hold_psi ) ) THEN
+       ximpair_stomatal_response == ximpair_damage_lowers_e ) ) THEN
     el1(1,1) = el_ev
     l_shared_whole_path = .TRUE.
     IF ( l_xylem_impairment .AND. .NOT. l_intact_search ) THEN
       CALL impaired_state( el1, psi1, kl1, khc1 )
       khc_ev = kl1(1,1)
-      IF ( ximpair_stomatal_response == ximpair_hold_gs ) khc_ev = khc1(1,1)
+      IF ( ximpair_stomatal_response == ximpair_damage_lowers_psi_leaf )       &
+        khc_ev = khc1(1,1)
     ELSE IF ( l_intact_search ) THEN
       CALL psi_leaf_jls( pft, 1, land_pts, 1, veg_index, idx_one_pt, el1,      &
                          psi_root_zone, kmax_ref, kcrit, b_curve, c_curve,     &
@@ -3802,7 +3812,7 @@ CONTAINS
 
   l_whole = l_shared_stem_path .AND. .NOT. ( l_xylem_impairment .AND.          &
             .NOT. l_intact_search .AND.                                        &
-            ximpair_stomatal_response == ximpair_hold_psi )
+            ximpair_stomatal_response == ximpair_damage_lowers_e )
 
   e_lo = MAX(edge_el, 0.0_real_jlslsm)
 
@@ -4912,8 +4922,8 @@ CONTAINS
   REAL(KIND=real_jlslsm) :: el1(1,1), psi1(1,1), kl1(1,1)
   el1(1,1) = e
   IF ( l_rule_intact ) THEN
-    ! The intact path, for the allowed drop (step 2), as the hold-psi search
-    ! of the other models.
+    ! The intact path, for the allowed drop (step 2), as the intact search
+    ! of the other models (ximpair_damage_lowers_e).
     CALL psi_leaf_jls( pft, 1, land_pts, 1, veg_index, idx1, el1,              &
                        psi_root_zone, kmax_ref, kcrit, b_curve, c_curve,       &
                        psi1, kl1 )

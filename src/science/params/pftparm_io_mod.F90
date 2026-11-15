@@ -2166,9 +2166,10 @@ DO i = 1, npft
   ! impaired path. The costs: profit max and CGain are relative to the
   ! intact plant (kl_hc_max, kmax_ref), so the stored damage counts; CMax
   ! is per unit of intact leaf area; ProfitMax2 takes E_crit from the path
-  ! the search runs on, so damage shrinks E_crit with ximpair_hold_gs (Wang
-  ! et al. 2020: drought history reduces E_crit); SOX_opt's factor is on the
-  ! impaired path. With ximpair_hold_psi the search is on the intact path.
+  ! the search runs on, so damage shrinks E_crit with
+  ! ximpair_damage_lowers_psi_leaf (Wang et al. 2020: drought history
+  ! reduces E_crit); SOX_opt's factor is on the impaired path. With
+  ! ximpair_damage_lowers_e the search is on the intact path.
   ! CAP has no cost and supply-loss no optimisation: both see the damage
   ! through the supply alone.
   !

@@ -521,7 +521,7 @@ INTEGER ::                                                                     &
   som_ci_search = som_ci_bounded,                                              &
       ! Ci search of the stomatal optimisation: 1 flat grid, 2 bounded.
       ! Default 2: the bounded search is faster, not limited to the grid,
-      ! and the only one coded for hold_psi, the plant capacitance store,
+      ! and the only one coded for ximpair_damage_lowers_e, the plant store,
       ! l_leaf_temp_ci, l_som_nsl and models 6, 7, 10 and 11. The flat grid
       ! is kept as a check where the profit may not have a single peak.
       !
@@ -1051,25 +1051,28 @@ LOGICAL ::                                                                     &
       ! MDK, 15/11/26
 ! How the stomata respond to xylem impairment (ximpair_stomatal_response).
 ! In both, the stomata decide on the intact (undamaged) path; they differ in
-! what is held when the damaged path cannot do what the intact one would.
+! where the damage shows when the damaged path cannot do what the intact one
+! would.
 INTEGER, PARAMETER ::                                                          &
-  ximpair_hold_gs = 0,                                                         &
-    ! Hold gs: the hydraulic cost is the intact path's conductance at the
-    ! (impaired) leaf psi, relative to the intact zero-flow conductance;
-    ! E, psi and A on the impaired path at the chosen Ci. The damage lowers
-    ! psi_leaf at about the same gs and E: the stomata do not respond to
-    ! the damage itself.
-  ximpair_hold_psi = 1
-    ! Hold leaf psi (Sperry et al. 2016, Plant Cell Environ 39: 2155, Fig. 3
-    ! and their C++ code): the optimisation runs on the intact path and sets
-    ! the target psi_leaf; E is what the impaired path supplies at that
-    ! psi_leaf, and gs and A follow. The damage lowers E, gs and A at the
-    ! same psi_leaf. The target does not change with past damage.
-    ! (Stomata optimising on the impaired path open after damage, so that
-    ! is not an option.)
+  ximpair_damage_lowers_psi_leaf = 0,                                          &
+    ! The damage lowers the leaf water potential: the stomata open as on the
+    ! intact plant, so gs and E are about those of an undamaged plant and
+    ! psi_leaf falls. The hydraulic cost is the intact path's conductance at
+    ! the (impaired) leaf psi, relative to the intact zero-flow
+    ! conductance; E, psi and A are on the impaired path at the chosen Ci.
+  ximpair_damage_lowers_e = 1
+    ! The damage lowers transpiration (Sperry et al. 2016, Plant Cell
+    ! Environ 39: 2155, Fig. 3 and their C++ code): the optimisation runs on
+    ! the intact path and sets the target psi_leaf; E is what the impaired
+    ! path supplies at that psi_leaf, and gs and A follow. The target does
+    ! not change with past damage. (Stomata optimising on the impaired path
+    ! open after damage, so that is not an option.)
+    !
+    ! MDK, 15/11/26
 INTEGER ::                                                                     &
-  ximpair_stomatal_response = ximpair_hold_gs
-      ! See ximpair_hold_*. ximpair_hold_psi needs som_ci_search = 2.
+  ximpair_stomatal_response = ximpair_damage_lowers_psi_leaf
+      ! See ximpair_damage_lowers_*. ximpair_damage_lowers_e needs
+      ! som_ci_search = 2.
 LOGICAL ::                                                                     &
   l_ximpair_leaf_loss = .FALSE.
       ! Retired: the canopy cap on the locked-in xylem loss, replaced by the
@@ -2526,14 +2529,14 @@ IF ( l_leaf_temp_ci .AND. ( .NOT. l_leaf_temp .OR. can_rad_mod /= 7 .OR.       &
                'bounded Ci search (som_ci_search = 2)')
 END IF
 
-IF ( ximpair_stomatal_response /= ximpair_hold_gs .AND.                        &
-     ximpair_stomatal_response /= ximpair_hold_psi ) THEN
+IF ( ximpair_stomatal_response /= ximpair_damage_lowers_psi_leaf .AND.         &
+     ximpair_stomatal_response /= ximpair_damage_lowers_e ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
-               'ximpair_stomatal_response should be 0 (hold gs) or ' //        &
-               '1 (hold leaf psi)')
+               'ximpair_stomatal_response should be 0 (damage lowers ' //      &
+               'psi_leaf) or 1 (damage lowers E)')
 END IF
-IF ( ximpair_stomatal_response == ximpair_hold_psi .AND.                       &
+IF ( ximpair_stomatal_response == ximpair_damage_lowers_e .AND.                &
      som_ci_search /= som_ci_bounded ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
