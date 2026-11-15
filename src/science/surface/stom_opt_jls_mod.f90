@@ -2361,7 +2361,6 @@ USE jules_vegetation_mod, ONLY: som_profit_model, cmax_profit_model,           &
                                 cgain_profit_model, sox_opt_profit_model,      &
                                 cap_profit_model, pm2_profit_model,            &
                                 som_light_k, l_som_gain_gross,                 &
-                                l_som_closed_refix,                            &
                                 l_som_plant_segments, l_som_nsl,               &
                                 ximpair_stomatal_response, ximpair_hold_gs,    &
                                 ximpair_hold_psi, l_som_coupled_e,             &
@@ -3236,9 +3235,10 @@ CONTAINS
   al_chosen(j) = MAX(-rd(l), best_al)
   gl_chosen(j) = MAX(0.0, best_gl)
 
-  ! gl = 0 means closed: al = -rd, as in set_closed.
+  ! gl = 0 means closed: the leaf at its CO2 compensation point, as in
+  ! set_closed.
   IF (gl_chosen(j) <= 0.0) al_chosen(j) = -rd(l)
-  IF ( gl_chosen(j) <= 0.0 .AND. l_som_closed_refix ) CALL closed_refix()
+  IF ( gl_chosen(j) <= 0.0 ) CALL closed_refix()
 
   ! The Rd inside al_chosen: the candidate's own with l_leaf_temp_ci.
   IF ( PRESENT(rd_chosen) ) THEN
@@ -3361,7 +3361,7 @@ CONTAINS
     al_chosen(j) = MAX(-rd(l), al_ev)
     gl_chosen(j) = MAX(0.0, gl_ev)
     IF (gl_chosen(j) <= 0.0) al_chosen(j) = -rd(l)
-    IF ( gl_chosen(j) <= 0.0 .AND. l_som_closed_refix ) CALL closed_refix()
+    IF ( gl_chosen(j) <= 0.0 ) CALL closed_refix()
     IF ( PRESENT(rd_chosen) ) THEN
       rd_chosen(j) = rd(l)
       IF ( gl_chosen(j) > 0.0 .AND. al_ev >= -rd(l) ) rd_chosen(j) =           &
@@ -4182,11 +4182,9 @@ CONTAINS
   END SUBROUTINE keep_feasible
 
   !---------------------------------------------------------------------------
-  ! Close the stomata at this point: Ci = ca, A = -rd, no conductance or
-  ! transpiration, the leaf at the root-zone water potential, and a carbon
-  ! gain and hydraulic cost of 0.
-  !
-  ! With l_som_closed_refix, Ci and A are those of closed_refix.
+  ! Close the stomata at this point: Ci and A of the CO2 compensation point
+  ! (closed_refix), no conductance or transpiration, the leaf at the
+  ! root-zone water potential, and a carbon gain and hydraulic cost of 0.
   !
   ! MDK, 15/11/26
   !---------------------------------------------------------------------------
@@ -4211,7 +4209,7 @@ CONTAINS
 
   ci_chosen(j) = ca(l)
   al_chosen(j) = -rd(l)
-  IF ( l_som_closed_refix ) CALL closed_refix()
+  CALL closed_refix()
 
   IF ( PRESENT(rd_chosen) ) rd_chosen(j) = rd(l)
   gl_chosen(j) = 0.0
@@ -4224,7 +4222,7 @@ CONTAINS
 
   !---------------------------------------------------------------------------
   ! Give a leaf with no stomatal conductance in daylight the Ci and A of its
-  ! CO2 compensation point (l_som_closed_refix): the respired CO2 stays in
+  ! CO2 compensation point: the respired CO2 stays in
   ! the leaf and Ci moves until photosynthesis refixes it, so
   !
   !   A(Ci) = 0
@@ -4316,7 +4314,7 @@ END SUBROUTINE stom_opt_bounded_search
 !
 !      by the same kind of search.
 !
-! k_fail is kcrit, or sl_kfail_frac kmax when that is set. som_gl_max is
+! k_fail is kcrit, as for the profit max. som_gl_max is
 ! not used: gl_max carries only the soil supply limit (l_som_supply_limit).
 ! With coupled transpiration (l_som_coupled_e) or a leaf boundary layer
 ! (r_bl > 0), gl comes from A through the boundary layer (gl_co2_bl) and E
@@ -4354,7 +4352,6 @@ SUBROUTINE stom_opt_supply_loss(                                               &
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
-USE jules_vegetation_mod, ONLY: sl_kfail_frac
 USE pftparm, ONLY: sl_cica_well_watered, conductance_b_pft, conductance_c_pft
 USE jules_surface_mod, ONLY: ratio
 USE c_rmol, ONLY: rmol
@@ -4469,8 +4466,7 @@ REAL(KIND=real_jlslsm) :: e_per_gl
                             ! E per unit gl, E = e_per_gl gl (mol m-2 s-1 per
                             ! m s-1).
 REAL(KIND=real_jlslsm) :: k_fail
-                            ! The path conductance at which it fails: kcrit,
-                            ! or sl_kfail_frac kmax.
+                            ! The path conductance at which it fails: kcrit.
 REAL(KIND=real_jlslsm) :: psi_zero_flow
                             ! P0, the leaf psi at zero flow (Pa).
 LOGICAL :: l_rule_intact
@@ -4585,7 +4581,6 @@ DO j = 1, open_pts
   IF ( l_store_q_path .OR. l_shared_stem_path )                                &
     CALL supply(0.0_real_jlslsm, psi_zero_flow, k_trial)
   k_fail = kcrit(l)
-  IF ( sl_kfail_frac > 0.0 ) k_fail = sl_kfail_frac * kmax(l)
 
   !---------------------------------------------------------------------------
   ! 1. Demand.

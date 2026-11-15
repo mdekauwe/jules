@@ -80,8 +80,7 @@ REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: nsc_f_a_min = 0.01
 ! Bottom of the SOX table, as a fraction of kcrit/kmax (f has a power-law tail,
 ! so a fixed tiny floor would spread the table too thin).
 REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: lut_f_floor_kcrit = 0.1
-! One table. The node count is per table, so a table extended to a low
-! sl_kfail_frac does not enlarge the others.
+! One table.
 TYPE, PRIVATE :: supply_table
   ! Number of nodes.
   INTEGER :: n = 0
@@ -517,7 +516,7 @@ s_target = table_s_at(tab, psi_in) + e_over_k
 
 ! Flow at or beyond all the table can carry: put the far end at the bottom
 ! of the table (or at psi_in, if that is lower). k there is at most half
-! of kcrit (and of sl_kfail_frac * kmax, when set), so the sample is
+! of kcrit, so the sample is
 ! rejected (stom_opt_mod) or counted as failed (supply-loss).
 IF ( s_target >= tab%s(n) ) THEN
   psi_out = MIN(-(n - 1) * dpsi, psi_in)
@@ -767,7 +766,7 @@ IF ( .NOT. lut_ready(pft) ) THEN
   ! at f_floor (as in supply_lut_e_crit). The SOX floor scales with
   ! kcrit/kmax (lut_f_floor_kcrit); Weibull uses the fixed lut_f_floor.
   ! lut_grid extends the table, at the same spacing, if the critical
-  ! conductance (kcrit or sl_kfail_frac) lies below that floor.
+  ! conductance (kcrit) lies below that floor.
   IF ( l_sox ) THEN
     f_floor = lut_f_floor_kcrit * (1.0 - kcrit_fractional_loss(pft))
   ELSE
@@ -938,8 +937,8 @@ IF ( .NOT. lut_seg_ready(pft) ) THEN
     c = conductance_c_seg(pft,iseg)
 
     ! A segment's k is f kmax seg_kfac, and the whole-path k is at most
-    ! the leaf segment's, so the critical fraction of the path (kcrit or
-    ! sl_kfail_frac) is a fraction 1/seg_kfac of it on the segment's own
+    ! the leaf segment's, so the critical fraction of the path (kcrit) is
+    ! a fraction 1/seg_kfac of it on the segment's own
     ! curve. seg_kfac >= 1 for segments in series; the MAX guards others.
     ! With kplant_model = 1 a segment's share also moves with LAI
     ! (seg_kscale), so the table is built for the largest share the
@@ -968,24 +967,16 @@ END SUBROUTINE build_supply_lut_seg
 ! table covers every flow the stomatal optimiser may try. It is half the
 ! path's failure fraction, divided by kfac, the segment's maximum
 ! conductance over the whole path's (1 for the whole-plant table). The
-! failure fraction is kcrit / kmax = 1 - kcrit_fractional_loss, or
-! sl_kfail_frac when that is set and lower. sl_kfail_frac
-! (stomata_model = 9) can be far below kcrit / kmax (Sperry et al. 2016
-! use 0.0005), so a table that stopped at the usual floor (lut_f_floor,
-! lut_f_floor_kcrit) could end before the failure point.
+! failure fraction is kcrit / kmax = 1 - kcrit_fractional_loss.
 !
-! MDK, 12/11/26
+! MDK, 15/11/26
 ! *****************************************************************************
 FUNCTION lut_f_crit( f_kcrit, kfac ) RESULT( f_table_min )
-
-USE jules_vegetation_mod, ONLY: sl_kfail_frac
 
 REAL(KIND=real_jlslsm), INTENT(IN) :: f_kcrit, kfac
 REAL(KIND=real_jlslsm) :: f_table_min
 
-f_table_min = f_kcrit
-IF ( sl_kfail_frac > 0.0 ) f_table_min = MIN(f_table_min, sl_kfail_frac)
-f_table_min = 0.5 * f_table_min / kfac
+f_table_min = 0.5 * f_kcrit / kfac
 
 END FUNCTION lut_f_crit
 
@@ -1000,20 +991,18 @@ END FUNCTION lut_f_crit
 !
 ! A sample stopped at the floor is rejected only if k there is below the
 ! failure conductance, so the floor must lie below the point where f
-! falls to the failure fraction (f_kcrit = kcrit / kmax, or sl_kfail_frac
-! when that is set and lower). That point is at
+! falls to the failure fraction (f_kcrit = kcrit / kmax). That point is
+! at
 !
 !   Weibull: psi_f = b (-ln f)^(1/c),   SOX: psi_f = b (1/f - 1)^(1/c)
 !
 ! and the drop is 1.2 |psi_f| or 5 |b|, whichever is larger. 5 |b| alone
 ! lies above the failure point for wide curves (Weibull c below about
-! 0.7, SOX c below about 1.8, or a small sl_kfail_frac).
+! 0.7, SOX c below about 1.8).
 !
-! MDK, 25/10/26
+! MDK, 15/11/26
 ! *****************************************************************************
 ELEMENTAL FUNCTION newton_psi_drop( b, c, f_kcrit, l_sox ) RESULT( drop )
-
-USE jules_vegetation_mod, ONLY: sl_kfail_frac
 
 REAL(KIND=real_jlslsm), INTENT(IN) :: b, c, f_kcrit
 LOGICAL, INTENT(IN) :: l_sox
@@ -1022,7 +1011,6 @@ REAL(KIND=real_jlslsm) :: drop
 REAL(KIND=real_jlslsm) :: f, x_f
 
 f = f_kcrit
-IF ( sl_kfail_frac > 0.0 ) f = MIN(f, sl_kfail_frac)
 f = MIN(MAX(f, 1.0e-12_real_jlslsm), 0.999_real_jlslsm)
 IF ( l_sox ) THEN
   x_f = 1.0 / f - 1.0
@@ -1041,10 +1029,10 @@ END FUNCTION newton_psi_drop
 ! (lut_f_crit) is lower, the table is made longer at the same spacing,
 ! down to where f = f_table_min, so the accuracy near psi = 0, where most of
 ! the flow is, does not change. Only beyond n_lut_max points (16 times the
-! usual length, for example a SOX curve with c near 1 and a very small
-! sl_kfail_frac) is the spacing widened instead.
+! usual length, for example a SOX curve with c near 1) is the spacing
+! widened instead.
 !
-! MDK, 12/11/26
+! MDK, 15/11/26
 ! *****************************************************************************
 SUBROUTINE lut_grid( b, c, l_sox, f_floor, f_table_min, dpsi, n )
 

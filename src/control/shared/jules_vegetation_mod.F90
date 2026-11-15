@@ -602,15 +602,15 @@ LOGICAL ::                                                                     &
       ! MDK, 30/10/26
 
 LOGICAL ::                                                                     &
-  l_som_closed_refix = .FALSE.
-      ! Profit max with the bounded search (som_ci_search = 2): when
-      ! .TRUE., a leaf that is closed in daylight is at its CO2
-      ! compensation point, where the respired CO2 is refixed and the net
-      ! photosynthesis is 0 (below 0 only where photosynthesis cannot reach
-      ! the dark respiration at any internal CO2). When .FALSE., the closed
-      ! leaf has internal CO2 = ca and net photosynthesis = -Rd.
+  l_som_closed_refix = .TRUE.
+      ! Retired: a leaf the stomatal optimisation closes in daylight is
+      ! always at its CO2 compensation point, where the respired CO2 is
+      ! refixed and the net photosynthesis is 0 (below 0 only where
+      ! photosynthesis cannot reach the dark respiration at any internal
+      ! CO2). Still read, so older namelists run; .FALSE. is ignored with a
+      ! warning.
       !
-      ! MDK, 14/11/26
+      ! MDK, 15/11/26
 
 LOGICAL ::                                                                     &
   l_som_shared_gain = .FALSE.
@@ -973,13 +973,6 @@ LOGICAL ::                                                                     &
       ! and updated only between passes.
       !
       ! MDK, 24/10/26
-REAL(KIND=real_jlslsm) ::                                                      &
-  sl_kfail_frac = 0.0
-      ! Supply-loss stomata (stomata_model = 9) only: the whole-path
-      ! conductance at which the supply function fails (E_crit, P_crit), as
-      ! a fraction of kmax. 0 (default): kcrit, as the profit max
-      ! (kcrit_fractional_loss, 5 % of kmax at 0.95). Sperry et al. (2016)
-      ! use 0.0005 (0.05 %, "physiological zero").
 LOGICAL ::                                                                     &
   l_som_nsl = .FALSE.
       ! When .TRUE., a water-potential driven nonstomatal limitation (NSL)
@@ -1476,7 +1469,6 @@ NAMELIST  / jules_vegetation/                                                  &
     l_nsc_sink_feedback,                                                       &
     ximpair_stomatal_response,                                                 &
     l_som_supply_limit, l_som_root_supply, l_som_nsl, l_som_plant_segments,    &
-    sl_kfail_frac,                                                             &
     l_som_vcmax_psi, l_root_mass_fixed, root_mass_min,                         &
     l_leaf_temp, leaf_width, l_leaf_temp_gc_eq,                                &
     l_leaf_temp_ci,                                                            &
@@ -1911,11 +1903,6 @@ IF ( stomata_model == stomata_supply_loss .AND.                                &
   CALL ereport("check_jules_vegetation", errcode,                              &
                'stomata_model = 9 (supply-loss) requires som_psi_solver = ' // &
                '2 or 3 (3, the lookup table, recommended)')
-END IF
-IF ( sl_kfail_frac < 0.0 .OR. sl_kfail_frac >= 1.0 ) THEN
-  errcode = 101
-  CALL ereport("check_jules_vegetation", errcode,                              &
-               'sl_kfail_frac must be in [0, 1)')
 END IF
 
 ! Check that the photosynthesis option is reasonable.
@@ -2426,6 +2413,14 @@ IF ( l_som_supply_limit .AND. ( leaf_flux_mod /= leaf_flux_stom_opt .OR.       &
                'l_use_pft_psi=T')
 END IF
 
+IF ( .NOT. l_som_closed_refix ) THEN
+  errcode = -101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_som_closed_refix is retired and ignored: a leaf closed ' //  &
+               'in daylight is always at its CO2 compensation point')
+  l_som_closed_refix = .TRUE.
+END IF
+
 IF ( l_som_root_supply ) THEN
   errcode = -101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -2932,8 +2927,6 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_som_nsl = ', l_som_nsl
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 
-WRITE(lineBuffer,*) ' sl_kfail_frac = ', sl_kfail_frac
-CALL jules_print('jules_vegetation_mod',lineBuffer)
 
 WRITE(lineBuffer,*) ' l_som_vcmax_psi = ', l_som_vcmax_psi
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -3178,8 +3171,8 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 29
                                   ! The INTEGER items of my_namelist.
-INTEGER, PARAMETER :: n_real = 21 + (n_photo_coef * 5)
-                                  ! The REAL items: 21 scalars and the five
+INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
+                                  ! The REAL items: 20 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
 INTEGER, PARAMETER :: n_log = 66 + npft_max
                                   ! The LOGICAL items: 64 scalars and
@@ -3238,7 +3231,6 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: som_gl_max
   REAL(KIND=real_jlslsm) :: som_light_k   ! MDK, 07/11/26
   REAL(KIND=real_jlslsm) :: ximpair_frozen_frac   ! MDK, 06/11/26
-  REAL(KIND=real_jlslsm) :: sl_kfail_frac
   REAL(KIND=real_jlslsm) :: light_curvature_fvcb
   REAL(KIND=real_jlslsm) :: leaf_width
   REAL(KIND=real_jlslsm) :: leaf_shelter
@@ -3369,7 +3361,6 @@ IF (mype == 0) THEN
   my_nml % som_gl_max = som_gl_max
   my_nml % som_light_k = som_light_k
   my_nml % ximpair_frozen_frac = ximpair_frozen_frac
-  my_nml % sl_kfail_frac = sl_kfail_frac
   my_nml % light_curvature_fvcb = light_curvature_fvcb
   my_nml % l_som_skip_search_wellwatered = l_som_skip_search_wellwatered
   my_nml % l_som_fast = l_som_fast
@@ -3497,7 +3488,6 @@ IF (mype /= 0) THEN
   som_gl_max = my_nml % som_gl_max
   som_light_k = my_nml % som_light_k
   ximpair_frozen_frac = my_nml % ximpair_frozen_frac
-  sl_kfail_frac = my_nml % sl_kfail_frac
   light_curvature_fvcb = my_nml % light_curvature_fvcb
   l_som_skip_search_wellwatered = my_nml % l_som_skip_search_wellwatered
   l_som_fast = my_nml % l_som_fast
