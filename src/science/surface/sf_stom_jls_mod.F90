@@ -44,6 +44,13 @@ INTEGER, PARAMETER, PRIVATE :: max_lt_clamp_warn = 20
     !
     ! MDK, 18/10/26
 
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: rd_temp_fac(:)
+    ! l_rd_heskel: the temperature factor of leaf dark respiration at the
+    ! leaf temperature of the latest leaf_temp_responses call (land_pts),
+    ! for the calc_photo_parameters call that follows it.
+    !
+    ! MDK, 15/11/26
+
 PRIVATE
 PUBLIC sf_stom
 
@@ -6976,6 +6983,7 @@ SUBROUTINE leaf_temp_responses( ft, land_pts, veg_pts, veg_index,              &
 USE conversions_mod, ONLY: zerodegc
 USE c_rmol, ONLY: rmol
 USE jules_vegetation_mod, ONLY: photo_collatz, photo_farquhar
+USE jules_vegetation_mod, ONLY: l_rd_heskel, rd_heskel_b, rd_heskel_c
 USE pftparm, ONLY: alpha_elec, c3, deact_jmax, deact_vcmax, q10_leaf, tlow,    &
                    tupp
 
@@ -7019,6 +7027,22 @@ REAL(KIND=jprb)               :: zhook_handle
 CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_TEMP_RESPONSES'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+! Temperature factor of leaf dark respiration (l_rd_heskel; Heskel et al.
+! 2016), 1 at 25 degC,
+!
+!   exp( b (T - 25) + c (T^2 - 25^2) ),   T in degC
+!
+! MDK, 15/11/26
+IF ( l_rd_heskel ) THEN
+  IF ( .NOT. ALLOCATED(rd_temp_fac) ) ALLOCATE(rd_temp_fac(land_pts))
+  rd_temp_fac(:) = 1.0
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    rd_temp_fac(l) = EXP( rd_heskel_b * (t_leaf(l) - zerodegc - 25.0)          &
+                          + rd_heskel_c * ((t_leaf(l) - zerodegc)**2 - 625.0) )
+  END DO
+END IF
 
 SELECT CASE ( pft_photo_model )
 
@@ -7313,7 +7337,8 @@ USE jules_vegetation_mod, ONLY:                                                &
 ! imported parameters
     jv_ntotal, jv_scale, photo_collatz, photo_farquhar, photo_johnson,         &
 ! imported scalars that are not changed
-    n_alloc_jmax, n_alloc_vcmax, l_trait_phys, photo_jv_model, photo_model
+    n_alloc_jmax, n_alloc_vcmax, l_trait_phys, photo_jv_model, photo_model,    &
+    l_rd_heskel
 
 USE pftparm, ONLY: alpha_elec, fd, jv25_ratio, neff, vint, vsl
 
@@ -7545,6 +7570,17 @@ DO m = 1,veg_pts
 END DO
 !$OMP END DO NOWAIT
 !$OMP END PARALLEL
+
+! Dark respiration with its own temperature response (l_rd_heskel): fd
+! times Vcmax at 25 degC times the factor leaf_temp_responses set.
+!
+! MDK, 15/11/26
+IF ( l_rd_heskel ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    rd_dark(l) = fd(ft) * vcmax_ref(l) * rd_temp_fac(l)
+  END DO
+END IF
 
 ! The soil-water factor (l_som_vcmax_psi), after Rd.
 !

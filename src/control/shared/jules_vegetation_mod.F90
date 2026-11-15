@@ -613,6 +613,29 @@ LOGICAL ::                                                                     &
       ! MDK, 15/11/26
 
 LOGICAL ::                                                                     &
+  l_rd_heskel = .FALSE.
+      ! When .TRUE., leaf dark respiration has its own temperature
+      ! response (Heskel et al. 2016, PNAS 113: 3832),
+      !
+      !   Rd = fd Vcmax25 exp( b (T - 25) + c (T^2 - 25^2) )
+      !
+      ! with T the leaf temperature (degC), Vcmax25 the Vcmax at 25 degC
+      ! and b, c = rd_heskel_b, rd_heskel_c. When .FALSE., Rd is fd times
+      ! Vcmax at the leaf temperature, so it follows the Vcmax temperature
+      ! curve and falls above its optimum.
+      !
+      ! MDK, 15/11/26
+
+REAL(KIND=real_jlslsm) ::                                                      &
+  rd_heskel_b = 0.1012,                                                        &
+      ! l_rd_heskel: the linear coefficient (degC-1). The default is the
+      ! global value of Heskel et al. (2016).
+  rd_heskel_c = -0.0005
+      ! l_rd_heskel: the quadratic coefficient (degC-2).
+      !
+      ! MDK, 15/11/26
+
+LOGICAL ::                                                                     &
   l_som_shared_gain = .FALSE.
       ! With l_som_shared_stem: when .TRUE., the carbon gain of either
       ! class is on the whole plant's basis, A over the sum of both
@@ -1478,6 +1501,7 @@ NAMELIST  / jules_vegetation/                                                  &
     som_cuticular_leak,                                                        &
     l_som_shared_stem, l_som_shared_gain,                                      &
     l_som_closed_refix,                                                        &
+    l_rd_heskel, rd_heskel_b, rd_heskel_c,                                     &
     l_som_capacitance,                                                         &
     l_som_gravity,                                                             &
     l_som_rhizo_mfp,                                                           &
@@ -2974,6 +2998,8 @@ CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 30/10/26
 
 WRITE(lineBuffer,*) ' l_som_closed_refix = ', l_som_closed_refix
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 14/11/26
+WRITE(lineBuffer,*) ' l_rd_heskel = ', l_rd_heskel, rd_heskel_b, rd_heskel_c
+CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 15/11/26
 
 WRITE(lineBuffer,*) ' l_som_capacitance = ', l_som_capacitance   ! MDK, 23/10/26
 CALL jules_print('jules_vegetation_mod',lineBuffer)
@@ -3171,10 +3197,10 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 INTEGER, PARAMETER :: no_of_types = 3
 INTEGER, PARAMETER :: n_int = 29
                                   ! The INTEGER items of my_namelist.
-INTEGER, PARAMETER :: n_real = 20 + (n_photo_coef * 5)
-                                  ! The REAL items: 20 scalars and the five
+INTEGER, PARAMETER :: n_real = 22 + (n_photo_coef * 5)
+                                  ! The REAL items: 22 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 66 + npft_max
+INTEGER, PARAMETER :: n_log = 67 + npft_max
                                   ! The LOGICAL items: 64 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
@@ -3232,6 +3258,8 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: som_light_k   ! MDK, 07/11/26
   REAL(KIND=real_jlslsm) :: ximpair_frozen_frac   ! MDK, 06/11/26
   REAL(KIND=real_jlslsm) :: light_curvature_fvcb
+  REAL(KIND=real_jlslsm) :: rd_heskel_b   ! MDK, 15/11/26
+  REAL(KIND=real_jlslsm) :: rd_heskel_c   ! MDK, 15/11/26
   REAL(KIND=real_jlslsm) :: leaf_width
   REAL(KIND=real_jlslsm) :: leaf_shelter
   REAL(KIND=real_jlslsm) :: leaf_wind_ext
@@ -3251,6 +3279,7 @@ TYPE :: my_namelist
   LOGICAL :: l_som_shared_stem   ! MDK, 30/10/26
   LOGICAL :: l_som_shared_gain   ! MDK, 30/10/26
   LOGICAL :: l_som_closed_refix   ! MDK, 15/11/26
+  LOGICAL :: l_rd_heskel   ! MDK, 15/11/26
   LOGICAL :: l_som_capacitance   ! MDK, 23/10/26
   LOGICAL :: l_ximpair_seg_memory
   LOGICAL :: l_ximpair_cav_water   ! MDK, 12/11/26
@@ -3362,6 +3391,8 @@ IF (mype == 0) THEN
   my_nml % som_light_k = som_light_k
   my_nml % ximpair_frozen_frac = ximpair_frozen_frac
   my_nml % light_curvature_fvcb = light_curvature_fvcb
+  my_nml % rd_heskel_b = rd_heskel_b
+  my_nml % rd_heskel_c = rd_heskel_c
   my_nml % l_som_skip_search_wellwatered = l_som_skip_search_wellwatered
   my_nml % l_som_fast = l_som_fast
   my_nml % l_som_supply_limit = l_som_supply_limit
@@ -3388,6 +3419,7 @@ IF (mype == 0) THEN
   my_nml % l_som_shared_stem = l_som_shared_stem
   my_nml % l_som_shared_gain = l_som_shared_gain
   my_nml % l_som_closed_refix = l_som_closed_refix
+  my_nml % l_rd_heskel = l_rd_heskel
   my_nml % l_som_capacitance = l_som_capacitance
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
   my_nml % l_ximpair_cav_water = l_ximpair_cav_water
@@ -3489,6 +3521,8 @@ IF (mype /= 0) THEN
   som_light_k = my_nml % som_light_k
   ximpair_frozen_frac = my_nml % ximpair_frozen_frac
   light_curvature_fvcb = my_nml % light_curvature_fvcb
+  rd_heskel_b = my_nml % rd_heskel_b
+  rd_heskel_c = my_nml % rd_heskel_c
   l_som_skip_search_wellwatered = my_nml % l_som_skip_search_wellwatered
   l_som_fast = my_nml % l_som_fast
   l_som_supply_limit = my_nml % l_som_supply_limit
@@ -3515,6 +3549,7 @@ IF (mype /= 0) THEN
   l_som_shared_stem = my_nml % l_som_shared_stem
   l_som_shared_gain = my_nml % l_som_shared_gain
   l_som_closed_refix = my_nml % l_som_closed_refix
+  l_rd_heskel = my_nml % l_rd_heskel
   l_som_capacitance = my_nml % l_som_capacitance
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
   l_ximpair_cav_water = my_nml % l_ximpair_cav_water
