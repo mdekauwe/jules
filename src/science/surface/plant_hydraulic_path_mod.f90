@@ -68,14 +68,15 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: ksr(:), ksr_path(:)
 ! PFT's roots move between the soil layers (kg m-2 s-1, per m2 of the PFT's
 ! tile; > 0 taken from the layer, < 0 put into it). It sums to zero over the
 ! layers. Set by physiol, added to the layers' extraction by sf_evap.
-REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: hr_ext_pft(:,:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: redist_pft(:,:,:)
 ! For the same, at each point and layer: the unfrozen water (kg m-2) and
 ! the empty pore space (kg m-2) at the start of the step, which sf_evap uses
 ! to keep a layer from giving more water than it holds, or taking more
 ! than it has room for, once all the other draws on it are known.
-REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: hr_w_avail(:,:), hr_w_space(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: layer_water(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: layer_space(:,:)
 ! Each soil layer's mid-depth (m), for the weight of the water above it.
-REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: hr_z_mid(:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: soil_z_mid(:)
 
 ! Plant capacitance coupled to the optimiser (the capacitance store): the
 ! store's flow out at the stem node, held fixed for this leaf path while

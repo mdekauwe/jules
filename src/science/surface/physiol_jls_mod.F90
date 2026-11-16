@@ -128,8 +128,9 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_root_frozen
   ! Frozen share of the root zone's soil water (l_ximpair_frozen_hold).
   ! MDK, 06/11/26
 USE plant_hydraulic_path_mod, ONLY: ksr
-USE plant_hydraulic_path_mod, ONLY: hr_ext_pft, kplant_scale, seg_kscale,     &
-                                    l_kscale, hr_w_avail, hr_w_space, hr_z_mid
+USE plant_hydraulic_path_mod, ONLY: redist_pft, kplant_scale, seg_kscale,      &
+                                    l_kscale, layer_water, layer_space,        &
+                                    soil_z_mid
 USE planet_constants_mod, ONLY: g
 USE pftparm, ONLY: fsmc_mod
 USE pftparm, ONLY: pft_xylem_impairment_model
@@ -766,26 +767,26 @@ REAL(KIND=real_jlslsm) ::                                                      &
 ! Hydraulic redistribution (l_som_hydraulic_redistribution), at one point
 ! (see redistribute_soil_water):
 REAL(KIND=real_jlslsm) ::                                                      &
-  psi_lay(sm_levels),                                                          &
+  psi_layer(sm_levels),                                                        &
       ! Each layer's water potential less the height of water above it,
       ! psi - rho_w g z (Pa).
-  k_lay(sm_levels),                                                            &
+  k_layer(sm_levels),                                                          &
       ! Each layer's link: soil in series with the layer's roots
       ! (kg m-3 s-1).
-  q_lay(sm_levels),                                                            &
+  q_layer(sm_levels),                                                          &
       ! The flow from each layer to the roots (kg m-2 s-1; < 0 into it).
-  hr_lay(sm_levels),                                                           &
-      ! The part of q_lay that moves water between layers (kg m-2 s-1),
+  redist_layer(sm_levels),                                                     &
+      ! The part of q_layer that moves water between layers (kg m-2 s-1),
       ! summing to zero.
-  k_root_tot,                                                                  &
+  k_root,                                                                      &
       ! The root segment's intact conductance (kg m-3 s-1).
-  k_root_lay,                                                                  &
+  k_root_layer,                                                                &
       ! A layer's root conductance (kg m-3 s-1).
-  psi_node,                                                                    &
+  psi_root_hr,                                                                 &
       ! The roots' water potential (Pa).
-  hr_fac,                                                                      &
+  redist_scale,                                                                &
       ! The factor that limits the redistribution.
-  w_lay
+  water_left
       ! A layer's unfrozen water, or its empty pore space (kg m-2).
       !
       ! MDK, 16/11/26
@@ -1734,21 +1735,21 @@ DO n = 1,npft
   !
   ! MDK, 16/11/26
   IF ( l_som_hydraulic_redistribution ) THEN
-    IF ( .NOT. ALLOCATED(hr_ext_pft) ) THEN
-      ALLOCATE(hr_ext_pft(land_pts, sm_levels, npft))
-      ALLOCATE(hr_w_avail(land_pts, sm_levels))
-      ALLOCATE(hr_w_space(land_pts, sm_levels))
-      ALLOCATE(hr_z_mid(sm_levels))
-      hr_ext_pft(:,:,:) = 0.0
-      hr_w_avail(:,:) = 0.0
-      hr_w_space(:,:) = 0.0
+    IF ( .NOT. ALLOCATED(redist_pft) ) THEN
+      ALLOCATE(redist_pft(land_pts, sm_levels, npft))
+      ALLOCATE(layer_water(land_pts, sm_levels))
+      ALLOCATE(layer_space(land_pts, sm_levels))
+      ALLOCATE(soil_z_mid(sm_levels))
+      redist_pft(:,:,:) = 0.0
+      layer_water(:,:) = 0.0
+      layer_space(:,:) = 0.0
 
       DO k = 1,sm_levels
-        hr_z_mid(k) = SUM(dzsoil(1:k)) - 0.5 * dzsoil(k)
+        soil_z_mid(k) = SUM(dzsoil(1:k)) - 0.5 * dzsoil(k)
       END DO
 
     END IF
-    hr_ext_pft(:,:,n) = 0.0
+    redist_pft(:,:,n) = 0.0
 
     IF ( fsmc_mod(n) /= 2 .AND. surft_pts(n) > 0 .AND.                         &
          .NOT. l_warned_hr ) THEN
@@ -2836,33 +2837,31 @@ CONTAINS
 !-----------------------------------------------------------------------------
 ! Hydraulic redistribution: how much water each soil layer gives to, or
 ! takes from, the roots of PFT n at point l in this timestep
-! (l_som_hydraulic_redistribution). The idea follows the CLM5 plant
-! hydraulics (Kennedy et al. 2019): the layers are linked to the roots in
-! parallel, flows into drier layers are allowed, and each layer's flow
-! includes the weight of the water above it. Ours are the root conductance
-! of each layer (step 2), the limits on the flows (step 5), and that the
-! routine only shares the uptake between the layers: the plant's
-! transpiration is worked out as before.
+! (l_som_hydraulic_redistribution).
 !
-! The roots reach into several soil layers at once. Water moves from
-! a layer into the roots where the layer is wetter than the
-! roots, and out of the roots into a layer where the layer is drier. By day
-! the plant draws hard and nearly every layer gives water. At night, when
-! the plant draws little, roots in wet layers keep taking water up and roots
-! in dry layers let it out, so the roots carry water from wet layers into
-! dry ones. That is hydraulic redistribution. This routine splits the
-! plant's uptake between the layers and works out the water moved between
-! them.
+! It follows the soil-to-root part of the CLM5 plant hydraulics (Kennedy et al.
+! 2019, section 2.5 and Appendix A1, equations given at each step below). The
+! differences are in the root conductance (step 2), the limits on the flows
+! (step 5), and in that this routine only shares the uptake between the layers,
+! while CLM5 solves the layers, root, stem and leaves together (Kennedy et al.
+! 2019, Eqs. 16-19): here the plant's transpiration is worked out as before.
+!
+! Water moves from a layer into the roots where the layer is wetter than the
+! roots, and out of the roots into a layer where the layer is drier. That is
+! hydraulic redistribution. This routine splits the plant's uptake between the
+! layers and works out the water moved between them.
 !
 ! The steps:
 !
 !   1. Each layer's water potential, counted from the soil surface, is its
 !      soil water potential less the weight of the water column above it,
 !
-!        psi_i = psi_soil,i - rho_w g z_i
+!        psi_i = psi_soil,i - rho_w * g * z_i
 !
 !      with z_i the depth of the layer's middle (m), rho_w the density of
 !      water and g gravity, so water from a deeper layer has further to rise.
+!      As Kennedy et al. (2019), Eqs. 11 and A6, where the flow from layer i
+!      is driven by psi_soil,i - psi_root - rho * g * z_i.
 !
 !   2. Each layer is linked to the roots through the soil and then the
 !      layer's own roots, one after the other, so their conductances add as
@@ -2870,7 +2869,7 @@ CONTAINS
 !
 !        1 / k'_i = 1 / k_soil,i + 1 / k_root,i
 !
-!        k_root,i = K_root f_i R(psi_soil,i)
+!        k_root,i = K_root * f_i * R(psi_soil,i)
 !
 !      where k_soil,i is the soil-to-root conductance of the layer (Bonan et
 !      al. 2014), K_root the conductance of the plant's whole root system
@@ -2883,15 +2882,20 @@ CONTAINS
 !      together supply the water the plant is drawing, E (kg m-2 s-1). Each
 !      layer gives
 !
-!        q_i = k'_i (psi_i - psi_root) / (rho_w g)
+!        q_i = k'_i * (psi_i - psi_root) / (rho_w * g)
 !
-!      (kg m-2 s-1; dividing by rho_w g turns a potential difference into
+!      (kg m-2 s-1; dividing by rho_w * g turns a potential difference into
 !      metres of head), and the q_i add up to E,
 !
-!        sum_i q_i = E,   so   psi_root = (sum_i k'_i psi_i - rho_w g E)
-!                                         / sum_i k'_i
+!        sum_i q_i = E,   so
+!
+!        psi_root = (sum_i k'_i * psi_i - rho_w * g * E) / sum_i k'_i
 !
 !      A layer drier than the roots has q_i < 0: it takes water from them.
+!      The flow is Kennedy et al. (2019), Eq. 11. Different: CLM5 finds
+!      psi_root together with the stem and leaf water potentials (Eqs.
+!      16-19); here it is found from the layers alone, for the uptake E
+!      the stomatal optimisation has already set.
 !
 !   4. The plant's uptake is shared between the layers that give water, in
 !      proportion to what they give,
@@ -2900,11 +2904,15 @@ CONTAINS
 !
 !      and the rest of each layer's flow is the water moved between layers,
 !
-!        r_i = q_i - w_i E,   which adds up to zero over the layers.
+!        r_i = q_i - w_i * E,   which adds up to zero over the layers.
 !
 !      The plant's transpiration is then taken from the layers with the
 !      shares w_i, and the r_i are added to what each layer loses (r_i > 0)
 !      or gains (r_i < 0). Every layer, the top one too, can give and take.
+!      Nothing extra is needed for the redistribution: with each layer's
+!      flow following its water potential gradient (Darcy's law), water
+!      always moves down the gradients, so roots carry water into drier
+!      layers.
 !
 !   5. So that a layer cannot be emptied or overfilled within one timestep,
 !      all the r_i are scaled down together if needed, so that no layer gives
@@ -2912,12 +2920,7 @@ CONTAINS
 !      transpiration, and no layer takes more than a tenth of its empty pore
 !      space. Scaling them together keeps their sum at zero. sf_evap checks
 !      again once the other PFTs' uptake and soil evaporation are known.
-!
-! The plant's own uptake path (its total soil-to-root conductance, the root
-! segment and the root zone's water potential, which the stomatal
-! optimisation uses) is not changed here, and the weight of the water above
-! a layer enters only the flows between layers: this routine decides only
-! where in the soil the water comes from and goes to.
+
 !
 ! MDK, 16/11/26
 !-----------------------------------------------------------------------------
@@ -2929,60 +2932,90 @@ INTEGER :: kk
 
 ! The root system's conductance when undamaged, K_root: the plant's
 ! maximum conductance (kmax_pft, per m2 of leaf) times the leaf area and
-! the root's share of it (seg_kfac), on the ground basis when the root and
-! stem keep their conductance as the leaf area changes (kplant_model = 1).
-! Converted from mol m-2 s-1 Pa-1 to kg m-3 s-1 (per metre of head).
-k_root_tot = kmax_pft(n) * lai_pft(l,n) * seg_kfac(n,1)
-IF ( l_kscale ) k_root_tot = k_root_tot * kplant_scale(l) * seg_kscale(l,1)
-k_root_tot = k_root_tot * m_h2o_rs * rho_water * g
-IF ( k_root_tot <= TINY(1.0_real_jlslsm) ) RETURN
+! the root's share of it (seg_kfac).
+k_root = kmax_pft(n) * lai_pft(l,n) * seg_kfac(n,1)
+
+! With kplant_model = 1 the root and stem keep their conductance per m2 of
+! ground as the leaf area changes, so K_root is on that basis.
+IF ( l_kscale ) k_root = k_root * kplant_scale(l) * seg_kscale(l,1)
+
+! From mol m-2 s-1 Pa-1 to kg m-3 s-1, per metre of water head, the units
+! of the soil-to-root conductance.
+k_root = k_root * m_h2o_rs * rho_water * g
+
+! No roots, so no water moves between layers.
+IF ( k_root <= TINY(1.0_real_jlslsm) ) RETURN
 
 ! 1. and 2. Each layer's water potential and its link to the roots.
 DO kk = 1,sm_levels
-  psi_lay(kk) = soil_wp_soilt(l,m,kk) - rho_water * g * hr_z_mid(kk)
-  k_root_lay = k_root_tot * f_root(l,kk)                                       &
+  ! The layer's water potential less the weight of the water above it.
+  psi_layer(kk) = soil_wp_soilt(l,m,kk) - rho_water * g * soil_z_mid(kk)
+
+  ! The layer's roots: their share of K_root, lowered by the root
+  ! vulnerability curve at the layer's soil water potential.
+  k_root_layer = k_root * f_root(l,kk)                                         &
                * seg_rel_k(n, 1, soil_wp_soilt(l,m,kk))
-  k_lay(kk) = 0.0
-  IF ( soil_root_k_soilt(l,m,kk) > 0.0 .AND. k_root_lay > 0.0 )                &
-    k_lay(kk) = 1.0 / ( 1.0 / soil_root_k_soilt(l,m,kk) + 1.0 / k_root_lay )
+
+  ! The soil and the roots in series (none if either is zero).
+  k_layer(kk) = 0.0
+
+  IF ( soil_root_k_soilt(l,m,kk) > 0.0 .AND. k_root_layer > 0.0 )              &
+    k_layer(kk) = 1.0 / ( 1.0 / soil_root_k_soilt(l,m,kk) + 1.0 / k_root_layer )
 END DO
-IF ( SUM(k_lay(:)) <= TINY(1.0_real_jlslsm) ) RETURN
 
-! 3. The roots' water potential and each layer's flow (kg m-2 s-1). E is
-!    the plant's uptake in mol m-2 s-1, so m_h2o_rs turns it into kg.
-psi_node = ( SUM(k_lay(:) * psi_lay(:))                                        &
-             - e_root_rs * m_h2o_rs * rho_water * g ) / SUM(k_lay(:))
-q_lay(:) = k_lay(:) * (psi_lay(:) - psi_node) / (rho_water * g)
+! No layer is linked to the roots, so no water moves between layers.
+IF ( SUM(k_layer(:)) <= TINY(1.0_real_jlslsm) ) RETURN
 
-! 4. Each layer's share of the uptake, and the water moved between layers.
-q_rs(:) = MAX(q_lay(:), 0.0)
+! 3. The roots' water potential, where the layers together supply the
+!    plant's uptake E. e_root_rs is in mol m-2 s-1, so m_h2o_rs turns it into
+!    kg m-2 s-1, and rho_water * g turns that into a potential.
+psi_root_hr = ( SUM(k_layer(:) * psi_layer(:))                                 &
+             - e_root_rs * m_h2o_rs * rho_water * g ) / SUM(k_layer(:))
+
+! Each layer's flow to the roots (kg m-2 s-1; < 0 into the layer).
+q_layer(:) = k_layer(:) * (psi_layer(:) - psi_root_hr) / (rho_water * g)
+
+! 4. Each layer's share of the plant's uptake: the layers that give water,
+!    in proportion to what they give.
+q_rs(:) = MAX(q_layer(:), 0.0)
+
 IF ( SUM(q_rs(:)) > TINY(1.0_real_jlslsm) )                                    &
   wt_ext_type(l,:,n) = q_rs(:) / SUM(q_rs(:))
-hr_lay(:) = q_lay(:) - wt_ext_type(l,:,n) * SUM(q_lay(:))
+
+! The rest of each layer's flow is the water moved between layers; it adds
+! up to zero.
+redist_layer(:) = q_layer(:) - wt_ext_type(l,:,n) * SUM(q_layer(:))
 
 ! 5. Scale the moved water down, if needed, so that no layer gives more
 !    than a tenth of the unfrozen water its share of the transpiration
 !    leaves, and none takes more than a tenth of its empty pore space. The
 !    layers' water and space are kept for sf_evap's final check, which
 !    also counts the other PFTs and soil evaporation.
-hr_fac = 1.0
+redist_scale = 1.0
 
 DO kk = 1,sm_levels
-  hr_w_avail(l,kk) = rho_water * dzsoil(kk) * sthu_soilt(l,m,kk)               &
+  ! The layer's unfrozen water and its empty pore space (kg m-2).
+  layer_water(l,kk) = rho_water * dzsoil(kk) * sthu_soilt(l,m,kk)              &
                      * smvcst_soilt(l,m,kk)
-  hr_w_space(l,kk) = rho_water * dzsoil(kk) * smvcst_soilt(l,m,kk)             &
+  layer_space(l,kk) = rho_water * dzsoil(kk) * smvcst_soilt(l,m,kk)            &
                      * MAX(1.0 - sthu_soilt(l,m,kk) - sthf_soilt(l,m,kk), 0.0)
-  IF ( hr_lay(kk) > 0.0 ) THEN
-    w_lay = hr_w_avail(l,kk)                                                   &
+
+  IF ( redist_layer(kk) > 0.0 ) THEN
+    ! A giving layer: the water left after its share of the transpiration.
+    water_left = layer_water(l,kk)                                             &
             - wt_ext_type(l,kk,n) * e_root_rs * m_h2o_rs * timestep
-    hr_fac = MIN(hr_fac, 0.1 * MAX(w_lay, 0.0) / (hr_lay(kk) * timestep))
-  ELSE IF ( hr_lay(kk) < 0.0 ) THEN
-    hr_fac = MIN(hr_fac, 0.1 * hr_w_space(l,kk) / (-hr_lay(kk) * timestep))
+    redist_scale = MIN(redist_scale, 0.1 * MAX(water_left, 0.0)                &
+                                     / (redist_layer(kk) * timestep))
+  ELSE IF ( redist_layer(kk) < 0.0 ) THEN
+    ! A receiving layer: its empty pore space.
+    redist_scale = MIN(redist_scale, 0.1 * layer_space(l,kk)                   &
+                                     / (-redist_layer(kk) * timestep))
   END IF
 
 END DO
 
-hr_ext_pft(l,:,n) = hr_fac * hr_lay(:)
+! The same factor in every layer, so the moved water still adds up to zero.
+redist_pft(l,:,n) = redist_scale * redist_layer(:)
 
 END SUBROUTINE redistribute_soil_water
 

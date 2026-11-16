@@ -55,8 +55,8 @@ USE jules_hydrology_mod, ONLY: l_soil_evap_or
 USE soil_evap_or_mod, ONLY: w_layer1_evap_or
 USE jules_vegetation_mod, ONLY: l_som_capacitance_on   ! MDK, 04/11/26
 USE jules_vegetation_mod, ONLY: l_som_hydraulic_redistribution   ! MDK, 15/11/26
-USE plant_hydraulic_path_mod, ONLY: hr_ext_pft, hr_w_avail,                    &
-                                    hr_w_space   ! MDK, 16/11/26
+USE plant_hydraulic_path_mod, ONLY: redist_pft, layer_water,                   &
+                                    layer_space   ! MDK, 16/11/26
 USE plant_water_store_mod, ONLY: store_q_xyl
 USE plant_water_store_mod, ONLY: store_q, store_return, store_wt_root,         &
                                  store_w_soil, store_w_root_avail
@@ -225,11 +225,11 @@ REAL(KIND=real_jlslsm) ::                                                      &
 !                            !
 !                            ! MDK, 12/11/26
 
-REAL(KIND=real_jlslsm) :: hr_lay_gb
+REAL(KIND=real_jlslsm) :: redist_layer_gb
                        ! Hydraulic redistribution: a layer's net water moved
                        ! by all the PFTs' roots (kg m-2 s-1, > 0 lost).
                        ! MDK, 16/11/26
-REAL(KIND=real_jlslsm) :: hr_fac_gb
+REAL(KIND=real_jlslsm) :: redist_scale_gb
                        ! The factor that keeps every layer within its water
                        ! and its empty pore space once all draws are known.
                        ! MDK, 16/11/26
@@ -325,8 +325,8 @@ END IF
 !$OMP PARALLEL                                                                 &
 !$OMP DEFAULT(SHARED)                                                          &
 !$OMP PRIVATE(i,j,k,m,l,n,mm,edt,rhokh1_prime,diff_lat_htf,dtstar,             &
-!$OMP diff_sens_htf,esoil_only_or,transp_or,transp_layer1_or,hr_lay_gb,        &
-!$OMP hr_fac_gb)
+!$OMP diff_sens_htf,esoil_only_or,transp_or,transp_layer1_or,                  &
+!$OMP redist_layer_gb,redist_scale_gb)
 
 DO n = 1,nsurft
 !$OMP DO SCHEDULE(STATIC)
@@ -1075,35 +1075,38 @@ END DO !sm_levels
 ! step.
 ! MDK, 16/11/26
 IF ( l_som_hydraulic_redistribution .AND. nsoilt == 1 ) THEN
-  IF ( ALLOCATED(hr_ext_pft) ) THEN
+  IF ( ALLOCATED(redist_pft) ) THEN
 !$OMP DO SCHEDULE(STATIC)
     DO l = 1,land_pts
-      hr_fac_gb = 1.0
+      redist_scale_gb = 1.0
 
       DO m = 1,sm_levels
-        hr_lay_gb = SUM(tile_frac(l,1:npft) * hr_ext_pft(l,m,1:npft))
+        redist_layer_gb = SUM(tile_frac(l,1:npft) * redist_pft(l,m,1:npft))
         IF ( .NOT. l_aggregate .AND. non_irrig_frac(l) > EPSILON(0.0) )        &
-          hr_lay_gb = hr_lay_gb / non_irrig_frac(l)
+          redist_layer_gb = redist_layer_gb / non_irrig_frac(l)
         IF ( l_flake_model .AND. non_lake_frac(l) > EPSILON(0.0) )             &
-          hr_lay_gb = hr_lay_gb / non_lake_frac(l)
-        IF ( hr_lay_gb > 0.0 ) THEN
-          hr_fac_gb = MIN(hr_fac_gb, MAX(hr_w_avail(l,m) / timestep            &
-                                         - ext_soilt(l,1,m), 0.0) / hr_lay_gb)
-        ELSE IF ( hr_lay_gb < 0.0 ) THEN
-          hr_fac_gb = MIN(hr_fac_gb, MAX(hr_w_space(l,m) / timestep            &
-                                         + ext_soilt(l,1,m), 0.0)              &
-                                     / (-hr_lay_gb))
+          redist_layer_gb = redist_layer_gb / non_lake_frac(l)
+        IF ( redist_layer_gb > 0.0 ) THEN
+          redist_scale_gb = MIN(redist_scale_gb,                               &
+                                MAX(layer_water(l,m) / timestep                &
+                                    - ext_soilt(l,1,m), 0.0)                   &
+                                / redist_layer_gb)
+        ELSE IF ( redist_layer_gb < 0.0 ) THEN
+          redist_scale_gb = MIN(redist_scale_gb,                               &
+                                MAX(layer_space(l,m) / timestep                &
+                                    + ext_soilt(l,1,m), 0.0)                   &
+                                / (-redist_layer_gb))
         END IF
 
       END DO
 
       DO m = 1,sm_levels
-        hr_lay_gb = SUM(tile_frac(l,1:npft) * hr_ext_pft(l,m,1:npft))
+        redist_layer_gb = SUM(tile_frac(l,1:npft) * redist_pft(l,m,1:npft))
         IF ( .NOT. l_aggregate .AND. non_irrig_frac(l) > EPSILON(0.0) )        &
-          hr_lay_gb = hr_lay_gb / non_irrig_frac(l)
+          redist_layer_gb = redist_layer_gb / non_irrig_frac(l)
         IF ( l_flake_model .AND. non_lake_frac(l) > EPSILON(0.0) )             &
-          hr_lay_gb = hr_lay_gb / non_lake_frac(l)
-        ext_soilt(l,1,m) = ext_soilt(l,1,m) + hr_fac_gb * hr_lay_gb
+          redist_layer_gb = redist_layer_gb / non_lake_frac(l)
+        ext_soilt(l,1,m) = ext_soilt(l,1,m) + redist_scale_gb * redist_layer_gb
       END DO
 
     END DO

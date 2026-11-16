@@ -588,9 +588,9 @@ LOGICAL ::                                                                     &
       ! water, roots in wet soil layers keep taking water up and roots in
       ! dry layers let it out, so the roots move water from wet layers into
       ! dry ones. With the stomatal optimisation (and its soil-to-root link,
-      ! l_som_rhizo_series). The idea follows the CLM5 plant hydraulics
-      ! (Kennedy et al. 2019); the details are ours (see
-      ! redistribute_soil_water in physiol). When .TRUE.:
+      ! l_som_rhizo_series). It follows the soil-to-root part of the CLM5
+      ! plant hydraulics (Kennedy et al. 2019); the differences are listed
+      ! in redistribute_soil_water (physiol). When .TRUE.:
       !   - layer flows may be negative, so the roots move water from wet
       !     layers into dry ones (mostly at night);
       !   - each layer's link is the soil-to-root conductance k_i in series
@@ -601,7 +601,7 @@ LOGICAL ::                                                                     &
       !     redistribution;
       !   - in the flows between layers, each layer counts at its water
       !     potential less the weight of the water above it,
-      !     psi_i - rho_w g z_i.
+      !     psi_i - rho_w * g * z_i.
       ! The plant's own hydraulics (its total soil-to-root conductance, the
       ! root segment and the root zone's water potential, psi_root_zone)
       ! are unchanged: the switch decides only where in the soil the water

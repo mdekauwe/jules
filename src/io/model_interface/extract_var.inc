@@ -28,7 +28,7 @@ USE trifctl, ONLY: asteps_since_triffid
 USE trifctl, ONLY: asteps_phen
 USE sf_stom_state_mod, ONLY: f_vcmax_psi_state, cpl_state, store_e_prev,       &
                              shared_e_shd_prev, shared_amax_shd_prev
-USE plant_hydraulic_path_mod, ONLY: hr_ext_pft   ! MDK, 15/11/26
+USE plant_hydraulic_path_mod, ONLY: redist_pft   ! MDK, 15/11/26
 USE plant_water_store_mod, ONLY: store_q, store_w, store_unset, store_c,       &
                                  store_w_shed, leak_e, store_q_gap,            &
                                  store_w_xyl, store_q_xyl
@@ -4176,8 +4176,8 @@ CASE ( 'store_q_xyl_pft' )
 ! MDK, 15/11/26
 CASE ( 'hydraulic_redistribution_pft' )
   workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(hr_ext_pft) )                                                 &
-    workspace_pft(:,:) = SUM(MAX(hr_ext_pft(:,:,:), 0.0), DIM = 2)
+  IF ( ALLOCATED(redist_pft) )                                                 &
+    workspace_pft(:,:) = SUM(MAX(redist_pft(:,:,:), 0.0), DIM = 2)
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
