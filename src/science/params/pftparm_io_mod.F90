@@ -300,6 +300,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_psi_turg_zero_io(npft_max) = rmdi,                                       &
   wood_density_io(npft_max) = rmdi,                                            &
   xyl_lumen_frac_io(npft_max) = rmdi,                                          &
+  rd_r0_io(npft_max) = rmdi,                                                   &
   nsc_t_grow_zero_io(npft_max) = rmdi,                                         &
   nsc_t_grow_full_io(npft_max) = rmdi,                                         &
   nsc_grow_start_doy_io(npft_max) = rmdi,                                      &
@@ -416,7 +417,7 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_g_starv_io,                                                              &
   hydmort_mu_io, hydmort_width_io, hydmort_plc_bg_io,                          &
   nsc_psi_turg_full_io, nsc_psi_turg_zero_io, nsc_t_grow_zero_io,              &
-  wood_density_io, xyl_lumen_frac_io,                                          &
+  wood_density_io, xyl_lumen_frac_io, rd_r0_io,                                &
   nsc_t_grow_full_io, nsc_overflow_resp_io,                                    &
   nsc_grow_start_doy_io, nsc_grow_end_doy_io, nsc_flush_start_doy_io,         &
   nsc_flush_days_io,                                                          &
@@ -475,7 +476,7 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 187 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 188 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
@@ -646,6 +647,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_psi_turg_zero_io(npft_max)
   REAL(KIND=real_jlslsm) :: wood_density_io(npft_max)
   REAL(KIND=real_jlslsm) :: xyl_lumen_frac_io(npft_max)
+  REAL(KIND=real_jlslsm) :: rd_r0_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_t_grow_zero_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_t_grow_full_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_grow_start_doy_io(npft_max)
@@ -859,6 +861,7 @@ IF (mype == 0) THEN
   my_nml % nsc_psi_turg_zero_io = nsc_psi_turg_zero_io
   my_nml % wood_density_io = wood_density_io
   my_nml % xyl_lumen_frac_io = xyl_lumen_frac_io
+  my_nml % rd_r0_io = rd_r0_io
   my_nml % nsc_t_grow_zero_io = nsc_t_grow_zero_io
   my_nml % nsc_t_grow_full_io = nsc_t_grow_full_io
   my_nml % nsc_grow_start_doy_io = nsc_grow_start_doy_io
@@ -1060,6 +1063,7 @@ IF (mype /= 0) THEN
   nsc_psi_turg_zero_io = my_nml % nsc_psi_turg_zero_io
   wood_density_io = my_nml % wood_density_io
   xyl_lumen_frac_io = my_nml % xyl_lumen_frac_io
+  rd_r0_io = my_nml % rd_r0_io
   nsc_t_grow_zero_io = my_nml % nsc_t_grow_zero_io
   nsc_t_grow_full_io = my_nml % nsc_t_grow_full_io
   nsc_grow_start_doy_io = my_nml % nsc_grow_start_doy_io
@@ -1179,7 +1183,7 @@ USE pftparm, ONLY:                                                             &
   nsc_g_starv,                                                                 &
   hydmort_mu,      hydmort_width,    hydmort_plc_bg,                         &
   nsc_psi_turg_full, nsc_psi_turg_zero, nsc_t_grow_zero, nsc_t_grow_full,      &
-  wood_density, xyl_lumen_frac,                                                &
+  wood_density, xyl_lumen_frac, rd_r0,                                         &
   nsc_overflow_resp,                                                           &
   nsc_grow_start_doy, nsc_grow_end_doy, nsc_flush_start_doy, nsc_flush_days,  &
   nsc_cmax, phen_psi_tlp, phen_dfbleaf, phen_ndays, phen_fbleaf_min,          &
@@ -1219,6 +1223,7 @@ USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
                                 ! MDK, 31/10/26
 USE jules_vegetation_mod, ONLY: l_nsc_pipe_target   ! MDK, 04/11/26
 USE jules_vegetation_mod, ONLY: l_ximpair_cav_water   ! MDK, 12/11/26
+USE jules_vegetation_mod, ONLY: leaf_resp_model, leaf_resp_globresp
 USE jules_soil_mod, ONLY: l_bound_soil_wp
 
 IMPLICIT NONE
@@ -1557,6 +1562,7 @@ DO i = 1, npft
     wood_density(i) = wood_density_io(i)
   IF (ABS(xyl_lumen_frac_io(i) - rmdi) > EPSILON(1.0))                         &
     xyl_lumen_frac(i) = xyl_lumen_frac_io(i)
+  IF (ABS(rd_r0_io(i) - rmdi) > EPSILON(1.0)) rd_r0(i) = rd_r0_io(i)
   IF (ABS(nsc_t_grow_zero_io(i) - rmdi) > EPSILON(1.0))                        &
     nsc_t_grow_zero(i) = nsc_t_grow_zero_io(i)
   IF (ABS(nsc_t_grow_full_io(i) - rmdi) > EPSILON(1.0))                        &
@@ -1889,6 +1895,20 @@ IF ( l_ximpair_cav_water ) THEN
       errcode = 101
       CALL ereport(RoutineName, errcode,                                       &
                    'xyl_lumen_frac_io must be > 0 and <= 1.')
+    END IF
+  END DO
+END IF
+
+! The GlobResp leaf dark respiration (leaf_resp_model 2) needs the offset r0
+! of every C3 PFT.
+!
+! MDK, 15/11/26
+IF ( leaf_resp_model == leaf_resp_globresp ) THEN
+  DO i = 1,npft
+    IF ( c3(i) == 1 .AND. ABS(rd_r0_io(i) - rmdi) <= EPSILON(1.0) ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode,                                       &
+                   'leaf_resp_model = 2 needs rd_r0_io for every C3 PFT.')
     END IF
   END DO
 END IF

@@ -679,28 +679,63 @@ LOGICAL ::                                                                     &
       !
       ! MDK, 15/11/26
 
-LOGICAL ::                                                                     &
-  l_rd_heskel = .FALSE.
-      ! When .TRUE., leaf dark respiration has its own temperature
-      ! response (Heskel et al. 2016, PNAS 113: 3832),
+INTEGER, PARAMETER ::                                                          &
+  leaf_resp_jules    = 0,                                                      &
+  leaf_resp_heskel   = 1,                                                      &
+  leaf_resp_globresp = 2
+      ! Values of leaf_resp_model.
+
+INTEGER ::                                                                     &
+  leaf_resp_model = leaf_resp_jules
+      ! Leaf dark respiration, Rd (before any light inhibition). Options 1
+      ! and 2 change the leaves only: root and wood maintenance respiration
+      ! stay as option 0.
       !
-      !   Rd = fd Vcmax25 exp( b (T - 25) + c (T^2 - 25^2) )
+      ! 0 (leaf_resp_jules, default): fd times Vcmax at the leaf
+      !   temperature, so Rd follows the Vcmax temperature curve and falls
+      !   above its optimum.
+      ! 1 (leaf_resp_heskel): fd times Vcmax at 25 degC times the
+      !   temperature response of Heskel et al. (2016, PNAS 113: 3832),
       !
-      ! with T the leaf temperature (degC), Vcmax25 the Vcmax at 25 degC
-      ! and b, c = rd_heskel_b, rd_heskel_c. When .FALSE., Rd is fd times
-      ! Vcmax at the leaf temperature, so it follows the Vcmax temperature
-      ! curve and falls above its optimum.
+      !     f(T) = exp( b (T - 25) + c (T^2 - 25^2) )
+      !
+      !   with T the leaf temperature (degC) and b, c = rd_heskel_b,
+      !   rd_heskel_c. f rises with T over the range of leaf temperatures.
+      ! 2 (leaf_resp_globresp): Rd at 25 degC from the GlobResp data of
+      !   Atkin et al. (2015), with acclimation to the growth temperature,
+      !   times f(T), as Huntingford et al. (2017, Nat. Commun. 8: 1602,
+      !   Eqn 1),
+      !
+      !     Rd = (r0 + r1 N_a - r2 T_G) f(T)
+      !
+      !   for the top leaf, with N_a its nitrogen (g N m-2), T_G the growth
+      !   temperature (degC; t_growth_gb, a running mean of the air
+      !   temperature over rd_globresp_days) and r0 = rd_r0_io (per PFT),
+      !   r1 = rd_globresp_r1, r2 = rd_globresp_r2. Lower leaves have Rd in
+      !   proportion to their nitrogen. C3 leaves only; C4 leaves keep
+      !   option 0.
       !
       ! MDK, 15/11/26
 
 REAL(KIND=real_jlslsm) ::                                                      &
   rd_heskel_b = 0.1012,                                                        &
-      ! l_rd_heskel: the linear coefficient (degC-1). The default is the
-      ! global value of Heskel et al. (2016).
-  rd_heskel_c = -0.0005
-      ! l_rd_heskel: the quadratic coefficient (degC-2).
+      ! leaf_resp_model 1 and 2: the linear coefficient of f (degC-1). The
+      ! default is the global value of Heskel et al. (2016).
+  rd_heskel_c = -0.0005,                                                       &
+      ! leaf_resp_model 1 and 2: the quadratic coefficient of f (degC-2).
+  rd_globresp_r1 = 0.2061,                                                     &
+      ! leaf_resp_model 2: Rd at 25 degC per unit leaf nitrogen
+      ! (umol CO2 m-2 s-1 (g N m-2)-1; Atkin et al. 2015, all PFTs).
+  rd_globresp_r2 = 0.0402,                                                     &
+      ! leaf_resp_model 2: the fall of Rd at 25 degC per degC of growth
+      ! temperature (umol CO2 m-2 s-1 degC-1; Atkin et al. 2015).
+  rd_globresp_days = 10.0
+      ! leaf_resp_model 2: the time scale of the growth temperature T_G
+      ! (days), unless the acclimation of photosynthesis uses it, which
+      ! then sets it (n_day_photo_acclim).
       !
       ! MDK, 15/11/26
+
 
 LOGICAL ::                                                                     &
   l_som_shared_gain = .FALSE.
@@ -1572,7 +1607,8 @@ NAMELIST  / jules_vegetation/                                                  &
     som_cuticular_leak, l_som_hydraulic_redistribution,                        &
     l_som_shared_stem, l_som_shared_gain,                                      &
     l_som_closed_refix, l_som_edge_bound, som_gain_model,                      &
-    l_rd_heskel, rd_heskel_b, rd_heskel_c,                                     &
+    rd_heskel_b, rd_heskel_c,                                                  &
+    leaf_resp_model, rd_globresp_r1, rd_globresp_r2, rd_globresp_days,         &
     l_som_capacitance,                                                         &
     l_som_gravity,                                                             &
     l_som_rhizo_mfp,                                                           &
@@ -2046,6 +2082,27 @@ IF (  photo_model == photo_farquhar .OR. photo_model == photo_johnson ) THEN
     CALL ereport("check_jules_vegetation", errcode,                            &
                  "Invalid value given for photo_acclim_model.")
   END SELECT
+
+  ! Leaf dark respiration (leaf_resp_model). Option 2 needs the growth
+  ! temperature, held with the acclimation fields (l_acclim).
+  !
+  ! MDK, 15/11/26
+  IF ( leaf_resp_model < leaf_resp_jules .OR.                                  &
+       leaf_resp_model > leaf_resp_globresp ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 "leaf_resp_model must be 0, 1 or 2")
+  END IF
+
+  IF ( leaf_resp_model == leaf_resp_globresp ) THEN
+    l_acclim = .TRUE.
+
+    IF ( rd_globresp_days < 1.0 ) THEN
+      errcode = 101
+      CALL ereport("check_jules_vegetation", errcode,                          &
+                   "rd_globresp_days must not be less than 1.0 days.")
+    END IF
+  END IF
 
   !---------------------------------------------------------------------------
   ! Check that the option for acclimation of activation energies is reasonable.
@@ -3117,7 +3174,10 @@ WRITE(lineBuffer,*) ' som_gain_model = ', som_gain_model
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 15/11/26
 WRITE(lineBuffer,*) ' l_som_edge_bound = ', l_som_edge_bound
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 15/11/26
-WRITE(lineBuffer,*) ' l_rd_heskel = ', l_rd_heskel, rd_heskel_b, rd_heskel_c
+WRITE(lineBuffer,*) ' leaf_resp_model = ', leaf_resp_model, rd_heskel_b, rd_heskel_c
+CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 15/11/26
+WRITE(lineBuffer,*) ' rd_globresp = ', rd_globresp_r1, rd_globresp_r2,          &
+                    rd_globresp_days
 CALL jules_print('jules_vegetation_mod',lineBuffer)   ! MDK, 15/11/26
 
 WRITE(lineBuffer,*) ' l_som_capacitance = ', l_som_capacitance   ! MDK, 23/10/26
@@ -3314,13 +3374,13 @@ CHARACTER(LEN=errormessagelength) :: iomessage
 
 ! set number of each type of variable in my_namelist type
 INTEGER, PARAMETER :: no_of_types = 3
-INTEGER, PARAMETER :: n_int = 30
+INTEGER, PARAMETER :: n_int = 31
                                   ! The INTEGER items of my_namelist.
-INTEGER, PARAMETER :: n_real = 22 + (n_photo_coef * 5)
-                                  ! The REAL items: 22 scalars and the five
+INTEGER, PARAMETER :: n_real = 25 + (n_photo_coef * 5)
+                                  ! The REAL items: 25 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 69 + npft_max
-                                  ! The LOGICAL items: 69 scalars and
+INTEGER, PARAMETER :: n_log = 68 + npft_max
+                                  ! The LOGICAL items: 68 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
                                   ! MDK, 09/11/26
@@ -3334,6 +3394,7 @@ TYPE :: my_namelist
   INTEGER :: leaf_aero_model
   INTEGER :: kplant_model
   INTEGER :: som_gain_model   ! MDK, 15/11/26
+  INTEGER :: leaf_resp_model   ! MDK, 15/11/26
   INTEGER :: leaf_shed_combine   ! MDK, 09/11/26
   INTEGER :: heat_phen_temp   ! MDK, 09/11/26
   INTEGER :: nsc_heartwood_model   ! MDK, 04/11/26
@@ -3380,6 +3441,9 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: light_curvature_fvcb
   REAL(KIND=real_jlslsm) :: rd_heskel_b   ! MDK, 15/11/26
   REAL(KIND=real_jlslsm) :: rd_heskel_c   ! MDK, 15/11/26
+  REAL(KIND=real_jlslsm) :: rd_globresp_r1   ! MDK, 15/11/26
+  REAL(KIND=real_jlslsm) :: rd_globresp_r2   ! MDK, 15/11/26
+  REAL(KIND=real_jlslsm) :: rd_globresp_days   ! MDK, 15/11/26
   REAL(KIND=real_jlslsm) :: leaf_width
   REAL(KIND=real_jlslsm) :: leaf_shelter
   REAL(KIND=real_jlslsm) :: leaf_wind_ext
@@ -3401,7 +3465,6 @@ TYPE :: my_namelist
   LOGICAL :: l_som_closed_refix   ! MDK, 15/11/26
   LOGICAL :: l_som_edge_bound   ! MDK, 15/11/26
   LOGICAL :: l_som_hydraulic_redistribution   ! MDK, 15/11/26
-  LOGICAL :: l_rd_heskel   ! MDK, 15/11/26
   LOGICAL :: l_som_capacitance   ! MDK, 23/10/26
   LOGICAL :: l_ximpair_seg_memory
   LOGICAL :: l_ximpair_cav_water   ! MDK, 12/11/26
@@ -3515,6 +3578,10 @@ IF (mype == 0) THEN
   my_nml % light_curvature_fvcb = light_curvature_fvcb
   my_nml % rd_heskel_b = rd_heskel_b
   my_nml % rd_heskel_c = rd_heskel_c
+  my_nml % rd_globresp_r1 = rd_globresp_r1
+  my_nml % rd_globresp_r2 = rd_globresp_r2
+  my_nml % rd_globresp_days = rd_globresp_days
+  my_nml % leaf_resp_model = leaf_resp_model
   my_nml % l_som_skip_search_wellwatered = l_som_skip_search_wellwatered
   my_nml % l_som_fast = l_som_fast
   my_nml % l_som_supply_limit = l_som_supply_limit
@@ -3544,7 +3611,6 @@ IF (mype == 0) THEN
   my_nml % l_som_closed_refix = l_som_closed_refix
   my_nml % l_som_edge_bound = l_som_edge_bound
   my_nml % som_gain_model = som_gain_model
-  my_nml % l_rd_heskel = l_rd_heskel
   my_nml % l_som_capacitance = l_som_capacitance
   my_nml % l_ximpair_seg_memory = l_ximpair_seg_memory
   my_nml % l_ximpair_cav_water = l_ximpair_cav_water
@@ -3648,6 +3714,10 @@ IF (mype /= 0) THEN
   light_curvature_fvcb = my_nml % light_curvature_fvcb
   rd_heskel_b = my_nml % rd_heskel_b
   rd_heskel_c = my_nml % rd_heskel_c
+  rd_globresp_r1 = my_nml % rd_globresp_r1
+  rd_globresp_r2 = my_nml % rd_globresp_r2
+  rd_globresp_days = my_nml % rd_globresp_days
+  leaf_resp_model = my_nml % leaf_resp_model
   l_som_skip_search_wellwatered = my_nml % l_som_skip_search_wellwatered
   l_som_fast = my_nml % l_som_fast
   l_som_supply_limit = my_nml % l_som_supply_limit
@@ -3677,7 +3747,6 @@ IF (mype /= 0) THEN
   l_som_closed_refix = my_nml % l_som_closed_refix
   l_som_edge_bound = my_nml % l_som_edge_bound
   som_gain_model = my_nml % som_gain_model
-  l_rd_heskel = my_nml % l_rd_heskel
   l_som_capacitance = my_nml % l_som_capacitance
   l_ximpair_seg_memory = my_nml % l_ximpair_seg_memory
   l_ximpair_cav_water = my_nml % l_ximpair_cav_water

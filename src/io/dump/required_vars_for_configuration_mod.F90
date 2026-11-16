@@ -43,6 +43,7 @@ USE jules_vegetation_mod, ONLY: l_phen_fuse, l_phen_heat   ! MDK, 09/11/26
 USE jules_vegetation_mod, ONLY: l_leaf_temp
 USE jules_vegetation_mod, ONLY: l_som_shared_stem
 USE jules_vegetation_mod, ONLY: l_ximpair_cav_water
+USE jules_vegetation_mod, ONLY: leaf_resp_model, leaf_resp_globresp
   ! MDK, 04/11/26
 USE jules_vegetation_mod, ONLY: xylem_impairment_memory
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
@@ -224,8 +225,12 @@ IF ( can_rad_mod == 1 .OR. can_rad_mod == 7 ) THEN
   CALL add_to_list( 'gs', nvars, identifiers )
 END IF
 
+! (Also for the GlobResp leaf respiration, leaf_resp_model 2.)
+!
+! MDK, 15/11/26
 IF ( photo_acclim_model == photo_acclim .OR.                                   &
-     photo_acclim_model == photo_adapt_acclim) THEN
+     photo_acclim_model == photo_adapt_acclim .OR.                             &
+     leaf_resp_model == leaf_resp_globresp ) THEN
   CALL add_to_list( 't_growth_gb', nvars, identifiers )
 END IF
 

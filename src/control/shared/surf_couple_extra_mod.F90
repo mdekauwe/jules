@@ -219,6 +219,9 @@ USE jules_vegetation_mod,     ONLY:                                            &
   l_inferno, ignition_method,                                                  &
   ignition_vary_natural, ignition_vary_natural_human,                          &
   l_acclim, n_day_photo_acclim, l_red
+USE jules_vegetation_mod, ONLY: leaf_resp_model, leaf_resp_globresp,           &
+                                rd_globresp_days, photo_acclim_model,          &
+                                photo_acclim, photo_adapt_acclim
 
 USE jules_irrig_mod, ONLY: l_irrig_dmd
 
@@ -486,6 +489,8 @@ REAL(KIND=real_jlslsm) ::                                                      &
 
 ! Smoothing factor of exponential filter used with temperature acclimation.
 REAL(KIND=real_jlslsm) :: alpha_acclim
+REAL(KIND=real_jlslsm) :: t_growth_days
+                            ! Time scale of the growth temperature (days).
 
 ! Water tracer local arrays
 TYPE(wtrac_ex_type) :: wtrac_ex
@@ -1175,9 +1180,21 @@ CASE ( jules )
 
     IF ( l_acclim ) THEN
       ! Update the growth temperature for the thermal acclimation of
-      ! photosynthesis.
+      ! photosynthesis, and for the GlobResp leaf respiration
+      ! (leaf_resp_model 2), whose time scale is rd_globresp_days unless
+      ! the acclimation of photosynthesis uses the growth temperature.
+      !
+      ! MDK, 15/11/26
+      t_growth_days = n_day_photo_acclim
+
+      IF ( leaf_resp_model == leaf_resp_globresp .AND.                         &
+           photo_acclim_model /= photo_acclim .AND.                            &
+           photo_acclim_model /= photo_adapt_acclim ) THEN
+        t_growth_days = rd_globresp_days
+      END IF
+
       alpha_acclim = 1.0 - EXP( -1.0 * timestep                                &
-                              / ( n_day_photo_acclim * rsec_per_day ) )
+                              / ( t_growth_days * rsec_per_day ) )
       progs%t_growth_gb(:) = progs%t_growth_gb(:)                              &
                      + alpha_acclim * ( tl_1_gb(:) - progs%t_growth_gb(:) )
     END IF

@@ -645,6 +645,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  the water held in the sapwood's conduits for the release
                  !  of water by cavitation (l_ximpair_cav_water).
                  !  MDK, 12/11/26
+,rd_r0(:)                                                                     &
+                 ! leaf_resp_model 2: the PFT's offset r0 of leaf dark
+                 !  respiration at 25 degC (umol CO2 m-2 s-1; Atkin et al.
+                 !  2015, Huntingford et al. 2017 Table 2). Unset: -1e30.
+                 !  MDK, 15/11/26
 ,xyl_lumen_frac(:)                                                            &
                  ! Share of the sapwood's volume in the lumens of the
                  !  conduits that embolise (-), for the release of water by
@@ -1241,6 +1246,7 @@ ALLOCATE( nsc_psi_turg_full(npft))
 ALLOCATE( nsc_psi_turg_zero(npft))
 ALLOCATE( wood_density(npft))
 ALLOCATE( xyl_lumen_frac(npft))
+ALLOCATE( rd_r0(npft))
 ALLOCATE( nsc_t_grow_zero(npft))
 ALLOCATE( nsc_t_grow_full(npft))
 ALLOCATE( nsc_grow_start_doy(npft))
@@ -1319,6 +1325,7 @@ nsc_psi_turg_full(:) = -1.0e30
 nsc_psi_turg_zero(:) = -1.0e30
 wood_density(:) = -1.0e30
 xyl_lumen_frac(:) = -1.0
+rd_r0(:) = -1.0e30
 nsc_t_grow_zero(:) = -1.0e30
 nsc_t_grow_full(:) = -1.0e30
 nsc_grow_start_doy(:) = -1.0e30
@@ -1687,6 +1694,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' wood_density = ',wood_density
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' xyl_lumen_frac = ',xyl_lumen_frac
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' rd_r0 = ',rd_r0
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_t_grow_zero = ',nsc_t_grow_zero
 CALL jules_print('pftparm',lineBuffer)
