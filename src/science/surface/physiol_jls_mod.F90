@@ -752,7 +752,7 @@ LOGICAL :: l_getprofile     ! Switch IN to albpft
 REAL(KIND=real_jlslsm) ::                                                      &
   q_rs(sm_levels),                                                             &
       ! Uptake from each layer at the actual root potential (kg m-2 s-1 per
-      ! unit of rho_water g, i.e. relative).
+      ! unit of rho_water * g, i.e. relative).
   wsum_root,                                                                   &
       ! Sum of the root extraction weights, for the store's weights.
   ksum_rs, psi_root_rs,                                                        &
@@ -770,7 +770,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
 REAL(KIND=real_jlslsm) ::                                                      &
   psi_layer(sm_levels),                                                        &
       ! Each layer's water potential less the height of water above it,
-      ! psi - rho_w g z (Pa).
+      ! psi - rho_w * g * z (Pa).
   k_layer(sm_levels),                                                          &
       ! Each layer's link: soil in series with the layer's roots
       ! (kg m-3 s-1).
@@ -1401,7 +1401,7 @@ DO n = 1,npft
     !-------------------------------------------------------------------------
     ! l_som_rhizo_series: this PFT's soil-to-root conductance Ksr, summed
     ! over the layers (in parallel), per m2 ground. soil_to_root_k is per
-    ! ground area per metre of head (kg m-3 s-1); / (rho_water g) gives
+    ! ground area per metre of head (kg m-3 s-1); / (rho_water * g) gives
     ! kg m-2 s-1 Pa-1 and / m_h2o mol m-2 s-1 Pa-1, the units of
     ! kmax_pft * LAI. It is kept apart from kmax: sf_stom shares it between
     ! the leaf paths (set_ksr_path) and psi_leaf_jls puts it in series.
@@ -1708,7 +1708,7 @@ DO n = 1,npft
   !
   ! The soil layers feed one root node. Each layer i supplies
   !
-  !   q_i = k_i (psi_i - psi_root)
+  !   q_i = k_i * (psi_i - psi_root)
   !
   ! at the actual root water potential
   !
@@ -1776,7 +1776,7 @@ DO n = 1,npft
 
       ! Root water potential (Pa): the drop E / K_s across the soil-to-root
       ! path. E (mol m-2 s-1) x m_h2o_rs (kg mol-1) is a mass flux (kg m-2
-      ! s-1); dividing by K_s gives metres of head, and rho_water g turns
+      ! s-1); dividing by K_s gives metres of head, and rho_water * g turns
       ! head into Pa.
       !
       ! With the plant capacitance the roots carry the soil-to-store flow,
@@ -1801,7 +1801,7 @@ DO n = 1,npft
 
       ! Uptake from each layer,
       !
-      !   q_i = k_i (psi_i - psi_root),
+      !   q_i = k_i * (psi_i - psi_root),
       !
       ! in kg m-3 s-1 x Pa. Only the relative sizes matter, so the units
       ! cancel in the weights. Layers drier than the root are set to zero.
@@ -1891,7 +1891,7 @@ DO n = 1,npft
   ! (kg m-2), and the water the roots can take (kg m-2), the water above the
   ! closure point in each layer weighted by the root weights,
   !
-  !   W_root = SUM_k w_k rho_w dz_k MAX(0, theta_k - theta_close,k),
+  !   W_root = SUM_k w_k * rho_w * dz_k * MAX(0, theta_k - theta_close,k),
   !
   ! as smc_soilt but with the root weights, which soil_evap does not change.
   ! sf_evap takes the store's flow from the soil layers with these weights,

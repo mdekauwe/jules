@@ -21,7 +21,7 @@ PUBLIC stom_opt_mod, g_of_geff, e_of_g,                                        &
        set_leaf_temp_ci, clear_leaf_temp_ci
 
 ! Diagnostic marginal water price at the optimum, lambda_eff = dA/dE
-! (mol CO2 per mol H2O; = umol per mmol x 1e-3), from the bounded Ci
+! (mol CO2 per mol H2O; = umol per mmol * 1e-3), from the bounded Ci
 ! search (som_ci_search = 2: profit max, CMax, CGain, CAP, ProfitMax2), by
 ! a finite difference about the chosen Ci on the search path. It is 0 for
 ! closed stomata, for the other searches, and for open points taken by the
@@ -41,9 +41,9 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: som_lambda_eff_pft(:,:)
 ! the basis of the search's E) and T0 the leaf temperature the call is
 ! given (t_leaf):
 !
-!   T_leaf(E) = ltc_a - ltc_b E                      (leaf energy balance)
-!   dq(T)     = dq(T0) + ltc_s (T - T0)              (deficit, kg kg-1)
-!   p(T)      = p(T0) exp(ltc_dl(p) (T - T0))        (photosynthesis
+!   T_leaf(E) = ltc_a - ltc_b * E                      (leaf energy balance)
+!   dq(T)     = dq(T0) + ltc_s * (T - T0)              (deficit, kg kg-1)
+!   p(T)      = p(T0) * exp(ltc_dl(p) * (T - T0))        (photosynthesis
 !               parameters: vcmax, je, kc, ko, ccp, km, rd)
 !
 ! ltc_b = 0: the point keeps T0.
@@ -80,25 +80,25 @@ CONTAINS
 !
 ! The CO2 supply through the two resistances in series is
 !
-!   A = (ca - ci) / (R T (1.6 / gl + 1.37 r_bl))
+!   A = (ca - ci) / (R * T * (1.6 / gl + 1.37 * r_bl))
 !
 ! where ca and ci are the CO2 partial pressures of the air and inside the
-! leaf (Pa), R T is the gas constant times leaf temperature (J mol-1),
+! leaf (Pa), R * T is the gas constant times leaf temperature (J mol-1),
 ! r_bl is the boundary-layer resistance to water vapour (s m-1), 1.6 is the
 ! ratio of the diffusivities of water vapour and CO2 in air, and 1.37 turns
 ! r_bl into the boundary-layer resistance to CO2. Solving for gl,
 !
-!   1.6 / gl = (ca - ci) / (R T A) - 1.37 r_bl
+!   1.6 / gl = (ca - ci) / (R * T * A) - 1.37 * r_bl
 !
 ! (Leuning et al. 1995, as in CABLE). The argument dc is ca - ci, which the
-! caller keeps above a small floor, and rt is R T.
+! caller keeps above a small floor, and rt is R * T.
 !
 ! If the boundary layer alone lets through less CO2 than a needs, no
 ! stomatal opening can supply it, and gl_unreach is returned, which the
 ! searches treat as infeasible. When a <= 0, or there is no boundary layer,
 ! the formula without the boundary layer is used,
 !
-!   gl = 1.6 a R T / (ca - ci)
+!   gl = 1.6 * a * R * T / (ca - ci)
 !
 ! which gives gl <= 0 for a <= 0.
 !
@@ -131,9 +131,9 @@ END FUNCTION gl_co2_bl
 ! next call of the bounded search, and store the coefficients sf_stom has
 ! worked out for each vegetated point:
 !
-!   T_leaf(E) = a - b E
-!   dq(T)     = dq(T0) + s (T - T0)
-!   p(T)      = p(T0) exp(dl (T - T0))
+!   T_leaf(E) = a - b * E
+!   dq(T)     = dq(T0) + s * (T - T0)
+!   p(T)      = p(T0) * exp(dl * (T - T0))
 !
 ! The first is the leaf energy balance: the leaf temperature (K) falls as
 ! the leaf transpires E (mol H2O m-2 s-1). The second is the humidity
@@ -187,7 +187,7 @@ END SUBROUTINE clear_leaf_temp_ci
 !-----------------------------------------------------------------------------
 ! Return the effective conductance for water vapour, g_eff (m s-1), from
 ! inside the leaf to the air at the first model level, so that the
-! transpiration is E = D g_eff, with D the humidity deficit from the leaf
+! transpiration is E = D * g_eff, with D the humidity deficit from the leaf
 ! to that air. Coupled transpiration (l_som_coupled_e) and a leaf boundary
 ! layer resistance (r_bl > 0) use it to work out the transpiration of each
 ! stomatal conductance the search tries.
@@ -198,8 +198,8 @@ END SUBROUTINE clear_leaf_temp_ci
 ! (resistance r_ca). The sunlit and shaded leaves share the canopy air, so
 ! the other group's conductance into it, g_o, also loads that resistance:
 !
-!   g'    = g / (1 + g r_bl)
-!   g_eff = g' / (1 + r_ca (g' + g_o))
+!   g'    = g / (1 + g * r_bl)
+!   g_eff = g' / (1 + r_ca * (g' + g_o))
 !
 ! MDK, 04/11/26
 !-----------------------------------------------------------------------------
@@ -228,8 +228,8 @@ END FUNCTION g_eff_e
 ! turns a cap on transpiration into a cap on the stomatal conductance. Undoing
 ! the two steps of g_eff_e in turn,
 !
-!   g' = x (1 + r_ca g_o) / (1 - r_ca x)
-!   g  = g' / (1 - g' r_bl)
+!   g' = x * (1 + r_ca * g_o) / (1 - r_ca * x)
+!   g  = g' / (1 - g' * r_bl)
 !
 ! If either denominator is 0 or less, the resistances in series keep the
 ! effective conductance below x however wide the stomata open, and HUGE is
@@ -277,9 +277,9 @@ END FUNCTION g_of_geff
 !
 !   1. A(Ci): net photosynthesis (mol CO2 m-2 s-1), from the Collatz or
 !      Farquhar model.
-!   2. gl(Ci) = 1.6 A R T / (ca - Ci): the stomatal conductance to water
+!   2. gl(Ci) = 1.6 * A * R * T / (ca - Ci): the stomatal conductance to water
 !      vapour (m s-1) that lets that CO2 in, with ca the CO2 partial
-!      pressure of the air (Pa), R T the gas constant times leaf
+!      pressure of the air (Pa), R * T the gas constant times leaf
 !      temperature, and 1.6 the ratio of the diffusivities of water vapour
 !      and CO2 in air.
 !   3. E(Ci): the transpiration that follows (mol H2O m-2 s-1), gl times
@@ -435,7 +435,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
 ,psi_root_zone(land_pts)                                                       &
                              ! Root zone water potential (Pa): the soil
                              ! layers' potentials weighted by their
-                             ! soil-to-root conductances, sum(k psi) /
+                             ! soil-to-root conductances, sum(k * psi) /
                              ! sum(k) (smc_ext), the root's potential with
                              ! no flow.
 ,acr(land_pts)                                                                 &
@@ -940,13 +940,13 @@ CASE (cmax_profit_model, cgain_profit_model, cap_profit_model,                 &
   !   CMax (Wolf et al. 2016; stomata_model = 6): A_n - Theta(psi_leaf),
   !     a carbon cost of leaf water potential.
   !   CGain (Lu et al. 2020; stomata_model = 7):
-  !     A_n - varpi (k_max - k) / k_max, a carbon cost of lost
+  !     A_n - varpi * (k_max - k) / k_max, a carbon cost of lost
   !     conductance. varpi (cgain_varpi, umol CO2 m-2 leaf s-1) is the
   !     cost of losing all of the path's conductance.
   !   CAP (Dewar et al. 2017, stomata_model = 10): A_n with the nonstomatal
   !     limitation (l_som_nsl) and no stomatal cost.
   !   ProfitMax2 (Wang et al. 2020, Eqn 11; stomata_model = 11):
-  !     A_n (1 - E / E_crit), the cost A_n E / E_crit of the proximity
+  !     A_n * (1 - E / E_crit), the cost A_n * E / E_crit of the proximity
   !     to hydraulic failure, with no parameter.
   !
   ! References:
@@ -1327,7 +1327,7 @@ END SUBROUTINE take_sample
 ! Ci from ccp to ca, when the bounded search is off. Each feasible sample is
 ! scored
 !
-!   profit = A (k(psi_bar) - kcrit) / (k_top - kcrit)
+!   profit = A * (k(psi_bar) - kcrit) / (k_top - kcrit)
 !
 ! where A is net photosynthesis, psi_bar the mean of the leaf and root-zone
 ! water potentials, k(psi_bar) the conductance of the whole soil-to-leaf
@@ -1426,10 +1426,10 @@ END SUBROUTINE stom_opt_mod
 ! vapour g (m s-1), at specific-humidity deficit dq (kg kg-1), surface pressure
 ! P = pstar (Pa) and temperature T = t (K), so a stomatal conductance can be
 ! turned into the water the leaf loses. It is g times the molar density of air,
-! P / (R T), times the deficit as a mole fraction, vpd / P:
+! P / (R * T), times the deficit as a mole fraction, vpd / P:
 !
-!   E   = g (P / (R T)) (vpd / P) = g vpd / (R T)
-!   vpd = dq P / repsilon
+!   E   = g * (P / (R * T)) * (vpd / P) = g * vpd / (R * T)
+!   vpd = dq * P / repsilon
 !
 ! with vpd the vapour pressure deficit (Pa), R the gas constant and
 ! repsilon the ratio of the molar masses of water and dry air. The Ci
@@ -1792,7 +1792,7 @@ END DO
 ! ----------------------------------------------------------------------------
 ! Calculate stomatal conductance for H2O (m/s),
 !
-!   gl = ratio A R T_leaf / (ca - ci),
+!   gl = ratio * A * R * T_leaf / (ca - ci),
 !
 ! with ratio = 1.6 the ratio of the diffusivities of H2O and CO2 in air.
 ! ----------------------------------------------------------------------------
@@ -1823,13 +1823,13 @@ DO j = 1,open_pts
 END DO
 
 ! ----------------------------------------------------------------------------
-! Calculate transpiration rate (e_of_g): E = gl vpd / (R T).
+! Calculate transpiration rate (e_of_g): E = gl * vpd / (R * T).
 ! ----------------------------------------------------------------------------
 DO j = 1,open_pts
   l = veg_index(open_index(j))
   el_sample(:,j) = e_of_g(gl_sample(:,j), dq(l), pstar(l), t_leaf(l))
 
-  ! Coupled, or through a leaf boundary layer: E = D g_eff(g), dq the
+  ! Coupled, or through a leaf boundary layer: E = D * g_eff(g), dq the
   ! deficit to the level-1 air.
   IF ( l_som_coupled_e .OR. r_bl(l) > 0.0 ) THEN
     el_sample(:,j) = e_of_g(g_eff_e(MAX(gl_sample(:,j), 0.0_real_jlslsm),     &
@@ -2755,13 +2755,13 @@ idx_one_pt(:) = 1
 ! units instead of CG - HC (see the profit function below).
 l_cmax = som_profit_model == cmax_profit_model
 
-! CGain (stomata_model = 7): A_n - varpi (k_max - k)/k_max.
+! CGain (stomata_model = 7): A_n - varpi * (k_max - k)/k_max.
 l_cgain = som_profit_model == cgain_profit_model
 
 ! SOX_opt (stomata_model = 5 with som_ci_search = 2): Eller et al. (2018)
 ! solved as Sabot et al. (2022) do,
 !
-!   A_n (k(psi_bar) - kcrit)/(k_ref - kcrit),
+!   A_n * (k(psi_bar) - kcrit)/(k_ref - kcrit),
 !
 ! k of the whole path at psi_bar, the mean of the root zone and leaf water
 ! potentials. The halfway point is Eller et al.'s (2018, Eqs 2.7-2.8, for
@@ -2774,7 +2774,7 @@ l_sox = som_profit_model == sox_opt_profit_model
 ! set with it), no stomatal cost.
 l_cap = som_profit_model == cap_profit_model
 
-! ProfitMax2 (stomata_model = 11): A_n (1 - E / E_crit) (Wang et al. 2020).
+! ProfitMax2 (stomata_model = 11): A_n * (1 - E / E_crit) (Wang et al. 2020).
 l_pm2 = som_profit_model == pm2_profit_model
 l_profit_absolute = l_cmax .OR. l_cgain .OR. l_sox .OR. l_cap .OR. l_pm2
 l_no_glcap = .FALSE.
@@ -3304,7 +3304,7 @@ CONTAINS
                         TINY(1.0_real_jlslsm))
 
   ! CMax, CGain: the cost as a fraction of the maximum A on the range.
-  ! ProfitMax2: Theta = A_n E / E_crit, as a fraction of max A.
+  ! ProfitMax2: Theta = A_n * E / E_crit, as a fraction of max A.
   IF ( l_cmax .OR. l_cgain .OR. l_pm2 ) hydraulic_cost_chosen(j) = (best_al -  &
     profit(best_al, best_khc, best_psi_hc, best_el)) / max_al
 
@@ -3499,7 +3499,7 @@ CONTAINS
   !
   ! Gross photosynthesis is scaled by a factor of leaf water potential,
   !
-  !   A = f(psi_leaf) A_unlimited
+  !   A = f(psi_leaf) * A_unlimited
   !
   ! where psi_leaf comes from the transpiration that the scaled A gives.
   ! So f has to satisfy
@@ -3613,7 +3613,7 @@ CONTAINS
   ! photosynthesis at the call's leaf temperature). With l_leaf_temp_ci the
   ! state is at the candidate's own leaf temperature (state_at_leaf_temp),
   ! where A and Rd depend on T; otherwise at the call's leaf temperature,
-  ! A = f_nsl a_gross - Rd.
+  ! A = f_nsl * a_gross - Rd.
   SUBROUTINE nsl_state(ci, f_nsl, a_gross)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci, f_nsl, a_gross
   IF ( l_ltc_pt ) THEN
@@ -3626,7 +3626,7 @@ CONTAINS
 
   ! Work out how much water a candidate Ci costs: for net photosynthesis al at
   ! internal CO2 ci, the stomatal conductance that supplies it,
-  ! gl = 1.6 al R T / (ca - ci) (through the leaf boundary layer too with
+  ! gl = 1.6 * al * R * T / (ca - ci) (through the leaf boundary layer too with
   ! l_som_coupled_e or r_bl > 0), the transpiration E it gives, and then the
   ! leaf water potential and conductances at that E (psi_k_at_e). E is
   ! floored at 0 only without l_som_coupled_e and with r_bl = 0.
@@ -3656,16 +3656,16 @@ CONTAINS
   ! transpires more has a cooler leaf. The leaf temperature T has to satisfy
   ! both the leaf energy balance and the transpiration at T:
   !
-  !   T     = ltc_a - ltc_b E            (K; more transpiration cools)
-  !   E     = c_e dq(T)                  (mol H2O m-2 s-1)
-  !   dq(T) = dq0 + ltc_s (T - T0)       (kg kg-1)
+  !   T     = ltc_a - ltc_b * E            (K; more transpiration cools)
+  !   E     = c_e * dq(T)                  (mol H2O m-2 s-1)
+  !   dq(T) = dq0 + ltc_s * (T - T0)       (kg kg-1)
   !
   ! where c_e is the transpiration per unit humidity deficit through gl
   ! (through g_eff with l_som_coupled_e or r_bl > 0), and dq0 and T0 are
   ! the deficit and leaf temperature the call is given. For a given gl this
   ! gives
   !
-  !   T = (ltc_a - ltc_b c_e (dq0 - ltc_s T0)) / (1 + ltc_b c_e ltc_s)
+  !   T = (ltc_a - ltc_b * c_e * (dq0 - ltc_s * T0)) / (1 + ltc_b * c_e * ltc_s)
   !
   ! A, and so gl, depend on T through the photosynthesis parameters, each
   ! scaled from T0 by exp(ltc_dl (T - T0)). The loop evaluates A a fixed
@@ -3677,7 +3677,7 @@ CONTAINS
   ! as taking up water. With the nonstomatal limitation (l_som_nsl) the
   ! gross photosynthesis at each T is scaled by f_nsl,
   !
-  !   A = f_nsl (A_unlimited(T) + Rd(T)) - Rd(T)
+  !   A = f_nsl * (A_unlimited(T) + Rd(T)) - Rd(T)
   !
   ! (f_nsl = 1: no scaling), and al_no_nsl_ev is A_unlimited.
   !-------------------------------------------------------------------------
@@ -4045,10 +4045,10 @@ CONTAINS
   !   profit max   A / A_max - (k_max - k) / (k_max - k_crit)
   !                (Sperry et al. 2017; dimensionless)
   !   CMax         A - Theta(psi_leaf)            (Wolf et al. 2016, Eq. 8)
-  !   CGain        A - varpi (k_max - k) / k_max  (Lu et al. 2020)
+  !   CGain        A - varpi * (k_max - k) / k_max  (Lu et al. 2020)
   !   SOX_opt      A f_SOX(psi_leaf)              (Eller et al. 2018)
   !   CAP          A, which carries the nonstomatal limitation
-  !   ProfitMax2   A (1 - E / E_crit)             (Wang et al. 2020, Eqn 11)
+  !   ProfitMax2   A * (1 - E / E_crit)             (Wang et al. 2020, Eqn 11)
   !
   ! For profit max, A_max is the gain scale, k_max the reference conductance and
   ! k_crit the kcrit of the cost (the whole plant's with the shared root and
@@ -4125,7 +4125,7 @@ CONTAINS
   ! Return the CMax carbon cost of leaf water potential psi (Pa), from Anderegg
   ! et al. (2018) and Sabot et al. (2022, Eq. 12),
   !
-  !   Theta = a/2 psi^2 + b |psi|
+  !   Theta = a/2 * psi^2 + b * |psi|
   !
   ! with psi in MPa (taken as 0 when above 0) and a and b (cmax_a, cmax_b)
   ! per unit leaf area, in umol m-2 s-1 MPa-2 and umol m-2 s-1 MPa-1.
@@ -4154,10 +4154,10 @@ CONTAINS
   ! Light response on top of the optimum (som_light_k > 0): scale the
   ! chosen stomatal conductance by
   !
-  !   f = MIN(1, I / (I + k) (I_ref + k) / I_ref)
+  !   f = MIN(1, I / (I + k) * (I_ref + k) / I_ref)
   !
   ! with I the incident PAR at the canopy top (ipar, W m-2), and take the
-  ! Ci below the optimum that gives f gl (bisection; gl rises with Ci), so
+  ! Ci below the optimum that gives f * gl (bisection; gl rises with Ci), so
   ! A, E and leaf psi are those of the lower conductance.
   !
   ! MDK, 12/11/26
@@ -4340,14 +4340,14 @@ CONTAINS
   ! photosynthesis equals the CO2 supply through the stomata and the leaf
   ! boundary layer,
   !
-  !   A(ci) = (ca - ci) / (R T (1.6 / gl + 1.37 r_bl))
+  !   A(ci) = (ca - ci) / (R * T * (1.6 / gl + 1.37 * r_bl))
   !
   ! found by bisection between 0 and resp_ci_fac times ca (A rises with ci
   ! and the supply falls). Where respiration exceeds photosynthesis, ci is
   ! above ca and A is below 0. With l_leaf_temp_ci the leaf temperature T is
   ! that of the conductance,
   !
-  !   T = (ltc_a - ltc_b c_e (dq0 - ltc_s T0)) / (1 + ltc_b c_e ltc_s)
+  !   T = (ltc_a - ltc_b * c_e * (dq0 - ltc_s * T0)) / (1 + ltc_b * c_e * ltc_s)
   !
   ! as in state_at_leaf_temp, and the photosynthesis parameters and Rd are
   ! scaled from T0 to T. The transpiration, leaf water potential and
@@ -4437,20 +4437,20 @@ END SUBROUTINE stom_opt_bounded_search
 !      with a fixed water price, so the humidity deficit acts only through
 !      the hydraulics):
 !
-!        ci_d = sl_cica_well_watered ca
+!        ci_d = sl_cica_well_watered * ca
 !        A_d  = A(ci_d)
-!        gl_d = 1.6 A_d R T / (ca - ci_d)
-!        E'   = gl_d D
+!        gl_d = 1.6 * A_d * R * T / (ca - ci_d)
+!        E'   = gl_d * D
 !
 !      E' is the transpiration with no regulation (mol H2O m-2 s-1) and D
-!      the humidity deficit in mol m-3 (vpd / (R T), see e_of_g). A_d <= 0
+!      the humidity deficit in mol m-3 (vpd / (R * T), see e_of_g). A_d <= 0
 !      closes the stomata.
 !
 !   2. Allowed drop in water potential. On the supply function of the path
 !      (leaf water potential psi(E) and conductance k = -dE/dpsi_leaf),
 !
 !        P' = psi(E')
-!        dP = (P0 - P') k(P') / k(P0)
+!        dP = (P0 - P') * k(P') / k(P0)
 !
 !      with P0 = psi_root_zone, the leaf water potential with no flow. dP
 !      first rises with E' and then falls. Past its maximum, or when E' is
@@ -4464,7 +4464,7 @@ END SUBROUTINE stom_opt_bounded_search
 !
 !   4. Ci for that gl, the root of
 !
-!        gl (ca - Ci) - 1.6 R T A(Ci) = 0,   Ci between ccp and ci_d
+!        gl * (ca - Ci) - 1.6 * R * T * A(Ci) = 0,   Ci between ccp and ci_d
 !
 !      by the same kind of search.
 !
@@ -4617,7 +4617,7 @@ LOGICAL :: l_cpl
                             ! the searches: gl from A by gl_co2_bl and E from
                             ! gl by g_eff_e.
 REAL(KIND=real_jlslsm) :: e_per_gl
-                            ! E per unit gl, E = e_per_gl gl (mol m-2 s-1 per
+                            ! E per unit gl, E = e_per_gl * gl (mol m-2 s-1 per
                             ! m s-1).
 REAL(KIND=real_jlslsm) :: k_fail
                             ! The path conductance at which it fails: kcrit.
@@ -4974,9 +4974,9 @@ DO j = 1, open_pts
   !---------------------------------------------------------------------------
   ! 4. ci for the regulated gl, the root of
   !
-  !      h(ci) = gl (ca - ci) - ratio R T A(ci) = 0
+  !      h(ci) = gl * (ca - ci) - ratio * R * T * A(ci) = 0
   !
-  !    on [ccp, ci_demand], h(ccp) = ratio R T rd > 0 and h(ci_demand) =
+  !    on [ccp, ci_demand], h(ccp) = ratio * R * T * rd > 0 and h(ci_demand) =
   !    (gl - gl_demand)(ca - ci_demand) < 0, decreasing. Illinois (as in
   !    eval_ci).
   !---------------------------------------------------------------------------
@@ -5008,7 +5008,7 @@ DO j = 1, open_pts
     ill_new = 0.5 * (ill_lo + ill_hi)
   END IF
 
-  ! A consistent with gl and ci (gl = ratio A R T/(ca - ci)); through the
+  ! A consistent with gl and ci (gl = ratio * A * R * T/(ca - ci)); through the
   ! boundary layer, A at that ci.
   IF ( l_cpl ) THEN
     CALL set_state(ill_new, photo_al(ill_new), gl_reg, e_reg, psi_reg, k_reg)
@@ -5084,11 +5084,11 @@ CONTAINS
   ! Return h(ci), which falls through 0 at the ci that the regulated gl
   ! supports (step 4):
   !
-  !   h = gl (ca - ci) - ratio R T A(ci)
+  !   h = gl * (ca - ci) - ratio * R * T * A(ci)
   !
   ! or with l_cpl, through the boundary layer (gl_co2_bl),
   !
-  !   h = (gl - gl_co2_bl(A(ci), ca - ci)) (ca - ci)
+  !   h = (gl - gl_co2_bl(A(ci), ca - ci)) * (ca - ci)
   REAL(KIND=real_jlslsm) FUNCTION h_ci(ci)
   REAL(KIND=real_jlslsm), INTENT(IN) :: ci
   REAL(KIND=real_jlslsm) :: dc

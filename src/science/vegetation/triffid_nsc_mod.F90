@@ -17,17 +17,17 @@ MODULE triffid_nsc_mod
 ! releases, W, instead of from the NPP of the step:
 !
 !   dC/dt = NPP - W,
-!   W     = W_max C_a / (k_c C_max + C_a),
+!   W     = W_max * C_a / (k_c * C_max + C_a),
 !
 ! with NPP and W in kg C m-2 per 360 days. The release saturates as the
 ! store fills (a Michaelis-Menten form), and
 !   C_max is the store's capacity: nsc_flush times the leaf plus root
 !         carbon at the balanced LAI (enough for nsc_flush flushes of
 !         leaves and fine roots), or nsc_cmax if that is set;
-!   C_a   is the accessible store, C - nsc_reserve_frac C_max. The reserve
+!   C_a   is the accessible store, C - nsc_reserve_frac * C_max. The reserve
 !         below it is never released for growth;
 !   k_c   is nsc_kc (no units): the release is half of W_max when
-!         C_a = k_c C_max;
+!         C_a = k_c * C_max;
 !   W_max is nsc_wmax_fac times the running mean of NPP (e-folding time
 !         nsc_tau_load years), the growth the plant is adapted to.
 !         Trugman et al. set it by tree size, which TRIFFID does not have.
@@ -38,14 +38,14 @@ MODULE triffid_nsc_mod
 ! growth and the vegetation shrinks: this is carbon starvation. With
 ! nsc_g_starv > 0 and competition on (l_veg_compete), starvation also
 ! removes area in lotka, at the rate nsc_g_starv (per 360 days) when the
-! accessible store is empty, falling linearly to 0 at C_a = k_c C_max.
+! accessible store is empty, falling linearly to 0 at C_a = k_c * C_max.
 !
 ! 2. Growth limits (triffid_nsc_turgor)
 !
 ! Growth can stop while photosynthesis goes on. The release is scaled by a
 ! growth factor f (0-1), the mean over the store step of
 !
-!   f = f_psi f_T f_season.
+!   f = f_psi * f_T * f_season.
 !
 ! f_psi is the turgor limit, used when nsc_psi_turg_zero is set. Cells need
 ! turgor to expand, so in drought growth stops before photosynthesis does:
@@ -67,7 +67,7 @@ MODULE triffid_nsc_mod
 ! otherwise. With any limit on, the release is scaled so that a
 ! full store with f = 1 still releases W_max:
 !
-!   W = W_max f [C_a / (k_c C_max + C_a)] / [C_m / (k_c C_max + C_m)],
+!   W = W_max * f [C_a / (k_c * C_max + C_a)] / [C_m / (k_c * C_max + C_m)],
 !
 ! with C_m the accessible store when the store is full. With
 ! l_nsc_wmax_norm, W_max is also divided by the running annual mean of f,
@@ -98,22 +98,22 @@ MODULE triffid_nsc_mod
 ! and the stem recovers as new wood with intact xylem is laid down. The new
 ! ring is TRIFFID's gross wood production from the release,
 !
-!   G = dC_W/dt + g_wood C_W   (kg C m-2 per 360 days),
+!   G = dC_W/dt + g_wood * C_W   (kg C m-2 per 360 days),
 !
 ! the change in the wood carbon C_W plus the wood turnover it replaces
 ! (g_wood, per 360 days). Its share of the stem conductance comes off the
 ! stem's loss of conductance L (0-1),
 !
-!   rho = nsc_xylem_cond_ratio G dt / X,    L -> MAX(L - rho, 0),
+!   rho = nsc_xylem_cond_ratio * G * dt / X,    L -> MAX(L - rho, 0),
 !
 ! with dt the TRIFFID step (360-day years) and X the conducting sapwood
 ! (kg C m-2). X is the sapwood pool (section 6) or, without it, TRIFFID's
-! live stemwood eta_sl h LAI_bal (section 8), the pipe model, in which the
+! live stemwood eta_sl * h * LAI_bal (section 8), the pipe model, in which the
 ! sapwood area is proportional to the leaf area it supplies.
 ! No carbon is drawn from the store for the ring: the store
 ! sets its pace through W. The ring replaces damaged xylem first
 ! (l_nsc_ring_additive); with that off the ring dilutes the
-! loss, L -> L (1 - rho).
+! loss, L -> L * (1 - rho).
 !
 ! While the release is shut TRIFFID still removes the wood turnover, so the
 ! wood shrinks (G < 0) and regrows when the release opens again. A deficit
@@ -132,7 +132,7 @@ MODULE triffid_nsc_mod
 ! The conducting sapwood X_s (kg C m-2) inside TRIFFID's wood is its own
 ! pool, as in MEDFATE (De Caceres et al. 2023):
 !
-!   dX_s/dt = G - (k_h + g_t) X_s,
+!   dX_s/dt = G - (k_h + g_t) * X_s,
 !
 ! with k_h = nsc_heartwood_rate the share of the sapwood that becomes
 ! heartwood (wood that no longer conducts) each year, and g_t the wood
@@ -140,12 +140,12 @@ MODULE triffid_nsc_mod
 ! takes the same share of the sapwood as of the wood. Where the dump has
 ! no pool, the pool starts at its steady state for the current wood C_W,
 !
-!   X_s = C_W g_t / (k_h + g_t),
+!   X_s = C_W * g_t / (k_h + g_t),
 !
 ! so it does not drift through the run. The new ring renews about
 ! k_h + g_t of the sapwood each year, so the sapwood turnover, which can be
 ! measured, sets the recovery rate. A ring year with a net loss of wood
-! (S < 0) takes the sapwood's share of it, X_s |S| / (C_W + |S|), as
+! (S < 0) takes the sapwood's share of it, X_s * |S| / (C_W + |S|), as
 ! dieback and mortality take sapwood and heartwood alike.
 !
 ! 7. Ring cohorts (l_nsc_sapwood_rings, with the sapwood pool)
@@ -155,7 +155,7 @@ MODULE triffid_nsc_mod
 ! ring, are kept in dumps (ximpair_ring_frac, ximpair_ring_loss,
 ! ximpair_ring_year). There are at most nsc_n_ring rings, and the oldest
 ! two merge when a new one starts. At each TRIFFID step TRIFFID's wood
-! turnover takes from all rings alike, the new wood G dt joins the youngest
+! turnover takes from all rings alike, the new wood G * dt joins the youngest
 ! ring with intact xylem, and heartwood forms from the oldest rings first.
 ! At the end of the ring year a new ring starts. A drought raises the
 ! loss of each conducting ring's wood to at least the loss it causes; each
@@ -187,25 +187,25 @@ MODULE triffid_nsc_mod
 ! 8. Pipe-model target (l_nsc_pipe_target, with the sapwood pool)
 !
 ! The conducting sapwood has a target size from the pipe model, on the
-! leaf area it supplied, last ring year's peak LAI L_pk (the balanced LAI
+! leaf area it supplied, last ring year's peak LAI * L_pk (the balanced LAI
 ! until the first ring year has ended), and on the canopy height h (m).
 ! With the pipe heartwood rule or the Trugman response (section 10), L_pk
 ! is the peak of the leaf area the climate allows, the balanced LAI less
 ! leaf shedding by drought and heat (leaf_shed_climate_cap), so leaves shed
 ! for damage do not lower the target:
 !
-!   X_t = eta_sl h L_pk   (kg C m-2),
+!   X_t = eta_sl * h * L_pk   (kg C m-2),
 !
 ! TRIFFID's live stemwood (live_stemwood) on the peak LAI. eta_sl is the
 ! sapwood carbon per unit leaf area and height,
 !
-!   eta_sl = F rho c_w / LA:SA,
+!   eta_sl = F * rho * c_w / LA:SA,
 !
 ! with LA:SA the leaf area per unit sapwood area, F the form factor of the
 ! wood (its volume over basal area x height), rho the wood density (kg dry
 ! mass m-3) and c_w the carbon fraction of wood dry mass (about 0.48, not
 ! JULES's cmass 0.40), so it is set from data (with a_ws
-! scaled to keep a_ws eta_sl, which TRIFFID's growth depends on). X_t is
+! scaled to keep a_ws * eta_sl, which TRIFFID's growth depends on). X_t is
 ! at most the wood C_W, so a_ws should be at least 1. This cap guards
 ! against inputs that do not fit together: a warning names the point and
 ! the eta_sl that would fit the first time it binds, and nsc_xt_cap_count
@@ -218,7 +218,7 @@ MODULE triffid_nsc_mod
 ! of dt (360-day years), with X' the sapwood after TRIFFID's turnover, the
 ! heartwood formed is
 !
-!   dH = MAX(X' (1 - EXP(-k_h dt)), X' - X_t).
+!   dH = MAX(X' * (1 - EXP(-k_h * dt)), X' - X_t).
 !
 ! TRIFFID's allocation is fixed, so a sapwood below its target is not
 ! grown faster. With the fixed rate (0) heartwood forms at k_h whatever
@@ -236,7 +236,7 @@ MODULE triffid_nsc_mod
 ! The plant's maximum hydraulic conductance, kmax, is scaled by the
 ! conducting sapwood area against its target,
 !
-!   f_A = MIN(1, SUM_i X_i c_i / (X_t c_ref)),
+!   f_A = MIN(1, SUM_i X_i * c_i / (X_t * c_ref)),
 !
 ! with X_i the sapwood carbon in ring i, c_i its conductivity by age and
 ! season, and c_ref the mean conductivity of a stand in equilibrium on the
@@ -252,11 +252,11 @@ MODULE triffid_nsc_mod
 ! sapwood area, whatever the leaf area. The leaf area the sapwood can
 ! supply (nsc_lai_sapwood),
 !
-!   L_A = X_A / (eta_sl h),
-!   X_A = X_s SUM_i f_i c_i / c_ref,
+!   L_A = X_A / (eta_sl * h),
+!   X_A = X_s * SUM_i f_i * c_i / c_ref,
 !
-! sets the stem's conductance per unit ground area, kmax L_A, so its
-! conductance per unit leaf area is kmax L_A / LAI and rises when leaves
+! sets the stem's conductance per unit ground area, kmax * L_A, so its
+! conductance per unit leaf area is kmax * L_A / LAI and rises when leaves
 ! are shed. At the target and a full canopy L_A = LAI.
 !
 ! 10. Response to damage (nsc_damage_response)
@@ -269,7 +269,7 @@ MODULE triffid_nsc_mod
 !   - The canopy loses the share of its leaves that matches the share
 !     of the sapwood's conductance lost: the phenological LAI is at most
 !     the balanced LAI times
-!       SUM_i f_i c_i (1 - L_i) / SUM_i f_i c_i,
+!       SUM_i f_i * c_i * (1 - L_i) / SUM_i f_i * c_i,
 !     so an undamaged stem never caps the canopy, whatever its sapwood
 !     (the heartwood rule sets that). Trugman et al. tie leaves to the
 !     working xylem, and their allocation keeps the two in ratio; TRIFFID's
@@ -287,7 +287,7 @@ MODULE triffid_nsc_mod
 !     and at most the stem's last ring production (nsc_xylem_prod), so
 !     repair goes no faster than the stem grows new wood and a drought's
 !     damage takes years to repair. Repair is costed by the conductance it restores, as new
-!     wood: SUM_i X_i c_i MAX(L_i - L_p, 0), with c_i how well ring i
+!     wood: SUM_i X_i * c_i * MAX(L_i - L_p, 0), with c_i how well ring i
 !     conducts and L_p the highest loss the water potential has imposed
 !     since the last TRIFFID step (damage at or below it would come back
 !     at once while the drought lasts). The claim lowers each ring's loss
@@ -378,7 +378,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_resp_pft(:,:)
 ! TRIFFID grows, not extra; net of nsc_wood_lost). A diagnostic, but G also
 ! caps the Trugman repair claim, so it is in dumps then.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_prod_pft(:,:)
-! The share of the stem conductance the new ring renews, w_cond G / X (per
+! The share of the stem conductance the new ring renews, w_cond * G / X (per
 ! 360 days). A diagnostic.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xylem_renew_pft(:,:)
 ! Ring renewal: the wood TRIFFID lost and has not yet regrown, plus the
@@ -392,7 +392,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_net_wood_growth(:,:)
 ! Sapwood pool (l_nsc_sapwood_pool): the conducting sapwood X_s (kg C m-2
 ! of the PFT; < 0 = not yet set: at the first ring step it starts at the
 ! pipe-model target with l_nsc_pipe_target, else at its steady state
-! C_W g_t / (k_h + g_t)). In dumps.
+! C_W * g_t / (k_h + g_t)). In dumps.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_sapwood(:,:)
 ! Stem N from the sapwood pool (l_nsc_sapwood_n): the pool's share of
 ! TRIFFID's wood carbon, X_s / C_W (0-1), set by triffid from the current
@@ -942,7 +942,7 @@ DO n = n1,n2
     ! (the leaf regrowth, the flush and the overflow below are not used).
     ! The claim is at most that release, the carbon repair needs, the
     ! conductance it can restore in units of new ring,
-    ! X_s SUM_i f_i c_i MAX(L_i - L_p, 0) (ximpair_ring_repairable), and
+    ! X_s * SUM_i f_i * c_i * MAX(L_i - L_p, 0) (ximpair_ring_repairable), and
     ! the stem's ring production at the last TRIFFID step, so repair is
     ! no faster than the stem grows new wood. Not in spin-up or before the
     ! rings and the sapwood are set.
@@ -976,7 +976,7 @@ DO n = n1,n2
 
     ! Carbon starvation (nsc_g_starv, with l_veg_compete): an area
     ! disturbance for lotka, at the full rate when the accessible store is
-    ! used up and 0 for C_a >= nsc_kc C_max.
+    ! used up and 0 for C_a >= nsc_kc * C_max.
     nsc_starv_pft(l,n) = 0.0
     IF (nsc_g_starv(n) > 0.0 .AND. c_max > 0.0) THEN
       c_acc = MAX(nsc_pft(l,n) - c_res, 0.0)
@@ -1086,7 +1086,7 @@ END SUBROUTINE triffid_nsc_area
 ! or too cold to grow, or out of its growing season. Called from sf_stom
 ! every time step for PFT ft, it works out the step's growth factor
 !
-!   f = f_psi f_T f_season   (0-1; see the module header)
+!   f = f_psi * f_T * f_season   (0-1; see the module header)
 !
 ! and adds f times the step's share of the store period (the TRIFFID
 ! period, or one day without TRIFFID) to nsc_turg_acc, so the store step
@@ -1108,7 +1108,7 @@ END SUBROUTINE triffid_nsc_area
 ! leaf's remaining loss of conductance is multiplied each step by
 ! (1 - dR), with dR the share of the canopy that is new,
 !
-!   dR = g_leaf_0 f / <f> dt,
+!   dR = g_leaf_0 * f / <f> dt,
 !
 ! g_leaf_0 the leaf turnover rate (per 360 days) and dt the time step
 ! (360-day years). Leaves are made only while growth is allowed, and a
@@ -1363,7 +1363,7 @@ END SUBROUTINE triffid_nsc_daily
 ! Return the factor f_A (0-1) that scales the plant's kmax at land point
 ! l for PFT n with how much conducting sapwood it has (l_nsc_k_sapwood),
 !
-!   f_A = MIN(1, X_s SUM_i f_i c_i / (X_t c_ref)),
+!   f_A = MIN(1, X_s * SUM_i f_i * c_i / (X_t * c_ref)),
 !
 ! with X_s the sapwood and X_t its pipe-model target (both kg C m-2), f_i
 ! each ring's share of the sapwood, c_i its conductivity by age and season
@@ -1432,10 +1432,10 @@ END FUNCTION nsc_k_area
 ! Return the leaf area index the sapwood of PFT n at land point l can
 ! supply under the pipe model (the Trugman response to damage),
 !
-!   L_A = X_A / (eta_sl h),
+!   L_A = X_A / (eta_sl * h),
 !
 ! the inverse of the pipe-model target (live_stemwood), with h the canopy
-! height (m) and X_A = X_s SUM_i f_i c_i / c_ref (kg C m-2) the sapwood
+! height (m) and X_A = X_s * SUM_i f_i * c_i / c_ref (kg C m-2) the sapwood
 ! weighted by how well its rings conduct, as in f_A (nsc_k_area) before
 ! the MIN; without the rings X_A = X_s. Drought damage is not taken off.
 ! A stand at its target with a full canopy has L_A = the LAI the target
@@ -1492,7 +1492,7 @@ END FUNCTION nsc_lai_sapwood
 !
 !   1. The new ring is TRIFFID's gross wood production of the step,
 !
-!        G = dwood / dt + g_wood C_W,old   (kg C m-2 per 360 days),
+!        G = dwood / dt + g_wood * C_W,old   (kg C m-2 per 360 days),
 !
 !      the wood increment plus the wood turnover it replaced (wood_litc),
 !      with dt the TRIFFID step (360-day years) and C_W,old the wood
@@ -1500,7 +1500,7 @@ END FUNCTION nsc_lai_sapwood
 !      and not yet regrown is repaid (see the module header).
 !   2. Without the ring cohorts, the ring's share of the stem conductance,
 !
-!        rho = nsc_xylem_cond_ratio G dt / X,
+!        rho = nsc_xylem_cond_ratio * G * dt / X,
 !
 !      with X the conducting sapwood before the step's growth, is queued
 !      in ximpair_repair_pend. The next impairment update takes it off
@@ -1578,7 +1578,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
   woodc(land_pts,npft),                                                        &
   ! Wood increment of the step (kg C m-2).
   dwood(land_pts,npft),                                                        &
-  ! Wood turnover of the step, g_wood C_W (kg C m-2 per 360 days).
+  ! Wood turnover of the step, g_wood * C_W (kg C m-2 per 360 days).
   wood_litc(land_pts,npft)
 
 INTEGER :: n, t, l
@@ -1709,7 +1709,7 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! pool the prognostic X_s, which starts (where it is not yet set) at
       ! its steady state for the wood before the step,
       !
-      !   X_s = C_W g_t / (k_h + g_t),   g_t = wood_litc / C_W,
+      !   X_s = C_W * g_t / (k_h + g_t),   g_t = wood_litc / C_W,
       !
       ! or with the pipe-model target at the target. TRIFFID's live
       ! stemwood on lai_ref is the pipe-model target X_t, at most the wood.
@@ -1756,7 +1756,7 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! it heartwood forms at k_h. Over the step, with X' the sapwood after
       ! TRIFFID's turnover,
       !
-      !   dH = MAX(X' (1 - EXP(-k_h dt)), X' - X_t),
+      !   dH = MAX(X' * (1 - EXP(-k_h * dt)), X' - X_t),
       !
       ! taken oldest rings first; heartwood_rate is the rate that removes dH
       ! over the step, and the heartwood factor (an output) is heartwood_rate /
@@ -1797,7 +1797,7 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! charges the turnover, so the wood shrinks (G < 0) and regrows when
       ! the release opens. A step with G < 0 adds its loss to the deficit
       ! D and renews nothing; a step with G > 0 repays D first, and only
-      ! the rest is new ring. S sums the ring year's G dt.
+      ! the rest is new ring. S sums the ring year's G * dt.
       wood_prod_step = dwood(l,n) + wood_litc(l,n) * dt
       IF (wood_prod_step < 0.0) THEN
         nsc_wood_lost(l,n) = nsc_wood_lost(l,n) - wood_prod_step
@@ -1846,7 +1846,7 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! Sapwood pool: the oldest sapwood becomes heartwood, TRIFFID's
       ! wood turnover takes its share and the new ring is added,
       !
-      !   dX_s/dt = G - (k_h + g_t) X_s,   k_h = nsc_heartwood_rate,
+      !   dX_s/dt = G - (k_h + g_t) * X_s,   k_h = nsc_heartwood_rate,
       !
       ! so in equilibrium X_s = G / (k_h + g_t) (with the pipe heartwood
       ! rule, k_h is the step's rate heartwood_rate).
@@ -1878,7 +1878,7 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! dieback and mortality do: the sapwood loses its share of the wood
       ! before the loss (all rings alike),
       !
-      !   X_s <- X_s (1 + MIN(S, 0) / (C_W - MIN(S, 0))),
+      !   X_s <- X_s * (1 + MIN(S, 0) / (C_W - MIN(S, 0))),
       !
       ! with C_W the wood now. With the pipe-model target the ring year's
       ! peak LAI becomes last year's.

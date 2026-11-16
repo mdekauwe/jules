@@ -354,7 +354,7 @@ DO i = 1, npft
   ! Memory model: the dump holds the damaged kmax in absolute units. If
   ! kmax_pft has changed since (a calibration member, a new parameter set),
   ! that would read as extra damage, 1 - kmax_dump/kmax_pft. Rebuild it from
-  ! the dumped loss instead, kmax_pft (1 - ximpair_lock), where the kmax the
+  ! the dumped loss instead, kmax_pft * (1 - ximpair_lock), where the kmax the
   ! dump implies differs from kmax_pft (so a consistent restart is
   ! unchanged).
   !

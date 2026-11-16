@@ -86,7 +86,7 @@ END SUBROUTINE calc_c_comps_triffid
 !-----------------------------------------------------------------------------
 ! Balanced LAI from canopy height (m):
 !
-!   lai_bal = (a_ws eta_sl h / a_wl)^(1 / (b_wl - 1))
+!   lai_bal = (a_ws * eta_sl * h / a_wl)^(1 / (b_wl - 1))
 !
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
@@ -107,7 +107,7 @@ END FUNCTION lai_bal_from_ht
 !-----------------------------------------------------------------------------
 ! Canopy height (m) from the balanced LAI, the inverse of lai_bal_from_ht:
 !
-!   h = a_wl / (a_ws eta_sl) lai_bal^(b_wl - 1)
+!   h = a_wl / (a_ws * eta_sl) * lai_bal^(b_wl - 1)
 !
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
@@ -127,9 +127,9 @@ END FUNCTION ht_from_lai_bal
 
 !-----------------------------------------------------------------------------
 ! Canopy height (m) from the wood carbon (kg C m-2), with
-! wood = a_wl lai_bal^b_wl:
+! wood = a_wl * lai_bal^b_wl:
 !
-!   h = wood / (a_ws eta_sl) (a_wl / wood)^(1 / b_wl)
+!   h = wood / (a_ws * eta_sl) * (a_wl / wood)^(1 / b_wl)
 !
 ! MDK, 20/10/26
 !-----------------------------------------------------------------------------
@@ -150,17 +150,17 @@ END FUNCTION ht_from_wood
 !-----------------------------------------------------------------------------
 ! Live stemwood carbon (kg C m-2), the sapwood of the pipe model:
 !
-!   stemc = eta_sl h LAI,
+!   stemc = eta_sl * h * LAI,
 !
 ! with eta_sl (kg C m-2 per m of height per unit LAI) the sapwood carbon
 ! per unit leaf area and height. In pipe-model terms
 !
-!   eta_sl = F rho cmass / LA:SA,
+!   eta_sl = F * rho * cmass / LA:SA,
 !
 ! with LA:SA the leaf area per sapwood area, F the stem form factor (volume
 ! over basal area x height) and rho the wood density, so eta_sl can be set
 ! from data; the wood at the balanced LAI is a_ws times this, and lai_bal
-! and the wood depend on the product a_ws eta_sl only. Used for stem
+! and the wood depend on the product a_ws * eta_sl only. Used for stem
 ! nitrogen and respiration, and as the sapwood the ring renewal and the
 ! pipe-model target of the TRIFFID store use (triffid_nsc_mod).
 !

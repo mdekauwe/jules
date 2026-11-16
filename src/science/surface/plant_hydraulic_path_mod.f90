@@ -194,7 +194,7 @@ REAL(KIND=real_jlslsm) :: rootstem_cache_dpsi_int
 ! at k_ground_ratio_max), and the leaf segment kmax_pft * seg_kfac_leaf, so
 ! the well-watered whole plant (segments in series) is
 !
-!   kmax_pft g,   1 / g = sum_s 1 / (seg_kfac_s r_s)   (r_leaf = 1).
+!   kmax_pft * g,   1 / g = sum_s 1 / (seg_kfac_s * r_s)   (r_leaf = 1).
 !
 ! sf_stom gives the optimiser kmax, its intact reference and kcrit times g
 ! (kplant_scale), so every use of the whole-plant kmax (cost, kcrit test,
@@ -215,7 +215,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, PUBLIC :: kplant_scale(:),                &
 LOGICAL, PUBLIC :: l_kscale = .FALSE.
 
 ! Gravity (l_som_gravity) on a plant with segments: lifting water from the
-! roots to the canopy costs rho_water g ht, which is taken at the node
+! roots to the canopy costs rho_water * g * ht, which is taken at the node
 ! between the root and stem segments. The soil link and the root segment
 ! work at the root zone's water potential, and the stem and leaf segments
 ! start from the root's leaf-side water potential less the drop. The drop
@@ -335,7 +335,7 @@ END SUBROUTINE clear_store_q_path
 ! *****************************************************************************
 ! Set the drop in water potential from gravity at the node between the
 ! root and stem segments for this timestep (l_som_gravity with segments),
-! drop = rho_water g MAX(ht, 0) (Pa) at each vegetated point, and switch
+! drop = rho_water * g * MAX(ht, 0) (Pa) at each vegetated point, and switch
 ! it on for the segment solvers and k_path_zero_flow.
 !
 ! MDK, 04/11/26
@@ -510,11 +510,11 @@ END SUBROUTINE clear_shared_stem
 ! conductance is also multiplied by k_area, or, for a plant without
 ! segments, the whole plant's (kplant_scale = k_area). With r_stem
 ! (Trugman response), where it is > 0 the stem's factor is r_stem in
-! place of r k_area: the stem's conductance per unit leaf area relative
+! place of r * k_area: the stem's conductance per unit leaf area relative
 ! to kmax, from its sapwood area. Otherwise the whole-plant conductance
 ! relative to kmax is the series sum
 !
-!   g = 1 / sum over s of 1 / (seg_kfac_s r_s)
+!   g = 1 / sum over s of 1 / (seg_kfac_s * r_s)
 !
 ! (kplant_scale), and each segment gets r_s / g of the kmax it is given
 ! (seg_kscale). With kplant_model = 0 and no k_area both stay 1 and are
@@ -763,7 +763,7 @@ END FUNCTION k_path_zero_flow
 ! give kmax when well watered) and its own cumulative Weibull curve
 ! (conductance_b_seg, conductance_c_seg). It carries the flow
 !
-!     E = integral from psi_out to psi_in of k_s(psi) dpsi
+!     E = integral from psi_out to psi_in of k_s(psi) * dpsi
 !
 ! where psi_in is the water potential at its root-side end and psi_out at
 ! its leaf-side end (Pa), and E is in the units of kmax * psi. For each
@@ -809,7 +809,7 @@ SUBROUTINE psi_leaf_segments_jls( pft, n_e_leaf, land_pts, open_pnts,          &
 ! segments: with kcap_frac present, the stem and leaf segments (which use
 ! the PFT curve the impairment model damages) are capped,
 !
-!   k_s(psi) = MIN( kmax_s f_s(psi), kcap_frac kmax_s ),
+!   k_s(psi) = MIN( kmax_s * f_s(psi), kcap_frac * kmax_s ),
 !
 ! while the root segment stays intact (no root damage). With
 ! l_ximpair_seg_memory kcap_frac caps the stem only, and the leaf segment
@@ -1035,7 +1035,7 @@ DO j = 1, open_pnts
     c_seg     = conductance_c_seg(pft,iseg)
     ! Deepest Newton step below psi_in: k there is below the path's kcrit
     ! on this segment's curve, a fraction kcrit / kmax_seg of the segment's own
-    ! kmax (newton_psi_drop; 5 |b_seg| unless the curve is wide). For the
+    ! kmax (newton_psi_drop; 5 * |b_seg| unless the curve is wide). For the
     ! shared root and stem the path is the whole plant's, with its kcrit in
     ! proportion to its kmax.
     kcrit_for_drop = kcrit(l)
@@ -1048,8 +1048,8 @@ DO j = 1, open_pnts
     ! impairment: their conductance cannot exceed kcap_frac_seg * kmax_seg.
     ! psi_cap is where the intact curve falls to the cap,
     !
-    !   kmax_seg exp(-(psi_cap / b)^c) = kcap_frac_seg kmax_seg,
-    !   psi_cap = b (-ln kcap_frac_seg)^(1/c)
+    !   kmax_seg * exp(-(psi_cap / b)^c) = kcap_frac_seg * kmax_seg,
+    !   psi_cap = b * (-ln kcap_frac_seg)^(1/c)
     !
     ! so above psi_cap (wetter) the cap binds and below it the intact curve
     ! does. supply_int_cap is the intact supply integral at psi_cap, used to
@@ -1092,7 +1092,7 @@ DO j = 1, open_pnts
     !
     ! and dE/dpsi_out = -k(psi_out), so each step moves psi_out by the
     ! missing flow divided by the conductance there. Each sample stops
-    ! when its own k has settled (changes by less than 0.1 kcrit), or
+    ! when its own k has settled (changes by less than 0.1 * kcrit), or
     ! after max_nr_iter steps.
     l_nr_active(:) = .TRUE.
     DO it = 1, max_nr_iter
@@ -1128,7 +1128,7 @@ DO j = 1, open_pnts
     !
     ! Carry dpsi/dE down to the leaf-side end of this segment (header):
     !
-    !   dpsi_out/dE = (k(psi_in) dpsi_in/dE - 1) / k(psi_out)
+    !   dpsi_out/dE = (k(psi_in) * dpsi_in/dE - 1) / k(psi_out)
     !
     k_cur(:)   = MAX(seg_k(psi_out), k_floor * kmax_seg)
     dpsi_de(:) = ( MAX(k_in(:), k_floor * kmax_seg) * dpsi_de(:) - 1.0 ) /     &
@@ -1262,7 +1262,7 @@ CONTAINS
   ! psi up to 0. The segment solver uses it to find psi_out, since the
   ! flow from psi_in to psi_out is seg_a(psi_out) - seg_a(psi_in). Under
   ! xylem impairment it is the integral of the capped curve:
-  ! kcap_frac_seg kmax_seg (-psi) above psi_cap, and below it the intact
+  ! kcap_frac_seg * kmax_seg * (-psi) above psi_cap, and below it the intact
   ! integral, joined at psi_cap.
   ! ELEMENTAL, as seg_k.
   ELEMENTAL FUNCTION seg_a( psi ) RESULT( a )
@@ -1289,7 +1289,7 @@ END SUBROUTINE psi_leaf_segments_jls
 ! table (psi_solver_lut). It does the same job as psi_leaf_segments_jls,
 ! with table look-ups in place of Newton's method. Segment s carries
 !
-!   E = kmax_s (S_s(psi_out) - S_s(psi_in)),   kmax_s = kmax seg_kmax_fac
+!   E = kmax_s * (S_s(psi_out) - S_s(psi_in)),   kmax_s = kmax * seg_kmax_fac
 !
 ! with S_s the segment's supply table (supply_table_mod), so psi_out is
 ! the psi where S_s(psi_out) = S_s(psi_in) + E / kmax_s: one table
@@ -1297,7 +1297,7 @@ END SUBROUTINE psi_leaf_segments_jls
 ! conductance -dE/dpsi_leaf comes from the same segment-by-segment
 ! formula as there,
 !
-!   dpsi_out/dE = (k_s(psi_in) dpsi_in/dE - 1) / k_s(psi_out)
+!   dpsi_out/dE = (k_s(psi_in) * dpsi_in/dE - 1) / k_s(psi_out)
 !
 ! with the same floor on segment conductances. A flow more than a segment
 ! can carry puts its leaf-side end at the bottom of its table, where k is
@@ -1309,13 +1309,13 @@ END SUBROUTINE psi_leaf_segments_jls
 ! be where the intact curve meets the cap, f_s(psi_cap) = fr. The capped
 ! integral is
 !
-!   A_s(psi) = fr kmax_s (-psi)                          psi >= psi_cap
-!   A_s(psi) = fr kmax_s (-psi_cap)
-!              + kmax_s (S_s(psi) - S_s(psi_cap))        psi <  psi_cap
+!   A_s(psi) = fr * kmax_s * (-psi)                          psi >= psi_cap
+!   A_s(psi) = fr * kmax_s * (-psi_cap)
+!              + kmax_s * (S_s(psi) - S_s(psi_cap))        psi <  psi_cap
 !
 ! So when psi_in is above psi_cap, the flow down to psi_cap,
-! e_cap = fr kmax_s (psi_in - psi_cap), is carried at the constant
-! conductance fr kmax_s: E <= e_cap gives psi_out = psi_in - E / (fr
+! e_cap = fr * kmax_s * (psi_in - psi_cap), is carried at the constant
+! conductance fr * kmax_s: E <= e_cap gives psi_out = psi_in - E / (fr
 ! kmax_s), and a larger E continues down the intact table from psi_cap,
 !
 !   S_s(psi_out) = S_s(psi_cap) + (E - e_cap) / kmax_s
@@ -1487,7 +1487,7 @@ DO j = 1, open_pnts
     ! Root, stem then leaf in series. Each segment carries the same E, so its
     ! leaf-side psi comes from its own table with E divided by its own kmax, and
     ! becomes the next segment's root-side psi. dpsi_de carries dpsi/dE down the
-    ! chain: from E = integral(k), k_out dpsi_out = k_in dpsi_in - dE.
+    ! chain: from E = integral(k), k_out * dpsi_out = k_in * dpsi_in - dE.
     DO iseg = iseg_first, n_seg
       kmax_seg = kmax(l) * seg_kmax_fac(pft,l,iseg)
       b_seg    = conductance_b_seg(pft,iseg)
@@ -1514,8 +1514,8 @@ DO j = 1, open_pnts
                               kcap_frac_seg, l_cap, l_store_q_path )
 
       ! The segment's intact conductance at its two ends, worked out once
-      ! for the search's chain (capped at kcap_frac_seg kmax on a capped
-      ! segment) and the intact chain. Both are floored at k_floor kmax.
+      ! for the search's chain (capped at kcap_frac_seg * kmax on a capped
+      ! segment) and the intact chain. Both are floored at k_floor * kmax.
       k_in_int  = kmax_seg * EXP( -(MIN(psi_in, 0.0_real_jlslsm)/b_seg)**c_seg )
       k_out_int = kmax_seg * EXP( -(MIN(psi_out,                               &
                   0.0_real_jlslsm)/b_seg)**c_seg )
@@ -1618,7 +1618,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: e_seg
 REAL(KIND=real_jlslsm), INTENT(IN) :: kmax_seg
 ! The segment's cap fraction.
 REAL(KIND=real_jlslsm), INTENT(IN) :: kcap_frac_seg
-! .TRUE.: the segment is capped at kcap_frac_seg kmax_seg.
+! .TRUE.: the segment is capped at kcap_frac_seg * kmax_seg.
 LOGICAL, INTENT(IN) :: l_cap
 ! .TRUE.: a flow e_seg < 0 runs back towards the soil.
 LOGICAL, INTENT(IN) :: l_back
@@ -1695,7 +1695,7 @@ END FUNCTION lut_seg_step
 ! accepts before it treats the path as failed. It is the PFT's critical
 ! fraction times the path's intact maximum conductance,
 !
-!   kc = kmax_ref (kcrit / kmax_pft)
+!   kc = kmax_ref * (kcrit / kmax_pft)
 !
 ! Every canopy option (big leaf, two-leaf, multilayer and the cuticular
 ! floor) uses this one function, so they all give the same value to the

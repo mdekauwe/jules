@@ -516,7 +516,7 @@ END SUBROUTINE update_xylem_impairment_whole_trunk
 ! from psi_re at the roots to psi_le at the leaf (Pa) and is taken to be
 ! the profile of a steady flow. Let
 !
-!   G(psi) = integral of k(psi') dpsi' from psi to psi_re
+!   G(psi) = integral of k(psi') * dpsi' from psi to psi_re
 !
 ! on the undamaged curve k (mol m-2 s-1 Pa-1). G(psi) is the flow the
 ! undamaged xylem would carry between psi_re and psi. With psi_r the
@@ -526,19 +526,19 @@ END SUBROUTINE update_xylem_impairment_whole_trunk
 ! Case 1, the leaf is no drier than before (psi_l >= psi_le). The whole
 ! path keeps the conductance of the driest profile, a constant
 !
-!   E = keff (psi_r - psi_l),   keff = G(psi_le) / (psi_re - psi_le),
+!   E = keff * (psi_r - psi_l),   keff = G(psi_le) / (psi_re - psi_le),
 !
 ! and keff is k(psi_re) when psi_le is (almost) equal to psi_re.
 !
 ! Case 2, the leaf is drier than before (psi_l < psi_le). The driest
 ! profile now runs from psi_re to psi_l, so
 !
-!   E(psi_l) = G(psi_l) (psi_r - psi_l) / (psi_re - psi_l),
+!   E(psi_l) = G(psi_l) * (psi_r - psi_l) / (psi_re - psi_l),
 !
 ! which is solved for psi_l by Newton's method, using
 !
-!   dE/dpsi_l = - k(psi_l) (psi_r - psi_l) / (psi_re - psi_l)
-!               + G(psi_l) (psi_r - psi_re) / (psi_re - psi_l)^2.
+!   dE/dpsi_l = - k(psi_l) * (psi_r - psi_l) / (psi_re - psi_l)
+!               + G(psi_l) * (psi_r - psi_re) / (psi_re - psi_l)^2.
 !
 ! Case 1 is used where its answer has psi_l >= psi_le, and case 2
 ! elsewhere. The two give the same E at psi_l = psi_le.
@@ -550,7 +550,7 @@ END SUBROUTINE update_xylem_impairment_whole_trunk
 ! work out the leaf water potential (Pa) and the leaf's conductance
 ! (mol m-2 s-1 Pa-1) of the damaged plant. The curve is
 !
-!   k(psi) = kmax EXP(-(psi / b)^c),
+!   k(psi) = kmax * EXP(-(psi / b)^c),
 !
 ! with b = conductance_b (Pa, below 0) and c = conductance_c. G(psi) uses
 ! the lower incomplete gamma function. Cases 1 and 2 are as described

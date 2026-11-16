@@ -121,7 +121,7 @@ ELSE IF ( is_set(rootd_max_ft(ft)) ) THEN
   ! maximum rooting depth rootd_max (rootd_max_ft). A layer from z1 to z2
   ! holds the roots between z1 and MIN(z2, rootd_max),
   !
-  !   f_root(n) = exp(-p z1 / rootd) - exp(-p MIN(z2, rootd_max) / rootd),
+  !   f_root(n) = exp(-p * z1 / rootd) - exp(-p * MIN(z2, rootd_max) / rootd),
   !
   ! and a layer wholly below rootd_max holds none.
   !
@@ -144,7 +144,7 @@ ELSE IF ( is_set(rootd_max_ft(ft)) ) THEN
 
   ! Divide by the roots in the whole rooted depth,
   !
-  !   ftot = 1 - exp(-p MIN(ztot, rootd_max) / rootd),
+  !   ftot = 1 - exp(-p * MIN(ztot, rootd_max) / rootd),
   !
   ! so the fractions add to 1 and the roots cut off below rootd_max go to
   ! the layers above it in proportion. A rootd_max at or below the

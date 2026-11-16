@@ -38,7 +38,7 @@ MODULE triffid_hydmort_mod
 !
 ! and the matching area disturbance is
 !
-!   g = r_gamma m   (per 360 days),
+!   g = r_gamma * m   (per 360 days),
 !
 ! with r_gamma the inverse TRIFFID step (per 360 days). p_ref is a running
 ! maximum. The trees whose thresholds lie below it are already dead, so a
@@ -198,7 +198,7 @@ END SUBROUTINE hydmort_accumulate
 ! Kill the part of each natural PFT's stand that drought damage to its
 ! xylem has made unable to survive. At each TRIFFID step it works out the
 ! fraction m of the surviving cover that dies, and the matching area
-! disturbance g = r_gamma m (per 360 days), from the worst damage since
+! disturbance g = r_gamma * m (per 360 days), from the worst damage since
 ! the last step (equations in the module header). The worst damage is
 ! the larger of the running peak and the current lasting loss. Where
 ! p_ref is not yet set it starts at the current loss. After the step

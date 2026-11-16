@@ -343,7 +343,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             !    The root zone's effective soil water
                             !    potential: with the stomatal optimisation
                             !    the layers' potentials weighted by their
-                            !    soil-to-root conductances, sum(k psi) /
+                            !    soil-to-root conductances, sum(k * psi) /
                             !    sum(k) (smc_ext).
                             !    MDK, 15/11/26
 ,e_supply(land_pts)                                                            &
@@ -736,7 +736,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
                             ! WORK Leaf conductance for H2O (m/s), per unit
                             !      leaf area: of the top leaf in the big
                             !      leaf canopy without the stomatal
-                            !      optimisation (gc = fpar gl), and of one
+                            !      optimisation (gc = fpar * gl), and of one
                             !      layer in the multilayer canopies. The
                             !      big leaf optimisation returns the canopy
                             !      value (per unit ground area) in gc, and
@@ -864,7 +864,7 @@ REAL(KIND=real_jlslsm) :: kcrit_leaf_lyr(land_pts)
                             ! The same for kcrit_leaf_mean.
 REAL(KIND=real_jlslsm) :: kleaf_lyr_fac
                             ! This layer's value of the conductance profile
-                            ! through the canopy, exp(-(n - 1) kleaf_decay).
+                            ! through the canopy, exp(-(n - 1) * kleaf_decay).
 REAL(KIND=real_jlslsm) :: kleaf_canopy_mean
                             ! The profile's mean over the layers.
 REAL(KIND=real_jlslsm) :: kleaf_decay
@@ -923,16 +923,16 @@ REAL(KIND=real_jlslsm) :: psi_src(land_pts)
                             ! Water potential where the plant path starts,
                             ! the source of the water the stomatal
                             ! optimisation draws on (Pa): psi_root_zone,
-                            ! less the gravity drop rho_water g ht with
+                            ! less the gravity drop rho_water * g * ht with
                             ! l_som_gravity on a plant without segments.
                             ! The supply curves, the leaf psi solve and the
                             ! store's balance start from it.
 REAL(KIND=real_jlslsm) :: psi_zf(land_pts)
                             ! Water potential of the stem and leaf at zero
-                            ! flow (Pa): psi_root_zone, less rho_water g ht
+                            ! flow (Pa): psi_root_zone, less rho_water * g * ht
                             ! with l_som_gravity.
 REAL(KIND=real_jlslsm) :: drop_grav(land_pts)
-                            ! The gravitational drop rho_water g ht (Pa).
+                            ! The gravitational drop rho_water * g * ht (Pa).
 REAL(KIND=real_jlslsm) :: gl_leaf_cap
                             ! som_gl_max, or 0 (no cap) for the supply-loss
                             ! stomata (stomata_model = 9), which have none.
@@ -1036,9 +1036,9 @@ REAL(KIND=real_jlslsm) :: gc_cuticular_capped(land_pts)
                             ! The same after the soil-supply cap (m s-1).
 REAL(KIND=real_jlslsm) :: e_per_gc_leak
                             ! The leak's tile flux per unit conductance,
-                            ! rho (qs(tstar) - q1) (kg m-3).
+                            ! rho * (qs(tstar) - q1) (kg m-3).
 REAL(KIND=real_jlslsm) :: e_target_leak
-                            ! The leak's target flux rho gc_cuticular_capped dqc
+                            ! The leak's target flux rho * gc_cuticular_capped * dqc
                             ! (kg m-2 s-1).
 REAL(KIND=real_jlslsm) :: gc_leak
                             ! The canopy conductance that gives the target
@@ -1091,7 +1091,7 @@ REAL(KIND=real_jlslsm) :: q_store_sun_lyr(land_pts)
                             ! This layer's sunlit part of q_store (mol H2O m-2
                             ! leaf s-1),
                             !
-                            !   q_c = q_store E_c / E,
+                            !   q_c = q_store * E_c / E,
                             !
                             ! from the last pass (by the layer's kmax share,
                             ! share_sup, in the first pass or where E = 0), so
@@ -1103,11 +1103,11 @@ REAL(KIND=real_jlslsm) :: q_store_sun(land_pts)
                             ! sunlit class's part of q_store (mol H2O m-2
                             ! ground s-1), in proportion to its flow,
                             !
-                            !   q_c = q_store E_c / E,
+                            !   q_c = q_store * E_c / E,
                             !
                             ! from the previous pass's E_c (by the kmax_ref
                             ! shares in the first pass, or where E = 0), so the
-                            ! class's root flow E_c (1 - q_store / E) is not
+                            ! class's root flow E_c * (1 - q_store / E) is not
                             ! negative where q_store <= E (no class is searched
                             ! in back-flow, where water is cheap), and with
                             ! q_store = 0 the classes are the independent paths
@@ -1198,7 +1198,7 @@ REAL(KIND=real_jlslsm) :: w_xyl_full
                             ! conduits when all are full, V_w (kg m-2).
 REAL(KIND=real_jlslsm) :: w_xyl_hold
                             ! The water the conduits should hold now, those
-                            ! not lost, V_w (1 - L) (kg m-2).
+                            ! not lost, V_w * (1 - L) (kg m-2).
 REAL(KIND=real_jlslsm) :: w_xyl_excess
                             ! The conduits' water above w_xyl_hold (kg m-2):
                             ! > 0 is released to the store (embolism), < 0
@@ -1268,7 +1268,7 @@ REAL(KIND=real_jlslsm) :: kmax_imp_lyr(land_pts)
                             ! This layer's impaired path conductance per unit
                             ! leaf area (mol H2O m-2 leaf s-1 Pa-1),
                             !
-                            !   kmax_imp_lyr = kmax_leaf_lyr kfrac_imp_ml
+                            !   kmax_imp_lyr = kmax_leaf_lyr * kfrac_imp_ml
                             !
                             ! MDK, 12/11/26
 REAL(KIND=real_jlslsm) :: qs_air_leak(land_pts)
@@ -1328,7 +1328,7 @@ REAL(KIND=real_jlslsm) :: g_soil_c(land_pts)
 ! l_leaf_temp_ci (two-leaf): each class's leaf temperature as a linear
 ! function of its transpiration from the last pass's balance,
 !
-!   T = tleaf_a_2l - tleaf_b_2l E
+!   T = tleaf_a_2l - tleaf_b_2l * E
 !
 ! (tleaf_b_2l = 0 before the first balance of the step), and the
 ! temperature slopes of the deficit and the photosynthesis parameters
@@ -1581,7 +1581,7 @@ ra_ca_lt(:)   = 0.0
 !-----------------------------------------------------------------------------
 ! Gravity (l_som_gravity). Lifting water to the top of the canopy costs
 !
-!   drop = rho_water g ht   (0.01 MPa per m)
+!   drop = rho_water * g * ht   (0.01 MPa per m)
 !
 ! on top of the frictional drop (Xu et al. 2016, Eqn S2a). The whole
 ! canopy is put at the canopy height, the conservative end for the
@@ -2236,14 +2236,14 @@ END IF
 
 ! Plant capacitance: this step's capacitance of the store,
 !
-!   C = cap_stem L_ref      (mol H2O m-2 ground Pa-1),
+!   C = cap_stem * L_ref      (mol H2O m-2 ground Pa-1),
 !
 ! with cap_stem per unit leaf area (mol m-2 leaf Pa-1) and L_ref the leaf
 ! area the plant conductance is scaled by (lai_ref_kg: LAI, or the
 ! reference LAI with kplant_model = 1), so that C / k does not change with
-! phenology. Where C changes, with the store's water W = C psi:
+! phenology. Where C changes, with the store's water W = C * psi:
 !
-!   C falls (leaf loss): psi is kept, W_new = W C_new / C_old; the shed
+!   C falls (leaf loss): psi is kept, W_new = W * C_new / C_old; the shed
 !                        tissue takes the rest of the deficit (store_w_shed),
 !                        so shedding does not make psi more negative;
 !   C rises (growth):    W is kept: the new tissue is born full.
@@ -2456,12 +2456,12 @@ CASE ( 5, 6 )
         ! canopy, as in the big-leaf and two-leaf schemes: the deficit at the
         ! leaves is
         !
-        !   dq / (1 + ra gc),
+        !   dq / (1 + ra * gc),
         !
         ! with gc the canopy conductance (per m2 ground) from the previous
         ! pass, the conductance the surface energy balance (sf_evap) sees.
         ! Iterating within each layer on that layer's per-leaf-area gl would
-        ! give ra gl ~ 0, so every leaf would see nearly the full
+        ! give ra * gl ~ 0, so every leaf would see nearly the full
         ! above-canopy deficit. Only the last pass is kept.
         gc_ml_prev(:) = 0.0
 
@@ -3876,32 +3876,32 @@ CASE ( 7 )
   ! as exp(-knl L), as in the multilayer scheme (can_rad_mod = 6). Layer n,
   ! of leaf area dL, has the N weight
   !
-  !   w_n = ( exp(-knl (n-1) dL) - exp(-knl n dL) ) / knl,
+  !   w_n = ( exp(-knl * (n-1) * dL) - exp(-knl * n * dL) ) / knl,
   !
   ! and the classes take
   !
-  !   N_sun = sum_n f_sun,n w_n,
-  !   N_shd = sum_n (1 - f_sun,n) w_n,
+  !   N_sun = sum_n f_sun,n * w_n,
+  !   N_shd = sum_n (1 - f_sun,n) * w_n,
   !
   ! with f_sun,n the sunlit fraction of layer n. Each class's Vcmax and Jmax
   ! are the top-leaf values times its N weight, so the canopy total is the
-  ! top-leaf value times (1 - exp(-knl LAI)) / knl. Big-leaf (can_rad_mod =
+  ! top-leaf value times (1 - exp(-knl * LAI)) / knl. Big-leaf (can_rad_mod =
   ! 1) scales by (1 - exp(-kpar LAI)) / kpar, so the canopy totals match
   ! big-leaf only when knl = kpar.
   !
   ! The absorbed light is the two-stream canopy total (<= incident PAR),
   ! whereas big-leaf uses
   !
-  !   acr fpar = (1 - omega) ipar (1 - exp(-kpar LAI)) / kpar,
+  !   acr * fpar = (1 - omega) * ipar * (1 - exp(-kpar * LAI)) / kpar,
   !
   ! about 1/kpar times more, so expect lower light-limited GPP than big-leaf,
   ! beyond the effect of the sun/shade split. The leaf conductance cap is
   ! gl_leaf_cap times each class's leaf area.
   !
   ! kmax is per unit leaf area as in big-leaf. The canopy conductance
-  ! kmax_pft LAI is shared between the classes by their N weights,
+  ! kmax_pft * LAI is shared between the classes by their N weights,
   !
-  !   kmax_sun = kmax_pft LAI N_sun / (N_sun + N_shd),
+  !   kmax_sun = kmax_pft * LAI * N_sun / (N_sun + N_shd),
   !
   ! and likewise for the shaded leaf, so the canopy total is unchanged. Each
   ! class draws from the source psi (psi_src) on its own path, or with
@@ -4023,10 +4023,10 @@ CASE ( 7 )
   ! Each class's electron transport comes from its totals of I and Jmax.
   ! The light response,
   !
-  !   J = ( I + Jmax - SQRT((I + Jmax)**2 - 4 theta I Jmax) ) / (2 theta),
+  !   J = ( I + Jmax - SQRT((I + Jmax)**2 - 4 * theta * I * Jmax) ) / (2 * theta),
   !
   ! with theta = light_curvature (calc_electron_flux), scales with I and
-  ! Jmax together, J(c I, c Jmax) = c J(I, Jmax), so J of
+  ! Jmax together, J(c * I, c * Jmax) = c * J(I, Jmax), so J of
   ! the totals equals the sum of J over the class's leaves when they all
   ! have the same I / Jmax. Within a class the ratio varies (light and N
   ! fall at different rates with depth); J is concave, so J of the totals
@@ -4566,7 +4566,7 @@ IF ( l_cap_store ) THEN
   ! skin, up to 10 K above the leaves (leak ~2x too large). sf_evap takes
   ! the flux at tstar, so gc is scaled by dq_leak / dqc. Through ra, shared
   ! with the soil conductance, the tile then delivers slightly less than
-  ! gcuticular LAI dq_leak.
+  ! gcuticular * LAI * dq_leak.
 
   CALL qsat(qs_air_leak, tair, pstar, land_pts)
   DO m = 1,veg_pts
@@ -4617,15 +4617,15 @@ IF ( l_cap_store ) THEN
     IF ( ( l_som_cuticular_day_only .AND. .NOT. l_leak_lit(l) )                &
          .OR. gc_cuticular(l) <= 0.0 ) CYCLE
     ! The canopy conductance that gives the leak's flux
-    ! X = rho gc_cuticular_capped dqc (gcuticular LAI times the leaf-to-air
+    ! X = rho * gc_cuticular_capped * dqc (gcuticular LAI times the leaf-to-air
     ! deficit, after the supply cap) through the tile's resistances, as
     ! sf_evap takes it (the stomatal share of the flux through ra, shared
     ! with the soil conductance g_s; see gc_eq in lt_finish),
     !
-    !   X = A gc / (1 + ra (gc + g_s)),   A = rho (qs(tstar) - q1),
-    !   gc = X (1 + ra g_s) / (A - ra X),
+    !   X = A * gc / (1 + ra * (gc + g_s)),   A = rho * (qs(tstar) - q1),
+    !   gc = X * (1 + ra * g_s) / (A - ra * X),
     !
-    ! or gc_cuticular_capped where A - ra X is near 0 (rounding).
+    ! or gc_cuticular_capped where A - ra * X is near 0 (rounding).
     e_per_gc_leak = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)
     e_target_leak = pstar(l) / ( r * tstar(l) ) * gc_cuticular_capped(l)       &
                     * dqc(l)
@@ -4638,7 +4638,7 @@ IF ( l_cap_store ) THEN
     gc_som(l) = gc(l)
     ! Canopy transpiration (mol H2O m-2 s-1), the tile's flux at this gc,
     !
-    !   E = rho (qs(tstar) - q1) gc / (1 + ra (gc + g_s)) / M_w,
+    !   E = rho * (qs(tstar) - q1) * gc / (1 + ra * (gc + g_s)) / M_w,
     !
     ! which is X / M_w.
     el(l)     = pstar(l) / ( r * tstar(l) ) * MAX(qs(l) - q1(l), 0.0)         &
@@ -4656,7 +4656,7 @@ IF ( l_cap_store ) THEN
   ! lowest conductance the impairment memory allows. On the Weibull curve,
   ! k / kmax = exp(-(psi / b)**c),
   !
-  !   psi_fl = -b (-LOG(r))**(1 / c).
+  !   psi_fl = -b * (-LOG(r))**(1 / c).
   !
   ! psi_floor_leaf and psi_floor_stem come from the leaf and stem segment curves
   ! (Weibull), which the store's balance and the optimiser use, in spin-up
@@ -4673,13 +4673,13 @@ IF ( l_cap_store ) THEN
 
   ! Advance the capacitance store over the step. Its state is its water,
   !
-  !   W = C psi_x      (mol H2O m-2 ground, <= 0; psi_x its psi, Pa),
+  !   W = C * psi_x      (mol H2O m-2 ground, <= 0; psi_x its psi, Pa),
   !
   ! carried between steps (and dumped). Wherever the store is set, day and
   ! night, its balance over the step at the final canopy E (store_cpl_q,
   ! exact):
   !
-  !   q = C (psi_x0 - psi_x) / dt = E - E_r,   psi_x = psi_st(E_r),
+  !   q = C * (psi_x0 - psi_x) / dt = E - E_r,   psi_x = psi_st(E_r),
   !
   ! the stem node psi_st where the soil, root and stem carry E_r, and the
   ! leaf psi_leaf where the leaf segment then carries E. With the leak, the
@@ -4801,8 +4801,8 @@ IF ( l_cap_store ) THEN
   ! stem's conduits is part of the plant's water, W_xyl (store_w_xyl), and
   ! each step it is brought to the conduits not lost,
   !
-  !   W_xyl = V_w (1 - L),
-  !   V_w = rho_w (X_s / (c_w rho)) f   (kg m-2),
+  !   W_xyl = V_w * (1 - L),
+  !   V_w = rho_w * (X_s / (c_w * rho)) * f   (kg m-2),
   !
   ! with L the stem's locked-in loss, X_s the sapwood carbon (nsc_sapwood),
   ! rho the wood density (wood_density), c_w = 0.46 the carbon fraction of
@@ -4837,10 +4837,10 @@ IF ( l_cap_store ) THEN
         IF ( store_w(l,ft) > 0.0 .OR. nsc_sapwood(l,ft) < 0.0 ) CYCLE
 
         ! The water of the sapwood's conduits when all are full, V_w
-        ! (kg m-2): the sapwood's volume, X_s / (c_w rho), times the share
+        ! (kg m-2): the sapwood's volume, X_s / (c_w * rho), times the share
         ! of it in the conduits' lumens, f, times rho_w,
         !
-        !   V_w = rho_w (X_s / (c_w rho)) f,
+        !   V_w = rho_w * (X_s / (c_w * rho)) * f,
         !
         ! with f = xyl_lumen_frac, or unset all the wood's lumens,
         ! f = 1 - rho / rho_cw.
@@ -5281,12 +5281,12 @@ CONTAINS
 ! store_q is the rate at which the store gives water over the step
 ! (> 0: it gave water to the transpiration; < 0: it refilled from the soil):
 !
-!   store_q = C (psi_x0 - psi_x1) M_w / dt      (kg H2O m-2 s-1)
+!   store_q = C * (psi_x0 - psi_x1) * M_w / dt      (kg H2O m-2 s-1)
 !
 ! store_w is the store's water at the end of the step, counted from a
 ! full store at psi = 0, so it is 0 when full and negative as the stem dries:
 !
-!   store_w = C psi_x1                           (mol H2O m-2)
+!   store_w = C * psi_x1                           (mol H2O m-2)
 !
 ! M_w is the molar mass of water and dt the timestep. Both are per m2 of
 ! ground. The "cut_" prefix is from the module that holds the store,
@@ -5374,7 +5374,7 @@ END SUBROUTINE store_cpl_e_prev
 ! Plant capacitance: the most the canopy may transpire this step is what
 ! the soil can supply plus what the stem store gives.
 !
-!   e_sup_use = e_supply + q_store M_w      (kg H2O m-2 s-1, at least 0)
+!   e_sup_use = e_supply + q_store * M_w      (kg H2O m-2 s-1, at least 0)
 !
 ! e_supply is the soil's supply (< 0: no cap, which stays no cap), q_store the
 ! store's flow out (mol H2O m-2 s-1; < 0 when it refills, which lowers the
@@ -5518,7 +5518,7 @@ REAL(KIND=real_jlslsm) :: e_lo(land_pts)
 REAL(KIND=real_jlslsm) :: e_hi(land_pts)
                             ! Upper end of that bracket (mol H2O m-2 s-1).
 REAL(KIND=real_jlslsm) :: e_per_gc_cut
-                            ! rho (qs(tstar) - q1) (kg m-3), for the exact gc.
+                            ! rho * (qs(tstar) - q1) (kg m-3), for the exact gc.
 REAL(KIND=real_jlslsm) :: e_kg_cut
                             ! The cut E (kg m-2 s-1), for the exact gc.
 
@@ -5562,12 +5562,12 @@ END DO
 ! Take E = e_lo, and find the canopy conductance gc that gives it. The
 ! tile's flux is not linear in gc,
 !
-!   E M = A gc / (1 + ra (gc + g_s)),   A = rho (qs(tstar) - q1),
+!   E * M = A * gc / (1 + ra * (gc + g_s)),   A = rho * (qs(tstar) - q1),
 !
 ! with M the molar mass of water, ra the aerodynamic resistance and g_s the
 ! soil's conductance, so
 !
-!   gc = E M (1 + ra g_s) / (A - ra E M).
+!   gc = E * M * (1 + ra * g_s) / (A - ra * E * M).
 !
 ! The denominator is positive, because the cut E is below the leak's E
 ! under the same air.
@@ -5606,7 +5606,7 @@ END SUBROUTINE store_cpl_leak_limit
 ! rest, E - q, is pulled from the soil up through the roots and stem. The
 ! two must agree:
 !
-!   - the store gives water as it dries, q = C (psi_x0 - psi_st) / dt,
+!   - the store gives water as it dries, q = C * (psi_x0 - psi_st) / dt,
 !     where psi_x0 is its water potential at the start of the step and
 !     psi_st at the end;
 !   - psi_st is also the stem's water potential when the roots and stem
@@ -5978,13 +5978,13 @@ END SUBROUTINE store_cpl_q
 ! and carries its share of the canopy flow the commit used, e_store_bal (the
 ! stomatal flow, or the leak's after its cut),
 !
-!   E_c = s_c e_store_bal,
+!   E_c = s_c * e_store_bal,
 !   s_sun = E_sun / (E_sun + E_shd),   s_shd = 1 - s_sun,
 !
 ! with E_sun and E_shd the classes' stomatal transpiration (el_sun,
 ! el_shd), or s_sun = f_sun, the sunlit share of the leaf area, where they
 ! do not transpire (the night leak). The class's leaf segment has the
-! maximum conductance the optimiser gives it, kmax_c seg_kmax_fac, with
+! maximum conductance the optimiser gives it, kmax_c * seg_kmax_fac, with
 ! kmax_c the class's share of the canopy conductance by N-weighted leaf
 ! area (kmax_ref_sun_2l, kmax_ref_shd_2l), and under xylem impairment the
 ! canopy leaf segment's cap (ximpair_seg_frac), as in store_cpl_eval. It
@@ -6131,9 +6131,9 @@ END SUBROUTINE kplant_shared_stem
 ! With the store giving q_try, the roots and stem carry E - q_try from the
 ! soil, which sets the stem's water potential psi_st (st1) and the leaf's
 ! (psi1). At that stem water potential the store would give
-! C (psi_x0 - psi_st) / dt, so the mismatch is
+! C * (psi_x0 - psi_st) / dt, so the mismatch is
 !
-!   f_try = q_try - C (psi_x0 - psi_st) / dt      (mol H2O m-2 s-1)
+!   f_try = q_try - C * (psi_x0 - psi_st) / dt      (mol H2O m-2 s-1)
 !
 ! It is 0 at the answer, below 0 when the guess is too small and above 0
 ! when it is too large. Only the n_bal points being solved are worked out.
@@ -6288,7 +6288,7 @@ REAL(KIND=real_jlslsm) :: e_sup_cls(land_pts)
 
 IF ( l_cap_store ) THEN
   ! This leaf's kmax share of the soil supply plus its own part of the
-  ! store's flow (q_c), not share_sup (e_s + q_store).
+  ! store's flow (q_c), not share_sup * (e_s + q_store).
   e_sup_cls(:) = e_supply(:)
   WHERE ( e_supply(:) >= 0.0 )                                                 &
     e_sup_cls(:) = MAX(share_sup(:) * e_supply(:)                              &
@@ -6458,7 +6458,7 @@ END IF
 ! fixed fraction of the path's intact conductance, which with the whole
 ! root and stem is k_sh / k_own times the class's own,
 !
-!   kcrit_sh = kcrit_c k_sh / k_own,
+!   kcrit_sh = kcrit_c * k_sh / k_own,
 !
 ! k_sh and k_own the path's intact conductance at psi = 0 with and without
 ! the whole root and stem (k_path_zero_flow, plant only, per unit kmax).
@@ -6510,7 +6510,7 @@ IF ( l_som_shared_stem ) THEN
                            gl_max_eff, r_bl_opt, r_ca_opt, g_other_opt )
 ELSE IF ( l_cap_store ) THEN
   ! The class's kmax share of the soil supply plus its own part of the
-  ! store's flow (q_store_cls), not share_sup (e_s + q_store).
+  ! store's flow (q_store_cls), not share_sup * (e_s + q_store).
   e_sup_cls(:) = e_supply(:)
   WHERE ( e_supply(:) >= 0.0 )                                                 &
     e_sup_cls(:) = MAX(share_sup(:) * e_supply(:)                              &
@@ -6597,7 +6597,7 @@ END SUBROUTINE two_leaf_class
 ! The leaf temperature is a straight line in the transpiration E, from
 ! the last pass's leaf energy balance (tleaf_a_2l, tleaf_b_2l):
 !
-!   T_leaf = a - b E      (K)
+!   T_leaf = a - b * E      (K)
 !
 ! The routine works out the leaves' photosynthesis parameters and
 ! saturation humidity at their temperature t_cls (from
@@ -6750,7 +6750,7 @@ END SUBROUTINE lt_init
 !      one that gives the transpiration the optimisation chose when JULES
 !      applies gc at the surface temperature tstar:
 !
-!        rho (qs(tstar) - q1) gc / (1 + ra (gc + g_s)) = E M_w
+!        rho * (qs(tstar) - q1) * gc / (1 + ra * (gc + g_s)) = E * M_w
 !
 !      where rho is the air density, qs(tstar) - q1 the humidity deficit
 !      from the surface to the first atmospheric level (kg kg-1), ra the
@@ -6804,15 +6804,15 @@ CHARACTER(LEN=300) :: clamp_msg
   ! ra. Return the gc that gives the transpiration the optimisation
   ! chose (el, at the leaf temperatures) there,
   !
-  !   rho (qs(tstar) - q1) / (ra + 1/gc) = el m_h2o,
+  !   rho * (qs(tstar) - q1) / (ra + 1/gc) = el * m_h2o,
   !
   ! capped at the canopy som_gl_max. The soil conductance g_s shares ra
   ! in the tile flux (soil_evap adds it to gc) and the transpiration is
   ! the stomatal share,
   !
-  !   rho (qs(tstar) - q1) gc / (1 + ra (gc + g_s)) = el m_h2o,
+  !   rho * (qs(tstar) - q1) * gc / (1 + ra * (gc + g_s)) = el * m_h2o,
   !
-  ! so 1/gc is the r_eq_gc above divided by 1 + ra g_s.
+  ! so 1/gc is the r_eq_gc above divided by 1 + ra * g_s.
   !
   ! The deficit is the actual qs(tstar) - q1, not dq, which the stomatal
   ! optimisation floors at dq_min: with the floor a near-saturated or
@@ -6874,9 +6874,9 @@ SUBROUTINE sun_shade_totals( land_pts, veg_pts, veg_index, ilayers, dlai,     &
 ! and shaded leaf area a_sun,n and a_shd,n (fractions of the incident PAR
 ! I, from the two-stream profile), so
 !
-!   L_sun = sum_n f_n dL,          L_shd = sum_n (1 - f_n) dL,
-!   A_sun = I sum_n a_sun,n f_n dL,
-!   A_shd = I sum_n a_shd,n (1 - f_n) dL.
+!   L_sun = sum_n f_n * dL,          L_shd = sum_n (1 - f_n) * dL,
+!   A_sun = I * sum_n a_sun,n * f_n * dL,
+!   A_shd = I * sum_n a_shd,n * (1 - f_n) * dL.
 !
 ! The two-leaf canopy runs on these totals, and the multilayer canopy's
 ! leaf energy balance uses them too.
@@ -7219,7 +7219,7 @@ SUBROUTINE vcmax_psi_factor( ft, land_pts, veg_pts, veg_index, psi_rz,         &
 ! water potential psi, as in De Kauwe et al. (2015, Biogeosciences 12:
 ! 7503-7518, Eq. 4):
 !
-!   f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi)))
+!   f = (1 + exp(sf * psi_f)) / (1 + exp(sf * (psi_f - psi)))
 !
 ! with psi and psi_f (psi_vcmax_f) in MPa and sf (sf_vcmax) in MPa-1. f is
 ! 1 in wet soil and about 0.5 at psi = psi_f.
@@ -7325,9 +7325,9 @@ SUBROUTINE nsc_sink_factor( ft, land_pts, veg_pts, veg_index, psi_rz, beta )
 ! nsc_psi_turg_full. The carbon the store would have released to growth
 ! over t = nsc_sink_days days then stays in the store:
 !
-!   B    = W_pot (1 - f_turg) t / 360      (kg C m-2)
+!   B    = W_pot * (1 - f_turg) * t / 360      (kg C m-2)
 !   X    = B / R
-!   beta = beta_min + (1 - beta_min) exp(-X^2)
+!   beta = beta_min + (1 - beta_min) * exp(-X^2)
 !
 ! where W_pot is the store's release to growth at its last step with the
 ! turgor limit open (kg C m-2 per 360 days): the cold and season limits
@@ -7827,7 +7827,7 @@ END SUBROUTINE calc_electron_flux
 !
 ! stom_opt_mod costs
 !
-!   E_sample = dq gl pstar / (repsilon rmol T)      (mol H2O m-2 s-1),
+!   E_sample = dq * gl * pstar / (repsilon * rmol * T)      (mol H2O m-2 s-1),
 !
 ! so E_sample <= E_supply is the same condition as
 !
@@ -7945,13 +7945,13 @@ END SUBROUTINE apply_supply_limit
 ! Solving the canopy air humidity with these leaves, the other leaves
 ! (taken at these leaves' saturation humidity) and the soil gives
 !
-!   E = g' (D + r_ca g_s (qs_lt - qs_soil))
-!       / (1 + r_ca (g' + g_other + g_s))
+!   E = g' * (D + r_ca * g_s * (qs_lt - qs_soil))
+!       / (1 + r_ca * (g' + g_other + g_s))
 !
 ! where g' is these leaves' stomatal conductance in series with their
 ! boundary layer, D the deficit above, qs_lt the saturation humidity at
 ! these leaves' temperature and g_other the other leaves' conductance. So
-! g_s is added to g_oth, and r_ca g_s (qs_lt - qs_soil) is added to the
+! g_s is added to g_oth, and r_ca * g_s * (qs_lt - qs_soil) is added to the
 ! deficit. That term is 0 without l_leaf_temp, where the leaves are at
 ! tstar.
 !

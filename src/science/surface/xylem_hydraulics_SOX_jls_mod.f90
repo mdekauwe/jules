@@ -283,7 +283,7 @@ REAL(KIND=real_jlslsm) :: psi_nr_floor
                             ! Lowest leaf psi a Newton step may reach
                             ! (Pa): root_zone_psi less newton_psi_drop.
 REAL(KIND=real_jlslsm) :: k_conv_tol
-                            ! Convergence tolerance on k, 0.1 kcrit
+                            ! Convergence tolerance on k, 0.1 * kcrit
                             ! (mol m-2 s-1 Pa-1).
 LOGICAL :: l_nr_active(n_e_leaf)
                    ! Newton: samples still iterating (each sample stops on
@@ -362,7 +362,7 @@ SELECT CASE (psi_solver)
 !  psi_l' = psi_l - (e_leaf - E(psi_l, psi_r)) / k(psi_l)
 !
 ! The first guess is psi_l = psi_r - e_leaf / k(psi_r); each step is kept
-! above a floor below psi_r (newton_psi_drop: 5 |b|, or deeper where k
+! above a floor below psi_r (newton_psi_drop: 5 * |b|, or deeper where k
 ! there would still be above the failure conductance, e.g. c below about
 ! 1.8), and the loop stops when k changes by less than k_conv_tol (or after
 ! max_nr_iter steps). Each sample stops on its own convergence

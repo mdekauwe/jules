@@ -24,7 +24,7 @@ MODULE phen_budburst_mod
 !      degree-days reach phen_bb_gdd (degC d). The growing degree-days are
 !      summed from 1 January over each time step,
 !
-!        GDD = SUM MAX(T_air - phen_bb_tbase, 0) dt / 86400,
+!        GDD = SUM MAX(T_air - phen_bb_tbase, 0) * dt / 86400,
 !
 !      with T_air the air temperature (degC), phen_bb_tbase the base
 !      temperature (degC) and dt the time step (s).

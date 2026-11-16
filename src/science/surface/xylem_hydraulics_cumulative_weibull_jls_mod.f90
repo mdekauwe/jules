@@ -12,7 +12,7 @@ USE um_types, ONLY: real_jlslsm
 
 IMPLICIT NONE
 
-! The cumulative Weibull vulnerability curve, k(psi) = kmax exp(-(psi/b)^c):
+! The cumulative Weibull vulnerability curve, k(psi) = kmax * exp(-(psi/b)^c):
 ! the conductance at a water potential, the leaf water potential solver
 ! for a plant with one conductance curve, the fraction of kmax left on a
 ! curve (xylem_f, xylem_f_bc, for Weibull or SOX), and the incomplete
@@ -232,7 +232,7 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='XYLEM_CONDUCTANCE_CW_JLS'
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-! k(psi) = kmax exp(-|psi/b|^c), floored at kcrit.
+! k(psi) = kmax * exp(-|psi/b|^c), floored at kcrit.
 DO j = 1, open_pnts
   DO i = 1, n_water_potentials
     xylem_conductance(i,j) = kmax(j)                                           &
@@ -353,7 +353,7 @@ REAL(KIND=real_jlslsm) :: psi_nr_floor
                             ! Lowest leaf psi a Newton step may reach
                             ! (Pa): root_zone_psi less newton_psi_drop.
 REAL(KIND=real_jlslsm) :: k_conv_tol
-                            ! Convergence tolerance on k, 0.1 kcrit
+                            ! Convergence tolerance on k, 0.1 * kcrit
                             ! (mol m-2 s-1 Pa-1).
 LOGICAL :: l_nr_active(n_e_leaf)
                    ! Newton: samples still iterating (each sample stops on
@@ -415,7 +415,7 @@ SELECT CASE (psi_solver)
 ! [psi_r, psi_l]. Here the conductance model is given by the cumulative
 ! Weibull distribution. The integral of k(psi) with respect to psi is;
 !
-!  E(psi_l, psi_r) = kmax (b/c)
+!  E(psi_l, psi_r) = kmax * (b/c)
 !                     * [ gamma(1/c, (psi_r/b)^c)
 !                         - gamma(1/c, (psi_l/b)^c) ]
 !
@@ -432,7 +432,7 @@ SELECT CASE (psi_solver)
 !  psi_l' = psi_l - (e_leaf - E(psi_l, psi_r)) / k(psi_l)
 !
 ! The first guess is psi_l = psi_r - e_leaf / k(psi_r); each step is kept
-! above a floor below psi_r (newton_psi_drop: 5 |b|, or deeper where k
+! above a floor below psi_r (newton_psi_drop: 5 * |b|, or deeper where k
 ! there would still be above the failure conductance), and the loop stops
 ! when k changes by less than k_conv_tol (or after max_nr_iter steps).
 !
@@ -528,7 +528,7 @@ CASE(psi_solver_newton)
       ! has collapsed there is no need to keep tracking the true (very
       ! negative) asymptotic solution, only to land clearly below kcrit
       ! without risking overflow in (leaf_psi/b)**c on the next pass.
-      ! (The floor is below the failure point of the curve; a fixed 5 |b|
+      ! (The floor is below the failure point of the curve; a fixed 5 * |b|
       ! would be above it for a wide curve.)
       leaf_psi(:,j) = MAX(leaf_psi(:,j), psi_nr_floor)
 
@@ -570,14 +570,14 @@ END SUBROUTINE psi_leaf_CW_jls
 ! shape parameter a for each x, for points whose curves differ
 ! (incomplete_gamma is the same with one a for all x):
 !
-! gamma(a, x) = integral( t^(a-1) * e^(-t) dt, 0, x)
+! gamma(a, x) = integral( t^(a-1) * e^(-t) * dt, 0, x)
 !
 ! It is based on Numerical Recipes in FORTRAN 90, page 211, and uses the
 ! series form of the function.
 !
 ! The series (Numerical Recipes, section 6.2) is
 !
-!   gamma(a, x) = x^a e^-x  SUM_n=0..inf  x^n / ( a (a+1) ... (a+n) )
+!   gamma(a, x) = x^a * e^-x * SUM_n=0..inf  x^n / ( a (a+1) ... (a+n) )
 !
 ! where each term is the previous one times x / (a + n). The sum is
 ! worked out in incomplete_gamma_1.
@@ -586,15 +586,15 @@ END SUBROUTINE psi_leaf_CW_jls
 ! vulnerability curve: conductance k(psi) summed over the drop in water
 ! potential from the soil to the leaf (Sperry et al. 2017),
 !
-!   E = integral( k(psi) dpsi, psi_leaf, psi_soil )
+!   E = integral( k(psi) * dpsi, psi_leaf, psi_soil )
 !
-! With the cumulative Weibull curve k(psi) = kmax exp(-(psi/b)^c) this area
+! With the cumulative Weibull curve k(psi) = kmax * exp(-(psi/b)^c) this area
 ! has no simple formula, but the change of variable t = (psi/b)^c turns it
 ! into the integral above, with a = 1/c and x = (psi/b)^c:
 !
-!   integral( exp(-(psi'/b)^c) dpsi', psi, 0 ) = (-b/c) gamma(1/c, x)
+!   integral( exp(-(psi'/b)^c) * dpsi', psi, 0 ) = (-b/c) * gamma(1/c, x)
 !
-! So kmax (-b/c) gamma(1/c, (psi/b)^c) is the water the path can carry
+! So kmax * (-b/c) * gamma(1/c, (psi/b)^c) is the water the path can carry
 ! from psi = 0 down to psi (the supply integral; b < 0, so -b/c > 0), and
 ! E between two water potentials is the difference of two such values.
 ! The leaf water potential is the psi_leaf that gives the required E.
@@ -676,8 +676,8 @@ END FUNCTION incomplete_gamma
 ! Return the lower incomplete gamma function of one value, which gives the
 ! water a path on the cumulative Weibull curve can carry,
 !
-!   gamma(a, x) = integral( t^(a-1) exp(-t) dt, 0, x )
-!               = x^a exp(-x) sum_{n>=0} x^n / (a (a+1) ... (a+n))
+!   gamma(a, x) = integral( t^(a-1) * exp(-t) * dt, 0, x )
+!               = x^a * exp(-x) * sum_{n>=0} x^n / (a (a+1) ... (a+n))
 !
 ! summed from its series (Numerical Recipes in Fortran 90, section 6.2)
 ! until the next term is below series_tol of the sum, or for at most

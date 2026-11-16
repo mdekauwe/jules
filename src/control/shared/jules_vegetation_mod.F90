@@ -116,7 +116,7 @@ INTEGER, PARAMETER ::                                                          &
     ! SOX_opt: the SOX optimisation of Eller et al. (2018) solved as Sabot
     ! et al. (2022) do (their SOXopt), maximising
     !
-    !   A_n (k(psi_bar) - kcrit) / (k_ref - kcrit),
+    !   A_n * (k(psi_bar) - kcrit) / (k_ref - kcrit),
     !
     ! k of the whole path at psi_bar, the mean of the root zone and leaf
     ! water potentials; see stom_opt_jls_mod. The halfway point is Eller et
@@ -132,20 +132,20 @@ INTEGER, PARAMETER ::                                                          &
     ! Carbon maximisation (CMax) of Wolf et al. (2016, PNAS 113: E7222) in
     ! the form of Anderegg et al. (2018): maximise net carbon gain
     !
-    !   A_n - Theta(psi_leaf),   Theta = a/2 psi_leaf^2 + b |psi_leaf|,
+    !   A_n - Theta(psi_leaf),   Theta = a/2 * psi_leaf^2 + b * |psi_leaf|,
     !
     ! a carbon cost of low leaf water potential in absolute units (no
     ! normalisation), on the profit-max hydraulics; see stom_opt_jls_mod.
   stomata_cgain = 7,                                                           &
     ! CGain of Lu et al. (2020) (Sabot et al. 2022, Eq. 15): maximise
     !
-    !   A_n - varpi (k_max - k(psi_leaf)) / k_max,
+    !   A_n - varpi * (k_max - k(psi_leaf)) / k_max,
     !
     ! the profit max's hydraulic cost in absolute carbon units (varpi,
     ! cgain_varpi_io) instead of the gain normalised by the instantaneous
     ! A_max; see stom_opt_jls_mod.
   stomata_supply_loss = 9,                                                     &
-    ! Carbon-coupled demand (ci = sl_cica_well_watered ca: Medlyn with D
+    ! Carbon-coupled demand (ci = sl_cica_well_watered * ca: Medlyn with D
     ! fixed, so VPD acts only through the hydraulics, not twice) regulated
     ! by the supply-loss rule of Sperry et al. (2016, Eqn 5) on the
     ! profit-max hydraulics; see stom_opt_supply_loss in stom_opt_jls_mod.
@@ -165,7 +165,7 @@ INTEGER, PARAMETER ::                                                          &
     ! ProfitMax2, the "new model" of Wang et al. (2020, New Phytol 227:
     ! 311, Eqn 11): maximise
     !
-    !   A_n (1 - E / E_crit),   i.e. Theta = A_n E / E_crit,
+    !   A_n * (1 - E / E_crit),   i.e. Theta = A_n * E / E_crit,
     !
     ! with E_crit the transpiration at which the soil-to-leaf conductance
     ! falls to kcrit (the edge of the supply function), on the same path
@@ -286,7 +286,7 @@ INTEGER, PARAMETER ::                                                          &
     ! which gives the CG/HC normalisation of the flat grid in the limit of a
     ! fine grid, then golden-section on [ccp, ci_b] (som_n_ci_golden_iter).
     ! See stom_opt_bounded_search. Fastest with som_psi_solver = 3, which
-    ! gives the edge directly. sox_opt_profit_model uses it too (A_n (k - kcrit)
+    ! gives the edge directly. sox_opt_profit_model uses it too (A_n * (k - kcrit)
     ! is unimodal in Ci); SOX_opt has no xylem impairment (rejected at
     ! start-up).
     !
@@ -322,11 +322,11 @@ INTEGER, PARAMETER ::                                                          &
     ! carbon units (mol CO2 m-2 s-1):
     !
     !      Profit(psi) = Anet(psi) - Theta(psi_leaf)
-    !      Theta(psi)  = cmax_a/2 psi^2 + cmax_b |psi|   (psi in MPa)
+    !      Theta(psi)  = cmax_a/2 * psi^2 + cmax_b * |psi|   (psi in MPa)
   cgain_profit_model = 5,                                                      &
     ! CGain (Lu et al. 2020; set from stomata_model = 7), mol CO2 m-2 s-1:
     !
-    !      Profit(psi) = Anet(psi) - varpi (k_max - k(psi_leaf)) / k_max
+    !      Profit(psi) = Anet(psi) - varpi * (k_max - k(psi_leaf)) / k_max
     !
     ! with k the whole-path conductance -dE/dpsi_leaf (soil link included)
     ! and k_max the plant's unstressed conductance (psi = 0, without the
@@ -335,12 +335,12 @@ INTEGER, PARAMETER ::                                                          &
   cap_profit_model = 6,                                                        &
     ! CAP (Dewar et al. 2018; set from stomata_model = 10):
     !
-    !      Profit(psi) = Anet(psi) with gross A x f(psi_leaf)
+    !      Profit(psi) = Anet(psi) with gross A * f(psi_leaf)
   pm2_profit_model = 7
     ! ProfitMax2 (Wang et al. 2020, Eqn 11; set from stomata_model = 11),
     ! mol CO2 m-2 s-1:
     !
-    !      Profit(E) = Anet(E) (1 - E / E_crit)
+    !      Profit(E) = Anet(E) * (1 - E / E_crit)
     !
     ! MDK, 22/10/26
 
@@ -424,7 +424,7 @@ LOGICAL ::                                                                     &
        ! NPP enters a non-structural carbon store and TRIFFID grows from the
        ! carbon the store releases (Michaelis-Menten loading),
        !
-       !   W = W_max C_a / (k_c C_max + C_a),
+       !   W = W_max * C_a / (k_c * C_max + C_a),
        !
        ! not from the NPP of the step. The store buffers carbon deficits (it
        ! pays for negative NPP) and paces the stem's ring renewal
@@ -763,9 +763,9 @@ LOGICAL ::                                                                     &
 LOGICAL ::                                                                     &
   l_som_gravity = .FALSE.
       ! When .TRUE., the stomatal optimisation (stomata_model = 4 to 7) takes
-      ! the gravitational drop rho_water g h to the canopy height h off the
+      ! the gravitational drop rho_water * g * h to the canopy height h off the
       ! root zone water potential, so the plant path starts from
-      ! psi_root_zone - rho_water g h (0.01 MPa per m), as psi_h of Xu et
+      ! psi_root_zone - rho_water * g * h (0.01 MPa per m), as psi_h of Xu et
       ! al. (2016, Eqn S2a).
 
 LOGICAL ::                                                                     &
@@ -777,9 +777,9 @@ LOGICAL ::                                                                     &
       ! each trial stomatal conductance g with the resistances it passes
       ! through,
       !
-      !   E = D g' / (1 + r_ca (g' + g'_other)),   g' = g / (1 + g r_bl),
+      !   E = D * g' / (1 + r_ca * (g' + g'_other)),   g' = g / (1 + g * r_bl),
       !
-      ! instead of E = g D_c at a humidity deficit D_c held fixed from the
+      ! instead of E = g * D_c at a humidity deficit D_c held fixed from the
       ! last pass. D is from the leaf (two-leaf with l_leaf_temp: each
       ! class's leaf temperature; otherwise tstar) to the level-1 air q1;
       ! r_bl the leaf boundary layer (two-leaf with l_leaf_temp, from the
@@ -788,9 +788,9 @@ LOGICAL ::                                                                     &
       ! level-1 air); g'_other the other leaf class and the soil
       ! evaporation beneath the canopy (soil_evap's conductance, which
       ! shares the same path; with l_leaf_temp at qs(tstar), which adds
-      ! r_ca g_soil (qs(T_leaf) - qs(tstar)) to D). The fixed-D_c
+      ! r_ca * g_soil (qs(T_leaf) - qs(tstar)) to D). The fixed-D_c
       ! form makes E rise linearly with g, which overstates the marginal
-      ! water cost of opening by about (1 + r g) (cf. Sabot et al. 2022,
+      ! water cost of opening by about (1 + r * g) (cf. Sabot et al. 2022,
       ! Eqs 1 and 10; Wolf et al. 2016, Eq. 6). With xylem impairment the
       ! hydraulics of each trial E are those of the impaired curve. It also
       ! carries the CO2 path through the leaf boundary layer.
@@ -880,9 +880,9 @@ INTEGER ::                                                                     &
       ! 1 (nsc_heartwood_pipe, default): the pipe model is kept, as in LPJ
       !   (Sitch et al. 2003): sapwood above the target X_t becomes
       !   heartwood at once, oldest rings first, and below it heartwood
-      !   forms at nsc_heartwood_rate k_h (per 360 days); over a TRIFFID
+      !   forms at nsc_heartwood_rate * k_h (per 360 days); over a TRIFFID
       !   step of dt (360-day years) the heartwood formed is
-      !     dH = MAX(X_s (1 - EXP(-k_h dt)), X_s - X_t).
+      !     dH = MAX(X_s * (1 - EXP(-k_h * dt)), X_s - X_t).
       ! 0 (nsc_heartwood_fixed): heartwood at nsc_heartwood_rate whatever
       !   the target, which then sets only the pool's start, the cap at the
       !   wood and the sapwood-area factor.
@@ -906,19 +906,19 @@ INTEGER ::                                                                     &
       !   (l_nsc_k_sapwood) and kplant_model = 1:
       !   - the canopy sheds the share of its leaves that matches the
       !     share of the sapwood's conductance lost: the phenological LAI
-      !     is at most the balanced LAI times SUM_i f_i c_i (1 - L_i) /
-      !     SUM_i f_i c_i, so an undamaged stem never caps it; leaves above
+      !     is at most the balanced LAI times SUM_i f_i * c_i * (1 - L_i) /
+      !     SUM_i f_i * c_i, so an undamaged stem never caps it; leaves above
       !     the cap are shed as leaf litter at the rate of phenological
       !     leaf drop and regrow as the xylem recovers (output
       !     nsc_lai_sap_cap);
       !   - the stem's conductance per unit ground area follows its
-      !     sapwood, kmax L_A with L_A on the whole sapwood, so per unit
-      !     leaf area it is kmax L_A / LAI and shedding leaves raises the
+      !     sapwood, kmax * L_A with L_A on the whole sapwood, so per unit
+      !     leaf area it is kmax * L_A / LAI and shedding leaves raises the
       !     supply per remaining leaf (at most k_ground_ratio_max times);
       !   - repairing damaged xylem has first call on the store's
       !     release for growth, under the same growth limits, costed by the
       !     conductance it restores as new wood: at most
-      !     SUM_i X_i c_i MAX(L_i - L_p, 0), with L_p the highest loss
+      !     SUM_i X_i * c_i * MAX(L_i - L_p, 0), with L_p the highest loss
       !     imposed since the last TRIFFID step, and at most the stem's
       !     ring production at the last TRIFFID step (nsc_xylem_prod), so
       !     repair goes no faster than the stem grows new wood; each ring's
@@ -1044,7 +1044,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   leaf_wind_ext = 0.0
       ! With l_leaf_temp, the extinction
       ! coefficient of the wind in the canopy per unit cumulative leaf area
-      ! above (dimensionless): u(L) = u_top exp(-leaf_wind_ext L), so the
+      ! above (dimensionless): u(L) = u_top * exp(-leaf_wind_ext * L), so the
       ! forced-convection boundary-layer conductance falls as
       ! exp(-leaf_wind_ext L / 2) (MAESPA's EXTWIND, default 1 there;
       ! Wang & Leuning, 1998), u_top being the level-1 wind. 0 (default):
@@ -1067,7 +1067,7 @@ LOGICAL ::                                                                     &
       ! For each Ci the leaf temperature comes from the leaf energy balance
       ! linearised in transpiration about the last pass,
       !
-      !   T_leaf = t_c + (Rn - lambda E) / (cp gh),
+      !   T_leaf = t_c + (Rn - lambda * E) / (cp * gh),
       !
       ! (the balance of leaf_temp_update_n at the canopy air of the last
       ! pass), and the photosynthesis parameters and the leaf-to-air
@@ -1092,7 +1092,7 @@ LOGICAL ::                                                                     &
       ! (pft_params psi_nsl_onset_io, psi_nsl0_io). With psi_nsl_onset = 0
       ! (default) this is Dewar et al. (2022, New Phytol 233: 639) Eqn 3(b),
       !
-      !   A = (1 - psi_leaf / psi_0) A0,
+      !   A = (1 - psi_leaf / psi_0) * A0,
       !
       ! which acts at every psi_leaf; an onset at the turgor loss point is
       ! an optional variant (no limitation, and so no marginal cost, above
@@ -1106,7 +1106,7 @@ LOGICAL ::                                                                     &
       ! predawn proxy), with the Zhou et al. (2013, Agric. For. Meteorol.
       ! 182-183: 204) form
       !
-      !   f = (1 + exp(sf psi_f)) / (1 + exp(sf (psi_f - psi_rz)))
+      !   f = (1 + exp(sf * psi_f)) / (1 + exp(sf * (psi_f - psi_rz)))
       !
       ! (pft_params psi_vcmax_f_io, sf_vcmax_io; psi in MPa), as applied in
       ! a land surface model by De Kauwe et al. (2015, Biogeosciences 12:
@@ -1164,7 +1164,7 @@ LOGICAL ::                                                                     &
       ! conduits' lumens, from the TRIFFID sapwood pool X_s (kg C m-2), the
       ! wood density rho (wood_density) and that share f (xyl_lumen_frac),
       !
-      !   V_w = rho_w (X_s / (c_w rho)) f   (kg m-2),
+      !   V_w = rho_w * (X_s / (c_w * rho)) * f   (kg m-2),
       !
       ! with c_w = 0.46 the carbon fraction of wood dry mass (Doraisami et
       ! al. 2022); f unset is all the wood's lumens, 1 - rho / rho_cw, with
@@ -1195,12 +1195,12 @@ LOGICAL ::                                                                     &
       ! growth (wood lost is regrown first), is the new xylem ring. It
       ! renews the share
       !
-      !   rho = nsc_xylem_cond_ratio G dt / X
+      !   rho = nsc_xylem_cond_ratio * G * dt / X
       !
       ! of the stem's conductance (X the conducting sapwood, the sapwood
       ! pool by default). The stem's loss falls by that share,
       ! L -> MAX(L - rho, 0), with l_nsc_ring_additive (the default), or is
-      ! diluted, L -> L (1 - rho), without it; with the ring cohorts
+      ! diluted, L -> L * (1 - rho), without it; with the ring cohorts
       ! (l_nsc_sapwood_rings) each ring keeps its own loss instead. No
       ! store carbon is spent on it. See triffid_nsc_mod. Use with
       ! nsc_damage_response = 1 for leaf area in proportion to the
@@ -1240,7 +1240,7 @@ LOGICAL ::                                                                     &
       ! water potential (the root-zone psi at the day's last step) has been
       ! below the turgor loss point phen_psi_tlp on phen_ndays consecutive
       ! days, rises by phen_dfbleaf a day once it has been above
-      ! 0.5 phen_psi_tlp on phen_ndays days, and is held otherwise; the
+      ! 0.5 * phen_psi_tlp on phen_ndays days, and is held otherwise; the
       ! canopy is capped at f_bleaf, shed leaves go to litter, and their
       ! regrowth is paid from the TRIFFID store (leaf_shed_mod).
       !
@@ -1295,7 +1295,7 @@ LOGICAL ::                                                                     &
       !
       !   L -> MAX(L - rho, 0),
       !
-      ! instead of being diluted, L -> L (1 - rho) (.FALSE.: the sapwood
+      ! instead of being diluted, L -> L * (1 - rho) (.FALSE.: the sapwood
       ! retired to heartwood has the mean loss). On by default; without
       ! ring renewal or with the ring cohorts (l_nsc_sapwood_rings)
       ! check_jules_vegetation switches it off.
@@ -1311,8 +1311,8 @@ LOGICAL ::                                                                     &
       ! that release, f_turg the turgor factor of growth (0-1), R the room
       ! left (C_max less the store) and t = nsc_sink_days,
       !
-      !   X    = W_pot (1 - f_turg) t / R,
-      !   beta = beta_min + (1 - beta_min) EXP(-X^2),
+      !   X    = W_pot * (1 - f_turg) * t / R,
+      !   beta = beta_min + (1 - beta_min) * EXP(-X^2),
       !
       ! so wet soil costs nothing whatever the store holds. beta multiplies
       ! the capacity factor of l_som_vcmax_psi (the direct response to
@@ -1340,7 +1340,7 @@ LOGICAL ::                                                                     &
       ! Sapwood pool (l_nsc_sapwood_pool) with a pipe-model target: the
       ! target sapwood X_t is the pipe model on last ring year's peak LAI
       ! (the balanced LAI until a ring year has ended) and the height,
-      ! X_t = eta_sl h L_pk (TRIFFID's live stemwood; eta_sl from LA:SA,
+      ! X_t = eta_sl * h * L_pk (TRIFFID's live stemwood; eta_sl from LA:SA,
       ! form factor and wood density), at most TRIFFID's wood C_W;
       ! heartwood forms by nsc_heartwood_model. The pool starts at the
       ! target and is at most C_W; the heartwood is the rest of the wood
@@ -1351,7 +1351,7 @@ LOGICAL ::                                                                     &
   l_nsc_k_sapwood = .FALSE.,                                                   &
       ! Pipe-model target (l_nsc_pipe_target) with the plant's conductance
       ! from its conducting sapwood area: kmax is scaled by
-      !   f_A = MIN(1, SUM_i X_i c_i / (X_t c_ref))
+      !   f_A = MIN(1, SUM_i X_i * c_i / (X_t * c_ref))
       ! (c_i the rings' conductivity by age and season, c_ref its mean over
       ! the rings in equilibrium; without the rings f_A = MIN(1, X_s / X_t)),
       ! on the stem segment with the plant segments, otherwise on the whole
@@ -1362,9 +1362,9 @@ LOGICAL ::                                                                     &
   l_nsc_sapwood_n = .FALSE.,                                                   &
       ! Sapwood pool (l_nsc_sapwood_pool) with the trait physiology
       ! (l_trait_phys): the stem's live part is the sapwood pool X_s
-      ! instead of TRIFFID's live stemwood eta_sl h lai_bal. Stem
+      ! instead of TRIFFID's live stemwood eta_sl * h * lai_bal. Stem
       ! respiration takes its N as X_s nsw, and TRIFFID's stem N (with
-      ! l_nitrogen) as C (s nsw + (1 - s) nsw hw_sw), with s = X_s / C_W
+      ! l_nitrogen) as C * (s * nsw + (1 - s) * nsw * hw_sw), with s = X_s / C_W
       ! the sapwood's share of the wood C. Off: the live stemwood, as
       ! TRIFFID's pipe model gives it.
       !
@@ -1400,7 +1400,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! incident PAR at the canopy top; <= 0 off). The optimum's stomatal
       ! conductance is scaled by
       !
-      !   f = MIN(1, I / (I + k) (I_ref + k) / I_ref),   I_ref = 500 W m-2
+      !   f = MIN(1, I / (I + k) * (I_ref + k) / I_ref),   I_ref = 500 W m-2
       !
       ! (the form of Stewart 1988, on PAR, about half the shortwave), and A,
       ! E and leaf psi are worked out again at the lower conductance.
@@ -2710,7 +2710,7 @@ END IF
 
 ! Both water limits on photosynthesis,
 !
-!   A = f_vcmax_down(psi_soil) f_nsl(psi_leaf) A0.
+!   A = f_vcmax_down(psi_soil) * f_nsl(psi_leaf) * A0.
 !
 ! Each is fitted on its own to the same kind of data, so together they
 ! count the drought limit about twice.

@@ -17,12 +17,12 @@ MODULE plant_water_store_mod
 ! The store's water is counted from the full store (water potential 0),
 ! so it is 0 or negative:
 !
-!   W = C psi_x      (mol H2O m-2 ground)
+!   W = C * psi_x      (mol H2O m-2 ground)
 !
 ! where psi_x is the stem node's water potential (Pa, <= 0) and C the
 ! store's capacitance, the water it gives per unit fall in psi_x:
 !
-!   C = cap_stem L_ref      (mol H2O m-2 ground Pa-1)
+!   C = cap_stem * L_ref      (mol H2O m-2 ground Pa-1)
 !
 ! cap_stem is the capacitance per unit leaf area and L_ref the leaf area
 ! index, or the reference leaf area index with kplant_model = 1.
@@ -30,9 +30,9 @@ MODULE plant_water_store_mod
 ! Balance over a timestep dt, solved at the end of the step (backward
 ! Euler, the "_bal" names in sf_stom):
 !
-!   q = C (psi_x0 - psi_x) / dt      (mol H2O m-2 ground s-1)
+!   q = C * (psi_x0 - psi_x) / dt      (mol H2O m-2 ground s-1)
 !   E - q = F(psi_s, psi_x)
-!   W_new = W - q dt
+!   W_new = W - q * dt
 !
 ! with q the store's flow out, psi_x0 the stem node's psi at the start of
 ! the step, E the transpiration, psi_s the soil water potential and F the
@@ -92,7 +92,7 @@ CHARACTER(LEN=*), PARAMETER :: ModuleName='PLANT_WATER_STORE_MOD'
 ! timestep, relative to the full store at psi = 0 (mol H2O m-2 ground,
 ! <= 0; > 0: not yet set):
 !
-!   W = C psi_x.
+!   W = C * psi_x.
 !
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_w(:,:)
 
@@ -107,7 +107,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_q(:,:)
 ! Capacitance of the store of each PFT (mol H2O m-2 ground Pa-1; 0: not yet
 ! set):
 !
-!   C = cap_stem L_ref,
+!   C = cap_stem * L_ref,
 !
 ! carried between timesteps (dumped) to apply the rule for a change of C.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_c(:,:)
@@ -118,7 +118,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: store_c(:,:)
 ! refilled (repair, new sapwood) take it back from the soil. sf_stom keeps
 ! it at
 !
-!   W_xyl = V_w (1 - L)
+!   W_xyl = V_w * (1 - L)
 !
 ! with V_w the water of the sapwood's conduits when all are full and L the
 ! stem's locked-in loss, except for water released while the store was
@@ -242,7 +242,7 @@ END SUBROUTINE store_state_alloc
 !
 ! The store keeps that water:
 !
-!   dW = dq dt / M_w      (mol H2O m-2 ground)
+!   dW = dq * dt / M_w      (mol H2O m-2 ground)
 !
 ! where dt is the timestep (s) and M_w the molar mass of water
 ! (kg mol-1). The store's water is kept no wetter than full (0); with the

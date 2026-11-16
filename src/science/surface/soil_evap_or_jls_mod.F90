@@ -183,7 +183,7 @@ REAL(KIND=real_jlslsm) :: gsoil_or
 REAL(KIND=real_jlslsm) :: hruff
 ! u* / u at the canopy top, capped at usuhm (CABLE name).
 REAL(KIND=real_jlslsm) :: usuh
-! Argument of the d/h equation, SQRT(ccd LAI / 2) (CABLE name).
+! Argument of the d/h equation, SQRT(ccd * LAI / 2) (CABLE name).
 REAL(KIND=real_jlslsm) :: xx
 ! Displacement height over canopy height, d/h (CABLE name).
 REAL(KIND=real_jlslsm) :: dh
@@ -228,11 +228,11 @@ REAL(KIND=real_jlslsm) :: pore_size
 REAL(KIND=real_jlslsm) :: rtevap
 ! Displacement height, dh hruff (m; CABLE name).
 REAL(KIND=real_jlslsm) :: disp
-! EXP(2 csw LAI (1 - d / h)), a term of rt0us (CABLE name).
+! EXP(2 * csw * LAI * (1 - d / h)), a term of rt0us (CABLE name).
 REAL(KIND=real_jlslsm) :: term2
 ! a33**2 ctl 2 csw LAI, the denominator of rt0us (CABLE name).
 REAL(KIND=real_jlslsm) :: term3
-! Height factor MAX(2 h / (3 d), 1) of rt0us (CABLE name).
+! Height factor MAX(2 * h / (3 * d), 1) of rt0us (CABLE name).
 REAL(KIND=real_jlslsm) :: term5
 ! Below-canopy turbulent resistance times u* (m s-1 s m-1;
 ! CABLE name, eq. 3.54 of the CSIRO SCAM manual).

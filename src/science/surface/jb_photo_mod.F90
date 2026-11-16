@@ -21,7 +21,7 @@ MODULE jb_photo_mod
 ! it is set by the flow of electrons through the cytochrome b6f complex
 ! (their Eqns 15c, 30a and 30c):
 !
-!   JP700 = Vqmax I1 / (I1 + Vqmax)
+!   JP700 = Vqmax * I1 / (I1 + Vqmax)
 !   J     = JP700 / eta
 !   eta   = 1 - nL/nC + (3 + 7 G*/Cc) / ((4 + 8 G*/Cc) nC)
 !
@@ -33,7 +33,7 @@ MODULE jb_photo_mod
 ! electron in linear and cyclic electron flow. J then sets the
 ! light-limited rate as in the Farquhar model:
 !
-!   Aj = J/4 (Cc - G*) / (Cc + 2 G*)
+!   Aj = J/4 * (Cc - G*) / (Cc + 2 * G*)
 !
 ! The parameters follow Lamour et al. (2026), who matched the
 ! Johnson-Berry model to the Farquhar parameters used in vegetation
@@ -41,7 +41,7 @@ MODULE jb_photo_mod
 !
 !   1. I1 is set so that at low light J rises with light at the same rate
 !      as in the Farquhar model, at Cc = jb_ci_ref (their Eqn 10):
-!        I1 = eta_ref alpha_elec acr
+!        I1 = eta_ref * alpha_elec * acr
 !      where eta_ref is eta at jb_ci_ref, alpha_elec the quantum
 !      efficiency of electron transport and acr the absorbed light.
 !   2. Vqmax at 25 degC is set so the two models give the same J at the
@@ -141,7 +141,7 @@ END FUNCTION jb_eta_scale
 ! light_curvature_fvcb. Vqmax25 is the value that gives the same J in the
 ! Johnson-Berry model:
 !
-!   Vqmax25 = Jsat eta_ref i2sat / (i2sat - Jsat)      (mol m-2 s-1)
+!   Vqmax25 = Jsat * eta_ref * i2sat / (i2sat - Jsat)      (mol m-2 s-1)
 !
 ! It is 0 if Jsat is not positive.
 !-----------------------------------------------------------------------------
@@ -175,8 +175,8 @@ END FUNCTION jb_vqmax25
 ! Johnson-Berry model, at Cc = jb_ci_ref (mol m-2 s-1), from the light
 ! reaching photosystem II as an electron flux, i2, and Vqmax:
 !
-!   I1 = eta_ref i2
-!   je = Vqmax I1 / (I1 + Vqmax) / eta_ref
+!   I1 = eta_ref * i2
+!   je = Vqmax * I1 / (I1 + Vqmax) / eta_ref
 !
 ! je is 0 where I1 + Vqmax is not positive.
 !-----------------------------------------------------------------------------

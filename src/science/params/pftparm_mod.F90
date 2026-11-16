@@ -198,13 +198,13 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 !                    woody biomass to the leaf area index.
 ,eta_sl(:)                                                                     &
                  ! Live stemwood coefficient (kg C m-1 (m2 leaf)-1)
-                 ! The pipe model: live stemwood (sapwood) eta_sl h LAI,
-                 !  eta_sl = F rho c_w / LA:SA from the leaf area per
+                 ! The pipe model: live stemwood (sapwood) eta_sl * h * LAI,
+                 !  eta_sl = F * rho * c_w / LA:SA from the leaf area per
                  !  sapwood area, stem form factor, wood density (kg m-3)
                  !  and the wood's carbon fraction c_w (about 0.48). It is
                  !  also the sapwood of the TRIFFID store's ring renewal
                  !  and pipe-model target. lai_bal and the wood depend on
-                 !  a_ws eta_sl only.
+                 !  a_ws * eta_sl only.
                  !
                  !  MDK, 04/11/26
 ,sigl(:)
@@ -529,7 +529,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,cmax_a(:)                                                                     &
                  ! CMax stomata (stomata_model = 6; Wolf et al. 2016,
                  ! Anderegg et al. 2018): curvature a of the carbon cost of
-                 ! low leaf water potential, Theta = a/2 psi^2 + b |psi|
+                 ! low leaf water potential, Theta = a/2 * psi^2 + b * |psi|
                  ! (umol CO2 m-2 leaf s-1 MPa-2). No default: must be set
                  ! (> 0) for stomata_model = 6.
 ,cmax_b(:)                                                                     &
@@ -544,13 +544,13 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,sl_cica_well_watered(:)                                                       &
                  ! Supply-loss stomata (stomata_model = 9): ci/ca of the
                  ! carbon demand when water is not limiting,
-                 ! ci = sl_cica_well_watered ca (Medlyn with D fixed at
+                 ! ci = sl_cica_well_watered * ca (Medlyn with D fixed at
                  ! 1 kPa: ci/ca = g1/(g1 + 1)). In (0, 1); default 0.8.
 ,psi_vcmax_f(:)                                                                &
                  ! Root-zone water potential (Pa) at which the factor of
                  ! Zhou et al. (2013), f_Zhou, is about a half
                  ! (l_som_vcmax_psi; their psi_f). Capacity there is
-                 ! fmin + (1 - fmin) f_Zhou (psi_vcmax_fmin), so it is about
+                 ! fmin + (1 - fmin) * f_Zhou (psi_vcmax_fmin), so it is about
                  ! halved only without a floor.
 ,sf_vcmax(:)                                                                   &
                  ! Steepness of that down-regulation (MPa-1).
@@ -567,13 +567,13 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! resistance, as CABLE's default-scheme litter (relitt; CABLE
                  ! depth = clitt * 0.003 m per t C ha-1). 0 = none.
 ,psi_vcmax_fmin(:)                                                             &
-                 ! Floor of that down-regulation (-): f = fmin + (1 - fmin)
+                 ! Floor of that down-regulation (-): f = fmin + (1 - fmin) *
                  ! f_Zhou, so capacity never falls below fmin (0 = none, as
                  ! in De Kauwe et al. 2015; the floor is an adjustment).
 ,cap_stem(:)                                                                   &
                  ! Plant water capacitance of the stomatal optimisation's
                  ! store, per unit leaf area (mol H2O m-2 leaf Pa-1): the
-                 ! store's C = cap_stem L_ref (plant_water_store_mod).
+                 ! store's C = cap_stem * L_ref (plant_water_store_mod).
 ,kcrit_fractional_loss(:)                                                      &
                  ! Critical fractional loss of xylem conductance.
 ,kcrit(:)                                                                      &
@@ -604,11 +604,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  LAI. Trugman et al.: enough for two flushes (2).
 ,nsc_kc(:)                                                                    &
                  ! Michaelis constant of the loading rate as a fraction of
-                 !  C_max, W = W_max C_a / (nsc_kc C_max + C_a)
+                 !  C_max, W = W_max * C_a / (nsc_kc * C_max + C_a)
                  !  (Trugman et al. k_c = 0.02, of their initial store).
 ,nsc_reserve_frac(:)                                                          &
                  ! Fraction of C_max that cannot be drawn: the accessible
-                 !  store is C_a = C - nsc_reserve_frac C_max. Trugman et
+                 !  store is C_a = C - nsc_reserve_frac * C_max. Trugman et
                  !  al. take a store below 10 % of its initial value as death
                  !  by carbon starvation (0.1); here the carbon deficit then
                  !  passes to TRIFFID, which shrinks the vegetation.
@@ -624,7 +624,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Carbon-starvation mortality (per 360 days, an area
                  !  disturbance added to g_area in lotka), at the full rate
                  !  when the accessible store is used up, falling linearly
-                 !  to 0 at C_a = nsc_kc C_max (where loading is half its
+                 !  to 0 at C_a = nsc_kc * C_max (where loading is half its
                  !  maximum). Trugman et al.: death when the store is below
                  !  10 % of its initial value. 0 = off. Needs l_veg_compete.
 ,hydmort_mu(:)                                                                &
@@ -772,7 +772,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,nsc_cmax(:)                                                                  &
                  ! Store capacity C_max (kg C m-2 of the PFT); > 0 sets it
                  !  directly (e.g. from measured NSC concentrations times
-                 !  biomass), 0 = nsc_flush x (leaf + root carbon).
+                 !  biomass), 0 = nsc_flush * (leaf + root carbon).
                  !
                  !  MDK, 26/10/26
 ,nsc_xylem_cond_ratio(:)                                                       &
@@ -783,7 +783,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  the radial profile of sap flux density (outer rings
                  !  against the sapwood mean) or ring-by-ring specific
                  !  conductivity. The new ring (TRIFFID's gross wood
-                 !  production G) renews w_cond G dt / X of the stem's
+                 !  production G) renews w_cond * G * dt / X of the stem's
                  !  conductance. 0 makes the rings dilute nothing (a test).
                  !  Ring-porous stems, which conduct mostly in the newest
                  !  earlywood, have w_cond > 1 (there is no separate
@@ -794,7 +794,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! Sapwood pool (l_nsc_sapwood_pool): the share of the
                  !  conducting sapwood that becomes heartwood each year (per
                  !  360-day TRIFFID year, > 0). With TRIFFID's wood turnover
-                 !  g_t the sapwood's steady state is C_W g_t / (this rate +
+                 !  g_t the sapwood's steady state is C_W * g_t / (this rate +
                  !  g_t), and it holds 1 / (this rate + g_t) years of wood.
                  !  Default 0.025.
                  !
@@ -802,7 +802,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,nsc_grow_thresh(:)                                                            &
                  ! Growth threshold of the TRIFFID store (fraction of C_max,
                  !  0-1): the release for growth draws only on the store
-                 !  above nsc_grow_thresh C_max, so after a deep drawdown the
+                 !  above nsc_grow_thresh * C_max, so after a deep drawdown the
                  !  store refills before growth resumes (MEDFATE: sapwood
                  !  grows from starch above half its capacity). The reserve
                  !  still pays the deficits and the leaf flush. Unset
@@ -814,8 +814,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  which the carbon the turgor limit keeps from growth is
                  !  set against the room left in the store,
                  !
-                 !    X    = blocked release x nsc_sink_days / (C_max - store),
-                 !    beta = beta_min + (1 - beta_min) exp(-X^2),
+                 !    X    = blocked release * nsc_sink_days / (C_max - store),
+                 !    beta = beta_min + (1 - beta_min) * exp(-X^2),
                  !
                  !  so the feedback is 63 % on when the carbon kept from
                  !  growth over nsc_sink_days would fill the room. Default

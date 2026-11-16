@@ -4340,7 +4340,7 @@ CASE ( 'nsc_heartwood' )
   cube = map_from_land(cube_land)
 
 ! The ring cohorts' intact conductivity relative to new wood,
-! SUM_i f_i c_i (1 - L_i), below 1 with no damage as old rings conduct
+! SUM_i f_i * c_i * (1 - L_i), below 1 with no damage as old rings conduct
 ! less (-1 = not yet set, or without them).
 !
 ! MDK, 05/11/26

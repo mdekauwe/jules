@@ -348,7 +348,7 @@ END SUBROUTINE leaf_shed_heat_clear
 ! leaf_shed_combine:
 !
 !   0: MIN(f_free, f_dry, f_heat)    the tightest limit wins;
-!   1: MIN(f_free, f_dry) f_heat     heat damage is a loss of leaves on
+!   1: MIN(f_free, f_dry) * f_heat     heat damage is a loss of leaves on
 !                                    top of whatever the water supply
 !                                    allows, so the caps multiply.
 !
@@ -417,7 +417,7 @@ END SUBROUTINE shed_paid_caps
 ! The root-zone water potential (MPa), a soil value and so the predawn
 ! water potential, is compared with the turgor loss point phen_psi_tlp
 ! (MPa, negative). A day below phen_psi_tlp is dry, and a day above
-! 0.5 phen_psi_tlp is wet; each count of days in a row goes back to 0 when
+! 0.5 * phen_psi_tlp is wet; each count of days in a row goes back to 0 when
 ! the run breaks. After phen_ndays dry days in a row, the leaf biomass
 ! factor phen_fbleaf falls by phen_dfbleaf a day; after phen_ndays wet days
 ! in a row it rises by phen_dfbleaf a day. It stays between phen_fbleaf_min
@@ -428,7 +428,7 @@ END SUBROUTINE shed_paid_caps
 ! neither count: JULES sets the soil water potential from the unfrozen
 ! water, so frozen soil would read as drought.
 !
-! Days between 0.5 phen_psi_tlp and phen_psi_tlp are neither dry nor wet:
+! Days between 0.5 * phen_psi_tlp and phen_psi_tlp are neither dry nor wet:
 ! they break both runs, so the canopy holds where it is. Once a run has
 ! reached phen_ndays, every further day of it moves phen_fbleaf again, so
 ! a long drought keeps shedding down to phen_fbleaf_min.
@@ -524,7 +524,7 @@ END SUBROUTINE phen_psi_update
 ! and the lowest leaf psi (midday). At the day's last time step the plant
 ! water status is their mean,
 !
-!   psi_plant = 0.5 (psi_predawn + psi_midday)   (MPa),
+!   psi_plant = 0.5 * (psi_predawn + psi_midday)   (MPa),
 !
 ! as Wolfe et al. took the mean of predawn and midday leaf psi. The share
 ! of the full canopy for the day falls linearly with it, at 0.5 at
@@ -540,8 +540,8 @@ END SUBROUTINE phen_psi_update
 ! is not used; the midday value is then the predawn value.
 !
 ! shed_la_width is the psi range (MPa) over which f_day goes from 0 to 1,
-! so f_day is 1 at shed_la50 + 0.5 shed_la_width and 0 at
-! shed_la50 - 0.5 shed_la_width. Shedding acts fast and regrowth slowly,
+! so f_day is 1 at shed_la50 + 0.5 * shed_la_width and 0 at
+! shed_la50 - 0.5 * shed_la_width. Shedding acts fast and regrowth slowly,
 ! as leaves are lost in days but take weeks to grow.
 ! ---------------------------------------------------------------------
 SUBROUTINE phen_fuse_update( land_pts, veg_pts, veg_index, ft, timestep,       &
@@ -785,10 +785,10 @@ END SUBROUTINE heat_damage_update
 ! undamaged share in percent), and is 0 at full damage. Above t_hi repair
 ! is deactivated.
 !
-!   k_rep = k_ref' exp(T_A (1/T_ref - 1/T))
-!           / (1 + exp(T_AL (1/T - 1/T_L)) + exp(T_AH (1/T_H - 1/T))),
+!   k_rep = k_ref' * exp(T_A * (1/T_ref - 1/T))
+!           / (1 + exp(T_AL * (1/T - 1/T_L)) + exp(T_AH * (1/T_H - 1/T))),
 !
-! with k_ref' = k_ref k_ref^(k_dec / alive). The numerator is the
+! with k_ref' = k_ref * k_ref^(k_dec / alive). The numerator is the
 ! Arrhenius rise with temperature (k_rep = k_ref' at T_ref with no
 ! deactivation); the two terms below switch repair off below T_L and above
 ! T_H. As k_ref < 1, k_ref^(k_dec / alive) falls towards 0 as alive falls.
@@ -821,7 +821,7 @@ REAL(KIND=real_jlslsm), PARAMETER :: t_lo     = 283.65
 REAL(KIND=real_jlslsm), PARAMETER :: t_ref    = 293.15
 
 ! The coefficient after the damage, from Eqn S6 at every damage level so
-! it is continuous (an undamaged leaf repairs at k_ref k_ref^(k_dec/100));
+! it is continuous (an undamaged leaf repairs at k_ref * k_ref^(k_dec/100));
 ! at full damage nothing is left to repair.
 alive = 100.0 * (1.0 - damage)
 IF (alive <= 0.0) THEN

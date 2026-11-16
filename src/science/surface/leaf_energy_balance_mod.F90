@@ -333,7 +333,7 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) :: gbw_shd(land_pts)
 ! Number of leaf classes held at dt_leaf from the air.
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: n_clamp(land_pts)
 ! The sunlit (1) and shaded (2) leaves' temperature as a linear
-! function of their transpiration, T = lt_a - lt_b E (see
+! function of their transpiration, T = lt_a - lt_b * E (see
 ! leaf_temp_update_n; l_leaf_temp_ci): lt_a (K).
 REAL(KIND=real_jlslsm), INTENT(IN OUT), OPTIONAL :: lt_a(land_pts,2)
 ! lt_b (K per mol m-2 s-1).
@@ -407,7 +407,7 @@ END SUBROUTINE leaf_temp_update
 ! energy balance (l_leaf_temp) for the stomatal conductances of the last
 ! pass. The sets are the sunlit and shaded leaves (nc = 2) of the
 ! two-leaf canopy, or the sunlit and shaded leaves of every layer of the
-! multilayer canopy (nc = 2 x ilayers, as in MAESPA).
+! multilayer canopy (nc = 2 * ilayers, as in MAESPA).
 !
 ! Each set of leaves exchanges heat and water through its leaf boundary
 ! layer with the air of the first atmospheric level (temperature tair,
@@ -417,7 +417,7 @@ END SUBROUTINE leaf_temp_update
 ! 1998), as in De Kauwe's two-leaf model (two_leaf_at_WTC):
 !
 !   LE = (s Rn + D gh cp) / (s + gamma gh / gw)
-!   T  = tair + (Rn - LE) / (cp gh)
+!   T  = tair + (Rn - LE) / (cp * gh)
 !   gh = 2 gbH + grn
 !
 ! where LE is the latent heat (W m-2), Rn the net radiation, s the slope
@@ -498,11 +498,11 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) :: gbw_c(land_pts,nc)
 REAL(KIND=real_jlslsm), INTENT(IN OUT) :: n_clamp(land_pts)
 
 ! Each class's leaf temperature as a linear function of its
-! transpiration E (mol m-2 s-1, ground), T_leaf = lt_a - lt_b E, with
-! lt_a = tair + Rn / (cp gh) (K); lt_b = 0 without leaf area
+! transpiration E (mol m-2 s-1, ground), T_leaf = lt_a - lt_b * E, with
+! lt_a = tair + Rn / (cp * gh) (K); lt_b = 0 without leaf area
 ! (l_leaf_temp_ci).
 REAL(KIND=real_jlslsm), INTENT(IN OUT), OPTIONAL :: lt_a_c(land_pts,nc)
-! lt_b = lambda / (cp gh) (K per mol m-2 s-1).
+! lt_b = lambda / (cp * gh) (K per mol m-2 s-1).
 REAL(KIND=real_jlslsm), INTENT(IN OUT), OPTIONAL :: lt_b_c(land_pts,nc)
 
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &

@@ -126,7 +126,7 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 !                     ! The root zone's effective soil water potential: the
 !                     ! layers' potentials weighted by the extraction
 !                     ! weights wt_ext, with the stomatal optimisation the
-!                     ! soil-to-root conductances, sum(k psi) / sum(k).
+!                     ! soil-to-root conductances, sum(k * psi) / sum(k).
 !                     ! MDK, 15/11/26
 ,fsmc(npnts)
 !                     ! Soil moisture availability factor.
@@ -393,9 +393,9 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
       IF ( l_som_rhizo_series ) THEN
         ! Profit max: the layers are in parallel to one root node, so the
         ! source potential is the conductance-weighted soil psi,
-        ! psi_root_zone = sum(k psi) / sum(k), and with no flow each layer's
+        ! psi_root_zone = sum(k * psi) / sum(k), and with no flow each layer's
         ! share is its conductance. physiol replaces these weights after
-        ! the stomatal solve by k (psi - psi_root) at the actual root
+        ! the stomatal solve by k * (psi - psi_root) at the actual root
         ! potential. root_psi_crit is not used.
         wt_ext(i,n) = MAX(soil_to_root_k(i,n), 0.0)
       ELSE
@@ -453,12 +453,12 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
   !---------------------------------------------------------------------
   ! Root-zone soil water potential
   !
-  !   psi_root_zone = sum_n wt_ext_n psi_n
+  !   psi_root_zone = sum_n wt_ext_n * psi_n
   !
   ! the mean of the layer water potentials psi_n weighted by the
   ! normalised extraction weights wt_ext_n (sum to 1). With profit max
   ! (l_som_rhizo_series) the weights are the soil-to-root conductances,
-  ! so this is the conductance-weighted source potential sum k psi /
+  ! so this is the conductance-weighted source potential sum k * psi /
   ! sum k. Only computed for the stomatal optimisation and PFTs with
   ! calc_rz_psi set, which use it.
   !
@@ -678,7 +678,7 @@ weighted_mean(:)=0.0
 
 ! Weighted mean over the soil layers,
 !
-!   weighted_mean = sum_n norm_weights_n var_n
+!   weighted_mean = sum_n norm_weights_n * var_n
 !
 ! accumulated layer by layer. The weights are already normalised (they sum
 ! to 1 at each point, see calc_norm_weights), so no division is needed.
@@ -899,7 +899,7 @@ rootc_pft_local(:) = root_mass(:)
 ! mass (kg) and rho_{r} is the root density (kg m-3).
 !
 ! A layer with no roots (f_root or the root mass 0), or with more root
-! volume than soil (f m >= rho dz, a log <= 0), has no conductance: guarded,
+! volume than soil (f m >= rho * dz, a log <= 0), has no conductance: guarded,
 ! as f = 0 divided by zero (a trap under -ffpe-trap=zero).
 DO n = 1,nshyd
   DO j = 1,surft_pts

@@ -54,7 +54,7 @@ PUBLIC :: psi_leaf_lut_jls                                                     &
 ! the path carries from the root zone at psi_r to the leaf at psi_l is the
 ! area under the conductance curve between them,
 !
-!   E = kmax (S(psi_l) - S(psi_r))         (mol H2O m-2 s-1)
+!   E = kmax * (S(psi_l) - S(psi_r))         (mol H2O m-2 s-1)
 !
 ! where S(psi) (Pa) is the area under f from psi up to 0. S depends only
 ! on b and c, not on kmax, which changes from point to point and in time,
@@ -153,7 +153,7 @@ END FUNCTION lut_pft_curve
 ! maximum conductance (mol m-2 s-1 Pa-1). The answer is exact apart from
 ! the straight-line interpolation between grid points, and needs no
 ! iteration. The conductance returned is the curve at the leaf,
-! k = kmax f(psi_l), which for a single curve is also -dE/dpsi_l.
+! k = kmax * f(psi_l), which for a single curve is also -dE/dpsi_l.
 !
 ! If E is more than the curve can carry from psi_r, the leaf is put at
 ! the bottom of the table, where k is at most half the critical
@@ -221,7 +221,7 @@ END SUBROUTINE psi_leaf_lut_jls
 ! segments. The memory model caps the conductance at kc,
 ! the most the damaged xylem can carry:
 !
-!   k(psi) = MIN(kmax f(psi), kc)
+!   k(psi) = MIN(kmax * f(psi), kc)
 !
 ! The memory model does not change b or c, so the curve f is the PFT's
 ! and the intact table can be used. psi_r is the root zone water
@@ -390,8 +390,8 @@ r = MIN(MAX(kcrit_frac, 1.0e-6_real_jlslsm),                                   &
 
 ! psi_crit by inverting the curve exactly (not from the table):
 !
-!   SOX:      f = 1/(1 + (psi/b)^c)  gives  psi = b (1/f - 1)^(1/c),
-!   Weibull:  f = exp(-(psi/b)^c)    gives  psi = b (-ln f)^(1/c).
+!   SOX:      f = 1/(1 + (psi/b)^c)  gives  psi = b * (1/f - 1)^(1/c),
+!   Weibull:  f = exp(-(psi/b)^c)    gives  psi = b * (-ln f)^(1/c).
 !
 IF ( lut_sox(pft) ) THEN
   psi_crit = conductance_b_pft(pft)                                            &
@@ -427,7 +427,7 @@ REAL(KIND=real_jlslsm) :: f
 
 ! Evaluated exactly from the curve, not interpolated from the table; the
 ! build call only makes sure lut_sox(pft) is set. Callers use it for k at
-! the psi_leaf from supply_lut_psi (k = kmax * f). b is negative, and psi
+! the psi_leaf from supply_lut_psi * (k = kmax * f). b is negative, and psi
 ! is held at <= 0 as in the Newton solver (psi_leaf_segments_jls), so
 ! psi/b >= 0.
 CALL build_supply_lut(pft)
@@ -567,7 +567,7 @@ END FUNCTION table_psi
 ! and each grid cell from p0 down to p1 adds the area under f across it by
 ! Simpson's rule (f at the two ends and the middle, weighted 1:4:1):
 !
-!   S(p1) = S(p0) + dpsi / 6 (f(p0) + 4 f(pm) + f(p1))
+!   S(p1) = S(p0) + dpsi / 6 * (f(p0) + 4 * f(pm) + f(p1))
 !
 ! with dpsi the grid spacing (Pa) and pm the cell's midpoint. The sum and
 ! f are worked out in double precision and each S rounded once to the
@@ -674,7 +674,7 @@ END SUBROUTINE init_supply_luts
 ! soil or kmax, so it is worked out once on a fine grid and stored. Then:
 !
 !   - transpiration between two water potentials is
-!       E = kmax (S(psi_leaf) - S(psi_soil));
+!       E = kmax * (S(psi_leaf) - S(psi_soil));
 !   - for a given E the leaf water potential is the psi where
 !       S(psi_leaf) = S(psi_soil) + E / kmax,
 !     found by searching the table (supply_lut_psi);
@@ -936,7 +936,7 @@ IF ( .NOT. lut_seg_ready(pft) ) THEN
     b = conductance_b_seg(pft,iseg)
     c = conductance_c_seg(pft,iseg)
 
-    ! A segment's k is f kmax seg_kfac, and the whole-path k is at most
+    ! A segment's k is f * kmax * seg_kfac, and the whole-path k is at most
     ! the leaf segment's, so the critical fraction of the path (kcrit) is
     ! a fraction 1/seg_kfac of it on the segment's own
     ! curve. seg_kfac >= 1 for segments in series; the MAX guards others.
@@ -994,9 +994,9 @@ END FUNCTION lut_f_crit
 ! falls to the failure fraction (f_kcrit = kcrit / kmax). That point is
 ! at
 !
-!   Weibull: psi_f = b (-ln f)^(1/c),   SOX: psi_f = b (1/f - 1)^(1/c)
+!   Weibull: psi_f = b * (-ln f)^(1/c),   SOX: psi_f = b * (1/f - 1)^(1/c)
 !
-! and the drop is 1.2 |psi_f| or 5 |b|, whichever is larger. 5 |b| alone
+! and the drop is 1.2 * |psi_f| or 5 * |b|, whichever is larger. 5 * |b| alone
 ! lies above the failure point for wide curves (Weibull c below about
 ! 0.7, SOX c below about 1.8).
 !

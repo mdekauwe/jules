@@ -79,7 +79,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_year(:,:)
 ! wood. The more damaged part holds the share d (0-1) of the ring at loss
 ! L_hi, the rest has the loss L_lo, and the ring's loss is their mean,
 !
-!   L = d L_hi + (1 - d) L_lo   (ximpair_ring_loss).
+!   L = d * L_hi + (1 - d) * L_lo   (ximpair_ring_loss).
 !
 ! ximpair_ring_dmg holds d (1 = one part, as for a ring set up with one
 ! loss) and ximpair_ring_loss_lo holds L_lo; L_hi follows from L
@@ -120,7 +120,7 @@ CONTAINS
 ! conductance L (0-1) is scaled by the share of the cover that was there
 ! before,
 !
-!   w = frac_old (1 - m) / frac_new,
+!   w = frac_old * (1 - m) / frac_new,
 !
 ! where frac_old and frac_new are the PFT's cover before and after the
 ! step and m is the fraction of the old cover killed in the step by
@@ -134,12 +134,12 @@ CONTAINS
 ! The scaling applies to the stem's loss (ximpair_lock, and the damaged
 ! kmax through ximpair_area_w at the next update) and to the leaf
 ! segment's loss. The stem's share renewed by new rings and waiting to be
-! applied, rho, multiplies the loss, L (1 - rho), and is the same for old
+! applied, rho, multiplies the loss, L * (1 - rho), and is the same for old
 ! and new cover, so it is not scaled. With additive recovery
 ! (l_nsc_ring_additive), MAX(L - rho, 0), the share renews only the cover
 ! that grew it, so it is scaled by w as well.
 !
-! The survivors' cover frac_old (1 - m) is approximate where TRIFFID does
+! The survivors' cover frac_old * (1 - m) is approximate where TRIFFID does
 ! not remove exactly m frac_old (without l_ht_compete, or at the minimum
 ! cover frac_seed).
 !
@@ -323,7 +323,7 @@ END SUBROUTINE ximpair_ring_init
 !
 ! New wood G (kg C m-2 per 360 days) joins the youngest ring, TRIFFID's
 ! wood turnover g_t (g_wood, per 360 days) takes from all rings alike,
-! and heartwood forms from the oldest rings at k_h X_s, with k_h the
+! and heartwood forms from the oldest rings at k_h * X_s, with k_h the
 ! stand's mean heartwood rate: nsc_heartwood_rate, or with the pipe
 ! heartwood rule the point's running mean ximpair_hw_rate_mean, which is
 ! higher where the rule holds the sapwood at its target. A ring that grew
@@ -334,7 +334,7 @@ END SUBROUTINE ximpair_ring_init
 ! so, in units of one year's new wood, the full rings j = 2, 3, ... have
 ! shares
 !
-!   s_j = EXP(-g_t (j - 1)),
+!   s_j = EXP(-g_t * (j - 1)),
 !
 ! up to a total of 1 / (k_h + g_t), the last of them part full. The
 ! youngest ring (j = 1) has the share q, the part of this year's ring
@@ -560,9 +560,9 @@ END FUNCTION ring_cond
 ! functions below share, each ring i weighted by its share of the sapwood
 ! f_i and how well it conducts c_i (ring_cond),
 !
-!   sw  = SUM_i f_i c_i,
-!   swl = SUM_i f_i c_i L_i,
-!   swf = SUM_i f_i c_i (1 - L_i),
+!   sw  = SUM_i f_i * c_i,
+!   swl = SUM_i f_i * c_i * L_i,
+!   swf = SUM_i f_i * c_i * (1 - L_i),
 !
 ! where L_i is the ring's loss of conductance (0-1).
 !
@@ -620,7 +620,7 @@ END SUBROUTINE ring_sums
 ! Return the loss of conductance (0-1) of the more damaged part of ring
 ! i at point l (ximpair_ring_dmg),
 !
-!   L_hi = (L - (1 - d) L_lo) / d,
+!   L_hi = (L - (1 - d) * L_lo) / d,
 !
 ! with L the ring's loss, d the part's share and L_lo the loss of the
 ! rest; L_lo where the ring has no damaged part (d = 0).
@@ -696,8 +696,8 @@ END SUBROUTINE ring_hit
 ! the share w (0-1) of it: new wood joining the youngest ring, or new
 ! cover joining the stand. The intact wood joins the less damaged part,
 !
-!   L <- w L,   d <- w d,
-!   L_lo <- L_lo w (1 - d) / (w (1 - d) + 1 - w),
+!   L <- w * L,   d <- w * d,
+!   L_lo <- L_lo * w * (1 - d) / (w * (1 - d) + 1 - w),
 !
 ! so the more damaged part keeps its loss.
 !
@@ -733,7 +733,7 @@ END SUBROUTINE ring_add_intact
 ! of xylem impairment. Each ring's loss L_i is weighted by its share of
 ! the sapwood f_i and by how well it conducts c_i (ring_cond),
 !
-!   L = SUM_i f_i c_i L_i / SUM_i f_i c_i.
+!   L = SUM_i f_i * c_i * L_i / SUM_i f_i * c_i.
 !
 ! If no ring conducts (only a ring-porous tree's new ring, before its
 ! vessels conduct, holds sapwood), L is the mean of the older rings'
@@ -777,11 +777,11 @@ END FUNCTION ximpair_ring_loss_mean
 ! wood (0-1), which scales the plant's conductance with its sapwood
 ! (nsc_k_area),
 !
-!   SUM_i f_i c_i,
+!   SUM_i f_i * c_i,
 !
 ! where f_i is ring i's share of the sapwood and c_i how well it conducts
-! on this day (ring_cond). With X_s the sapwood carbon and X_i = f_i X_s
-! that of ring i, SUM_i X_i c_i is X_s times this value.
+! on this day (ring_cond). With X_s the sapwood carbon and X_i = f_i * X_s
+! that of ring i, SUM_i X_i * c_i is X_s times this value.
 !
 ! MDK, 05/11/26
 ! ---------------------------------------------------------------------
@@ -805,7 +805,7 @@ END FUNCTION ximpair_ring_cond_mean
 ! 1 - L_i, and by how well it conducts compared with a new ring, c_i
 ! (ring_cond),
 !
-!   X_f / X_s = SUM_i f_i (1 - L_i) c_i,
+!   X_f / X_s = SUM_i f_i * (1 - L_i) * c_i,
 !
 ! where X_f is the conducting sapwood and X_s all the sapwood.
 !
@@ -836,10 +836,10 @@ END FUNCTION ximpair_ring_cond_intact
 ! grown as far as the season has gone (ring_q). With c(a_j) how well a
 ! ring of its age conducts (ring_cond),
 !
-!   c_ref = SUM_j s_j c(a_j) / SUM_j s_j,
+!   c_ref = SUM_j s_j * c(a_j) / SUM_j s_j,
 !
 ! so a stand at its target sapwood X_t with this ring structure has
-! SUM_i X_i c_i = X_t c_ref on any date, whether its heartwood forms at
+! SUM_i X_i * c_i = X_t * c_ref on any date, whether its heartwood forms at
 ! nsc_heartwood_rate or faster under the pipe heartwood rule.
 !
 ! MDK, 05/11/26
@@ -879,7 +879,7 @@ END FUNCTION ximpair_ring_cond_ref
 !    undamaged, which dilutes that ring's loss of conductance.
 ! 2. Sapwood turns to heartwood, oldest rings first. The amount is
 !
-!      x_turn (1 - EXP(-f_heart)),
+!      x_turn * (1 - EXP(-f_heart)),
 !
 !    where x_turn (kg C m-2) is the sapwood before the step, after
 !    TRIFFID's turnover (taken from all rings alike), and f_heart is the
@@ -891,7 +891,7 @@ END FUNCTION ximpair_ring_cond_ref
 ! 4. Optionally, the share of the stem's conductance weight that the new
 !    wood holds after step 2,
 !
-!      w_new = (dg / X) c_1 / SUM_i f_i c_i,
+!      w_new = (dg / X) * c_1 / SUM_i f_i * c_i,
 !
 !    with X the sapwood after the step and c_1 how well the youngest ring
 !    conducts on this day: the part of the stem's loss the new wood
@@ -1021,13 +1021,13 @@ END SUBROUTINE ximpair_ring_grow
 ! Xylem impairment, memory model: replace damaged sapwood with new xylem in
 ! the annual rings (Trugman response). Repair is costed by the conductance
 ! it restores, as new wood: a unit of carbon restores the conductance of a
-! unit of new ring (c = 1). With X the sapwood (kg C m-2), X_i = f_i X ring
+! unit of new ring (c = 1). With X the sapwood (kg C m-2), X_i = f_i * X ring
 ! i's carbon, c_i how well it conducts (ring_cond), L_i its loss of
 ! conductance and L_p the highest loss imposed since the last TRIFFID step
 ! (ximpair_ring_peak), the conductance repair can restore, in kg C of new
 ! ring, is
 !
-!   D = SUM_i X_i c_i MAX(L_i - L_p, 0).
+!   D = SUM_i X_i * c_i * MAX(L_i - L_p, 0).
 !
 ! Damage at or below L_p is left, as the drought would put it back at the
 ! next time step. r of new xylem (kg C m-2), at most r_max and D, restores
@@ -1112,7 +1112,7 @@ END SUBROUTINE ximpair_ring_repair
 ! Return the conductance repair could restore, per unit of sapwood carbon
 ! and in units of new ring (0-1),
 !
-!   SUM_i f_i c_i MAX(L_i - L_p, 0),
+!   SUM_i f_i * c_i * MAX(L_i - L_p, 0),
 !
 ! with f_i ring i's share of the sapwood, c_i how well it conducts
 ! (ring_cond), L_i its loss of conductance and L_p the highest loss the
@@ -1151,7 +1151,7 @@ END FUNCTION ximpair_ring_repairable
 ! ---------------------------------------------------------------------
 ! Return the share of the sapwood's conductance that still works (0-1),
 !
-!   1 - L = SUM_i f_i c_i (1 - L_i) / SUM_i f_i c_i,
+!   1 - L = SUM_i f_i * c_i * (1 - L_i) / SUM_i f_i * c_i,
 !
 ! with L the stem's loss (ximpair_ring_loss_mean), f_i ring i's share of the
 ! sapwood, c_i how well it conducts (ring_cond) and L_i its loss of
@@ -1182,7 +1182,7 @@ END FUNCTION ximpair_ring_working
 ! the model keeps the conductance lost at the driest water potential met
 ! as a cap on the vulnerability curve,
 !
-!   k(psi) = MIN(k_intact(psi), k_cap),   k_cap = kmax (1 - L),
+!   k(psi) = MIN(k_intact(psi), k_cap),   k_cap = kmax * (1 - L),
 !
 ! where k_intact is the undamaged curve (mol m-2 s-1 Pa-1), psi the water
 ! potential (Pa, below 0) and L the loss of conductance (0-1). The dry end
@@ -1204,7 +1204,7 @@ END FUNCTION ximpair_ring_working
 ! With the cap, the transpiration E (mol H2O m-2 s-1) carried from the
 ! root-zone water potential psi_r to the leaf water potential psi_l is
 !
-!   E = k_cap (psi_r - MAX(psi_l, psi_s))
+!   E = k_cap * (psi_r - MAX(psi_l, psi_s))
 !       + A(psi_l) - A(MIN(psi_r, psi_s)),
 !
 ! where the second line counts only if psi_l < psi_s. psi_s is the water
@@ -1217,7 +1217,7 @@ END FUNCTION ximpair_ring_working
 ! Return the conductance of the undamaged xylem (mol m-2 s-1 Pa-1) at n
 ! water potentials psi (Pa) at one point, which the memory model caps to
 ! represent drought damage. It uses the cumulative Weibull curve,
-! kmax EXP(-(psi / b)^c), or the SOX curve, kmax / (1 + (psi / b)^c).
+! kmax * EXP(-(psi / b)^c), or the SOX curve, kmax / (1 + (psi / b)^c).
 !
 ! MDK, 12/11/26
 ! ---------------------------------------------------------------------
@@ -1290,7 +1290,7 @@ END FUNCTION k_intact_integral
 
 ! ---------------------------------------------------------------------
 ! Return the water potential (Pa) at which the undamaged curve falls to
-! r kmax (0 < r < 1), the inverse of k_intact, which the memory model's
+! r * kmax (0 < r < 1), the inverse of k_intact, which the memory model's
 ! solver uses to find where the damaged and undamaged curves meet.
 ! ---------------------------------------------------------------------
 FUNCTION psi_at_k( pft, r, b, c ) RESULT( psi )
@@ -1306,7 +1306,7 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: r
 REAL(KIND=real_jlslsm), INTENT(IN) :: b
 ! The curve's c.
 REAL(KIND=real_jlslsm), INTENT(IN) :: c
-! Water potential where the curve is at r kmax (Pa).
+! Water potential where the curve is at r * kmax (Pa).
 REAL(KIND=real_jlslsm) :: psi
 
 IF (pft_conductance_model(pft) == CW_conductance) THEN
@@ -1602,7 +1602,7 @@ END SUBROUTINE psi_leaf_impaired_memory
 !    leaves it waiting for this update. New wood replaces old xylem at
 !    random, so the stem's loss L (0-1) becomes
 !
-!      L (1 - rho),
+!      L * (1 - rho),
 !
 !    or with l_nsc_ring_additive the new wood replaces damaged xylem
 !    first, as in the MEDFATE model, and L becomes MAX(L - rho, 0). With
@@ -1835,7 +1835,7 @@ IF (l_ximpair_rec_nsc) THEN
   ! renewed by the new rings since the last update. New and old xylem are
   ! replaced alike (at random), so the whole stem's loss is diluted,
   !
-  !   L -> L (1 - rho),
+  !   L -> L * (1 - rho),
   !
   ! or with l_nsc_ring_additive the new ring replaces damaged xylem first,
   ! as in MEDFATE, as if the sapwood retired to heartwood were the

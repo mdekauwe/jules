@@ -107,7 +107,7 @@ TYPE :: psparms_data_type
     ! Root zone water potential for each plant functional type (Pa) JBaguley
     ! The root zone's effective soil water potential: with the stomatal
     ! optimisation the soil layers' potentials weighted by their
-    ! soil-to-root conductances, sum(k psi) / sum(k) (smc_ext).
+    ! soil-to-root conductances, sum(k * psi) / sum(k) (smc_ext).
     ! MDK, 15/11/26
   REAL(KIND=real_jlslsm), ALLOCATABLE :: psi_leaf_pft(:,:)
     ! Leaf water potential for each plant functional type (Pa) JBaguley

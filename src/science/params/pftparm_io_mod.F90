@@ -70,13 +70,13 @@ INTEGER ::                                                                     &
       !      with the slope of the PLC curve at P50 from their tropical
       !      synthesis (Table 1),
       !
-      !        S = 54.4 (-P50 [MPa])^-1.17   (% MPa-1).
+      !        S = 54.4 * (-P50 [MPa])^-1.17   (% MPa-1).
       !
-      !      For this FMC the PLC slope at P50 is 100 a / (4 |P50|), so
+      !      For this FMC the PLC slope at P50 is 100 * a / (4 * |P50|), so
       !
-      !        a = 4 |P50| S / 100 = 2.176 |P50|^-0.17,
+      !        a = 4 * |P50| * S / 100 = 2.176 * |P50|^-0.17,
       !
-      !      and FMC = 0.12 at P88 = P50 (1/0.12 - 1)^(1/a). The segment's
+      !      and FMC = 0.12 at P88 = P50 * (1/0.12 - 1)^(1/a). The segment's
       !      cumulative Weibull then passes through this P50 and P88 (exact
       !      there, approximate in the tails). p88_root_io must be unset.
       !      NOTE: S is fitted to bench-dehydration data for tropical
@@ -87,7 +87,7 @@ INTEGER ::                                                                     &
       !      (Choat et al. 2012 and updates; download 2026-09-28; root
       !      organ, air-injection methods excluded, n = 93):
       !
-      !        |P88| = 2.61 |P50|^0.70   (MPa),
+      !        |P88| = 2.61 * |P50|^0.70   (MPa),
       !
       !      e.g. P50 -3 -> P88 -5.6, P50 -5 -> -8.1, P50 -8.5 -> -11.7 MPa
       !      (cf. the one Q. ilex root curve, Madrid, P50 -4.98 / P88 -9.61).
@@ -227,7 +227,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! point is an optional variant.
   psi_nsl_onset_io(npft_max) = rmdi,                                           &
   psi_nsl0_io(npft_max) = rmdi,                                                &
-  ! CMax stomata (stomata_model = 6): Theta = a/2 psi^2 + b |psi|
+  ! CMax stomata (stomata_model = 6): Theta = a/2 * psi^2 + b * |psi|
   ! (umol m-2 s-1 MPa-2 and MPa-1; a required, b missing = 0).
   cmax_a_io(npft_max) = rmdi,                                                  &
   cmax_b_io(npft_max) = rmdi,                                                  &
@@ -248,7 +248,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   or_z0soil_fac_io(npft_max) = rmdi,                                           &
   ! cap_stem is the size of the stomatal optimisation's plant capacitance
   ! (l_som_capacitance or som_cuticular_leak > 0), per unit leaf area:
-  ! C = cap_stem x L_ref, mmol H2O m-2 leaf MPa-1 (3000 = 0.11 mm per MPa
+  ! C = cap_stem * L_ref, mmol H2O m-2 leaf MPa-1 (3000 = 0.11 mm per MPa
   ! at LAI 2.1). The default is close to Q. ilex (SurEau, Ruffault et al.
   ! 2022) and applies to every PFT once the store is on, grasses included.
   ! For Q. ilex it lies in 2050-4210 over DBH 4-13 cm: the whole-tree stem
@@ -257,12 +257,12 @@ REAL(KIND=real_jlslsm) ::                                                      &
   ! doi:10.1111/pce.12928, Fig. 6: refilling after the first autumn
   ! rains),
   !
-  !   CS = 15.05 exp(0.31 DBH)   (g MPa-1 per tree),
+  !   CS = 15.05 * exp(0.31 * DBH)   (g MPa-1 per tree),
   !
   ! divided by the leaf area (Rambal et al. 2004, via Limousin et al.
   ! 2009),
   !
-  !   LA = 0.091 DBH^1.875   (m2).
+  !   LA = 0.091 * DBH^1.875   (m2).
   !
   ! MDK, 05/11/26
   cap_stem_io(npft_max) = 3000.0,                                              &
@@ -2275,7 +2275,7 @@ DO i = 1, npft
         a_root = 2.176 * ( ABS(p50_seg(1)) * 1.0e-6 )**(-0.17)
         p88_seg(1) = p50_seg(1) * ( 1.0 / 0.12 - 1.0 )**( 1.0 / a_root )
       ELSE
-        ! XFT root fit, |P88| = 2.61 |P50|^0.70 (MPa)
+        ! XFT root fit, |P88| = 2.61 * |P50|^0.70 (MPa)
         p88_seg(1) = -2.61e6 * ( ABS(p50_seg(1)) * 1.0e-6 )**0.70
       END IF
     ELSE IF ( iseg == 1 .AND. seg_root_vc_io(i) /= 0 ) THEN

@@ -361,7 +361,7 @@ ELSE
   ! where
   !   k_p        plant marginal conductance at the leaf (leaf_k of the
   !              plant path)
-  !   k(psi_in)  = kmax f(psi_in), the plant conductance at the root
+  !   k(psi_in)  = kmax * f(psi_in), the plant conductance at the root
   !   K_s        soil-to-root conductance
   !
   ! using dpsi_l / dpsi_in = k(psi_in) / k_p for a single conductance
