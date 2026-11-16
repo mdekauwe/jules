@@ -2836,11 +2836,16 @@ CONTAINS
 !-----------------------------------------------------------------------------
 ! Hydraulic redistribution: how much water each soil layer gives to, or
 ! takes from, the roots of PFT n at point l in this timestep
-! (l_som_hydraulic_redistribution; as the soil layers of the CLM5 plant
-! hydraulics, Kennedy et al. 2019).
+! (l_som_hydraulic_redistribution). The idea follows the CLM5 plant
+! hydraulics (Kennedy et al. 2019): the layers are linked to the roots in
+! parallel, flows into drier layers are allowed, and each layer's flow
+! includes the weight of the water above it. Ours are the root conductance
+! of each layer (step 2), the limits on the flows (step 5), and that the
+! routine only shares the uptake between the layers: the plant's
+! transpiration is worked out as before.
 !
-! In plain terms: the roots reach into several soil layers at once. Water
-! moves from a layer into the roots where the layer is wetter than the
+! The roots reach into several soil layers at once. Water moves from
+! a layer into the roots where the layer is wetter than the
 ! roots, and out of the roots into a layer where the layer is drier. By day
 ! the plant draws hard and nearly every layer gives water. At night, when
 ! the plant draws little, roots in wet layers keep taking water up and roots
