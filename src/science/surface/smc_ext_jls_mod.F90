@@ -385,7 +385,7 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
 !$OMP DEFAULT(NONE)                                                            &
 !$OMP PRIVATE(j,i,n)                                                           &
 !$OMP SHARED(nshyd,surft_pts,surft_index,wt_ext,soil_to_root_k,psi,            &
-!$OMP        root_psi_crit,ft,l_som_rhizo_series)
+!$OMP        root_psi_crit,ft,l_som_rhizo_series,f_root)
   DO n = 1,nshyd
 !$OMP DO SCHEDULE(STATIC)
     DO j = 1,surft_pts
@@ -404,6 +404,10 @@ ELSE IF (fsmc_mod(ft) == 2) THEN
         ! (root_psi_crit).
         wt_ext(i,n) = MAX(soil_to_root_k(i,n) * (psi(i,n) - root_psi_crit(ft)),&
                           1.0e-9)
+        ! A layer with no roots (below rootd_max_ft) gives no water.
+        !
+        ! MDK, 03/11/26
+        IF ( f_root(i,n) <= 0.0 ) wt_ext(i,n) = 0.0
       END IF
     END DO
 !$OMP END DO NOWAIT

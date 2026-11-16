@@ -299,6 +299,21 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! and water potential (fsmc_mod(i) == 2).
 ,rootd_ft(:)                                                                   &
                  ! e-folding depth (m) of the root density.
+,rootd_max_ft(:)                                                               &
+                 ! Maximum rooting depth (m). Below it there are no roots:
+                 !  root_frac sets the root fraction of the layers wholly
+                 !  below it to zero, keeps the part of a layer above it,
+                 !  and renormalises the fractions to sum to 1. Every use
+                 !  of the root profile (water uptake and its weights,
+                 !  root-zone psi, soil-to-root conductance, litter input
+                 !  by layer) then sees no roots below it. With fsmc_mod =
+                 !  1 the roots reach the shallower of rootd_ft and
+                 !  rootd_max_ft. Must be > 0; at or below the bottom of
+                 !  the soil column it removes no roots (the run warns).
+                 !  Unset (< -1e29) = no maximum: roots in every layer, as
+                 !  before.
+                 !
+                 !  MDK, 03/11/26
 ,z0v(:)                                                                        &
                  ! Specified vegetation roughness length.
 !                    used with l_spec_veg_z0 = .true.
@@ -1123,6 +1138,7 @@ ALLOCATE( root_psi_crit(npft))  ! JBaguley
 ALLOCATE( root_radi_pft(npft))  ! JBaguley
 ALLOCATE( rootc_density_pft(npft))  ! JBaguley
 ALLOCATE( rootd_ft(npft))
+ALLOCATE( rootd_max_ft(npft))   ! MDK, 03/11/26
 ALLOCATE( z0v(npft))
 ALLOCATE( pft_big_leaf_corection_nitrogen_reduction_factor(npft))
 
@@ -1139,6 +1155,7 @@ infil_f(:)      = rmdi
 psi_close(:)    = rmdi
 psi_open(:)     = rmdi
 rootd_ft(:)     = rmdi
+rootd_max_ft(:) = -1.0e30   ! MDK, 03/11/26
 z0v(:)          = rmdi
 calc_rz_psi(:)       = .FALSE. ! JBaguley
 min_gl_pft(:)        = 1.0e-9 ! numerical floor, see above
@@ -1593,6 +1610,8 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' r_grow = ',r_grow
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' rootd_ft = ',rootd_ft
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' rootd_max_ft = ',rootd_max_ft   ! MDK, 03/11/26
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' sigl = ',sigl
 CALL jules_print('pftparm',lineBuffer)

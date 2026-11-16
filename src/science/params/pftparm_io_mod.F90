@@ -316,6 +316,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_sink_beta_min_io(npft_max) = rmdi,                                       &
   nsc_ring_cond_efold_io(npft_max) = rmdi,                                     &
   nsc_ring_func_doy_io(npft_max) = rmdi,                                       &
+  rootd_max_ft_io(npft_max) = rmdi,                                            &
   phen_psi_tlp_io(npft_max) = rmdi,                                            &
   phen_dfbleaf_io(npft_max) = rmdi,                                            &
   phen_ndays_io(npft_max) = rmdi,                                              &
@@ -426,7 +427,7 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_heartwood_rate_io, nsc_grow_thresh_io,                                   &
   nsc_sink_days_io, nsc_sink_beta_min_io,                                      &
   nsc_ring_cond_efold_io,                                                      &
-  nsc_ring_func_doy_io,                                                        &
+  nsc_ring_func_doy_io, rootd_max_ft_io,                                       &
   phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io,                         &
   shed_la50_io, shed_la_width_io, shed_fmin_io,                                &
   ctmax_1h_io, z_tdt_io, tcrit_heat_io, krep_ref_io, krep_dec_io,              &
@@ -476,14 +477,14 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 188 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 189 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
                                              ! hydmort; count the REAL
                                              ! declarations of the type)
                                              !
-                                             ! MDK, 09/11/26
+                                             ! MDK, 16/11/26
 
 TYPE :: my_namelist
   SEQUENCE
@@ -663,6 +664,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_sink_beta_min_io(npft_max)   ! MDK, 31/10/26
   REAL(KIND=real_jlslsm) :: nsc_ring_cond_efold_io(npft_max)   ! MDK, 30/10/26
   REAL(KIND=real_jlslsm) :: nsc_ring_func_doy_io(npft_max)   ! MDK, 31/10/26
+  REAL(KIND=real_jlslsm) :: rootd_max_ft_io(npft_max)   ! MDK, 16/11/26
   REAL(KIND=real_jlslsm) :: phen_psi_tlp_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_dfbleaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_ndays_io(npft_max)
@@ -877,6 +879,7 @@ IF (mype == 0) THEN
   my_nml % nsc_sink_beta_min_io = nsc_sink_beta_min_io   ! MDK, 31/10/26
   my_nml % nsc_ring_cond_efold_io = nsc_ring_cond_efold_io   ! MDK, 30/10/26
   my_nml % nsc_ring_func_doy_io = nsc_ring_func_doy_io   ! MDK, 31/10/26
+  my_nml % rootd_max_ft_io = rootd_max_ft_io   ! MDK, 16/11/26
   my_nml % phen_psi_tlp_io = phen_psi_tlp_io
   my_nml % phen_dfbleaf_io = phen_dfbleaf_io
   my_nml % phen_ndays_io = phen_ndays_io
@@ -1079,6 +1082,7 @@ IF (mype /= 0) THEN
   nsc_sink_beta_min_io = my_nml % nsc_sink_beta_min_io   ! MDK, 31/10/26
   nsc_ring_cond_efold_io = my_nml % nsc_ring_cond_efold_io   ! MDK, 30/10/26
   nsc_ring_func_doy_io = my_nml % nsc_ring_func_doy_io   ! MDK, 31/10/26
+  rootd_max_ft_io = my_nml % rootd_max_ft_io   ! MDK, 16/11/26
   phen_psi_tlp_io = my_nml % phen_psi_tlp_io
   phen_dfbleaf_io = my_nml % phen_dfbleaf_io
   phen_ndays_io = my_nml % phen_ndays_io
@@ -1193,7 +1197,7 @@ USE pftparm, ONLY:                                                             &
   nsc_xylem_cond_ratio,                                                       &
   nsc_heartwood_rate, nsc_grow_thresh, nsc_ring_cond_efold,                   &
   nsc_sink_days, nsc_sink_beta_min,                                            &
-  nsc_ring_func_doy,                                                           &
+  nsc_ring_func_doy, rootd_max_ft,                                             &
   phen_bb_doy, phen_bb_gdd, phen_bb_tbase, phen_bb_min_days
 
 
@@ -1225,6 +1229,7 @@ USE jules_vegetation_mod, ONLY: l_nsc_pipe_target   ! MDK, 04/11/26
 USE jules_vegetation_mod, ONLY: l_ximpair_cav_water   ! MDK, 12/11/26
 USE jules_vegetation_mod, ONLY: leaf_resp_model, leaf_resp_globresp
 USE jules_soil_mod, ONLY: l_bound_soil_wp
+USE jules_soil_mod, ONLY: dzsoil   ! MDK, 03/11/26
 
 IMPLICIT NONE
 
@@ -1466,6 +1471,13 @@ gsoil_f(:)      = gsoil_f_io(1:npft)
 infil_f(:)      = infil_f_io(1:npft)
 irrig_tile(1:npft)      = irrig_pft_io(1:npft)
 rootd_ft(:)     = rootd_ft_io(1:npft)
+! Maximum rooting depth: unset (-1e30) unless given.
+!
+! MDK, 03/11/26
+DO i = 1,npft
+  IF (ABS(rootd_max_ft_io(i) - rmdi) > EPSILON(1.0))                           &
+    rootd_max_ft(i) = rootd_max_ft_io(i)
+END DO
 z0v(:)          = z0v_io(1:npft)
 z0h_z0m(1:npft) = z0hm_pft_io(1:npft)
 z0h_z0m_classic(1:npft) = z0hm_classic_pft_io(1:npft)
@@ -1838,6 +1850,25 @@ IF ( l_nsc_sapwood_rings ) THEN
     CALL ereport(RoutineName, errcode,                                         &
                  'nsc_n_ring is below 1 / nsc_heartwood_rate_io: the last '//  &
                  'ring merges much of the sapwood.')
+  END IF
+END IF
+! Maximum rooting depth (rootd_max_ft_io): must be > 0. Deeper than the
+! soil column it removes no roots, so the run warns.
+!
+! MDK, 03/11/26
+IF ( ANY(is_set(rootd_max_ft(1:npft)) .AND. rootd_max_ft(1:npft) <= 0.0) ) THEN
+  errcode = 101
+  CALL ereport(RoutineName, errcode,                                           &
+               'rootd_max_ft_io must be > 0 (or unset for no maximum '    //  &
+               'rooting depth).')
+END IF
+IF ( ASSOCIATED(dzsoil) ) THEN
+  IF ( ANY(is_set(rootd_max_ft(1:npft)) .AND.                                  &
+           rootd_max_ft(1:npft) >= SUM(dzsoil)) ) THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'rootd_max_ft_io is at or below the bottom of the soil ' //  &
+                 'column, so it removes no roots.')
   END IF
 END IF
 ! Stem recovery (l_ximpair_rec_nsc) is ring renewal by TRIFFID wood
