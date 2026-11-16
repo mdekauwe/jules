@@ -910,6 +910,31 @@ f = EXP(-( ABS(MIN(psi, 0.0) / conductance_b_seg(n,iseg)) )                    &
         **conductance_c_seg(n,iseg))
 END FUNCTION seg_rel_k
 
+ELEMENTAL FUNCTION pft_rel_k( n, psi ) RESULT( f )
+! Intact conductance of PFT n's whole plant at water potential psi (Pa),
+! relative to its maximum, from the PFT curve (conductance_b_pft and
+! conductance_c_pft):
+!
+!   pft_conductance_model 1 (Weibull): exp(-(|psi| / b)^c)
+!   pft_conductance_model 2 (SOX):     1 / (1 + (psi / b)^c)
+!
+! 1 for psi >= 0 and for any other conductance model.
+!
+! MDK, 16/11/26
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: n
+REAL(KIND=real_jlslsm), INTENT(IN) :: psi
+REAL(KIND=real_jlslsm) :: f
+f = 1.0
+IF ( pft_conductance_model(n) == 1 ) THEN
+  f = EXP(-( ABS(MIN(psi, 0.0) / conductance_b_pft(n)) )                      &
+          **conductance_c_pft(n))
+ELSE IF ( pft_conductance_model(n) == 2 ) THEN
+  f = 1.0 / ( 1.0 + ( MIN(psi, 0.0) / conductance_b_pft(n) )                  &
+              **conductance_c_pft(n) )
+END IF
+END FUNCTION pft_rel_k
+
 SUBROUTINE pftparm_alloc(npft)
 
 USE missing_data_mod, ONLY: imdi, rmdi

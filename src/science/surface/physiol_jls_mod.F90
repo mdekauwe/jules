@@ -137,7 +137,8 @@ USE pftparm, ONLY: pft_xylem_impairment_model
   ! Memory model PFTs need the frozen share (l_ximpair_frozen_hold).
   ! MDK, 06/11/26
 USE jules_vegetation_mod, ONLY: l_phen_psi, l_phen_fuse
-USE jules_vegetation_mod, ONLY: l_som_hydraulic_redistribution
+USE jules_vegetation_mod, ONLY: l_som_hydraulic_redistribution,             &
+                                l_som_plant_segments
 USE pftparm, ONLY: is_set, phen_psi_tlp, shed_la50
   ! Leaf shedding PFTs need the frozen share too (l_phen_psi, l_phen_fuse).
   !
@@ -159,7 +160,7 @@ USE canopy_diag_mod, ONLY: canopy_diag_alloc, gsoil_pft
   ! MDK, 24/10/26
 USE pftparm, ONLY: sigl, lma, rmass, kmax_pft, conductance_b_pft,              &
                    conductance_c_pft
-USE pftparm, ONLY: seg_kfac, seg_rel_k
+USE pftparm, ONLY: seg_kfac, seg_rel_k, pft_rel_k
 
 USE jules_radiation_mod, ONLY: l_spec_albedo, l_albedo_obs,                    &
                                l_spec_alb_bs
@@ -779,7 +780,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! The part of q_layer that moves water between layers (kg m-2 s-1),
       ! summing to zero.
   k_root,                                                                      &
-      ! The root segment's intact conductance (kg m-3 s-1).
+      ! The roots' intact conductance (kg m-3 s-1): the root segment's, or
+      ! without segments the whole plant's.
+  rel_k_layer,                                                                 &
+      ! A layer's roots' conductance relative to intact (0-1).
   k_root_layer,                                                                &
       ! A layer's root conductance (kg m-3 s-1).
   psi_root_hr,                                                                 &
@@ -2875,7 +2879,9 @@ CONTAINS
 !      al. 2014), K_root the conductance of the plant's whole root system
 !      when undamaged, f_i the share of the roots in the layer, and R the
 !      root vulnerability curve (1 in wet soil, falling as the soil dries),
-!      so roots in dry soil conduct less. All conductances here are per m2
+!      so roots in dry soil conduct less. With l_som_plant_segments, K_root
+!      and R are the root segment's; without segments the roots are the
+!      whole plant, with its conductance (kmax x LAI) and the PFT curve. All conductances here are per m2
 !      of ground and per metre of water head (kg m-3 s-1).
 !
 !   3. The roots' water potential, psi_root, is the one at which the layers
@@ -2931,12 +2937,15 @@ IMPLICIT NONE
 INTEGER :: kk
 
 ! The root system's conductance when undamaged, K_root: the plant's
-! maximum conductance (kmax_pft, per m2 of leaf) times the leaf area and
-! the root's share of it (seg_kfac).
-k_root = kmax_pft(n) * lai_pft(l,n) * seg_kfac(n,1)
+! maximum conductance (kmax_pft, per m2 of leaf) times the leaf area, and
+! with segments, times the root's share of it (seg_kfac). Without segments
+! the roots are the whole plant.
+k_root = kmax_pft(n) * lai_pft(l,n)
+IF ( l_som_plant_segments ) k_root = k_root * seg_kfac(n,1)
 
 ! With kplant_model = 1 the root and stem keep their conductance per m2 of
-! ground as the leaf area changes, so K_root is on that basis.
+! ground as the leaf area changes, so K_root is on that basis. Without
+! segments, kplant_scale holds the whole plant's factor and seg_kscale is 1.
 IF ( l_kscale ) k_root = k_root * kplant_scale(l) * seg_kscale(l,1)
 
 ! From mol m-2 s-1 Pa-1 to kg m-3 s-1, per metre of water head, the units
@@ -2952,9 +2961,14 @@ DO kk = 1,sm_levels
   psi_layer(kk) = soil_wp_soilt(l,m,kk) - rho_water * g * soil_z_mid(kk)
 
   ! The layer's roots: their share of K_root, lowered by the root
-  ! vulnerability curve at the layer's soil water potential.
-  k_root_layer = k_root * f_root(l,kk)                                         &
-               * seg_rel_k(n, 1, soil_wp_soilt(l,m,kk))
+  ! vulnerability curve at the layer's soil water potential (the root
+  ! segment's curve, or without segments the PFT curve).
+  IF ( l_som_plant_segments ) THEN
+    rel_k_layer = seg_rel_k(n, 1, soil_wp_soilt(l,m,kk))
+  ELSE
+    rel_k_layer = pft_rel_k(n, soil_wp_soilt(l,m,kk))
+  END IF
+  k_root_layer = k_root * f_root(l,kk) * rel_k_layer
 
   ! The soil and the roots in series (none if either is zero).
   k_layer(kk) = 0.0

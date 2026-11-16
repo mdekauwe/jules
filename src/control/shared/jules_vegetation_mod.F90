@@ -2596,16 +2596,15 @@ END IF
 l_som_rhizo_series = ( leaf_flux_mod == leaf_flux_stom_opt )
 
 ! Hydraulic redistribution works on the soil-to-root link of the stomatal
-! optimisation and takes the root segment's curve.
+! optimisation. It takes the root segment's curve, or without segments the
+! PFT curve.
 !
-! MDK, 15/11/26
-IF ( l_som_hydraulic_redistribution .AND. ( .NOT. l_som_rhizo_series .OR.      &
-                                            .NOT. l_som_plant_segments ) ) THEN
+! MDK, 16/11/26
+IF ( l_som_hydraulic_redistribution .AND. .NOT. l_som_rhizo_series ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
                'l_som_hydraulic_redistribution requires the stomatal ' //      &
-               'optimisation (stomata_model = 4 to 7 or 9 to 11) and ' //      &
-               'l_som_plant_segments')
+               'optimisation (stomata_model = 4 to 7 or 9 to 11)')
 END IF
 ! l_som_rhizo_mfp is retired (see its declaration).
 !
