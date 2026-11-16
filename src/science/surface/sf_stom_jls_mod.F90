@@ -44,19 +44,6 @@ INTEGER, PARAMETER, PRIVATE :: max_lt_clamp_warn = 20
     !
     ! MDK, 18/10/26
 
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: rd_temp_fac(:)
-    ! leaf_resp_model 1 and 2: the temperature factor of leaf dark
-    ! respiration at the leaf temperature of the latest leaf_temp_responses
-    ! call (land_pts), for the calc_photo_parameters call that follows it.
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: rd25_top(:)
-    ! leaf_resp_model 2: leaf dark respiration at 25 degC of the top leaf of
-    ! the PFT being worked on (umol CO2 m-2 s-1, land_pts).
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PRIVATE :: nleaf_top_rd(:)
-    ! leaf_resp_model 2: the top leaf's nitrogen in the units of nleaf
-    ! (land_pts), to scale rd25_top to a lower leaf.
-    !
-    ! MDK, 15/11/26
-
 PRIVATE
 PUBLIC sf_stom
 
@@ -198,10 +185,9 @@ USE pftparm, ONLY: cap_stem, kcrit_fractional_loss, conductance_b_seg,         &
                    conductance_c_seg
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: l_som_plant_segments
-USE jules_vegetation_mod, ONLY: leaf_resp_model, leaf_resp_globresp,           &
-                                leaf_resp_jules,                               &
-                                rd_globresp_r1, rd_globresp_r2
-USE pftparm, ONLY: pft_xylem_impairment_model, rd_r0, fd, neff, vint, vsl
+USE jules_vegetation_mod, ONLY: leaf_resp_model, leaf_resp_jules
+USE leaf_resp_mod, ONLY: rd25_globresp
+USE pftparm, ONLY: pft_xylem_impairment_model
 USE jules_vegetation_mod, ONLY: xylem_impairment_none
 
 USE xylem_impairment_mod, ONLY: update_xylem_impairment
@@ -542,8 +528,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
    ! Ratio of respiring stem wood to total wood.
 ,lma_tmp                                                                       &
    ! Temporary leaf mass per area for crops (kg leaf per m2 leaf area).
-,n_area_rd                                                                     &
-   ! leaf_resp_model 2: the top leaf's nitrogen per unit area (g N m-2).
 ,stem_resp_scaling                                                             &
    ! Scaling factor to reduce stem respiration
 ,stemc                                                                         &
@@ -915,20 +899,26 @@ REAL(KIND=real_jlslsm) :: f_sink_feedback(land_pts)
                             ! MDK, 12/11/26
 REAL(KIND=real_jlslsm) :: vcmax_top_d(land_pts), jmax_top_d(land_pts),         &
                           rd_top_d(land_pts)
-REAL(KIND=real_jlslsm) :: rd_rw_fac(land_pts)
-                            ! leaf_resp_model 1 and 2: Rd of option 0 over
-                            ! the leaves' Rd, for the top leaf at tstar, so
-                            ! root and wood respiration stay as option 0.
-                            !
-                            ! MDK, 15/11/26
-REAL(KIND=real_jlslsm) :: rd_opt0, rd_leaf_opt, vcmax25_top
-                            ! For rd_rw_fac: the top leaf's Rd with option 0
-                            ! and with the chosen option at tstar, and its
-                            ! Vcmax at 25 degC (mol m-2 s-1).
                             ! Vcmax, Jmax and Rd of a leaf at the top of
-                            ! the canopy at tstar (vcmax_pft, jmax_pft).
+                            ! the canopy at tstar (vcmax_pft, jmax_pft, and
+                            ! rd_root_wood_fac).
                             !
                             ! MDK, 30/10/26
+REAL(KIND=real_jlslsm) :: rd_temp_fac(land_pts)
+                            ! Heskel temperature factor of leaf Rd at tstar
+                            ! (leaf_resp_model 1 and 2; leaf_temp_responses).
+REAL(KIND=real_jlslsm) :: rd25_per_nleaf(land_pts)
+                            ! GlobResp leaf Rd at 25 degC per unit of leaf
+                            ! nitrogen (leaf_resp_model 2; rd25_globresp).
+REAL(KIND=real_jlslsm) :: rd_default_top(land_pts)
+                            ! Rd of the top leaf at tstar with
+                            ! leaf_resp_model 0 (mol CO2 m-2 s-1).
+REAL(KIND=real_jlslsm) :: rd_root_wood_fac(land_pts)
+                            ! leaf_resp_model 1 and 2: rd_default_top over
+                            ! rd_top_d, so root and wood respiration stay
+                            ! as leaf_resp_model 0.
+                            !
+                            ! MDK, 16/11/26
 REAL(KIND=real_jlslsm) :: psi_src(land_pts)
                             ! Water potential where the plant path starts,
                             ! the source of the water the stomatal
@@ -1999,35 +1989,12 @@ END DO
 !$OMP END DO
 !$OMP END PARALLEL
 
-! Leaf dark respiration from the GlobResp data (leaf_resp_model 2, C3), at
-! 25 degC for the top leaf (Huntingford et al. 2017, Eqn 1),
+! GlobResp leaf dark respiration at 25 degC per unit of leaf nitrogen
+! (leaf_resp_model 2, C3; 0 otherwise).
 !
-!   Rd25 = r0 + r1 N_a - r2 T_G   (umol CO2 m-2 s-1)
-!
-! with N_a the top leaf's nitrogen (g N m-2) and T_G the growth temperature
-! (degC). It is kept no lower than 0.
-!
-! MDK, 15/11/26
-IF ( leaf_resp_model == leaf_resp_globresp .AND. c3(ft) == 1 ) THEN
-  IF ( .NOT. ALLOCATED(rd25_top) ) THEN
-    ALLOCATE( rd25_top(land_pts) )
-    ALLOCATE( nleaf_top_rd(land_pts) )
-  END IF
-
-  rd25_top(:)     = 0.0
-  nleaf_top_rd(:) = 0.0
-
-  DO m = 1,veg_pts
-    l = veg_index(m)
-
-    ! (Without l_trait_phys, nleaf_top is per unit leaf carbon.)
-    n_area_rd = nleaf_top(l)
-    IF ( .NOT. l_trait_phys ) n_area_rd = nleaf_top(l) * sigl(ft) * 1000.0
-    rd25_top(l) = MAX( rd_r0(ft) + rd_globresp_r1 * n_area_rd                  &
-                       - rd_globresp_r2 * (t_growth_gb(l) - zerodegc), 0.0 )
-    nleaf_top_rd(l) = nleaf_top(l)
-  END DO
-END IF
+! MDK, 16/11/26
+CALL rd25_globresp( ft, land_pts, veg_pts, veg_index, nleaf_top, t_growth_gb,  &
+                    rd25_per_nleaf )
 
 !-----------------------------------------------------------------------------
 ! Pre-calculate some expensive terms that do not change between iterations
@@ -2042,7 +2009,7 @@ CASE ( photo_collatz )
   CALL leaf_temp_responses( ft, land_pts, veg_pts, veg_index,                  &
                             pft_photo_model, tstar, oa, acr, actj, actv,       &
                             dsj, dsv, ccp, kc, ko, km, denom, qtenf_term,      &
-                            vcmax_temp, jmax_temp, i2 )
+                            vcmax_temp, jmax_temp, i2, rd_temp_fac )
 
 CASE ( photo_farquhar )
   ! Use the Farquhar model (for C3 plants).
@@ -2113,7 +2080,7 @@ CASE ( photo_farquhar )
   CALL leaf_temp_responses( ft, land_pts, veg_pts, veg_index,                  &
                             pft_photo_model, tstar, oa, acr, actj, actv,       &
                             dsj, dsv, ccp, kc, ko, km, denom, qtenf_term,      &
-                            vcmax_temp, jmax_temp, i2 )
+                            vcmax_temp, jmax_temp, i2, rd_temp_fac )
 
 CASE DEFAULT
   errcode = 101  !  a hard error
@@ -2123,63 +2090,50 @@ CASE DEFAULT
 END SELECT  !  pft_photo_model
 
 !-----------------------------------------------------------------------------
+! A leaf at the top of the canopy at tstar.
+!
+! Diagnostics (l_photo_diag, only when output): its Vcmax and Jmax, with any
+! thermal acclimation and the soil-water factor (canopy_diag_mod).
+!
 ! The leaf respiration options (leaf_resp_model 1 and 2) change the leaves
-! only: root and wood maintenance respiration, which scale with the canopy
-! leaf Rd, are scaled back to option 0 by the ratio, for the top leaf at
-! tstar, of option 0's Rd to the chosen option's,
+! only. Root and wood maintenance respiration scale with the canopy leaf Rd
+! at tstar, so they are scaled back to option 0 by
 !
-!   rd_rw_fac = fd Vcmax25 f_V(tstar) / Rd_leaf(tstar)
+!   rd_root_wood_fac = rd_default_top / rd_top_d
 !
-! with f_V the Vcmax temperature factor of option 0.
+! the top leaf's Rd with option 0 over its Rd with the chosen option. With
+! option 1 this is f_V(tstar) / f(tstar) for every leaf. With option 2 it is
+! exact for canopies that scale the top leaf by nitrogen (big leaf, two
+! leaf), and close for the layers of a multilayer canopy.
 !
-! MDK, 15/11/26
+! MDK, 16/11/26
 !-----------------------------------------------------------------------------
-rd_rw_fac(:) = 1.0
+rd_root_wood_fac(:) = 1.0
 
-IF ( leaf_resp_model /= leaf_resp_jules ) THEN
-  DO m = 1,veg_pts
-    l = veg_index(m)
-
-    IF ( l_trait_phys ) THEN
-      vcmax25_top = (vsl(ft) * nleaf_top(l) + vint(ft)) * 1.0e-6
-    ELSE
-      vcmax25_top = neff(ft) * nleaf_top(l)
-    END IF
-
-    IF ( pft_photo_model == photo_collatz ) THEN
-      rd_opt0 = fd(ft) * vcmax25_top * qtenf_term(l) / denom(l)
-    ELSE
-      rd_opt0 = fd(ft) * vcmax25_top * vcmax_temp(l)
-    END IF
-
-    IF ( leaf_resp_model == leaf_resp_globresp .AND. c3(ft) == 1 ) THEN
-      rd_leaf_opt = 1.0e-6 * rd25_top(l) * rd_temp_fac(l)
-    ELSE IF ( leaf_resp_model == leaf_resp_globresp ) THEN
-      rd_leaf_opt = rd_opt0
-    ELSE
-      rd_leaf_opt = fd(ft) * vcmax25_top * rd_temp_fac(l)
-    END IF
-
-    IF ( rd_leaf_opt > 0.0 ) rd_rw_fac(l) = rd_opt0 / rd_leaf_opt
-  END DO
-END IF
-
-!-----------------------------------------------------------------------------
-! Diagnostics (l_photo_diag, only when output): Vcmax and Jmax of a leaf at
-! the top of the canopy at tstar, with any thermal acclimation and the
-! soil-water factor (canopy_diag_mod).
-!
-! MDK, 30/10/26
-!-----------------------------------------------------------------------------
-IF ( l_photo_diag ) THEN
+IF ( l_photo_diag .OR. leaf_resp_model /= leaf_resp_jules ) THEN
   CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,          &
                               veg_index, denom, jmax_temp, jv25, nleaf_top,    &
                               qtenf_term, vcmax_temp, jmax_top_d, rd_top_d,    &
-                              vcmax_top_d, f_vcmax_down = f_vcmax_down )
+                              vcmax_top_d, rd_temp_fac = rd_temp_fac,          &
+                              rd25_per_nleaf = rd25_per_nleaf,                 &
+                              f_vcmax_down = f_vcmax_down,                     &
+                              rd_default = rd_default_top )
+END IF
+
+IF ( l_photo_diag ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
     vcmax_pft(l,ft) = vcmax_top_d(l)
     jmax_pft(l,ft)  = jmax_top_d(l)
+  END DO
+END IF
+
+IF ( leaf_resp_model /= leaf_resp_jules ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( rd_top_d(l) > 0.0 ) THEN
+      rd_root_wood_fac(l) = rd_default_top(l) / rd_top_d(l)
+    END IF
   END DO
 END IF
 
@@ -2351,7 +2305,9 @@ CASE ( 4 )
     CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,        &
                                 veg_index, denom, jmax_temp, jv25,             &
                                 nleaf_layer, qtenf_term, vcmax_temp, jmax,     &
-                                rd_dark, vcmax, f_vcmax_down = f_vcmax_down )
+                                rd_dark, vcmax, f_vcmax_down = f_vcmax_down,   &
+                                rd_temp_fac = rd_temp_fac,                     &
+                                rd25_per_nleaf = rd25_per_nleaf )
 
     !-------------------------------------------------------------------------
     ! Iterate to ensure that the canopy humidity deficit is consistent with
@@ -2694,7 +2650,9 @@ CASE ( 5, 6 )
                                         veg_pts, veg_index, denom, jmax_temp,  &
                                         jv25, nleaf_layer, qtenf_term,         &
                                         vcmax_temp, jmax, rd_dark, vcmax,      &
-                                        f_vcmax_down = f_vcmax_down )
+                                        f_vcmax_down = f_vcmax_down,           &
+                                        rd_temp_fac = rd_temp_fac,             &
+                                        rd25_per_nleaf = rd25_per_nleaf )
 
             IF ( pft_photo_model == photo_farquhar ) THEN
             !-------------------------------------------------------------------
@@ -2870,13 +2828,15 @@ CASE ( 5, 6 )
                          jv25, nleaf_layer, ones_pts, i2_sun, pstar, q_c_lt,   &
                          dq_min, ccp_sun_lt, kc_sun_lt, ko_sun_lt, km_sun_lt,  &
                          vcmax_sun_ml, je_sun_ml, rd_sun_ml, qs_sun_lt,        &
-                         dq_sun_lt, f_vcmax_down = f_vcmax_down )
+                         dq_sun_lt, f_vcmax_down = f_vcmax_down,               &
+                         rd25_per_nleaf = rd25_per_nleaf )
                   CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,   &
                          pft_photo_model, t_shd_lt, oa, actj, actv, dsj, dsv,  &
                          jv25, nleaf_layer, ones_pts, i2_shd, pstar, q_c_lt,   &
                          dq_min, ccp_shd_lt, kc_shd_lt, ko_shd_lt, km_shd_lt,  &
                          vcmax_shd_ml, je_shd_ml, rd_shd_ml, qs_shd_lt,        &
-                         dq_shd_lt, f_vcmax_down = f_vcmax_down )
+                         dq_shd_lt, f_vcmax_down = f_vcmax_down,               &
+                         rd25_per_nleaf = rd25_per_nleaf )
                   ! Rd at the leaf temperatures, with the light inhibition
                   ! applied above.
                   DO m = 1,veg_pts
@@ -3279,7 +3239,9 @@ ELSE
                                   veg_index, denom, jmax_temp, jv25,           &
                                   nleaf_layer, qtenf_term, vcmax_temp, jmax,   &
                                   rd_dark, vcmax,                              &
-                                  f_vcmax_down = f_vcmax_down )
+                                  f_vcmax_down = f_vcmax_down,                 &
+                                  rd_temp_fac = rd_temp_fac,                   &
+                                  rd25_per_nleaf = rd25_per_nleaf )
 
       IF ( pft_photo_model == photo_farquhar ) THEN
       !-----------------------------------------------------------------------
@@ -3526,7 +3488,9 @@ CASE ( 1 )
   CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,          &
                               veg_index, denom, jmax_temp, jv25,               &
                               nleaf_top, qtenf_term, vcmax_temp,               &
-                              jmax, rd, vcmax, f_vcmax_down = f_vcmax_down )
+                              jmax, rd, vcmax, f_vcmax_down = f_vcmax_down,    &
+                              rd_temp_fac = rd_temp_fac,                       &
+                              rd25_per_nleaf = rd25_per_nleaf )
 
   IF ( pft_photo_model == photo_farquhar ) THEN
     ! Calculate the electron flux.
@@ -3966,7 +3930,9 @@ CASE ( 7 )
   CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,          &
                               veg_index, denom, jmax_temp, jv25,               &
                               nleaf_top, qtenf_term, vcmax_temp,               &
-                              jmax, rd, vcmax, f_vcmax_down = f_vcmax_down )
+                              jmax, rd, vcmax, f_vcmax_down = f_vcmax_down,    &
+                              rd_temp_fac = rd_temp_fac,                       &
+                              rd25_per_nleaf = rd25_per_nleaf )
 
   !---------------------------------------------------------------------------
   ! Aggregate the layer profile into the two leaf classes.
@@ -4201,14 +4167,16 @@ CASE ( 7 )
                                pstar, q_c_lt, dq_min, ccp_sun_lt, kc_sun_lt,   &
                                ko_sun_lt, km_sun_lt, vcmax_sun_2l, je_sun,     &
                                rd_sun, qs_sun_lt, dq_sun_lt,                   &
-                               f_vcmax_down = f_vcmax_down )
+                               f_vcmax_down = f_vcmax_down,                    &
+                               rd25_per_nleaf = rd25_per_nleaf )
       CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
                                pft_photo_model, t_shd_lt, oa, actj, actv, dsj, &
                                dsv, jv25, nleaf_top, nweight_shd_2l, i2_shd,   &
                                pstar, q_c_lt, dq_min, ccp_shd_lt, kc_shd_lt,   &
                                ko_shd_lt, km_shd_lt, vcmax_shd_2l, je_shd,     &
                                rd_shd, qs_shd_lt, dq_shd_lt,                   &
-                               f_vcmax_down = f_vcmax_down )
+                               f_vcmax_down = f_vcmax_down,                    &
+                               rd25_per_nleaf = rd25_per_nleaf )
     END IF
 
     !-------------------------------------------------------------------------
@@ -5155,13 +5123,13 @@ DO m = 1,veg_pts
       resp_p_m(l) = resp_w(l) + resp_r(l) + resp_l(l)
     END IF
 
-    ! Root and wood respiration as option 0 with the leaf respiration options
-    ! (rd_rw_fac).
+    ! Root and wood respiration as leaf_resp_model 0 with the leaf
+    ! respiration options (rd_root_wood_fac).
     !
-    ! MDK, 15/11/26
+    ! MDK, 16/11/26
     IF ( leaf_resp_model /= leaf_resp_jules ) THEN
-      resp_w(l)   = resp_w(l) * rd_rw_fac(l)
-      resp_r(l)   = resp_r(l) * rd_rw_fac(l)
+      resp_w(l)   = resp_w(l) * rd_root_wood_fac(l)
+      resp_r(l)   = resp_r(l) * rd_root_wood_fac(l)
       resp_p_m(l) = resp_l(l) + resp_w(l) + resp_r(l)
     END IF
     !-------------------------------------------------------------------------
@@ -6664,7 +6632,8 @@ CALL leaf_class_at_temp( ft, land_pts, veg_pts, veg_index, pft_photo_model,    &
                          t1, oa, actj, actv, dsj, dsv, jv25, nleaf_top, nw_c,  &
                          i2c, pstar, q_c_lt, dq_min, ccp1, kc1, ko1, km1,      &
                          vcmax1, je1, rd1, qs1, dq1,                           &
-                         f_vcmax_down = f_vcmax_down )
+                         f_vcmax_down = f_vcmax_down,                          &
+                         rd25_per_nleaf = rd25_per_nleaf )
 dlnpar_dt_2l(:,:) = 0.0
 dqs_dt_2l(:)      = 0.0
 DO m = 1,veg_pts
@@ -6972,7 +6941,7 @@ SUBROUTINE leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
                                pft_photo_model, t_leaf, oa, actj, actv, dsj,   &
                                dsv, jv25, nleaf_top, nw, i2c, pstar, q_c,      &
                                dq_min, ccp, kc, ko, km, vcmax_c, je_c, rd_c,   &
-                               qs_c, dq_c, f_vcmax_down )
+                               qs_c, dq_c, f_vcmax_down, rd25_per_nleaf )
 
 ! Work out the photosynthesis inputs of one set of leaves (sunlit or
 ! shaded) at their own temperature t_leaf, for the leaf energy balance
@@ -6986,7 +6955,7 @@ SUBROUTINE leaf_class_at_temp( ft, land_pts, veg_pts, veg_index,               &
 ! flux. It also gives the leaves' humidity deficit to the canopy air,
 ! qs(t_leaf) - q_c (kg kg-1), no lower than dq_min.
 !
-! MDK, 12/11/26
+! MDK, 16/11/26
 
 USE jules_vegetation_mod, ONLY: photo_farquhar
 USE qsat_mod, ONLY: qsat
@@ -7013,12 +6982,15 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: f_vcmax_down(land_pts)
     ! Soil-water capacity factor (l_som_vcmax_psi).
 
+REAL(KIND=real_jlslsm), INTENT(IN) :: rd25_per_nleaf(land_pts)
+    ! GlobResp leaf Rd at 25 degC per unit of leaf nitrogen
+    ! (leaf_resp_model 2; rd25_globresp).
+
 REAL(KIND=real_jlslsm) ::                                                      &
   acr0(land_pts), denom_t(land_pts), qtenf_t(land_pts), vtemp(land_pts),       &
   jtemp(land_pts), i2_t(land_pts), jmax_t(land_pts), rd_t(land_pts),           &
-  vcmax_t(land_pts), jmax_c(land_pts)
+  vcmax_t(land_pts), jmax_c(land_pts), rd_temp_fac_t(land_pts)
 INTEGER :: l, m
-
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -7045,12 +7017,15 @@ dq_c(:)    = 0.0
 CALL leaf_temp_responses( ft, land_pts, veg_pts, veg_index,                    &
                           pft_photo_model, t_leaf, oa, acr0, actj, actv,       &
                           dsj, dsv, ccp, kc, ko, km, denom_t, qtenf_t,         &
-                          vtemp, jtemp, i2_t )
+                          vtemp, jtemp, i2_t, rd_temp_fac_t )
 
 CALL calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,            &
                             veg_index, denom_t, jtemp, jv25,                   &
                             nleaf_top, qtenf_t, vtemp,                         &
-                            jmax_t, rd_t, vcmax_t, f_vcmax_down = f_vcmax_down )
+                            jmax_t, rd_t, vcmax_t,                             &
+                            f_vcmax_down = f_vcmax_down,                       &
+                            rd_temp_fac = rd_temp_fac_t,                       &
+                            rd25_per_nleaf = rd25_per_nleaf )
 
 DO m = 1,veg_pts
   l = veg_index(m)
@@ -7079,21 +7054,22 @@ END SUBROUTINE leaf_class_at_temp
 SUBROUTINE leaf_temp_responses( ft, land_pts, veg_pts, veg_index,              &
                                 pft_photo_model, t_leaf, oa, acr, actj, actv,  &
                                 dsj, dsv, ccp, kc, ko, km, denom, qtenf_term,  &
-                                vcmax_temp, jmax_temp, i2 )
+                                vcmax_temp, jmax_temp, i2, rd_temp_fac )
 
 ! Adjust the photosynthesis parameters for the leaf temperature t_leaf.
 ! It is called with tstar for the canopy, and with each leaf's
 ! temperature when l_leaf_temp. It sets denom, qtenf_term, ccp, kc, ko
 ! (Collatz; C3 only for ccp, kc, ko) or ccp, km, i2, vcmax_temp,
-! jmax_temp (Farquhar).
+! jmax_temp (Farquhar), and the Heskel temperature factor of leaf dark
+! respiration, rd_temp_fac (1 with leaf_resp_model 0).
 !
-! MDK, 25/10/26
+! MDK, 16/11/26
 
 USE conversions_mod, ONLY: zerodegc
 USE c_rmol, ONLY: rmol
 USE jules_vegetation_mod, ONLY: photo_collatz, photo_farquhar
-USE jules_vegetation_mod, ONLY: leaf_resp_model, leaf_resp_jules,             &
-                                rd_heskel_b, rd_heskel_c
+USE jules_vegetation_mod, ONLY: leaf_resp_model, leaf_resp_jules
+USE leaf_resp_mod, ONLY: rd_heskel_fac
 USE pftparm, ONLY: alpha_elec, c3, deact_jmax, deact_vcmax, q10_leaf, tlow,    &
                    tupp
 
@@ -7121,6 +7097,9 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
       ! IN OUT: each model sets only its own terms (and ccp stays zero for
       ! C4 with Collatz).
 
+REAL(KIND=real_jlslsm), INTENT(OUT) :: rd_temp_fac(land_pts)
+      ! Heskel temperature factor of leaf dark respiration (1 at 25 degC).
+
 REAL(KIND=real_jlslsm), PARAMETER ::                                           &
   t_ref = zerodegc + 25.0,                                                     &
     ! Reference temperature (K).
@@ -7139,18 +7118,13 @@ CHARACTER(LEN=*), PARAMETER :: RoutineName='LEAF_TEMP_RESPONSES'
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! Temperature factor of leaf dark respiration (leaf_resp_model 1 and 2;
-! Heskel et al. 2016), 1 at 25 degC,
-!
-!   exp( b (T - 25) + c (T^2 - 25^2) ),   T in degC
-!
-! MDK, 15/11/26
+! Heskel et al. 2016; rd_heskel_fac).
+rd_temp_fac(:) = 1.0
+
 IF ( leaf_resp_model /= leaf_resp_jules ) THEN
-  IF ( .NOT. ALLOCATED(rd_temp_fac) ) ALLOCATE(rd_temp_fac(land_pts))
-  rd_temp_fac(:) = 1.0
   DO m = 1,veg_pts
     l = veg_index(m)
-    rd_temp_fac(l) = EXP( rd_heskel_b * (t_leaf(l) - zerodegc - 25.0)          &
-                          + rd_heskel_c * ((t_leaf(l) - zerodegc)**2 - 625.0) )
+    rd_temp_fac(l) = rd_heskel_fac( t_leaf(l) )
   END DO
 END IF
 
@@ -7438,7 +7412,8 @@ END SUBROUTINE nsc_sink_factor
 SUBROUTINE calc_photo_parameters( ft, land_pts, pft_photo_model, veg_pts,      &
                                   veg_index, denom, jmax_temp, jv25,           &
                                   nleaf, qtenf_term, vcmax_temp,               &
-                                  jmax, rd_dark, vcmax, f_vcmax_down )
+                                  jmax, rd_dark, vcmax, f_vcmax_down,          &
+                                  rd_temp_fac, rd25_per_nleaf, rd_default )
 
 ! Calculate the maximum rates of carboxylation of Rubisco and electron
 ! transport, and dark respiration without light inhibition.
@@ -7447,10 +7422,11 @@ USE jules_vegetation_mod, ONLY:                                                &
 ! imported parameters
     jv_ntotal, jv_scale, photo_collatz, photo_farquhar, photo_johnson,         &
 ! imported scalars that are not changed
-    n_alloc_jmax, n_alloc_vcmax, l_trait_phys, photo_jv_model, photo_model,    &
-    leaf_resp_model, leaf_resp_heskel, leaf_resp_globresp
+    n_alloc_jmax, n_alloc_vcmax, l_trait_phys, photo_jv_model, photo_model
 
-USE pftparm, ONLY: alpha_elec, c3, fd, jv25_ratio, neff, vint, vsl
+USE pftparm, ONLY: alpha_elec, fd, jv25_ratio, neff, vint, vsl
+
+USE leaf_resp_mod, ONLY: leaf_rd
 
 USE jb_photo_mod, ONLY: jb_vqmax25
 
@@ -7513,6 +7489,19 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: f_vcmax_down(land_pts)
     !
     ! MDK, 25/10/26
 
+REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+  rd_temp_fac(land_pts),                                                       &
+    ! Heskel temperature factor of leaf dark respiration (leaf_temp_responses).
+  rd25_per_nleaf(land_pts)
+    ! GlobResp leaf Rd at 25 degC per unit of leaf nitrogen (rd25_globresp).
+    !
+    ! MDK, 16/11/26
+
+REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: rd_default(land_pts)
+    ! Dark respiration with leaf_resp_model 0, fd * Vcmax (mol CO2 m-2 s-1).
+    !
+    ! MDK, 16/11/26
+
 !-----------------------------------------------------------------------------
 ! Local scalar variables.
 !-----------------------------------------------------------------------------
@@ -7535,6 +7524,14 @@ REAL ::                                                                        &
   vcmax_ref(land_pts)
     ! Maximum rate of carboxylation of Rubisco at the reference temperature,
     ! ignoring the effects of acclimation and N allocation (mol CO2/m2/s).
+
+REAL(KIND=real_jlslsm) ::                                                      &
+  rd_dark_jules(land_pts),                                                     &
+    ! Dark respiration with leaf_resp_model 0 (mol CO2 m-2 s-1).
+  f_vcmax_t(land_pts)
+    ! Vcmax temperature factor, Vcmax / Vcmax at 25 degC.
+    !
+    ! MDK, 16/11/26
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -7681,24 +7678,34 @@ END DO
 !$OMP END DO NOWAIT
 !$OMP END PARALLEL
 
-! Dark respiration with its own temperature response (leaf_resp_model 1 and
-! 2), times the factor leaf_temp_responses set:
+! Dark respiration for the chosen leaf_resp_model (leaf_rd), from the value
+! above, fd * Vcmax, which is leaf_resp_model 0's.
 !
-!   1: fd times Vcmax at 25 degC;
-!   2 (C3): the top leaf's GlobResp Rd at 25 degC (rd25_top) times this
-!      leaf's nitrogen over the top leaf's.
-!
-! MDK, 15/11/26
-IF ( leaf_resp_model == leaf_resp_heskel ) THEN
+! MDK, 16/11/26
+rd_dark_jules(:) = 0.0
+f_vcmax_t(:)     = 1.0
+
+DO m = 1,veg_pts
+  l = veg_index(m)
+  rd_dark_jules(l) = rd_dark(l)
+
+  IF ( pft_photo_model == photo_collatz ) THEN
+    f_vcmax_t(l) = qtenf_term(l) / denom(l)
+  ELSE
+    f_vcmax_t(l) = vcmax_temp(l)
+  END IF
+
+END DO
+
+CALL leaf_rd( ft, land_pts, veg_pts, veg_index, rd_dark_jules, f_vcmax_t,      &
+              rd_temp_fac, nleaf, rd25_per_nleaf, rd_dark )
+
+IF ( PRESENT(rd_default) ) THEN
+  rd_default(:) = 0.0
+
   DO m = 1,veg_pts
     l = veg_index(m)
-    rd_dark(l) = fd(ft) * vcmax_ref(l) * rd_temp_fac(l)
-  END DO
-ELSE IF ( leaf_resp_model == leaf_resp_globresp .AND. c3(ft) == 1 ) THEN
-  DO m = 1,veg_pts
-    l = veg_index(m)
-    rd_dark(l) = 1.0e-6 * rd25_top(l) * nleaf(l)                               &
-                 / MAX(nleaf_top_rd(l), TINY(1.0_real_jlslsm)) * rd_temp_fac(l)
+    rd_default(l) = rd_dark_jules(l)
   END DO
 END IF
 

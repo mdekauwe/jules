@@ -673,13 +673,14 @@ INTEGER ::                                                                     &
       ! and 2 change the leaves only: root and wood maintenance respiration
       ! stay as option 0.
       !
-      ! 0 (leaf_resp_jules, default): fd times Vcmax at the leaf
+      ! 0 (leaf_resp_jules, default): Rd = fd * Vcmax(T), with T the leaf
       !   temperature, so Rd follows the Vcmax temperature curve and falls
       !   above its optimum.
-      ! 1 (leaf_resp_heskel): fd times Vcmax at 25 degC times the
-      !   temperature response of Heskel et al. (2016, PNAS 113: 3832),
+      ! 1 (leaf_resp_heskel): Rd = fd * Vcmax25 * f(T), with Vcmax25 the
+      !   Vcmax at 25 degC and the temperature response of Heskel et al.
+      !   (2016, PNAS 113: 3832),
       !
-      !     f(T) = exp( b (T - 25) + c (T^2 - 25^2) )
+      !     f(T) = exp( b * (T - 25) + c * (T^2 - 25^2) )
       !
       !   with T the leaf temperature (degC) and b, c = rd_heskel_b,
       !   rd_heskel_c. f rises with T over the range of leaf temperatures.
@@ -688,7 +689,7 @@ INTEGER ::                                                                     &
       !   times f(T), as Huntingford et al. (2017, Nat. Commun. 8: 1602,
       !   Eqn 1),
       !
-      !     Rd = (r0 + r1 N_a - r2 T_G) f(T)
+      !     Rd = (r0 + r1 * N_a - r2 * T_G) * f(T)
       !
       !   for the top leaf, with N_a its nitrogen (g N m-2), T_G the growth
       !   temperature (degC; t_growth_gb, a running mean of the air
@@ -697,7 +698,7 @@ INTEGER ::                                                                     &
       !   proportion to their nitrogen. C3 leaves only; C4 leaves keep
       !   option 0.
       !
-      ! MDK, 15/11/26
+      ! MDK, 16/11/26
 
 REAL(KIND=real_jlslsm) ::                                                      &
   rd_heskel_b = 0.1012,                                                        &
@@ -717,7 +718,6 @@ REAL(KIND=real_jlslsm) ::                                                      &
       ! then sets it (n_day_photo_acclim).
       !
       ! MDK, 15/11/26
-
 
 LOGICAL ::                                                                     &
   l_som_shared_gain = .FALSE.
@@ -2065,27 +2065,6 @@ IF (  photo_model == photo_farquhar .OR. photo_model == photo_johnson ) THEN
                  "Invalid value given for photo_acclim_model.")
   END SELECT
 
-  ! Leaf dark respiration (leaf_resp_model). Option 2 needs the growth
-  ! temperature, held with the acclimation fields (l_acclim).
-  !
-  ! MDK, 15/11/26
-  IF ( leaf_resp_model < leaf_resp_jules .OR.                                  &
-       leaf_resp_model > leaf_resp_globresp ) THEN
-    errcode = 101
-    CALL ereport("check_jules_vegetation", errcode,                            &
-                 "leaf_resp_model must be 0, 1 or 2")
-  END IF
-
-  IF ( leaf_resp_model == leaf_resp_globresp ) THEN
-    l_acclim = .TRUE.
-
-    IF ( rd_globresp_days < 1.0 ) THEN
-      errcode = 101
-      CALL ereport("check_jules_vegetation", errcode,                          &
-                   "rd_globresp_days must not be less than 1.0 days.")
-    END IF
-  END IF
-
   !---------------------------------------------------------------------------
   ! Check that the option for acclimation of activation energies is reasonable.
   !---------------------------------------------------------------------------
@@ -2268,6 +2247,28 @@ IF (  photo_model == photo_farquhar .OR. photo_model == photo_johnson ) THEN
   END IF  !  photo_acclim_model == photo_acclim
 
 END IF  !  photo_model == photo_farquhar or photo_johnson
+
+! Leaf dark respiration (leaf_resp_model), for every photosynthesis model.
+! Option 2 needs the growth temperature, held with the acclimation fields
+! (l_acclim).
+!
+! MDK, 16/11/26
+IF ( leaf_resp_model < leaf_resp_jules .OR.                                    &
+     leaf_resp_model > leaf_resp_globresp ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               "leaf_resp_model must be 0, 1 or 2")
+END IF
+
+IF ( leaf_resp_model == leaf_resp_globresp ) THEN
+  l_acclim = .TRUE.
+
+  IF ( rd_globresp_days < 1.0 ) THEN
+    errcode = 101
+    CALL ereport("check_jules_vegetation", errcode,                            &
+                 "rd_globresp_days must not be less than 1.0 days.")
+  END IF
+END IF
 
 ! Check that the stomatal conductance model is reasonable.
 SELECT CASE ( stomata_model )
