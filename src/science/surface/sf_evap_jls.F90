@@ -55,7 +55,8 @@ USE jules_hydrology_mod, ONLY: l_soil_evap_or
 USE soil_evap_or_mod, ONLY: w_layer1_evap_or
 USE jules_vegetation_mod, ONLY: l_som_capacitance_on   ! MDK, 04/11/26
 USE jules_vegetation_mod, ONLY: l_som_hydraulic_redistribution   ! MDK, 15/11/26
-USE plant_hydraulic_path_mod, ONLY: hr_ext_pft   ! MDK, 15/11/26
+USE plant_hydraulic_path_mod, ONLY: hr_ext_pft, hr_w_avail,                    &
+                                    hr_w_space   ! MDK, 16/11/26
 USE plant_water_store_mod, ONLY: store_q_xyl
 USE plant_water_store_mod, ONLY: store_q, store_return, store_wt_root,         &
                                  store_w_soil, store_w_root_avail
@@ -224,6 +225,14 @@ REAL(KIND=real_jlslsm) ::                                                      &
 !                            !
 !                            ! MDK, 12/11/26
 
+REAL(KIND=real_jlslsm) :: hr_lay_gb
+                       ! Hydraulic redistribution: a layer's net water moved
+                       ! by all the PFTs' roots (kg m-2 s-1, > 0 lost).
+                       ! MDK, 16/11/26
+REAL(KIND=real_jlslsm) :: hr_fac_gb
+                       ! The factor that keeps every layer within its water
+                       ! and its empty pore space once all draws are known.
+                       ! MDK, 16/11/26
 REAL(KIND=real_jlslsm) :: esoil_only_or
                        ! Or: soil evaporation alone on a tile, esoil_surft
                        ! less its transpiration (kg/m2/s).
@@ -300,8 +309,10 @@ IF ( l_store .AND. ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
                'optimisation is coded for nsoilt = 1, ' //                     &
                'no l_irrig_dmd and no l_aggregate')
 END IF
-! Hydraulic redistribution (l_som_hydraulic_redistribution) is added per
-! PFT tile to the one soil tile's extraction.
+! The water the roots move between soil layers (hydraulic redistribution,
+! l_som_hydraulic_redistribution) is added to what each layer loses or
+! gains, weighted by each PFT's share of the ground. It needs a single soil
+! tile.
 ! MDK, 15/11/26
 IF ( l_som_hydraulic_redistribution .AND.                                      &
      ( nsoilt /= 1 .OR. l_irrig_dmd .OR. l_aggregate ) ) THEN
@@ -314,7 +325,8 @@ END IF
 !$OMP PARALLEL                                                                 &
 !$OMP DEFAULT(SHARED)                                                          &
 !$OMP PRIVATE(i,j,k,m,l,n,mm,edt,rhokh1_prime,diff_lat_htf,dtstar,             &
-!$OMP diff_sens_htf,esoil_only_or,transp_or,transp_layer1_or)
+!$OMP diff_sens_htf,esoil_only_or,transp_or,transp_layer1_or,hr_lay_gb,        &
+!$OMP hr_fac_gb)
 
 DO n = 1,nsurft
 !$OMP DO SCHEDULE(STATIC)
@@ -1011,15 +1023,6 @@ DO m = 1,sm_levels
           END IF
           IF ( m == 1 ) ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                  &
                                             - tile_frac(l,n) * esoil_cut_or(l,n)
-          ! The roots' redistribution between layers
-          ! (l_som_hydraulic_redistribution; it sums to zero over the
-          ! layers).
-          ! MDK, 15/11/26
-          IF ( l_som_hydraulic_redistribution .AND. n <= npft ) THEN
-            IF ( ALLOCATED(hr_ext_pft) )                                       &
-              ext_soilt(l,mm,m) = ext_soilt(l,mm,m)                            &
-                                  + tile_frac(l,n) * hr_ext_pft(l,m,n)
-          END IF
         END DO
 !$OMP END DO
       END IF
@@ -1060,6 +1063,53 @@ DO m = 1,sm_levels
     END IF
   END IF
 END DO !sm_levels
+
+! Hydraulic redistribution (l_som_hydraulic_redistribution): the water the
+! PFTs' roots move between the soil layers, weighted by each PFT's share of
+! the ground (normalised as the extraction above), is added to what each
+! layer loses (> 0) or gains (< 0). It adds up to zero over the layers.
+! Now that the transpiration, the plant store's refill and soil evaporation
+! from each layer are all known, it is scaled down at a point, in every
+! layer alike so its sum stays zero, if any layer would otherwise lose more
+! than its unfrozen water or gain more than its empty pore space in the
+! step.
+! MDK, 16/11/26
+IF ( l_som_hydraulic_redistribution .AND. nsoilt == 1 ) THEN
+  IF ( ALLOCATED(hr_ext_pft) ) THEN
+!$OMP DO SCHEDULE(STATIC)
+    DO l = 1,land_pts
+      hr_fac_gb = 1.0
+
+      DO m = 1,sm_levels
+        hr_lay_gb = SUM(tile_frac(l,1:npft) * hr_ext_pft(l,m,1:npft))
+        IF ( .NOT. l_aggregate .AND. non_irrig_frac(l) > EPSILON(0.0) )        &
+          hr_lay_gb = hr_lay_gb / non_irrig_frac(l)
+        IF ( l_flake_model .AND. non_lake_frac(l) > EPSILON(0.0) )             &
+          hr_lay_gb = hr_lay_gb / non_lake_frac(l)
+        IF ( hr_lay_gb > 0.0 ) THEN
+          hr_fac_gb = MIN(hr_fac_gb, MAX(hr_w_avail(l,m) / timestep            &
+                                         - ext_soilt(l,1,m), 0.0) / hr_lay_gb)
+        ELSE IF ( hr_lay_gb < 0.0 ) THEN
+          hr_fac_gb = MIN(hr_fac_gb, MAX(hr_w_space(l,m) / timestep            &
+                                         + ext_soilt(l,1,m), 0.0)              &
+                                     / (-hr_lay_gb))
+        END IF
+
+      END DO
+
+      DO m = 1,sm_levels
+        hr_lay_gb = SUM(tile_frac(l,1:npft) * hr_ext_pft(l,m,1:npft))
+        IF ( .NOT. l_aggregate .AND. non_irrig_frac(l) > EPSILON(0.0) )        &
+          hr_lay_gb = hr_lay_gb / non_irrig_frac(l)
+        IF ( l_flake_model .AND. non_lake_frac(l) > EPSILON(0.0) )             &
+          hr_lay_gb = hr_lay_gb / non_lake_frac(l)
+        ext_soilt(l,1,m) = ext_soilt(l,1,m) + hr_fac_gb * hr_lay_gb
+      END DO
+
+    END DO
+!$OMP END DO
+  END IF
+END IF
 
 ! Do similar for irrigation, if required
 IF (l_irrig_dmd) THEN
