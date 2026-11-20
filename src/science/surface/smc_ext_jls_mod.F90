@@ -116,9 +116,11 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
  wt_ext(npnts,nshyd)
-!                     ! Cumulative fraction of transpiration
-!                     !    extracted from each soil layer
-!                     !    (kg/m2/s).
+!                     ! Normalised weights (no units; they sum to 1 over the
+!                     !    layers, or are 0 where no layer has weight): the
+!                     !    fraction of the transpiration extracted from each
+!                     !    soil layer.
+!                     ! MDK, 20/11/26
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
  psi_root_zone(npnts)                                                          &

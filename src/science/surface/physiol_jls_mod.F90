@@ -1727,10 +1727,16 @@ DO n = 1,npft
   !
   !   wt_ext_i = q_i / sum_i q_i
   !
-  ! Layers drier than the root give nothing (no hydraulic redistribution).
-  ! This replaces the smc_ext weights, which assume a fixed root_psi_crit.
+  ! Layers drier than the root give nothing to the uptake. With
+  ! l_som_hydraulic_redistribution the roots also move water from the wetter
+  ! layers into those layers. That flow is set in redistribute_soil_water,
+  ! which is called after this block and recomputes the weights above: it
+  ! takes each layer's potential less the weight of the water above it
+  ! (rho_water * g * soil_z_mid), and puts the layer's root link in series
+  ! with its soil link. These weights replace the smc_ext weights, which
+  ! under profit max are the soil-to-root conductances alone (no flow).
   !
-  ! MDK, 23/10/26
+  ! MDK, 20/11/26
   !-----------------------------------------------------------------------
   ! Hydraulic redistribution: this PFT's flows start at zero (set below
   ! for the PFTs on the soil-to-root link). The arrays and the layers'
@@ -1805,6 +1811,8 @@ DO n = 1,npft
       !
       ! in kg m-3 s-1 x Pa. Only the relative sizes matter, so the units
       ! cancel in the weights. Layers drier than the root are set to zero.
+      ! With l_som_hydraulic_redistribution, redistribute_soil_water (below)
+      ! recomputes these weights and sets the water moved into the dry layers.
       q_rs(:) = MAX(soil_root_k_soilt(l,m,:)                                   &
                     * (soil_wp_soilt(l,m,:) - psi_root_rs), 0.0)
 
