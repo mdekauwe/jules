@@ -1712,7 +1712,12 @@ DO n = 1,npft
   !
   ! at the actual root water potential
   !
-  !   psi_root = psi_root_zone - E / K_s,   K_s = sum_i k_i
+  !   psi_root = psi_root_zone - E / Ksr
+  !
+  ! with Ksr the soil-to-root conductance summed over the layers, the
+  ! optimiser's ksr (mol m-2 s-1 Pa-1),
+  !
+  !   Ksr = sum_i k_i / (rho_water * g * m_h2o)
   !
   ! where
   !   psi_root_zone  conductance-weighted soil psi from smc_ext (Pa)
@@ -1775,15 +1780,16 @@ DO n = 1,npft
     DO j = 1,surft_pts(n)
       l = surft_index(j,n)
 
-      ! Total soil-to-root conductance, K_s (kg m-3 s-1, per m of head).
+      ! Total soil-to-root conductance, sum_i k_i (ksum_rs; kg m-3 s-1, per
+      ! m of head), which is Ksr * rho_water * g * m_h2o.
       ! Skip points with no conducting roots: the smc_ext weights stay.
       ksum_rs = SUM(MAX(soil_root_k_soilt(l,m,:), 0.0))
       IF ( ksum_rs <= TINY(1.0_real_jlslsm) ) CYCLE
 
-      ! Root water potential (Pa): the drop E / K_s across the soil-to-root
-      ! path. E (mol m-2 s-1) x m_h2o_rs (kg mol-1) is a mass flux (kg m-2
-      ! s-1); dividing by K_s gives metres of head, and rho_water * g turns
-      ! head into Pa.
+      ! Root water potential (Pa): the drop E / Ksr across the soil-to-root
+      ! path. E (mol m-2 s-1) * m_h2o_rs (kg mol-1) is a mass flux (kg m-2
+      ! s-1); dividing by ksum_rs gives metres of head, and rho_water * g
+      ! turns head into Pa.
       !
       ! With the plant capacitance the roots carry the soil-to-store flow,
       !
