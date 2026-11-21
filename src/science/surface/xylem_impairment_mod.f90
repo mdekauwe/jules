@@ -29,9 +29,11 @@ CONTAINS
 ! pass the work to it:
 !
 !   0  none: the plant always uses its undamaged vulnerability curve;
-!   2  whole trunk: each part of the xylem keeps the conductance of the
+!   1  kmax-impaired: damage lowers the plant's kmax, and the curve's b and
+!      c are refitted to the lowered kmax (xylem_impairment_kmax_mod);
+!   2  trunk-impaired: each part of the xylem keeps the conductance of the
 !      driest water potential it has met;
-!   3  memory: the conductance lost in drought is held as a cap on the
+!   3  memory-impaired: the conductance lost in drought is held as a cap on the
 !      curve and recovers through new wood and new leaves.
 !
 ! During spin-up no damage is applied or recorded.
@@ -47,9 +49,10 @@ CONTAINS
 !   kmax: the kmax after damage, with the same scaling;
 !   kcrit: on the same scaling as kmax_ref.
 !
-! Neither impairment model changes conductance_b or conductance_c.
+! The whole trunk and memory models leave conductance_b and conductance_c
+! as the PFT's; the kmax-impaired model gives each point refitted values.
 !
-! MDK, 24/10/26
+! MDK, 21/11/26
 ! *********************************************************************
 
 ! ---------------------------------------------------------------------
@@ -77,6 +80,7 @@ SUBROUTINE leaf_conductance_impaired_jls( pft,                                 &
 
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: xylem_impairment_none,                         &
+                                xylem_impairment_kmax,                         &
                                 xylem_impairment_whole_trunk,                  &
                                 xylem_impairment_memory
 USE pftparm, ONLY: pft_xylem_impairment_model,                                 &
@@ -161,6 +165,20 @@ END IF
 
 SELECT CASE ( pft_xylem_impairment_model(pft) )
 
+CASE ( xylem_impairment_kmax )
+  ! The impairment is in the point's kmax, b and c: the default conductance
+  ! model on the impaired curve.
+  CALL leaf_conductance_jls( pft,                                              &
+                             land_pnts,                                        &
+                             water_potential,                                  &
+                             kmax,                                             &
+                             kcrit,                                            &
+                             conductance_b,                                    &
+                             conductance_c,                                    &
+                           ! INTENT OUT
+                             leaf_conductance                                  &
+                             )
+
 CASE ( xylem_impairment_whole_trunk )
   CALL leaf_conductance_impaired_whole_trunk_jls( pft,                         &
                                                  land_pnts,                    &
@@ -190,8 +208,8 @@ CASE ( xylem_impairment_memory )
 CASE DEFAULT
   errcode = 101  !  a hard error
   CALL ereport(RoutineName, errcode,                                           &
-    'pft_xylem_impairment_model should be none (0), whole_trunk (2) ' //       &
-    'or memory (3)')
+    'pft_xylem_impairment_model should be none (0), kmax (1), ' //             &
+    'whole_trunk (2) or memory (3)')
 
 END SELECT
 
@@ -251,6 +269,7 @@ SUBROUTINE psi_leaf_impaired_jls( pft,                                         &
 
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: xylem_impairment_none,                         &
+                                xylem_impairment_kmax,                         &
                                 xylem_impairment_whole_trunk,                  &
                                 xylem_impairment_memory
 USE pftparm, ONLY: pft_xylem_impairment_model,                                 &
@@ -368,6 +387,26 @@ END IF
 
 SELECT CASE ( pft_xylem_impairment_model(pft) )
 
+  CASE (xylem_impairment_kmax)
+    ! The impairment is in the point's kmax, b and c: the default solver
+    ! (with its soil-to-root link) on the impaired curve.
+    CALL psi_leaf_jls( pft,                                                    &
+                       n_e_leaf,                                               &
+                       land_pnts,                                              &
+                       open_pnts,                                              &
+                       veg_index,                                              &
+                       open_index,                                             &
+                       e_leaf,                                                 &
+                       root_zone_psi,                                          &
+                       kmax,                                                   &
+                       kcrit,                                                  &
+                       conductance_b,                                          &
+                       conductance_c,                                          &
+                     ! INTENT OUT
+                       leaf_psi,                                               &
+                       leaf_k                                                  &
+              )
+
   CASE (xylem_impairment_whole_trunk, xylem_impairment_memory)
     !-----------------------------------------------------------------------
     ! Soil-to-root conductance in series ahead of the impaired plant, as
@@ -430,8 +469,8 @@ SELECT CASE ( pft_xylem_impairment_model(pft) )
   CASE DEFAULT
     errcode = 101  !  a hard error
     CALL ereport(RoutineName, errcode,                                         &
-     'pft_xylem_impairment_model should be none (0), whole_trunk (2) ' //      &
-     'or memory (3)')
+     'pft_xylem_impairment_model should be none (0), kmax (1), ' //            &
+     'whole_trunk (2) or memory (3)')
 END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
@@ -528,10 +567,12 @@ SUBROUTINE update_xylem_impairment ( n_land_pts                                &
 
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: xylem_impairment_none,                         &
+                                xylem_impairment_kmax,                         &
                                 xylem_impairment_whole_trunk,                  &
                                 xylem_impairment_memory
 USE pftparm, ONLY: pft_xylem_impairment_model
 
+USE xylem_impairment_kmax_mod, ONLY: update_xylem_impairment_kmax
 USE xylem_impairment_whole_trunk_mod, ONLY: update_xylem_impairment_whole_trunk
 USE xylem_impairment_memory_mod, ONLY: update_xylem_impairment_memory
 
@@ -603,6 +644,16 @@ SELECT CASE (pft_xylem_impairment_model(pft))
   CASE(xylem_impairment_none)
     ! No xylem impairment
 
+  CASE(xylem_impairment_kmax)
+    CALL update_xylem_impairment_kmax( n_land_pts,                             &
+                                       n_open_pts,                             &
+                                       open_index,                             &
+                                       pft,                                    &
+                                       psi_leaf,                               &
+                                       psi_root,                               &
+                                       impaired_k_max                          &
+                                     )
+
   CASE(xylem_impairment_whole_trunk)
     CALL update_xylem_impairment_whole_trunk( n_land_pts,                      &
                                               n_open_pts,                      &
@@ -630,8 +681,8 @@ SELECT CASE (pft_xylem_impairment_model(pft))
   CASE DEFAULT
     errcode = 1
     CALL ereport(RoutineName, errcode,                                         &
-     'pft_xylem_impairment_model should be none (0), whole_trunk (2) ' //      &
-     'or memory (3)')
+     'pft_xylem_impairment_model should be none (0), kmax (1), ' //            &
+     'whole_trunk (2) or memory (3)')
 END SELECT
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

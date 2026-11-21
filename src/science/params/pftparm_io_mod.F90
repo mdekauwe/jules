@@ -285,6 +285,9 @@ REAL(KIND=real_jlslsm) ::                                                      &
   sox_a_io(npft_max) = rmdi,                                                   &
   sox_p50_io(npft_max) = rmdi,                                                 &
   sox_rp_min_io(npft_max) = rmdi,                                              &
+  ximpair_leaf_weight_io(npft_max) = rmdi,                                     &
+  ximpair_new_kmax_weight_io(npft_max) = rmdi,                                 &
+  ximpair_threshold_fraction_io(npft_max) = rmdi,                              &
   ximpair_tau_leaf_io(npft_max) = rmdi,                                        &
   ! MDK, 17/10/26
   nsc_flush_io(npft_max) = rmdi,                                               &
@@ -410,6 +413,8 @@ NAMELIST  / jules_pftparm/                                                     &
   sug_yg_io,       leaf_crit_io,     z0hm_pft_io,                              & !JBaguley
   z0hm_classic_pft_io,               z0v_io,                                   &
   sox_a_io,        sox_p50_io,       sox_rp_min_io,                            &
+  ximpair_leaf_weight_io,            ximpair_new_kmax_weight_io,               &
+  ximpair_threshold_fraction_io,                                               &
   ximpair_psi_driver_io,                                                       &
   ximpair_reset_mmdd_io,                                                       &
   ximpair_tau_leaf_io,                                                         &
@@ -477,7 +482,7 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 189 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 192 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
@@ -634,6 +639,9 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: sox_a_io(npft_max)
   REAL(KIND=real_jlslsm) :: sox_p50_io(npft_max)
   REAL(KIND=real_jlslsm) :: sox_rp_min_io(npft_max)
+  REAL(KIND=real_jlslsm) :: ximpair_leaf_weight_io(npft_max)
+  REAL(KIND=real_jlslsm) :: ximpair_new_kmax_weight_io(npft_max)
+  REAL(KIND=real_jlslsm) :: ximpair_threshold_fraction_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_tau_leaf_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_flush_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_kc_io(npft_max)
@@ -849,6 +857,9 @@ IF (mype == 0) THEN
   my_nml % sox_a_io       = sox_a_io
   my_nml % sox_p50_io     = sox_p50_io
   my_nml % sox_rp_min_io  = sox_rp_min_io
+  my_nml % ximpair_leaf_weight_io = ximpair_leaf_weight_io
+  my_nml % ximpair_new_kmax_weight_io = ximpair_new_kmax_weight_io
+  my_nml % ximpair_threshold_fraction_io = ximpair_threshold_fraction_io
   my_nml % ximpair_tau_leaf_io = ximpair_tau_leaf_io
   my_nml % nsc_flush_io = nsc_flush_io
   my_nml % nsc_kc_io = nsc_kc_io
@@ -1052,6 +1063,9 @@ IF (mype /= 0) THEN
   sox_a_io        = my_nml % sox_a_io
   sox_p50_io      = my_nml % sox_p50_io
   sox_rp_min_io   = my_nml % sox_rp_min_io
+  ximpair_leaf_weight_io = my_nml % ximpair_leaf_weight_io
+  ximpair_new_kmax_weight_io = my_nml % ximpair_new_kmax_weight_io
+  ximpair_threshold_fraction_io = my_nml % ximpair_threshold_fraction_io
   ximpair_tau_leaf_io = my_nml % ximpair_tau_leaf_io
   nsc_flush_io = my_nml % nsc_flush_io
   nsc_kc_io = my_nml % nsc_kc_io
@@ -1180,6 +1194,8 @@ USE pftparm, ONLY:                                                             &
   vint,            vsl,              sug_yg,                                   &
   leaf_crit,       z0v,                                                        & !JBaguley
   sox_a,           sox_p50,          sox_rp_min,                               &
+  ximpair_leaf_weight,               ximpair_new_kmax_weight,                  &
+  ximpair_threshold,                                                           &
   ximpair_psi_driver,                                                          &
   ximpair_tau_leaf,                                                            &
   nsc_flush,       nsc_kc,           nsc_reserve_frac,                         &
@@ -1215,6 +1231,7 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 stomata_profit_max, stomata_cap,               &
                                 stomata_sox_opt, stomata_pm2,                  &
                                 som_ci_search, som_ci_bounded,                 &
+                                xylem_impairment_kmax,                         &
                                 xylem_impairment_memory,                       &
                                 ximpair_driver_stem, l_triffid_nsc,            &
                                 l_ximpair_rec_nsc, l_veg_compete,              &
@@ -1540,6 +1557,12 @@ P88(:)          = mpa_to_pa(p88_io(1:npft))
 sox_a(:)        = sox_a_io(1:npft)
 sox_p50(:)      = sox_p50_io(1:npft)
 sox_rp_min(:)   = sox_rp_min_io(1:npft)
+! kmax-impaired model (pft_xylem_impairment_model = 1). The threshold is
+! given as a fraction of kmax and kept in model units.
+ximpair_leaf_weight(:)     = ximpair_leaf_weight_io(1:npft)
+ximpair_new_kmax_weight(:) = ximpair_new_kmax_weight_io(1:npft)
+ximpair_threshold(:)       = ximpair_threshold_fraction_io(1:npft)             &
+                             * kmax_pft(1:npft)
 ! Embolism memory impairment model: keep the pftparm_alloc defaults for any
 ! item not given in the namelist.
 DO i = 1, npft
@@ -2189,6 +2212,27 @@ DO i = 1, npft
     CALL ereport(RoutineName, errcode,                                         &
                  'l_som_plant_segments can only be combined with ' //          &
                  'pft_xylem_impairment_model = 0 or 3 (memory).')
+  END IF
+  ! The kmax-impaired model needs its three parameters, and works with
+  ! neither the plant capacitance nor the cuticular loss, whose store follows
+  ! the capped curve.
+  !
+  ! MDK, 21/11/26
+  IF ( pft_xylem_impairment_model(i) == xylem_impairment_kmax ) THEN
+    IF ( ANY( ABS( [ ximpair_leaf_weight(i), ximpair_new_kmax_weight(i),      &
+                     ximpair_threshold(i) ] - rmdi ) < EPSILON(1.0) ) ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode,                                       &
+                   'pft_xylem_impairment_model = 1 (kmax) needs ' //           &
+                   'ximpair_leaf_weight_io, ximpair_new_kmax_weight_io ' //    &
+                   'and ximpair_threshold_fraction_io.')
+    END IF
+    IF ( l_som_capacitance_on ) THEN
+      errcode = 101
+      CALL ereport(RoutineName, errcode,                                       &
+                   'pft_xylem_impairment_model = 1 (kmax) does not work ' //   &
+                   'with l_som_capacitance or som_cuticular_leak > 0.')
+    END IF
   END IF
   IF ( pft_xylem_impairment_model(i) == xylem_impairment_memory .AND.         &
        ximpair_psi_driver(i) == ximpair_driver_stem .AND.                      &

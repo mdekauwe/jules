@@ -446,8 +446,20 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
 ,sox_p50(:)                                                                    &
                  ! Xlem water potential at which xylem hydraulic
                  ! conductance is half its maximum value. (MPa)
-,sox_rp_min(:)
+,sox_rp_min(:)                                                                 &
                  ! Plant minimum hydraulic resistance. (m2 s MPa/mol)
+,ximpair_leaf_weight(:)                                                        &
+                 ! kmax-impaired model (pft_xylem_impairment_model = 1):
+                 !  weight of the leaf conductance against the root zone
+                 !  conductance in the new kmax (0 to 1).
+,ximpair_new_kmax_weight(:)                                                    &
+                 ! kmax-impaired model: weight of the new kmax against the
+                 !  previous one each timestep (0 to 1).
+,ximpair_threshold(:)
+                 ! kmax-impaired model: conductance loss threshold below which
+                 !  no damage is made (mol m-2 s-1 Pa-1, as kmax_pft).
+                 !
+                 ! MDK, 21/11/26
 
 INTEGER, ALLOCATABLE ::                                                        &
 pft_conductance_model(:),                                                      &
@@ -461,9 +473,11 @@ pft_xylem_impairment_model(:),                                                 &
                  ! Flag for the xylem impairment model used by the stomatal
                  !  optimisation model.
                  !       0: No xylem impairment
-                 !       1: Reduce kmax
-                 !       2: Whole trunk (historic minimum water potentials)
-                 !       3: Embolism memory with recovery
+                 !       1: kmax-impaired (kmax lowered, Weibull b and c
+                 !          refitted)
+                 !       2: Trunk-impaired (historic minimum water
+                 !          potentials)
+                 !       3: Memory-impaired (embolism memory with recovery)
 ximpair_psi_driver(:)
                  ! Water potential driving embolism in the memory impairment
                  !  model (pft_xylem_impairment_model = 3).
@@ -1408,10 +1422,16 @@ phen_bb_min_days(:) = 0.0
 ALLOCATE( sox_a(npft))
 ALLOCATE( sox_p50(npft))
 ALLOCATE( sox_rp_min(npft))
+ALLOCATE( ximpair_leaf_weight(npft))      ! MDK, 21/11/26
+ALLOCATE( ximpair_new_kmax_weight(npft))  ! MDK, 21/11/26
+ALLOCATE( ximpair_threshold(npft))        ! MDK, 21/11/26
 
 sox_a(:)      = rmdi
 sox_p50(:)    = rmdi
 sox_rp_min(:) = rmdi
+ximpair_leaf_weight(:)     = rmdi   ! MDK, 21/11/26
+ximpair_new_kmax_weight(:) = rmdi   ! MDK, 21/11/26
+ximpair_threshold(:)       = rmdi   ! MDK, 21/11/26
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 RETURN
@@ -1637,6 +1657,12 @@ WRITE(lineBuffer,*)' sox_p50 = ',sox_p50
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' sox_rp_min = ',sox_rp_min
 CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' ximpair_leaf_weight = ',ximpair_leaf_weight   ! MDK, 21/11/26
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' ximpair_new_kmax_weight = ',ximpair_new_kmax_weight   ! MDK, 21/11/26
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' ximpair_threshold = ',ximpair_threshold   ! MDK, 21/11/26
+CALL jules_print('pftparm',lineBuffer)
 
 ! Stomatal optimisation / root water uptake parameters (JBaguley, gs_opt_dev).
 ! kmax_pft and kcrit are in model units (mol m-2 s-1 Pa-1); the namelist
@@ -1837,6 +1863,7 @@ USE jules_vegetation_mod, ONLY: can_rad_mod, l_crop, l_trait_phys,             &
                                  som_psi_solver, psi_solver_lut,               &
                                  l_ximpair_seg_memory, l_som_plant_segments,   &
                                  l_som_seg_whole,                              &
+                                 xylem_impairment_kmax,                        &
                                  xylem_impairment_memory,                      &
                                  xylem_impairment_none,                        &
                                  xylem_impairment_whole_trunk,                 &
@@ -2524,26 +2551,21 @@ IF ( ANY( pft_xylem_impairment_model(:) /= 0 ) ) THEN
     'with som_psi_solver = 3 xylem impairment is only '                    // &
     'coded for the memory model (pft_xylem_impairment_model = 3)')
   END IF
-  IF ( ANY( pft_xylem_impairment_model(1:npft) == 1 .OR.                      &
-            pft_xylem_impairment_model(1:npft) == 4 ) ) THEN
-    ERROR = 1
-    CALL ereport(routinename, ERROR,                                           &
-    'pft_xylem_impairment_model 1 (kmax) and 4 (kmax refit) are retired; '  // &
-    'use 2 or 3 (their code is on branch xylem_impairment at 130a575)')
-  END IF
   ! Any other value would only be caught after spin-up (the impairment
   ! routines return early in spin-up), so check here, once.
   !
   ! MDK, 24/10/26
   IF ( ANY( pft_xylem_impairment_model(1:npft) /= xylem_impairment_none .AND.  &
             pft_xylem_impairment_model(1:npft) /=                             &
+                                         xylem_impairment_kmax .AND.          &
+            pft_xylem_impairment_model(1:npft) /=                             &
                                          xylem_impairment_whole_trunk .AND.   &
             pft_xylem_impairment_model(1:npft) /= xylem_impairment_memory ) )  &
        THEN
     ERROR = 1
     CALL ereport(routinename, ERROR,                                           &
-    'pft_xylem_impairment_model should be 0 (none), 2 (whole trunk) or '    // &
-    '3 (memory)')
+    'pft_xylem_impairment_model should be 0 (none), 1 (kmax), 2 (whole '    // &
+    'trunk) or 3 (memory)')
   END IF
   IF ( ANY( pft_xylem_impairment_model(1:npft) == xylem_impairment_memory    &
             .AND. ( ximpair_psi_driver(1:npft) < ximpair_driver_leaf .OR.     &

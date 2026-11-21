@@ -122,8 +122,10 @@ USE jules_vegetation_mod, ONLY:                                                &
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                        &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
   l_som_rhizo_series, l_som_capacitance_on, l_ximpair_frozen_hold,           &
-  xylem_impairment_memory
+  xylem_impairment_memory, xylem_impairment_kmax
   ! MDK, 06/11/26
+USE model_time_mod, ONLY: is_spinup   ! MDK, 21/11/26
+USE xylem_impairment_kmax_mod, ONLY: xylem_kmax_refit_curve   ! MDK, 21/11/26
 USE xylem_impairment_memory_mod, ONLY: ximpair_root_frozen
   ! Frozen share of the root zone's soil water (l_ximpair_frozen_hold).
   ! MDK, 06/11/26
@@ -718,9 +720,10 @@ INTEGER ::                                                                     &
       ! Loop indices.
 
 ! The PFT's vulnerability curve on land points, for sf_stom (b in Pa).
-! Every impairment model uses it unchanged.
+! The memory and whole-trunk impairment models use it unchanged; the
+! kmax-impaired model refits it to the point's impaired kmax.
 !
-! MDK, 24/10/26
+! MDK, 21/11/26
 REAL(KIND=real_jlslsm) :: cond_b_pts(land_pts), cond_c_pts(land_pts)
 
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -1637,6 +1640,11 @@ DO n = 1,npft
   fsun_tmp(:,:) = fsun(:,n,:)
   cond_b_pts(:) = conductance_b_pft(n)
   cond_c_pts(:) = conductance_c_pft(n)
+  IF ( .NOT. is_spinup .AND.                                                   &
+       pft_xylem_impairment_model(n) == xylem_impairment_kmax ) THEN
+    CALL xylem_kmax_refit_curve( n, land_pts, k_max_impaired_pft(:,n),         &
+                                 cond_b_pts, cond_c_pts )
+  END IF
 
   ! Xylem impairment, memory model (l_ximpair_frozen_hold): the frozen share
   ! of this PFT's root-zone soil water, sum over layers of
