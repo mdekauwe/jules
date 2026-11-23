@@ -564,7 +564,13 @@ END SUBROUTINE psi_leaf_impaired_jls
 ! (ximpair_psi_stem, psi_stem_pft and the per-segment PLC) is the stem's
 ! own, also while dormant.
 !
-! MDK, 17/11/26
+! A PFT with ximpair_lai_min > 0 is treated the same at the points where its
+! leaf area index is below ximpair_lai_min, whether or not it is dormant:
+! the root water potential replaces the leaf and stem potentials there, for
+! every impairment model. This keeps a nearly leafless canopy from taking
+! damage at the potential of its few leaves.
+!
+! MDK, 23/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment ( n_land_pts                                &
 ,                                    n_open_pts                                &
@@ -653,15 +659,17 @@ INTEGER :: errcode
 INTEGER :: j, l
 
 ! The water potentials that drive the impairment (Pa). They point to the
-! arguments, or to copies holding the root water potential while the PFT
-! is dormant.
-REAL(KIND=real_jlslsm), POINTER :: psi_leaf_d(:), psi_stem_d(:), psi_cls_d(:,:)
-REAL(KIND=real_jlslsm), ALLOCATABLE, TARGET :: leaf_dormant(:),                &
-                                               stem_dormant(:),                &
-                                               cls_dormant(:,:)
+! arguments, or to copies holding the root water potential at the points
+! where it replaces them (leaf_gated, stem_gated and cls_gated).
+REAL(KIND=real_jlslsm), POINTER :: psi_leaf_use(:), psi_stem_use(:),           &
+                                   psi_cls_use(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, TARGET :: leaf_gated(:),                  &
+                                               stem_gated(:),                  &
+                                               cls_gated(:,:)
 
-! This PFT's xylem is at the root water potential while dormant.
-LOGICAL :: l_dormant_root
+! The PFT has points whose xylem is at the root water potential: dormant or
+! leafless.
+LOGICAL :: l_root_psi_gate
 
 ! The PFT has a leaf area threshold, and this point is leafless.
 LOGICAL :: l_lai_gate, l_leafless
@@ -680,24 +688,24 @@ IF (is_spinup) THEN
 END IF
 
 ! A dormant PFT (l_ximpair_leafless_root_psi, budburst gate, canopy fallen to
-! the floor): its xylem is taken to be at the root water potential.
-l_dormant_root = l_ximpair_leafless_root_psi .AND. phen_bb_on(pft)
-IF (l_dormant_root) l_dormant_root = ALLOCATED(phen_dormant)
+! the floor) has its xylem at the root water potential.
+l_root_psi_gate = l_ximpair_leafless_root_psi .AND. phen_bb_on(pft)
+IF (l_root_psi_gate) l_root_psi_gate = ALLOCATED(phen_dormant)
 
-! A PFT with too little leaf area (ximpair_lai_min) is treated the same.
+! So does a point of a PFT with ximpair_lai_min whose leaf area is below it.
 l_lai_gate = ximpair_lai_min(pft) > 0.0
-l_dormant_root = l_dormant_root .OR. l_lai_gate
+l_root_psi_gate = l_root_psi_gate .OR. l_lai_gate
 
-NULLIFY(psi_cls_d)
+NULLIFY(psi_cls_use)
 
-IF (l_dormant_root) THEN
-  ALLOCATE(leaf_dormant(n_land_pts), stem_dormant(n_land_pts))
-  leaf_dormant(:) = psi_leaf(:)
-  stem_dormant(:) = psi_stem(:)
+IF (l_root_psi_gate) THEN
+  ALLOCATE(leaf_gated(n_land_pts), stem_gated(n_land_pts))
+  leaf_gated(:) = psi_leaf(:)
+  stem_gated(:) = psi_stem(:)
 
   IF (PRESENT(psi_leaf_cls)) THEN
-    ALLOCATE(cls_dormant(n_land_pts,2))
-    cls_dormant(:,:) = psi_leaf_cls(:,:)
+    ALLOCATE(cls_gated(n_land_pts,2))
+    cls_gated(:,:) = psi_leaf_cls(:,:)
   END IF
 
   DO j = 1,n_open_pts
@@ -710,23 +718,23 @@ IF (l_dormant_root) THEN
       l_leafless = phen_dormant(l,pft) > 0.5
 
     IF (l_leafless) THEN
-      leaf_dormant(l) = psi_root(l)
-      stem_dormant(l) = psi_root(l)
+      leaf_gated(l) = psi_root(l)
+      stem_gated(l) = psi_root(l)
 
-      IF (ALLOCATED(cls_dormant)) cls_dormant(l,:) = psi_root(l)
+      IF (ALLOCATED(cls_gated)) cls_gated(l,:) = psi_root(l)
     END IF
 
   END DO
 
-  psi_leaf_d => leaf_dormant
-  psi_stem_d => stem_dormant
+  psi_leaf_use => leaf_gated
+  psi_stem_use => stem_gated
 
-  IF (ALLOCATED(cls_dormant)) psi_cls_d => cls_dormant
+  IF (ALLOCATED(cls_gated)) psi_cls_use => cls_gated
 ELSE
-  psi_leaf_d => psi_leaf
-  psi_stem_d => psi_stem
+  psi_leaf_use => psi_leaf
+  psi_stem_use => psi_stem
 
-  IF (PRESENT(psi_leaf_cls)) psi_cls_d => psi_leaf_cls
+  IF (PRESENT(psi_leaf_cls)) psi_cls_use => psi_leaf_cls
 END IF
 
 SELECT CASE (pft_xylem_impairment_model(pft))
@@ -738,7 +746,7 @@ SELECT CASE (pft_xylem_impairment_model(pft))
                                        n_open_pts,                             &
                                        open_index,                             &
                                        pft,                                    &
-                                       psi_leaf_d,                             &
+                                       psi_leaf_use,                           &
                                        psi_root,                               &
                                        impaired_k_max                          &
                                      )
@@ -748,7 +756,7 @@ SELECT CASE (pft_xylem_impairment_model(pft))
                                               n_open_pts,                      &
                                               open_index,                      &
                                               pft,                             &
-                                              psi_leaf_d,                      &
+                                              psi_leaf_use,                    &
                                               psi_root,                        &
                                               psi_leaf_extreme,                &
                                               psi_root_extreme                 &
@@ -760,11 +768,11 @@ SELECT CASE (pft_xylem_impairment_model(pft))
                                            n_open_pts,                         &
                                            open_index,                         &
                                            pft,                                &
-                                           psi_leaf_d,                         &
+                                           psi_leaf_use,                       &
                                            psi_root,                           &
-                                           psi_stem_d,                         &
+                                           psi_stem_use,                       &
                                            impaired_k_max,                     &
-                                           psi_leaf_cls = psi_cls_d,           &
+                                           psi_leaf_cls = psi_cls_use,         &
                                            w_cls = w_cls                       &
                                          )
     ELSE
@@ -772,16 +780,16 @@ SELECT CASE (pft_xylem_impairment_model(pft))
                                            n_open_pts,                         &
                                            open_index,                         &
                                            pft,                                &
-                                           psi_leaf_d,                         &
+                                           psi_leaf_use,                       &
                                            psi_root,                           &
-                                           psi_stem_d,                         &
+                                           psi_stem_use,                       &
                                            impaired_k_max,                     &
                                            w_cls = w_cls                       &
                                          )
     END IF
 
     ! The stem water potential kept for output is the stem's own.
-    IF (l_dormant_root .AND. ALLOCATED(ximpair_psi_stem))                      &
+    IF (l_root_psi_gate .AND. ALLOCATED(ximpair_psi_stem))                     &
       ximpair_psi_stem(:,pft) = psi_stem(:)
 
   CASE DEFAULT

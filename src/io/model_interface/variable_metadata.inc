@@ -11170,7 +11170,7 @@ DATA metadata(860) / var_metadata(                                             &
 ! Metadata for the rings' earlywood (l_nsc_ring_earlywood) and this year's
 ! ring
 !
-! MDK, 17/11/26
+! MDK, 23/11/26
 !-----------------------------------------------------------------------------
 DATA metadata(861) / var_metadata(                                             &
 ! String identifier
@@ -11188,7 +11188,7 @@ DATA metadata(862) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Rings' earlywood: day of year the new earlywood began to conduct",        &
+    "Rings' earlywood: day of year this year's earlywood started",             &
 ! Units
     "day"                                                                      &
   ) /

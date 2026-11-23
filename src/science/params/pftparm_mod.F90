@@ -602,12 +602,12 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !        it is calculated from the kcrit and the conductance
                  !        model in ptftparm_io_mod.F90.
 ,ximpair_lai_min(:)                                                           &
-                 ! Xylem impairment (memory model): leaf area index below
-                 !  which the PFT's canopy is taken to be absent. While the
-                 !  leaf area index is below it, the root water potential
-                 !  drives the damage in place of the leaf and stem, and
-                 !  PLC_pft is the loss at the root water potential. <= 0:
-                 !  off.
+                 ! Xylem impairment (every impairment model): leaf area
+                 !  index below which the PFT's canopy is taken to be absent.
+                 !  While the leaf area index is below it, the root water
+                 !  potential drives the damage in place of the leaf and
+                 !  stem, and PLC_pft is the loss at the root water
+                 !  potential. <= 0: off (default).
                  !
                  ! MDK, 23/11/26
 ,ximpair_tau_leaf(:)                                                          &

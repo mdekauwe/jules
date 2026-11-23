@@ -278,7 +278,6 @@ SUBROUTINE ximpair_memory_alloc( n_land_pts )
 USE jules_surface_types_mod, ONLY: npft
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
 USE jules_vegetation_mod, ONLY: l_nsc_ring_earlywood
-
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
 
@@ -713,10 +712,11 @@ END SUBROUTINE ximpair_ring_step_set
 ! has been none yet this year. The earlywood and the reference stand then
 ! ramp on the same days, so the TRIFFID step, which falls on a different day
 ! each year, does not change f_A. The TRIFFID steps are counted from the
-! start of a run, so the first call in a run, which can be at a restart, is
-! taken as a step day.
+! start of a run, so the first update of a run (update_xylem_impairment_memory),
+! which can be at a restart, takes that day as a step day. This function
+! only reads, so it is safe inside parallel regions.
 !
-! MDK, 17/11/26
+! MDK, 23/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ring_day() RESULT( doy )
 
@@ -729,11 +729,6 @@ REAL(KIND=real_jlslsm) :: doy
 
 doy = REAL(day_of_year(current_time%year, current_time%month,                  &
                        current_time%day, l_360, l_leap))
-
-IF (ring_step_year < 0) THEN
-  ring_step_doy  = doy
-  ring_step_year = current_time%year
-END IF
 
 IF (ring_step_year == current_time%year) doy = ring_step_doy
 
@@ -767,7 +762,7 @@ END FUNCTION ximpair_ring_earlywood_on
 ! holds no latewood yet, being empty or all earlywood. New wood joins the
 ! earlywood, up to its share of the expected full ring, while this holds.
 !
-! MDK, 17/11/26
+! MDK, 23/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ximpair_ring_earlywood_forming( l, pft ) RESULT( forming )
 
@@ -776,8 +771,11 @@ INTEGER, INTENT(IN) :: l, pft
 ! The earlywood can still grow.
 LOGICAL :: forming
 
-! The ring's share of earlywood that counts as all earlywood.
-REAL(KIND=real_jlslsm), PARAMETER :: ew_all = 1.0 - 1.0e-9
+! The ring's share of earlywood that counts as all earlywood. The model runs
+! in single precision (real_jlslsm), where a share that is all earlywood
+! can come out a few units of 6e-8 below 1 from rounding, so the margin is
+! well above that.
+REAL(KIND=real_jlslsm), PARAMETER :: ew_all = 1.0 - 1.0e-4
 
 forming = .FALSE.
 
@@ -1369,12 +1367,11 @@ END FUNCTION ximpair_ring_season_doy
 !
 ! With earlywood and latewood (l_nsc_ring_earlywood) the reference is the
 ! same steady stand with a complete youngest ring from the start of the
-! growing season (ximpair_ring_season_doy; q = 1 at once without
-! nsc_season_start): q = 1, which
-! in the units of ring_steady is one year's new wood (k_h + g_t) * X_t, the
-! expected full ring of ximpair_ring_grow. With nsc_earlywood_mature_days > 0
-! q rises linearly from 0 on that day to 1 over
-! that many days, so f_A has no step at the start of the season; with 0
+! growing season (ximpair_ring_season_doy, 1 January without a start day):
+! q = 1, which in the units of ring_steady is one year's new wood
+! (k_h + g_t) * X_t, the expected full ring of ximpair_ring_grow. With
+! nsc_earlywood_mature_days > 0 q rises linearly from 0 on that day to 1
+! over that many days, so f_A has no step at the start of the season; with 0
 ! days q is 1 from the first day of the season. Before the start of the
 ! season the youngest ring is empty (q = 0), as in the point's rings,
 ! whether or not nsc_grow_end_doy is set. Every older ring holds a full
@@ -1389,13 +1386,13 @@ END FUNCTION ximpair_ring_season_doy
 ! reference, so f_A is below 1 in spring until the new earlywood conducts.
 ! With kappa = phi and s = 1 (no split) F = 1.
 !
-! MDK, 17/11/26
+! MDK, 23/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ximpair_ring_cond_ref( l, pft ) RESULT( c_ref )
 
 USE jules_vegetation_mod, ONLY: nsc_n_ring
-USE pftparm, ONLY: is_set, nsc_season_start, nsc_earlywood_cond_frac,          &
-                   nsc_earlywood_winter_frac, nsc_earlywood_mature_days
+USE pftparm, ONLY: nsc_earlywood_cond_frac, nsc_earlywood_winter_frac,         &
+                   nsc_earlywood_mature_days
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, pft
@@ -1425,17 +1422,13 @@ IF (ximpair_ring_earlywood_on(pft)) THEN
          + nsc_earlywood_cond_frac(pft) * nsc_earlywood_winter_frac(pft)
 
   IF (a1 == 0) THEN
-    IF (is_set(nsc_season_start(pft))) THEN
-      doy       = ring_day()
-      doy_start = ximpair_ring_season_doy(pft)
+    doy       = ring_day()
+    doy_start = ximpair_ring_season_doy(pft)
 
-      IF (doy < doy_start) THEN
-        q = 0.0
-      ELSE IF (nsc_earlywood_mature_days(pft) > 0.0) THEN
-        q = MIN(1.0, (doy - doy_start) / nsc_earlywood_mature_days(pft))
-      ELSE
-        q = 1.0
-      END IF
+    IF (doy < doy_start) THEN
+      q = 0.0
+    ELSE IF (nsc_earlywood_mature_days(pft) > 0.0) THEN
+      q = MIN(1.0, (doy - doy_start) / nsc_earlywood_mature_days(pft))
     ELSE
       q = 1.0
     END IF
@@ -2370,7 +2363,7 @@ END SUBROUTINE psi_leaf_impaired_memory
 ! the stem's loss carry the earlywood factor (ring_earlywood_factor); a dump
 ! with the rings but not their earlywood sets it up here.
 !
-! MDK, 17/11/26
+! MDK, 23/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment_memory( n_land_pts, n_open_pts,             &
                                            open_index, pft, psi_leaf,          &
@@ -2394,6 +2387,8 @@ USE xylem_impairment_seg_state_mod, ONLY: ximpair_kcap_leaf,                   &
 USE triffid_hydmort_mod, ONLY: hydmort_accumulate
 USE jules_surface_types_mod, ONLY: npft
 USE model_time_mod, ONLY: current_time, timestep_len, is_spinup
+USE datetime_utils_mod, ONLY: day_of_year
+USE time_info_mod, ONLY: l_360, l_leap
 USE xylem_hydraulics_jls_mod, ONLY: leaf_conductance_jls
 USE logging_mod, ONLY: log_warn
 
@@ -2499,6 +2494,12 @@ c_pts(:)     = conductance_c_pft(pft)
 ! the rings negative ages: their ages are then counted from today.
 IF (l_nsc_sapwood_rings) THEN
   CALL ximpair_memory_alloc( n_land_pts )
+
+  ! The first update of a run is taken as a TRIFFID step day (ring_day).
+  IF (ring_step_year < 0) CALL ximpair_ring_step_set(                          &
+        day_of_year(current_time%year, current_time%month, current_time%day,   &
+                    l_360, l_leap), current_time%year )
+
   DO l = 1, n_land_pts
     IF (ximpair_ring_frac(l,pft,1) < 0.0)                                      &
       CALL ximpair_ring_init(l, pft, MAX(1.0 - kcap(l) / kmax_pts(l), 0.0))
@@ -2716,7 +2717,7 @@ CONTAINS
 ! begun to mature (ring_earlywood_maturity is 0) is not damaged either: they
 ! have not worked.
 !
-! MDK, 17/11/26
+! MDK, 23/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ring_damage( l, loss_imp )
 
@@ -2737,8 +2738,8 @@ ximpair_ring_peak(l,pft) = MAX(ximpair_ring_peak(l,pft),                       &
                                MIN(loss_imp, loss_max))
 i_first = 1
 IF (ring_age(l, pft, 1) < 0 .OR.                                               &
-    ring_cond(pft, ring_age(l, pft, 1), 0) <= 0.0 .AND.                        &
-    ring_age(l, pft, 1) == 0) i_first = 2
+    (ring_cond(pft, ring_age(l, pft, 1), 0) <= 0.0 .AND.                       &
+     ring_age(l, pft, 1) == 0)) i_first = 2
 
 IF (ximpair_ring_earlywood_on(pft) .AND. ring_age(l, pft, 1) == 0) THEN
   IF (ring_earlywood_maturity(l, pft) <= 0.0) i_first = 2

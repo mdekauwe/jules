@@ -1760,7 +1760,7 @@ END FUNCTION nsc_lai_sapwood
 !      ring and the sapwood. The turnover, the heartwood, the net loss of
 !      wood and the cap at the wood act on the sapwood less A.
 !
-! MDK, 17/11/26
+! MDK, 23/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
                                      r_gamma, ht, lai_bal, lai, woodc, dwood,  &
@@ -2001,9 +2001,11 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
         nsc_xt_cap_count(l,n) = nsc_xt_cap_count(l,n) + 1.0
         sapwood_target = MAX(wood_old, 0.0)
       END IF
+
+      wood_turn_rate = 0.0
+      IF (wood_old > 0.0) wood_turn_rate = wood_litc(l,n) / wood_old
+
       IF (l_nsc_sapwood_pool) THEN
-        wood_turn_rate   = 0.0
-        IF (wood_old > 0.0) wood_turn_rate = wood_litc(l,n) / wood_old
         IF (nsc_sapwood(l,n) < 0.0) THEN
           IF (l_nsc_pipe_target) THEN
             nsc_sapwood(l,n) = sapwood_target
