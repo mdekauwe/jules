@@ -286,6 +286,7 @@ REAL(KIND=real_jlslsm) ::                                                      &
   sox_p50_io(npft_max) = rmdi,                                                 &
   sox_rp_min_io(npft_max) = rmdi,                                              &
   ximpair_tau_leaf_io(npft_max) = rmdi,                                        &
+  ximpair_lai_min_io(npft_max) = rmdi,                                         &
   ! MDK, 17/10/26
   nsc_flush_io(npft_max) = rmdi,                                               &
   nsc_kc_io(npft_max) = rmdi,                                                  &
@@ -316,6 +317,10 @@ REAL(KIND=real_jlslsm) ::                                                      &
   nsc_sink_beta_min_io(npft_max) = rmdi,                                       &
   nsc_ring_cond_efold_io(npft_max) = rmdi,                                     &
   nsc_ring_func_doy_io(npft_max) = rmdi,                                       &
+  nsc_earlywood_carbon_frac_io(npft_max) = rmdi,                               &
+  nsc_earlywood_cond_frac_io(npft_max) = rmdi,                                 &
+  nsc_earlywood_winter_frac_io(npft_max) = rmdi,                               &
+  nsc_earlywood_mature_days_io(npft_max) = rmdi,                               &
   rootd_max_ft_io(npft_max) = rmdi,                                            &
   phen_psi_tlp_io(npft_max) = rmdi,                                            &
   phen_dfbleaf_io(npft_max) = rmdi,                                            &
@@ -413,6 +418,7 @@ NAMELIST  / jules_pftparm/                                                     &
   ximpair_psi_driver_io,                                                       &
   ximpair_reset_mmdd_io,                                                       &
   ximpair_tau_leaf_io,                                                         &
+  ximpair_lai_min_io,                                                          &
   nsc_flush_io,    nsc_kc_io,        nsc_reserve_frac_io,                      &
   nsc_tau_load_io, nsc_wmax_fac_io,                                            &
   nsc_g_starv_io,                                                              &
@@ -428,6 +434,8 @@ NAMELIST  / jules_pftparm/                                                     &
   nsc_sink_days_io, nsc_sink_beta_min_io,                                      &
   nsc_ring_cond_efold_io,                                                      &
   nsc_ring_func_doy_io, rootd_max_ft_io,                                       &
+  nsc_earlywood_carbon_frac_io, nsc_earlywood_cond_frac_io,                    &
+  nsc_earlywood_winter_frac_io, nsc_earlywood_mature_days_io,                  &
   phen_dfbleaf_io, phen_ndays_io, phen_fbleaf_min_io,                         &
   shed_la50_io, shed_la_width_io, shed_fmin_io,                                &
   ctmax_1h_io, z_tdt_io, tcrit_heat_io, krep_ref_io, krep_dec_io,              &
@@ -477,7 +485,7 @@ INTEGER, PARAMETER :: n_int = 8 * npft_max ! = the INTEGER arrays in
                                           ! seg_root_vc
                                           !
                                           ! MDK, 26/10/26
-INTEGER, PARAMETER :: n_real = 189 * npft_max ! = the REAL arrays in
+INTEGER, PARAMETER :: n_real = 194 * npft_max ! = the REAL arrays in
                                              ! my_namelist (all REAL
                                              ! pftparm arrays incl. xylem
                                              ! impairment, the store and
@@ -635,6 +643,7 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: sox_p50_io(npft_max)
   REAL(KIND=real_jlslsm) :: sox_rp_min_io(npft_max)
   REAL(KIND=real_jlslsm) :: ximpair_tau_leaf_io(npft_max)
+  REAL(KIND=real_jlslsm) :: ximpair_lai_min_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_flush_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_kc_io(npft_max)
   REAL(KIND=real_jlslsm) :: nsc_reserve_frac_io(npft_max)
@@ -664,6 +673,10 @@ TYPE :: my_namelist
   REAL(KIND=real_jlslsm) :: nsc_sink_beta_min_io(npft_max)   ! MDK, 31/10/26
   REAL(KIND=real_jlslsm) :: nsc_ring_cond_efold_io(npft_max)   ! MDK, 30/10/26
   REAL(KIND=real_jlslsm) :: nsc_ring_func_doy_io(npft_max)   ! MDK, 31/10/26
+  REAL(KIND=real_jlslsm) :: nsc_earlywood_carbon_frac_io(npft_max)   ! MDK, 17/11/26
+  REAL(KIND=real_jlslsm) :: nsc_earlywood_cond_frac_io(npft_max)   ! MDK, 17/11/26
+  REAL(KIND=real_jlslsm) :: nsc_earlywood_winter_frac_io(npft_max)   ! MDK, 17/11/26
+  REAL(KIND=real_jlslsm) :: nsc_earlywood_mature_days_io(npft_max)   ! MDK, 17/11/26
   REAL(KIND=real_jlslsm) :: rootd_max_ft_io(npft_max)   ! MDK, 16/11/26
   REAL(KIND=real_jlslsm) :: phen_psi_tlp_io(npft_max)
   REAL(KIND=real_jlslsm) :: phen_dfbleaf_io(npft_max)
@@ -850,6 +863,7 @@ IF (mype == 0) THEN
   my_nml % sox_p50_io     = sox_p50_io
   my_nml % sox_rp_min_io  = sox_rp_min_io
   my_nml % ximpair_tau_leaf_io = ximpair_tau_leaf_io
+  my_nml % ximpair_lai_min_io = ximpair_lai_min_io
   my_nml % nsc_flush_io = nsc_flush_io
   my_nml % nsc_kc_io = nsc_kc_io
   my_nml % nsc_reserve_frac_io = nsc_reserve_frac_io
@@ -879,6 +893,10 @@ IF (mype == 0) THEN
   my_nml % nsc_sink_beta_min_io = nsc_sink_beta_min_io   ! MDK, 31/10/26
   my_nml % nsc_ring_cond_efold_io = nsc_ring_cond_efold_io   ! MDK, 30/10/26
   my_nml % nsc_ring_func_doy_io = nsc_ring_func_doy_io   ! MDK, 31/10/26
+  my_nml % nsc_earlywood_carbon_frac_io = nsc_earlywood_carbon_frac_io   ! MDK, 17/11/26
+  my_nml % nsc_earlywood_cond_frac_io = nsc_earlywood_cond_frac_io   ! MDK, 17/11/26
+  my_nml % nsc_earlywood_winter_frac_io = nsc_earlywood_winter_frac_io   ! MDK, 17/11/26
+  my_nml % nsc_earlywood_mature_days_io = nsc_earlywood_mature_days_io   ! MDK, 17/11/26
   my_nml % rootd_max_ft_io = rootd_max_ft_io   ! MDK, 16/11/26
   my_nml % phen_psi_tlp_io = phen_psi_tlp_io
   my_nml % phen_dfbleaf_io = phen_dfbleaf_io
@@ -1053,6 +1071,7 @@ IF (mype /= 0) THEN
   sox_p50_io      = my_nml % sox_p50_io
   sox_rp_min_io   = my_nml % sox_rp_min_io
   ximpair_tau_leaf_io = my_nml % ximpair_tau_leaf_io
+  ximpair_lai_min_io = my_nml % ximpair_lai_min_io
   nsc_flush_io = my_nml % nsc_flush_io
   nsc_kc_io = my_nml % nsc_kc_io
   nsc_reserve_frac_io = my_nml % nsc_reserve_frac_io
@@ -1082,6 +1101,10 @@ IF (mype /= 0) THEN
   nsc_sink_beta_min_io = my_nml % nsc_sink_beta_min_io   ! MDK, 31/10/26
   nsc_ring_cond_efold_io = my_nml % nsc_ring_cond_efold_io   ! MDK, 30/10/26
   nsc_ring_func_doy_io = my_nml % nsc_ring_func_doy_io   ! MDK, 31/10/26
+  nsc_earlywood_carbon_frac_io = my_nml % nsc_earlywood_carbon_frac_io   ! MDK, 17/11/26
+  nsc_earlywood_cond_frac_io = my_nml % nsc_earlywood_cond_frac_io   ! MDK, 17/11/26
+  nsc_earlywood_winter_frac_io = my_nml % nsc_earlywood_winter_frac_io   ! MDK, 17/11/26
+  nsc_earlywood_mature_days_io = my_nml % nsc_earlywood_mature_days_io   ! MDK, 17/11/26
   rootd_max_ft_io = my_nml % rootd_max_ft_io   ! MDK, 16/11/26
   phen_psi_tlp_io = my_nml % phen_psi_tlp_io
   phen_dfbleaf_io = my_nml % phen_dfbleaf_io
@@ -1182,6 +1205,7 @@ USE pftparm, ONLY:                                                             &
   sox_a,           sox_p50,          sox_rp_min,                               &
   ximpair_psi_driver,                                                          &
   ximpair_tau_leaf,                                                            &
+  ximpair_lai_min,                                                             &
   nsc_flush,       nsc_kc,           nsc_reserve_frac,                         &
   nsc_tau_load,    nsc_wmax_fac,                                              &
   nsc_g_starv,                                                                 &
@@ -1198,6 +1222,8 @@ USE pftparm, ONLY:                                                             &
   nsc_heartwood_rate, nsc_grow_thresh, nsc_ring_cond_efold,                   &
   nsc_sink_days, nsc_sink_beta_min,                                            &
   nsc_ring_func_doy, rootd_max_ft,                                             &
+  nsc_earlywood_carbon_frac, nsc_earlywood_cond_frac,                          &
+  nsc_earlywood_winter_frac, nsc_earlywood_mature_days,                        &
   phen_bb_doy, phen_bb_gdd, phen_bb_tbase, phen_bb_min_days
 
 
@@ -1223,6 +1249,7 @@ USE jules_vegetation_mod, ONLY: l_som_plant_segments, l_som_nsl,              &
                                 leaf_flux_mod, leaf_flux_stom_opt, l_trif_eq
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_pool   ! MDK, 29/10/26
 USE jules_vegetation_mod, ONLY: l_nsc_sink_feedback   ! MDK, 31/10/26
+USE jules_vegetation_mod, ONLY: l_nsc_ring_earlywood   ! MDK, 17/11/26
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
                                 ! MDK, 31/10/26
 USE jules_vegetation_mod, ONLY: l_nsc_pipe_target   ! MDK, 04/11/26
@@ -1547,6 +1574,8 @@ DO i = 1, npft
     ximpair_psi_driver(i) = ximpair_psi_driver_io(i)
   IF (ABS(ximpair_tau_leaf_io(i) - rmdi) > EPSILON(1.0))                       &
     ximpair_tau_leaf(i) = ximpair_tau_leaf_io(i)
+  IF (ABS(ximpair_lai_min_io(i) - rmdi) > EPSILON(1.0))                        &
+    ximpair_lai_min(i) = ximpair_lai_min_io(i)
   ! MDK, 17/10/26
   IF (ABS(nsc_flush_io(i) - rmdi) > EPSILON(1.0))                              &
     nsc_flush(i) = nsc_flush_io(i)
@@ -1610,6 +1639,17 @@ DO i = 1, npft
     nsc_ring_cond_efold(i) = nsc_ring_cond_efold_io(i)
   IF (ABS(nsc_ring_func_doy_io(i) - rmdi) > EPSILON(1.0))                      &
     nsc_ring_func_doy(i) = nsc_ring_func_doy_io(i)
+  ! Earlywood and latewood (l_nsc_ring_earlywood).
+  !
+  ! MDK, 17/11/26
+  IF (ABS(nsc_earlywood_carbon_frac_io(i) - rmdi) > EPSILON(1.0))              &
+    nsc_earlywood_carbon_frac(i) = nsc_earlywood_carbon_frac_io(i)
+  IF (ABS(nsc_earlywood_cond_frac_io(i) - rmdi) > EPSILON(1.0))                &
+    nsc_earlywood_cond_frac(i) = nsc_earlywood_cond_frac_io(i)
+  IF (ABS(nsc_earlywood_winter_frac_io(i) - rmdi) > EPSILON(1.0))              &
+    nsc_earlywood_winter_frac(i) = nsc_earlywood_winter_frac_io(i)
+  IF (ABS(nsc_earlywood_mature_days_io(i) - rmdi) > EPSILON(1.0))              &
+    nsc_earlywood_mature_days(i) = nsc_earlywood_mature_days_io(i)
   IF (ABS(phen_psi_tlp_io(i) - rmdi) > EPSILON(1.0))                           &
     phen_psi_tlp(i) = phen_psi_tlp_io(i)
   IF (ABS(phen_dfbleaf_io(i) - rmdi) > EPSILON(1.0))                           &
@@ -1851,6 +1891,91 @@ IF ( l_nsc_sapwood_rings ) THEN
                  'nsc_n_ring is below 1 / nsc_heartwood_rate_io: the last '//  &
                  'ring merges much of the sapwood.')
   END IF
+END IF
+! Earlywood and latewood (l_nsc_ring_earlywood): a PFT has them when it has
+! the earlywood's share of a ring's carbon set (0-1, both ends excluded);
+! the others keep plain rings. A PFT with them needs the memory impairment
+! model, the earlywood's share of the ring's conductance (0-1) and no
+! nsc_ring_func_doy_io. The earlywood's winter share is 0-1 and the
+! maturation days are >= 0. A conductance share of 1 needs a winter share
+! above 0, as otherwise a ring older than a year conducts nothing. Without
+! the switch the four parameters do nothing.
+!
+! MDK, 17/11/26
+IF ( l_nsc_ring_earlywood ) THEN
+  IF ( ANY(is_set(nsc_earlywood_carbon_frac(1:npft)) .AND.                     &
+           (nsc_earlywood_carbon_frac(1:npft) <= 0.0 .OR.                      &
+            nsc_earlywood_carbon_frac(1:npft) >= 1.0)) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_earlywood_carbon_frac_io must be between 0 and 1 (both '   //  &
+                 'excluded) where it is set.')
+  END IF
+  IF ( ANY(is_set(nsc_earlywood_carbon_frac(1:npft)) .AND.                     &
+           pft_xylem_impairment_model(1:npft) /= xylem_impairment_memory) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_earlywood_carbon_frac_io is set for a PFT without the '    //  &
+                 'memory impairment model, which has no rings.')
+  END IF
+  IF ( ANY(is_set(nsc_earlywood_carbon_frac(1:npft)) .AND.                     &
+           (nsc_earlywood_cond_frac(1:npft) < 0.0 .OR.                         &
+            nsc_earlywood_cond_frac(1:npft) > 1.0)) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_earlywood_cond_frac_io must be 0-1 for each PFT with '   //  &
+                 'nsc_earlywood_carbon_frac_io set.')
+  END IF
+  IF ( ANY(nsc_earlywood_winter_frac(1:npft) < 0.0 .OR.                        &
+           nsc_earlywood_winter_frac(1:npft) > 1.0) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_earlywood_winter_frac_io must be 0-1.')
+  END IF
+  IF ( ANY(is_set(nsc_earlywood_carbon_frac(1:npft)) .AND.                     &
+           nsc_earlywood_cond_frac(1:npft) >= 1.0                              &
+           .AND. nsc_earlywood_winter_frac(1:npft) <= 0.0) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_earlywood_cond_frac_io = 1 needs nsc_earlywood_winter_frac_io ' //  &
+                 '> 0: otherwise a ring older than a year conducts '      //  &
+                 'nothing.')
+  END IF
+  IF ( ANY(nsc_earlywood_mature_days(1:npft) < 0.0) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_earlywood_mature_days_io must be >= 0.')
+  END IF
+  IF ( ANY(is_set(nsc_earlywood_carbon_frac(1:npft)) .AND.                     &
+           is_set(nsc_ring_func_doy(1:npft))) ) THEN
+    errcode = 101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_ring_func_doy_io is not used with '                 //  &
+                 'nsc_earlywood_carbon_frac_io set (the earlywood conducts as '  //  &
+                 'its vessels mature): unset it.')
+  END IF
+  ! With s < 1 the earlywood's winter loss comes from s; the age curve c(a)
+  ! (nsc_ring_cond_efold_io) acts on the whole ring as well, so it should
+  ! describe only the latewood's decline with age, or be unset.
+  IF ( ANY(is_set(nsc_earlywood_carbon_frac(1:npft)) .AND.                     &
+           nsc_earlywood_winter_frac(1:npft) < 1.0                             &
+           .AND. is_set(nsc_ring_cond_efold(1:npft))) ) THEN
+    errcode = -101
+    CALL ereport(RoutineName, errcode,                                         &
+                 'nsc_earlywood_winter_frac_io < 1 with nsc_ring_cond_efold_io ' //  &
+                 'set: both reduce an older ring''s conductance, so the ' //  &
+                 'earlywood''s winter loss is counted twice unless the '  //  &
+                 'age curve describes the latewood only.')
+  END IF
+ELSE IF ( ANY(is_set(nsc_earlywood_carbon_frac(1:npft)) .OR.                   &
+              is_set(nsc_earlywood_cond_frac(1:npft)) .OR.                     &
+              ABS(nsc_earlywood_winter_frac(1:npft) - 1.0) > 0.0 .OR.          &
+              ABS(nsc_earlywood_mature_days(1:npft)) > 0.0) ) THEN
+  errcode = -101
+  CALL ereport(RoutineName, errcode,                                           &
+               'nsc_earlywood_carbon_frac_io, nsc_earlywood_cond_frac_io, '           //  &
+               'nsc_earlywood_winter_frac_io and nsc_earlywood_mature_days_io '    //  &
+               'act only with l_nsc_ring_earlywood.')
 END IF
 ! Maximum rooting depth (rootd_max_ft_io): must be > 0. Deeper than the
 ! soil column it removes no roots, so the run warns.

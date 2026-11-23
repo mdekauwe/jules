@@ -184,6 +184,149 @@ MODULE triffid_nsc_mod
 ! EXP(-g_t m), as many rings as hold G / (k_h + g_t) of new wood, and the
 ! youngest ring holds the part of this year's ring grown so far.
 !
+! 7a. Earlywood and latewood (l_nsc_ring_earlywood, with the ring cohorts)
+!
+! A ring is laid down as earlywood first and latewood after it. In
+! ring-porous wood the earlywood's wide vessels carry most of a new ring's
+! flow but are lost over the first winter; in diffuse-porous wood and
+! conifers earlywood and latewood conduct about alike. Four PFT
+! parameters, all from data, set this:
+!
+!   phi   = nsc_earlywood_carbon_frac   the earlywood's share of a full ring's
+!                                carbon (its share of the basal-area
+!                                increment, weighted by the earlywood's
+!                                wood density relative to the ring's),
+!   kappa = nsc_earlywood_cond_frac   its share of a full new ring's
+!                                conductance,
+!   s     = nsc_earlywood_winter_frac   the share of the earlywood's conductance
+!                                kept after the ring's first winter,
+!   nsc_earlywood_mature_days      the days over which a new earlywood's
+!                                conductance rises (default 0).
+!
+! Quercus petraea has phi = 0.37 and kappa = 0.91 (Fernandez-de-Una et
+! al. 2026), and s is about 0 (freeze-thaw embolism of the wide vessels,
+! Cochard and Tyree 1990). Diffuse-porous wood and conifers have kappa
+! about phi and s = 1. With nsc_earlywood_mature_days > 0 the rise of a new
+! earlywood's conductance is spread over the days after it starts.
+!
+! The conductance per unit carbon, relative to the mean over a full new
+! ring, is r_E = kappa / phi in the earlywood and r_L = (1 - kappa) /
+! (1 - phi) in the latewood, so a full ring's mean is phi * r_E + (1 -
+! phi) * r_L = 1, as without the split. A ring i with carbon X_i,
+! earlywood share e_i and age a (winters) conducts in proportion to
+!
+!   X_i * c(a) * F_i,   F_i = r_L + e_i * m * (r_E * s_a - r_L),
+!
+! with c(a) the conductivity by age above, s_a = 1 at a = 0 and s after,
+! and m the share of the earlywood's vessels matured (below; 1 in all but
+! the youngest ring).
+! A full ring (e_i = phi) has F_i = 1 when new and 1 - kappa + kappa * s
+! when older. With kappa = phi and s = 1, F_i = 1 and the rings conduct as
+! without the switch. c(a) still applies to the whole ring: with s < 1 the
+! loss of the earlywood over winter comes from s, so c(a) should then
+! describe only the slower decline of the latewood with age
+! (nsc_ring_cond_efold unset for none). For ring-porous oak an older ring
+! then conducts 1 - kappa + kappa * s of a new one, 0.09 with the Q.
+! petraea values and s = 0.
+!
+! The youngest ring's new wood is earlywood until it holds phi * X_exp, and
+! latewood after that. X_exp is the expected full ring, the ring that
+! keeps the sapwood at its size,
+!
+!   X_exp = (k_h + g_t) * X_ref   (kg C m-2),
+!
+! with k_h the stand's heartwood rate (ximpair_ring_hw_rate: the running
+! mean of the pipe heartwood rule's rate, or nsc_heartwood_rate), g_t as
+! in section 6 and X_ref the pipe-model target X_t (section 8), or without
+! it the sapwood pool X_s. It is one year's new wood in the units of the
+! rings' steady stand (ring_steady), so the earlywood target and the
+! reference stand of section 9 are the same ring. It follows the sapwood
+! the ring supplies, which is this year's sapwood and its turnover, so a
+! narrow ring after a drought leaves the next earlywood the same size.
+! The youngest ring's earlywood carbon conducts as it is laid down, in
+! proportion to the carbon, after its vessels mature: m rises linearly
+! from 0 on the day the earlywood starts (the first day of the TRIFFID step
+! that first lays it down, not before the start of the growing season;
+! output ximpair_earlywood_start_doy) to 1 over nsc_earlywood_mature_days, and
+! until then the wood conducts at r_L like latewood. So the timing follows the
+! ring's carbon and the start, and nsc_ring_func_doy must be unset. An
+! earlywood that stays small is a small share e_i of its ring for good (a
+! narrow ring loses most of its conductance after its first winter).
+! Turnover and heartwood take earlywood and latewood alike, drought damage,
+! new cover and repair in place change a ring's loss and leave its e_i, and
+! merged rings take the carbon-weighted mean of e_i. The earlywood's share
+! of each ring and the start day are kept in dumps (ximpair_ring_earlywood_frac,
+! ximpair_earlywood_start_doy). Wood grown between the end of the ring year and
+! 31 December is latewood.
+!
+! 7b. Earlywood paid from the store (l_nsc_ring_earlywood, with section 7a
+!     and the store)
+!
+! Without this switch the earlywood is built only as fast as TRIFFID's
+! wood grows, which spreads it over the growing season. Ring-porous oak
+! builds its earlywood around budburst, from stored carbon (Hafner et al.
+! 2015), so a low store after a drought can give a small earlywood: the
+! carbon route to a legacy that Skiadaresis et al. (2021) describe. With
+! the switch the store pays the earlywood ahead of TRIFFID's wood. At each
+! TRIFFID step of the ring year from the start of the growing season d_0
+! (nsc_season_start; 1 January if it is not set, or if the flush window
+! crosses the year end, so that the loan falls in the ring's own year)
+! until the youngest ring holds its latewood, the store pays
+!
+!   P = MIN( MAX(phi * X_exp - E_1 - g, 0), C_a ),
+!   C_a = MAX(C - C_r - A, 0),
+!
+! with E_1 the ring's earlywood carbon, g the step's new wood that is not
+! repaying the loan (below), C the store, C_r its reserve and A the
+! loan: the earlywood paid by the store and not yet repaid by TRIFFID's
+! wood (kg C m-2, output nsc_earlywood_loan). P joins the youngest ring and the
+! sapwood pool as earlywood, so a full store lays the whole earlywood at
+! the first step after d_0, and it matures and conducts from then on.
+!
+! The loan is a loan. TRIFFID's wood growth G * dt of each later step
+! first repays it,
+!
+!   r = MIN(G * dt, A),   A -> A - r + P,
+!
+! and only G * dt - r + P joins the ring and the sapwood pool. A stays in
+! the store C (nsc_store), and every user of the store sees C - A: the
+! store step (the release, the leaf flush and regrowth, the deficits, the
+! overflow, the starvation, and the Trugman repair claim, which is taken
+! from the release), the regrowth that phenol queues for leaves shed by
+! drought and heat (phen_shed_debt) or in the flush window, and the sink
+! feedback on photosynthesis (nsc_sink_factor). So the loan moves no
+! carbon between the store and TRIFFID's vegetation: C plus TRIFFID's
+! carbon are as without the loan, and carbon is conserved. Over a ring
+! year in which G * dt sums to at least A, the ring gains G * dt summed, as
+! without the loan; the loan changes when the earlywood is built and
+! conducts, and how much of the store is free for growth in spring. If the
+! ring year ends with A > 0 (TRIFFID grew less wood all year than the store
+! lent), the youngest ring and the sapwood give the rest back,
+! earlywood first, and A is set to 0. The wood given back is intact wood
+! (ximpair_ring_grow), so the ring's loss of conductance rises back to
+! what it was before the loan diluted it. The earlywood loses the carbon
+! given back, so its share of the ring, and its conductance, fall in
+! proportion to what is given back. A low store gives a small earlywood that
+! grows as NPP refills the store, and a store that stays low leaves a small
+! earlywood and a narrow ring (section 7a). A is kept in dumps
+! (nsc_earlywood_loan).
+!
+! The sapwood pool X_s holds A, TRIFFID's wood C_W does not. So turnover,
+! the heartwood rule of section 6 (the LPJ rule and the pipe heartwood
+! rule), the net loss of wood at the end of the ring year, the pipe-model
+! cap X_s - A <= C_W, the heartwood H = C_W - (X_s - A), the sapwood's
+! share of the wood for stem N and X_exp all use X_s - A, and when area
+! gained spreads the store, the loan it takes off A leaves X_s and the
+! youngest ring's earlywood too. X_s - A then follows the same path as X_s
+! without the loan. The rings are shares of X_s. Their heartwood is the
+! sapwood pool's, from X_s - A, so the oldest rings retire the same carbon
+! as the pool. Turnover takes the rings alike, which differs from the pool
+! only by the turnover of the loan (about (k_h + g_t) * A times the
+! months it is outstanding); this changes the ring shares, and X_s is
+! unaffected. The cap on the
+! Trugman repair at the last ring production (nsc_xylem_prod) is
+! TRIFFID's wood G, without the loan.
+!
 ! 8. Pipe-model target (l_nsc_pipe_target, with the sapwood pool)
 !
 ! The conducting sapwood has a target size from the pipe model, on the
@@ -248,6 +391,19 @@ MODULE triffid_nsc_mod
 ! through the impairment memory. The ratio before the MIN is an output
 ! (nsc_k_area_raw).
 !
+! With earlywood and latewood (section 7a) the reference stand is the same
+! steady stand with a complete youngest ring from the start of the
+! growing season (nsc_season_start), one year's new wood (k_h + g_t) *
+! X_t, its earlywood conducting, and its older rings carrying 1 - kappa +
+! kappa * s (see ximpair_ring_cond_ref). kmax is then the conductance of a
+! stand at its target with a complete new ring, which a summer calibration
+! gives, and f_A is below 1 in spring until the new earlywood conducts,
+! and rises as the ring fills. The
+! canopy cap of the Trugman response (section 10) follows the damage only:
+! its ring weights carry the earlywood factor without the spring rise
+! (ximpair_ring_working), so the canopy is not capped while the new
+! earlywood matures.
+!
 ! With the Trugman response (section 10) the stem conducts through its
 ! sapwood area, whatever the leaf area. The leaf area the sapwood can
 ! supply (nsc_lai_sapwood),
@@ -311,7 +467,7 @@ MODULE triffid_nsc_mod
 ! wood carbon from the prescribed canopy height. The release leaves the
 ! store, as there is no growth to feed, and there is no stem recovery.
 !
-! MDK, 12/11/26
+! MDK, 17/11/26
 !-----------------------------------------------------------------------------
 
 USE um_types, ONLY: real_jlslsm
@@ -332,6 +488,7 @@ PUBLIC :: nsc_k_area_raw, nsc_lai_sapwood, nsc_lai_sap_cap
 PUBLIC :: nsc_xylem_renew_cw, nsc_heartwood_factor, nsc_xt_cap_count
 PUBLIC :: nsc_xylem_repair_pft, nsc_repair_claim
 PUBLIC :: nsc_f_a_min
+PUBLIC :: nsc_earlywood_loan
 PUBLIC :: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,                     &
           nsc_dc_pft, nsc_starv_pft, nsc_npp_day, nsc_turg_acc, nsc_resp_pft,  &
           nsc_t_run, nsc_ft_mean, nsc_regrow_acc,                              &
@@ -447,6 +604,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_heartwood_factor(:,:)
 ! Pipe-model target: the number of TRIFFID steps since the start (or
 ! restart) at which the target was capped at the wood. A diagnostic.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_xt_cap_count(:,:)
+! Earlywood paid from the store (l_nsc_ring_earlywood): the loan A, the
+! earlywood the store has paid and TRIFFID's wood has not yet repaid (kg C
+! m-2 of the PFT, >= 0). It is part of the store nsc_pft. In dumps with
+! the switch.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_earlywood_loan(:,:)
 ! Carbon-starvation mortality of the last TRIFFID step (per 360 days), used
 ! by lotka.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: nsc_starv_pft(:,:)
@@ -478,13 +640,15 @@ CONTAINS
 ! Stem N from the sapwood pool (l_nsc_sapwood_n): keep the pool's share of
 ! the wood C_W, s = MIN(X_s / C_W, 1), for TRIFFID's stem N
 ! (calc_n_comps_triffid). Left unset (< 0) where the pool or the wood is
-! not set.
+! not set. With the earlywood loan (l_nsc_ring_earlywood) the pool leaves
+! out the loan A (nsc_earlywood_loan), which is not TRIFFID's wood.
 !
-! MDK, 04/11/26
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE nsc_set_sapwood_share( l, n, wood )
 
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_n
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_on
 
 IMPLICIT NONE
 
@@ -496,8 +660,16 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: wood
 IF (.NOT. l_nsc_sapwood_n) RETURN
 IF (.NOT. ALLOCATED(nsc_sapwood_share)) RETURN
 nsc_sapwood_share(l,n) = -1.0
-IF (nsc_sapwood(l,n) >= 0.0 .AND. wood > 0.0)                                  &
-  nsc_sapwood_share(l,n) = MIN(nsc_sapwood(l,n) / wood, 1.0)
+
+IF (nsc_sapwood(l,n) >= 0.0 .AND. wood > 0.0) THEN
+  IF (ximpair_ring_earlywood_on(n)) THEN
+    nsc_sapwood_share(l,n) = MIN(MAX(nsc_sapwood(l,n)                          &
+                                     - nsc_earlywood_loan(l,n), 0.0)           &
+                                 / wood, 1.0)
+  ELSE
+    nsc_sapwood_share(l,n) = MIN(nsc_sapwood(l,n) / wood, 1.0)
+  END IF
+END IF
 
 END SUBROUTINE nsc_set_sapwood_share
 
@@ -507,7 +679,7 @@ END SUBROUTINE nsc_set_sapwood_share
 ! Several start below 0, which marks them as not yet set; each is filled
 ! at its first use.
 !
-! MDK, 12/11/26
+! MDK, 16/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_alloc( n_land_pts )
 
@@ -621,6 +793,10 @@ IF (.NOT. ALLOCATED(nsc_heartwood_factor)) THEN
   nsc_heartwood_factor(:,:) = 1.0
   nsc_xt_cap_count(:,:)     = 0.0
 END IF
+IF (.NOT. ALLOCATED(nsc_earlywood_loan)) THEN
+  ALLOCATE(nsc_earlywood_loan(n_land_pts, npft))
+  nsc_earlywood_loan(:,:) = 0.0
+END IF
 IF (.NOT. ALLOCATED(nsc_starv_pft)) THEN
   ALLOCATE(nsc_starv_pft(n_land_pts, npft))
   nsc_starv_pft(:,:) = 0.0
@@ -692,7 +868,10 @@ END SUBROUTINE triffid_nsc_alloc
 !      call on the release, up to the last ring production
 !      (nsc_repair_claim); TRIFFID grows from the rest.
 !
-! MDK, 12/11/26
+! With the earlywood loan (l_nsc_ring_earlywood) all of this works on the
+! store less the earlywood loan nsc_earlywood_loan, which stays in the store.
+!
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_store( land_pts, trif_pts, trif_index, r_gamma,         &
                               leafc, rootc, npp, pft_only )
@@ -711,6 +890,7 @@ USE pftparm, ONLY: nsc_grow_thresh
 USE model_time_mod, ONLY: current_time
 USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_on
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_repairable
 
 USE parkind1, ONLY: jprb, jpim
@@ -841,6 +1021,11 @@ DO n = n1,n2
     c_res = nsc_reserve_frac(n) * c_max
     IF (nsc_pft(l,n) < 0.0) nsc_pft(l,n) = c_max
     c_old = nsc_pft(l,n)
+
+    ! Earlywood paid from the store: the step works on the store less the
+    ! loan, which is added back at the end.
+    IF (ximpair_ring_earlywood_on(n))                                          &
+      nsc_pft(l,n) = nsc_pft(l,n) - nsc_earlywood_loan(l,n)
 
     ! Maximum loading from the running mean of NPP (bias-corrected).
     nsc_npp_mean(l,n) = nsc_npp_mean(l,n) + a_mean * (npp(l,n)                 &
@@ -984,6 +1169,9 @@ DO n = n1,n2
                            * MAX(1.0 - c_acc / (nsc_kc(n) * c_max), 0.0)
     END IF
 
+    IF (ximpair_ring_earlywood_on(n))                                          &
+      nsc_pft(l,n) = nsc_pft(l,n) + nsc_earlywood_loan(l,n)
+
     npp(l,n)            = w
     nsc_load_pft(l,n)   = w
     nsc_dc_pft(l,n)     = (nsc_pft(l,n) - c_old) * r_gamma
@@ -1004,14 +1192,25 @@ END SUBROUTINE triffid_nsc_store
 ! after. The wood lost and not yet regrown (nsc_wood_lost) and the ring
 ! year's net wood growth (nsc_net_wood_growth) are diluted the same way
 ! when area is gained, as the new cover has lost no wood and grown none
-! this ring year.
+! this ring year. The earlywood loan A (nsc_earlywood_loan), which is part of
+! the store, is spread with the store. The sapwood pool and the rings are
+! carbon per m2 of the PFT and are not spread, so the loan that the
+! spreading takes off A,
 !
-! MDK, 30/10/26
+!   dA = A * (1 - frac_old / frac),
+!
+! leaves the sapwood and the youngest ring's earlywood too: the sapwood
+! less the loan is then unchanged, as without the loan.
+!
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_area( land_pts, trif_pts, trif_index, r_gamma,          &
                              frac, dfrac, lit_store )
 
 USE jules_surface_types_mod, ONLY: npft, nnpft, ntype
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_on
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_grow
+USE model_time_mod, ONLY: current_time
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -1040,6 +1239,8 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 INTEGER :: n, t, l
 ! Areal fraction before the TRIFFID step.
 REAL(KIND=real_jlslsm) :: frac_old
+! The earlywood loan taken off by the spreading (kg C m-2).
+REAL(KIND=real_jlslsm) :: d_loan
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -1065,6 +1266,25 @@ DO n = 1,nnpft
       nsc_wood_lost(l,n)       = nsc_wood_lost(l,n) * frac_old / frac(l,n)
       nsc_net_wood_growth(l,n) = nsc_net_wood_growth(l,n) * frac_old           &
                                  / frac(l,n)
+    END IF
+
+    ! The earlywood loan is part of the store and is spread with it;
+    ! the sapwood and the youngest ring give back what it loses.
+    IF (dfrac(l,n) > 0.0 .AND. frac(l,n) > 0.0 .AND.                           &
+        ximpair_ring_earlywood_on(n) .AND. ALLOCATED(nsc_earlywood_loan)) THEN
+      d_loan = nsc_earlywood_loan(l,n) * (1.0 - frac_old / frac(l,n))
+      nsc_earlywood_loan(l,n) = nsc_earlywood_loan(l,n) - d_loan
+
+      IF (d_loan > 0.0 .AND. ALLOCATED(nsc_sapwood)) THEN
+        IF (nsc_sapwood(l,n) > 0.0) THEN
+          IF (ALLOCATED(ximpair_ring_frac)) THEN
+            IF (ximpair_ring_frac(l,n,1) >= 0.0)                               &
+              CALL ximpair_ring_grow(l, n, nsc_sapwood(l,n), -d_loan, 0.0,     &
+                                     .FALSE., current_time%year, 0.0)
+          END IF
+          nsc_sapwood(l,n) = MAX(nsc_sapwood(l,n) - d_loan, 0.0)
+        END IF
+      END IF
     END IF
 
     ! The store: lost with the area lost, spread over the area gained.
@@ -1372,9 +1592,12 @@ END SUBROUTINE triffid_nsc_daily
 ! rings f_A = MIN(1, X_s / X_t). f_A is 1 until the sapwood and its target
 ! are set (in spin-up and before the first ring step), and at least
 ! nsc_f_a_min, so the plant keeps a conducting path. f_raw, if present, is
-! the ratio before the MIN and the floor.
+! the ratio before the MIN and the floor. With earlywood and latewood
+! (l_nsc_ring_earlywood) the ring weights carry the earlywood factor and
+! c_ref is the stand with a complete new ring (ximpair_ring_cond_ref), so
+! f_A is below 1 in spring until the new earlywood conducts.
 !
-! MDK, 12/11/26
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 FUNCTION nsc_k_area( l, n, f_raw ) RESULT( f_a )
 
@@ -1440,9 +1663,11 @@ END FUNCTION nsc_k_area
 ! the MIN; without the rings X_A = X_s. Drought damage is not taken off.
 ! A stand at its target with a full canopy has L_A = the LAI the target
 ! was set on. Returns -1 when the sapwood, its target or the pipe model is
-! not set (in spin-up and before the first ring step).
+! not set (in spin-up and before the first ring step). With earlywood and
+! latewood (l_nsc_ring_earlywood) the ring weights carry the earlywood
+! factor, as in f_A.
 !
-! MDK, 12/11/26
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 FUNCTION nsc_lai_sapwood( l, n, ht ) RESULT( lai_s )
 
@@ -1509,7 +1734,11 @@ END FUNCTION nsc_lai_sapwood
 !      heartwood and its share of TRIFFID's wood turnover.
 !   4. With the ring cohorts nothing is queued: the new wood joins the
 !      youngest ring, the turnover takes from all rings alike and
-!      heartwood takes the oldest rings first.
+!      heartwood takes the oldest rings first. With earlywood and
+!      latewood (l_nsc_ring_earlywood) the youngest ring's earlywood
+!      fills up to nsc_earlywood_carbon_frac of the expected full ring,
+!      X_exp = (k_h + g_t) * X_ref, and conducts once it is full (module
+!      header, section 7a).
 !   5. With the pipe-model target and the pipe heartwood rule, the
 !      sapwood above the target (on last ring year's peak leaf area)
 !      becomes heartwood, and the heartwood is the rest of the wood. The
@@ -1522,8 +1751,16 @@ END FUNCTION nsc_lai_sapwood
 !      the deficit D, a net loss of wood takes its sapwood share, and
 !      with the pipe-model target this ring year's peak LAI becomes last
 !      year's.
+!   8. With the earlywood loan (l_nsc_ring_earlywood), the step's new wood
+!      first repays the store's earlywood loan A, and from the start
+!      of the growing season the store pays the rest of the earlywood
+!      that its accessible store allows, which joins the youngest ring
+!      and the sapwood pool at once (module header, section 7b). At the
+!      end of the ring year any A left is taken back from the youngest
+!      ring and the sapwood. The turnover, the heartwood, the net loss of
+!      wood and the cap at the wood act on the sapwood less A.
 !
-! MDK, 12/11/26
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE triffid_nsc_ring_renewal( land_pts, trif_pts, trif_index,           &
                                      r_gamma, ht, lai_bal, lai, woodc, dwood,  &
@@ -1551,6 +1788,15 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_lock, ximpair_area_w,           &
                                        ximpair_ring_grow, ximpair_ring_repair, &
                                        ximpair_ring_next_year,                 &
                                        ximpair_ring_peak, ximpair_hw_rate_mean
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_frac,            &
+                                       ximpair_ring_hw_rate,                   &
+                                       ximpair_ring_earlywood_init,            &
+                                       ximpair_ring_earlywood_on,              &
+                                       ximpair_ring_earlywood_forming,         &
+                                       ximpair_ring_year,                      &
+                                       ximpair_ring_season_doy,                &
+                                       ximpair_ring_step_set
+USE pftparm, ONLY: nsc_earlywood_carbon_frac, nsc_reserve_frac
 USE logging_mod, ONLY: log_warn
 USE string_utils_mod, ONLY: to_string
 
@@ -1631,6 +1877,21 @@ LOGICAL :: l_lai_climate
 REAL(KIND=real_jlslsm) :: ring_cond_share
 ! Xylem repair: damaged sapwood replaced at this step (kg C m-2).
 REAL(KIND=real_jlslsm) :: repair_c
+! The expected full ring (kg C m-2), for the earlywood.
+REAL(KIND=real_jlslsm) :: x_exp
+! The step's wood for the rings and the sapwood pool (kg C m-2).
+REAL(KIND=real_jlslsm) :: dg_ring
+! Earlywood loan: the repayment of the loan, the store's payment, the
+! youngest ring's earlywood carbon, the accessible store (kg C m-2) and
+! the first day of the loan.
+REAL(KIND=real_jlslsm) :: loan_repaid, loan_paid, e_1, c_a, doy_loan
+! The earlywood loan at the start of the step (kg C m-2; 0 without
+! l_nsc_ring_earlywood). The sapwood pool holds it, TRIFFID's wood does
+! not.
+REAL(KIND=real_jlslsm) :: loan0
+! The day of year recorded as the day the earlywood started: the first day
+! of this step's days that is not before the start of the growing season.
+REAL(KIND=real_jlslsm) :: doy_ew
 
 ! Share of the sapwood the pipe heartwood rule always leaves after a
 ! step, so a target far below the sapwood cannot empty it.
@@ -1659,6 +1920,7 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
   doy_now = day_of_year(current_time%year, current_time%month,                 &
                         current_time%day, l_360, l_leap)
   n_days_step      = MAX(NINT(dt * 360.0), 1)
+  CALL ximpair_ring_step_set(doy_now, current_time%year)
 
   l_lai_climate = nsc_heartwood_model == nsc_heartwood_pipe .OR.               &
           nsc_damage_response == nsc_damage_trugman
@@ -1685,6 +1947,8 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       nsc_xylem_renew_pft(l,n) = 0.0
       nsc_xylem_renew_cw(l,n)  = 0.0
       wood_old = woodc(l,n) - dwood(l,n)
+      loan0 = 0.0
+      IF (ximpair_ring_earlywood_on(n)) loan0 = nsc_earlywood_loan(l,n)
 
       ! The leaf area the sapwood serves: the balanced LAI, or with the
       ! pipe-model target last ring year's peak LAI (the balanced LAI until
@@ -1751,7 +2015,9 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
         sapwood_c = nsc_sapwood(l,n)
       END IF
 
-      ! Heartwood. With the pipe heartwood rule (and the pipe-model target)
+      ! Heartwood. With the earlywood loan the sapwood here leaves out the
+      ! loan, which TRIFFID's wood has not yet grown. With the pipe
+      ! heartwood rule (and the pipe-model target)
       ! the sapwood above the target becomes heartwood at once, and below
       ! it heartwood forms at k_h. Over the step, with X' the sapwood after
       ! TRIFFID's turnover,
@@ -1767,7 +2033,8 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
         nsc_sapwood_target(l,n)   = sapwood_target
         nsc_heartwood_factor(l,n) = 1.0
         IF (nsc_heartwood_model == nsc_heartwood_pipe) THEN
-          sapwood_after_turn = sapwood_c * EXP(-wood_turn_rate / r_gamma)
+          sapwood_after_turn = (sapwood_c - loan0)                             &
+                               * EXP(-wood_turn_rate / r_gamma)
           IF (sapwood_after_turn > x_min) THEN
             heartwood_step = MAX(sapwood_after_turn * (1.0 -                   &
                          EXP(-heartwood_rate / r_gamma)), sapwood_after_turn - &
@@ -1825,6 +2092,8 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
         END IF
       END IF
 
+      dg_ring = ring_prod / r_gamma
+
       ! Ring cohorts: TRIFFID's turnover takes all rings alike, the new
       ! wood joins the youngest ring and heartwood takes the oldest (as the
       ! pool below); the stem's loss follows at the next update. Rings not
@@ -1835,9 +2104,66 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
           CALL ximpair_ring_init(l, n,                                         &
                                  MIN(ximpair_lock(l,n)                         &
                                      / MAX(ximpair_area_w(l,n), 1.0e-6), 1.0))
+
+        ! With earlywood and latewood the youngest ring's earlywood fills up
+        ! to its share of the expected full ring, the ring that keeps the
+        ! sapwood at its size: x_exp = (k_h + g_t) * X_ref, with X_ref the
+        ! pipe-model target, or without it the sapwood pool.
+        x_exp = 0.0
+        doy_ew = 0.0
+
+        IF (ximpair_ring_earlywood_on(n)) THEN
+          IF (ximpair_ring_earlywood_frac(l,n,1) < 0.0)                        &
+            CALL ximpair_ring_earlywood_init(l, n)
+
+          IF (l_nsc_pipe_target) THEN
+            x_exp = (ximpair_ring_hw_rate(l, n) + wood_turn_rate)              &
+                    * sapwood_target
+          ELSE
+            x_exp = (ximpair_ring_hw_rate(l, n) + wood_turn_rate)              &
+                    * (sapwood_c - loan0)
+          END IF
+
+          ! Earlywood paid from the store (module header, section 7b): the
+          ! new wood first repays the loan A; from the start of the
+          ! growing season, until the ring holds latewood, the store pays
+          ! what is left of it, up to the store above its reserve and A; at
+          ! the end of the ring year the ring gives back any A left.
+          loan_repaid = MIN(dg_ring, nsc_earlywood_loan(l,n))
+          nsc_earlywood_loan(l,n) = nsc_earlywood_loan(l,n) - loan_repaid
+          dg_ring = dg_ring - loan_repaid
+
+          ! The loan starts on the day the growing season starts in the
+          ! ring's own year (ximpair_ring_season_doy).
+          doy_loan = ximpair_ring_season_doy(n)
+          doy_ew = MAX(doy_loan, REAL(doy_now - n_days_step + 1))
+
+          IF (l_ring_end) THEN
+            dg_ring = dg_ring - nsc_earlywood_loan(l,n)
+            nsc_earlywood_loan(l,n) = 0.0
+          ELSE IF (NINT(ximpair_ring_year(l,n)) == current_time%year .AND.     &
+                   ximpair_ring_earlywood_forming(l, n) .AND.                  &
+                   REAL(doy_now) >= doy_loan .AND. x_exp > 0.0 .AND.           &
+                   nsc_pft(l,n) >= 0.0) THEN
+            e_1 = MAX(ximpair_ring_earlywood_frac(l,n,1), 0.0)                 &
+                  * MAX(ximpair_ring_frac(l,n,1), 0.0)                         &
+                  * sapwood_c * EXP(-wood_turn_rate / r_gamma)
+            c_a = MAX(nsc_pft(l,n)                                             &
+                      - nsc_reserve_frac(n) * MAX(nsc_cmax_pft(l,n), 0.0)      &
+                      - nsc_earlywood_loan(l,n), 0.0)
+            loan_paid = MIN(MAX(nsc_earlywood_carbon_frac(n) * x_exp - e_1     &
+                                - dg_ring, 0.0), c_a)
+            nsc_earlywood_loan(l,n) = nsc_earlywood_loan(l,n) + loan_paid
+            dg_ring = dg_ring + loan_paid
+          END IF
+        END IF
+
         CALL ximpair_ring_grow(l, n, sapwood_c * EXP(-wood_turn_rate /         &
-                               r_gamma), ring_prod / r_gamma, heartwood_rate / &
-                               r_gamma, l_ring_end, g_year, ring_cond_share)
+                               r_gamma), dg_ring, heartwood_rate / r_gamma,    &
+                               l_ring_end, g_year, x_exp, ring_cond_share,     &
+                               sapwood_heart = (sapwood_c - loan0)             &
+                                 * EXP(-wood_turn_rate / r_gamma),             &
+                               doy_start = doy_ew)
         ! The new ring's share of the conductance weight, per 360 days:
         ! the share of the stem's loss it dilutes.
         nsc_xylem_renew_cw(l,n) = ring_cond_share * r_gamma
@@ -1849,10 +2175,27 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       !   dX_s/dt = G - (k_h + g_t) * X_s,   k_h = nsc_heartwood_rate,
       !
       ! so in equilibrium X_s = G / (k_h + g_t) (with the pipe heartwood
-      ! rule, k_h is the step's rate heartwood_rate).
-      IF (l_nsc_sapwood_pool) nsc_sapwood(l,n) = nsc_sapwood(l,n) *            &
-        EXP(-(heartwood_rate + wood_turn_rate) / r_gamma) + ring_prod /        &
-        r_gamma
+      ! rule, k_h is the step's rate heartwood_rate). With the earlywood
+      ! loan, A in X_s is not TRIFFID's wood, so turnover and heartwood act
+      ! on X_s - A only,
+      !
+      !   X_s -> (X_s - A_0) * EXP(-(k_h + g_t) * dt) + A_0 + dg,
+      !
+      ! with A_0 the loan at the start of the step and dg = G * dt - r +
+      ! P (r the repayment, P the payment). Then X_s - A follows the same
+      ! path as X_s without the loan, and the loan only moves wood
+      ! forward in time.
+      IF (l_nsc_sapwood_pool) THEN
+        IF (ximpair_ring_earlywood_on(n)) THEN
+          nsc_sapwood(l,n) = (nsc_sapwood(l,n) - loan0)                        &
+                             * EXP(-(heartwood_rate + wood_turn_rate)          &
+                                   / r_gamma) + loan0 + dg_ring
+        ELSE
+          nsc_sapwood(l,n) = nsc_sapwood(l,n) *                                &
+            EXP(-(heartwood_rate + wood_turn_rate) / r_gamma) + ring_prod /    &
+            r_gamma
+        END IF
+      END IF
 
       ! Xylem repair (the Trugman response): the release the store step
       ! claimed for repair replaces damaged sapwood above the period's
@@ -1875,7 +2218,9 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! was not regrown) for next year's growth to repay, and a lasting
       ! loss of wood does not hold back later rings. With the sapwood
       ! pool a net loss of wood takes sapwood and heartwood alike, as
-      ! dieback and mortality do: the sapwood loses its share of the wood
+      ! dieback and mortality do (the earlywood loan is 0 at the end of
+      ! the ring year, so X_s here is TRIFFID's): the sapwood loses its share
+      ! of the wood
       ! before the loss (all rings alike),
       !
       !   X_s <- X_s * (1 + MIN(S, 0) / (C_W - MIN(S, 0))),
@@ -1902,10 +2247,25 @@ IF (l_ximpair_rec_nsc .AND. .NOT. is_spinup) THEN
       ! alike). With the pool the heartwood is the rest of the wood,
       !
       !   H = C_W - X_s.
-      IF (l_nsc_pipe_target)                                                   &
-        nsc_sapwood(l,n) = MIN(nsc_sapwood(l,n), MAX(woodc(l,n), 0.0))
-      IF (l_nsc_sapwood_pool)                                                  &
-        nsc_heartwood(l,n) = MAX(MAX(woodc(l,n), 0.0) - nsc_sapwood(l,n), 0.0)
+      !
+      ! With the earlywood loan the cap and H use X_s - A, the part of the
+      ! sapwood that is TRIFFID's wood, so the cap never takes the loan.
+      IF (ximpair_ring_earlywood_on(n)) THEN
+        IF (l_nsc_pipe_target)                                                 &
+          nsc_sapwood(l,n) = MIN(nsc_sapwood(l,n) - nsc_earlywood_loan(l,n),   &
+                                 MAX(woodc(l,n), 0.0)) + nsc_earlywood_loan(l,n)
+        IF (l_nsc_sapwood_pool)                                                &
+          nsc_heartwood(l,n) = MAX(MAX(woodc(l,n), 0.0)                        &
+                                   - (nsc_sapwood(l,n)                         &
+                                      - nsc_earlywood_loan(l,n)),              &
+                                   0.0)
+      ELSE
+        IF (l_nsc_pipe_target)                                                 &
+          nsc_sapwood(l,n) = MIN(nsc_sapwood(l,n), MAX(woodc(l,n), 0.0))
+        IF (l_nsc_sapwood_pool)                                                &
+          nsc_heartwood(l,n) = MAX(MAX(woodc(l,n), 0.0) - nsc_sapwood(l,n),    &
+                                   0.0)
+      END IF
 
     END DO
   END DO

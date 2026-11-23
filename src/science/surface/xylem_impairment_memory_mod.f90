@@ -12,11 +12,13 @@ MODULE xylem_impairment_memory_mod
 ! with ring renewal and the ring cohorts (l_nsc_sapwood_rings), the stem's
 ! annual sapwood rings, each with its share of the sapwood and its loss.
 ! The ring functions give the stem's loss, the sapwood-area factor's sums
-! and the Trugman response's repair. The state below is carried between
-! updates; ximpair_lock, ximpair_repair_pend, ximpair_area_w (with
-! l_veg_compete) and the ring arrays are written to and read from dumps.
+! and the Trugman response's repair. With l_nsc_ring_earlywood each ring
+! is split into earlywood and latewood that conduct differently. The state
+! below is carried between updates; ximpair_lock, ximpair_repair_pend,
+! ximpair_area_w (with l_veg_compete) and the ring arrays are written to
+! and read from dumps.
 !
-! MDK, 12/11/26
+! MDK, 17/11/26
 
 USE um_types, ONLY: real_jlslsm
 
@@ -30,13 +32,19 @@ PUBLIC :: ximpair_ring_init, ximpair_ring_loss_mean, ximpair_ring_grow,        &
           ximpair_ring_repair, ximpair_ring_cond_intact,                       &
           ximpair_ring_repairable, ximpair_ring_working,                       &
           ximpair_ring_cond_mean, ximpair_ring_cond_ref, ximpair_ring_next_year
+PUBLIC :: ximpair_ring_earlywood_init, ximpair_ring_current, ximpair_ring_w,   &
+          ximpair_ring_hw_rate, ximpair_ring_season_doy,                       &
+          ximpair_ring_earlywood_forming, ximpair_ring_earlywood_on,           &
+          ximpair_ring_step_set
 PUBLIC :: ximpair_memory_alloc, ximpair_dilute_area,                           &
           leaf_conductance_impaired_memory_jls,                                &
           psi_leaf_impaired_memory,                                            &
           update_xylem_impairment_memory
 
 PRIVATE :: k_intact, k_intact_integral, psi_at_k, ring_cond, ring_age,         &
-           ring_steady, ring_q, ring_sums, ring_hi, ring_hit, ring_add_intact
+           ring_steady, ring_q, ring_sums, ring_hi, ring_hit, ring_add_intact, &
+           ring_remove_intact, ring_earlywood_factor, ring_earlywood_maturity, &
+           ring_day
 
 ! ximpair_memory_alloc allocates the first three arrays below.
 
@@ -102,6 +110,41 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_peak(:,:)
 ! stand with it. < 0 = not set (nsc_heartwood_rate is used). In dumps
 ! with the rule; allocated with the rings.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_hw_rate_mean(:,:)
+
+! Ring cohorts with earlywood and latewood (l_nsc_ring_earlywood). Each
+! ring's carbon X_i is split into earlywood, the first part of the ring
+! laid down, and latewood. With phi = nsc_earlywood_carbon_frac the earlywood's
+! share of a full ring's carbon and kappa = nsc_earlywood_cond_frac its share
+! of a full new ring's conductance, the conductance per unit carbon,
+! relative to the mean over a full new ring, is
+!
+!   r_E = kappa / phi                  in the earlywood,
+!   r_L = (1 - kappa) / (1 - phi)      in the latewood,
+!
+! so a full ring, with earlywood phi and latewood 1 - phi of its carbon,
+! has phi * r_E + (1 - phi) * r_L = 1, and kappa = phi gives r_E = r_L = 1
+! (no split). The youngest ring's earlywood conducts at r_L when it is laid
+! down and at r_E once its vessels have matured, over nsc_earlywood_mature_days
+! from the day the earlywood started. After its ring's first winter the
+! earlywood keeps the share s = nsc_earlywood_winter_frac of r_E.
+!
+! ximpair_ring_earlywood_frac holds each ring's earlywood share e_i of its
+! carbon (< 0 in ring 1 = not yet set). It does not depend on damage: drought
+! damage, new cover and repair in place change a ring's loss, not its e_i.
+! ximpair_earlywood_start_doy holds the day of year on which the youngest ring's
+! earlywood started to be laid down and to mature (earlywood_start_none = the
+! ring has none yet; a day before 1 January for an earlywood already mature
+! when it was set up). In dumps; allocated only with the switch, with
+! nsc_n_ring rings.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC ::                           &
+  ximpair_ring_earlywood_frac(:,:,:), ximpair_earlywood_start_doy(:,:)
+! The value of ximpair_earlywood_start_doy for a ring whose earlywood has not
+! started (any value from here up).
+REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: earlywood_start_none = 1.0e30
+! The day of the year and the year of the last TRIFFID step (-1: none yet).
+! Not in dumps.
+REAL(KIND=real_jlslsm), SAVE :: ring_step_doy  = -1.0
+INTEGER, SAVE :: ring_step_year = -1
 
 ! With l_ximpair_frozen_hold: the share (0-1) of the root zone's soil
 ! water that is frozen, each layer weighted by its root fraction, at each
@@ -225,14 +268,16 @@ END SUBROUTINE ximpair_dilute_area
 ! when a dump or initial condition is read). The stem's loss starts at 0,
 ! nothing is waiting to be renewed and the area dilution factor is 1. The
 ! sapwood's annual rings are created only with l_nsc_sapwood_rings, and
-! are marked as not yet set.
+! their earlywood only with l_nsc_ring_earlywood; both are marked as not
+! yet set.
 !
-! MDK, 05/11/26
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_memory_alloc( n_land_pts )
 
 USE jules_surface_types_mod, ONLY: npft
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
+USE jules_vegetation_mod, ONLY: l_nsc_ring_earlywood
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -277,6 +322,15 @@ IF (l_nsc_sapwood_rings .AND. .NOT. ALLOCATED(ximpair_ring_frac)) THEN
   ximpair_hw_rate_mean(:,:) = -1.0
 END IF
 
+! The rings' earlywood, only with it, not yet set.
+IF (l_nsc_ring_earlywood .AND.                                                 &
+    .NOT. ALLOCATED(ximpair_ring_earlywood_frac)) THEN
+  ALLOCATE(ximpair_ring_earlywood_frac(n_land_pts, npft, nsc_n_ring))
+  ALLOCATE(ximpair_earlywood_start_doy(n_land_pts, npft))
+  ximpair_ring_earlywood_frac(:,:,:)   = -1.0
+  ximpair_earlywood_start_doy(:,:) = earlywood_start_none
+END IF
+
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE ximpair_memory_alloc
@@ -290,9 +344,10 @@ END SUBROUTINE ximpair_memory_alloc
 ! every ring starts with the stem's loss of conductance loss0 (0-1). The
 ! youngest ring grows in the current calendar year, or in the next one
 ! if the set-up falls after this year's ring year has ended (it is then
-! empty; ximpair_ring_next_year).
+! empty; ximpair_ring_next_year). With l_nsc_ring_earlywood the earlywood
+! is set up too (ximpair_ring_earlywood_init).
 !
-! MDK, 05/11/26
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_ring_init( l, pft, loss0 )
 
@@ -313,8 +368,93 @@ ximpair_ring_frac(l,pft,:) = s(:) / SUM(s)
 ximpair_ring_loss(l,pft,:) = loss0
 ximpair_ring_dmg(l,pft,:)     = 1.0
 ximpair_ring_loss_lo(l,pft,:) = 0.0
+IF (ximpair_ring_earlywood_on(pft)) CALL ximpair_ring_earlywood_init(l, pft)
 
 END SUBROUTINE ximpair_ring_init
+
+! ---------------------------------------------------------------------
+! Set up the earlywood of the sapwood's rings at a point the first time
+! it is used (l_nsc_ring_earlywood): when the rings are set up, or when a
+! dump has the rings but not their earlywood.
+!
+! The rings are those of a stand in steady state (ring_steady): every
+! ring of age 1 or more is a full ring with earlywood phi of its carbon
+! (phi = nsc_earlywood_carbon_frac). The youngest ring has grown q of a full
+! ring (ring_q), earlywood first, so its earlywood share is
+!
+!   e_1 = MIN(q, phi) / q,
+!
+! an empty youngest ring has e_1 = 0. An earlywood that is laid down (q >=
+! phi) is taken as already mature (its start day is nsc_earlywood_mature_days
+! before today, see ring_earlywood_maturity), as in a stand that has been
+! growing, so a run started or restarted from a dump without the earlywood does
+! not lose conductance over the maturation days. A smaller earlywood starts to
+! mature today. A youngest ring of an older year (age 1 or more) is a full
+! ring and starts complete.
+!
+! MDK, 17/11/26
+! ---------------------------------------------------------------------
+SUBROUTINE ximpair_ring_earlywood_init( l, pft )
+
+USE pftparm, ONLY: nsc_earlywood_carbon_frac, nsc_earlywood_mature_days
+USE model_time_mod, ONLY: current_time
+USE datetime_utils_mod, ONLY: day_of_year
+USE time_info_mod, ONLY: l_360, l_leap
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+
+! The youngest ring's share of a full ring.
+REAL(KIND=real_jlslsm) :: q
+! Day of the year.
+REAL(KIND=real_jlslsm) :: doy
+
+q   = ring_q(l, pft)
+doy = REAL(day_of_year(current_time%year, current_time%month,                  &
+                       current_time%day, l_360, l_leap))
+
+ximpair_ring_earlywood_frac(l,pft,:)   = nsc_earlywood_carbon_frac(pft)
+ximpair_earlywood_start_doy(l,pft) = earlywood_start_none
+
+IF (ring_age(l, pft, 1) < 0 .OR. q <= 0.0) THEN
+  ximpair_ring_earlywood_frac(l,pft,1) = 0.0
+ELSE
+  ximpair_ring_earlywood_frac(l,pft,1) = MIN(q, nsc_earlywood_carbon_frac(pft))&
+                                         / q
+  ximpair_earlywood_start_doy(l,pft) = doy
+
+  IF (q >= nsc_earlywood_carbon_frac(pft))                                     &
+    ximpair_earlywood_start_doy(l,pft) = doy - nsc_earlywood_mature_days(pft)
+END IF
+
+END SUBROUTINE ximpair_ring_earlywood_init
+
+! ---------------------------------------------------------------------
+! Return the stand's heartwood rate (per 360 days) at point l, which sets
+! the ring shares of the steady stand (ring_steady) and the expected full
+! ring of the earlywood: nsc_heartwood_rate, or with the pipe heartwood
+! rule the point's running mean ximpair_hw_rate_mean, which is higher
+! where the rule holds the sapwood at its target.
+!
+! MDK, 17/11/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_hw_rate( l, pft ) RESULT( heartwood_rate )
+
+USE pftparm, ONLY: nsc_heartwood_rate
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! The stand's heartwood rate (per 360 days).
+REAL(KIND=real_jlslsm) :: heartwood_rate
+
+heartwood_rate = nsc_heartwood_rate(pft)
+
+IF (ALLOCATED(ximpair_hw_rate_mean)) THEN
+  IF (ximpair_hw_rate_mean(l,pft) >= 0.0) heartwood_rate =                     &
+                                     ximpair_hw_rate_mean(l,pft)
+END IF
+
+END FUNCTION ximpair_ring_hw_rate
 
 ! ---------------------------------------------------------------------
 ! Work out the ring shares of a stand in steady state under the ring
@@ -343,11 +483,10 @@ END SUBROUTINE ximpair_ring_init
 ! than nsc_n_ring - 1 years. Without turnover there are 1 / k_h rings of
 ! equal carbon.
 !
-! MDK, 12/11/26
+! MDK, 16/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ring_steady( l, pft, q, s )
 
-USE pftparm, ONLY: nsc_heartwood_rate
 USE trif, ONLY: g_wood
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 
@@ -370,11 +509,7 @@ REAL(KIND=real_jlslsm) :: rest
 REAL(KIND=real_jlslsm) :: full
 
 wood_turn_rate = MAX(g_wood(pft), 0.0)
-heartwood_rate = nsc_heartwood_rate(pft)
-IF (ALLOCATED(ximpair_hw_rate_mean)) THEN
-  IF (ximpair_hw_rate_mean(l,pft) >= 0.0) heartwood_rate =                     &
-                                     ximpair_hw_rate_mean(l,pft)
-END IF
+heartwood_rate = ximpair_ring_hw_rate(l, pft)
 rest = 1.0 / MAX(heartwood_rate + wood_turn_rate, 1.0e-6)
 s(:) = 0.0
 s(1) = q
@@ -556,6 +691,215 @@ END IF
 END FUNCTION ring_cond
 
 ! ---------------------------------------------------------------------
+! Record the day of the year of the TRIFFID step that is running. The rings
+! change at that step only, so the days that scale the earlywood's
+! maturation and the reference stand (ring_day) are kept to it.
+!
+! MDK, 17/11/26
+! ---------------------------------------------------------------------
+SUBROUTINE ximpair_ring_step_set( doy, year )
+
+! Day of the year and the year of the TRIFFID step.
+INTEGER, INTENT(IN) :: doy, year
+
+ring_step_doy  = REAL(doy)
+ring_step_year = year
+
+END SUBROUTINE ximpair_ring_step_set
+
+! ---------------------------------------------------------------------
+! Return the day of the year the rings are at: the day of the last TRIFFID
+! step (ximpair_ring_step_set) of this calendar year, or today when there
+! has been none yet this year. The earlywood and the reference stand then
+! ramp on the same days, so the TRIFFID step, which falls on a different day
+! each year, does not change f_A. The TRIFFID steps are counted from the
+! start of a run, so the first call in a run, which can be at a restart, is
+! taken as a step day.
+!
+! MDK, 17/11/26
+! ---------------------------------------------------------------------
+FUNCTION ring_day() RESULT( doy )
+
+USE model_time_mod, ONLY: current_time
+USE datetime_utils_mod, ONLY: day_of_year
+USE time_info_mod, ONLY: l_360, l_leap
+
+! Day of the year (1 = 1 January).
+REAL(KIND=real_jlslsm) :: doy
+
+doy = REAL(day_of_year(current_time%year, current_time%month,                  &
+                       current_time%day, l_360, l_leap))
+
+IF (ring_step_year < 0) THEN
+  ring_step_doy  = doy
+  ring_step_year = current_time%year
+END IF
+
+IF (ring_step_year == current_time%year) doy = ring_step_doy
+
+END FUNCTION ring_day
+
+! ---------------------------------------------------------------------
+! Return whether a PFT has earlywood and latewood in its rings: the switch
+! l_nsc_ring_earlywood is on and the PFT has its earlywood's share of the
+! ring's carbon (nsc_earlywood_carbon_frac) set. A PFT without it keeps plain
+! rings.
+!
+! MDK, 17/11/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_earlywood_on( pft ) RESULT( l_on )
+
+USE jules_vegetation_mod, ONLY: l_nsc_ring_earlywood
+USE pftparm, ONLY: is_set, nsc_earlywood_carbon_frac
+
+! PFT.
+INTEGER, INTENT(IN) :: pft
+! The PFT has earlywood and latewood.
+LOGICAL :: l_on
+
+l_on = l_nsc_ring_earlywood .AND. is_set(nsc_earlywood_carbon_frac(pft))
+
+END FUNCTION ximpair_ring_earlywood_on
+
+! ---------------------------------------------------------------------
+! Return whether the youngest ring's earlywood can still grow at point l
+! (l_nsc_ring_earlywood): the ring has started (its age is 0 or more) and
+! holds no latewood yet, being empty or all earlywood. New wood joins the
+! earlywood, up to its share of the expected full ring, while this holds.
+!
+! MDK, 17/11/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_earlywood_forming( l, pft ) RESULT( forming )
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! The earlywood can still grow.
+LOGICAL :: forming
+
+! The ring's share of earlywood that counts as all earlywood.
+REAL(KIND=real_jlslsm), PARAMETER :: ew_all = 1.0 - 1.0e-9
+
+forming = .FALSE.
+
+IF (ring_age(l, pft, 1) >= 0)                                                  &
+  forming = ximpair_ring_frac(l,pft,1) <= 0.0 .OR.                             &
+            ximpair_ring_earlywood_frac(l,pft,1) >= ew_all
+
+END FUNCTION ximpair_ring_earlywood_forming
+
+! ---------------------------------------------------------------------
+! Return the share (0-1) of the youngest ring's earlywood whose vessels
+! have matured at point l. It is 0 for a ring with no earlywood yet and on
+! the day the earlywood starts (ximpair_earlywood_start_doy), and rises
+! linearly to 1 over nsc_earlywood_mature_days,
+!
+!   m = MIN(1, (day - start day) / days),
+!
+! or is 1 from the start when the days are 0. The day is the rings' day
+! (ring_day). The start day is in the ring's own calendar year
+! (ximpair_ring_grow), so the two days compare.
+!
+! MDK, 17/11/26
+! ---------------------------------------------------------------------
+FUNCTION ring_earlywood_maturity( l, pft ) RESULT( m )
+
+USE pftparm, ONLY: nsc_earlywood_mature_days
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! The share of the earlywood matured (0-1).
+REAL(KIND=real_jlslsm) :: m
+
+! Day of the year the rings are at.
+REAL(KIND=real_jlslsm) :: doy
+
+m = 0.0
+
+IF (ximpair_earlywood_start_doy(l,pft) < earlywood_start_none) THEN
+  doy = ring_day()
+  m = 1.0
+
+  IF (nsc_earlywood_mature_days(pft) > 0.0)                                    &
+    m = MIN(1.0, MAX(0.0, (doy - ximpair_earlywood_start_doy(l,pft))           &
+                          / nsc_earlywood_mature_days(pft)))
+END IF
+
+END FUNCTION ring_earlywood_maturity
+
+! ---------------------------------------------------------------------
+! Return the factor (>= 0) by which ring i's earlywood and latewood scale
+! its conductance per unit carbon (l_nsc_ring_earlywood), used with
+! ring_cond in the rings' sums. The ring's conductance is then
+! proportional to X_i * c(a) * F_i, with X_i its carbon, c(a) its
+! conductivity by age (ring_cond) and
+!
+!   F_i = r_L + e_i * m * (r_E * s_a - r_L),
+!
+! where e_i is the earlywood's share of the ring's carbon, r_E = kappa /
+! phi and r_L = (1 - kappa) / (1 - phi) the conductance per unit carbon
+! of earlywood and latewood relative to a full new ring (phi =
+! nsc_earlywood_carbon_frac, kappa = nsc_earlywood_cond_frac), and s_a the
+! share of the earlywood's conductance kept: 1 in the ring's first year (age 0)
+! and nsc_earlywood_winter_frac after its first winter (age >= 1).
+!
+! The youngest ring's earlywood matures after it is laid down (m =
+! ring_earlywood_maturity: 0 when it starts, 1 after
+! nsc_earlywood_mature_days), so until then it conducts at r_L, and a part laid
+! down conducts in proportion to its carbon. m = 1 for the older rings.
+!
+! With l_no_seasonal_rise the factor has no seasonal rise: every ring's
+! earlywood share is the one it holds and m = 1, so the factor follows the wood
+! laid down.
+!
+! A full ring (e_i = phi) has F_i = 1 when new and mature, and 1 - kappa
+! + kappa * s when older. kappa = phi with s = 1 gives F_i = 1 exactly.
+!
+! MDK, 17/11/26
+! ---------------------------------------------------------------------
+FUNCTION ring_earlywood_factor( l, pft, i, age, l_no_seasonal_rise ) RESULT( f )
+
+USE pftparm, ONLY: nsc_earlywood_carbon_frac, nsc_earlywood_cond_frac,         &
+                   nsc_earlywood_winter_frac
+
+! Land point, PFT, ring and the ring's age (winters).
+INTEGER, INTENT(IN) :: l, pft, i, age
+! Take the earlywood as held, with no seasonal rise.
+LOGICAL, INTENT(IN) :: l_no_seasonal_rise
+! Factor on the ring's conductance per unit carbon.
+REAL(KIND=real_jlslsm) :: f
+
+! The earlywood's share of the ring's carbon.
+REAL(KIND=real_jlslsm) :: e
+! The share of the earlywood's conductance kept.
+REAL(KIND=real_jlslsm) :: s_a
+! The conductance per unit carbon of the earlywood.
+REAL(KIND=real_jlslsm) :: r_e
+! The conductance per unit carbon of the latewood.
+REAL(KIND=real_jlslsm) :: r_l
+! The share of the new earlywood's vessels matured.
+REAL(KIND=real_jlslsm) :: m_ew
+
+r_e = nsc_earlywood_cond_frac(pft) / nsc_earlywood_carbon_frac(pft)
+r_l = (1.0 - nsc_earlywood_cond_frac(pft))                                     &
+      / (1.0 - nsc_earlywood_carbon_frac(pft))
+
+e = ximpair_ring_earlywood_frac(l,pft,i)
+IF (e < 0.0) e = nsc_earlywood_carbon_frac(pft)
+
+s_a = 1.0
+IF (age > 0) s_a = nsc_earlywood_winter_frac(pft)
+
+! The youngest ring's earlywood matures after it starts: its conductance
+! above latewood's rises with the share m of its vessels matured.
+m_ew = 1.0
+IF (i == 1 .AND. age == 0 .AND. .NOT. l_no_seasonal_rise)                      &
+  m_ew = ring_earlywood_maturity(l, pft)
+
+f = r_l + e * m_ew * (r_e * s_a - r_l)
+
+END FUNCTION ring_earlywood_factor
+
+! ---------------------------------------------------------------------
 ! Work out three sums over the sapwood rings at point l that the ring
 ! functions below share, each ring i weighted by its share of the sapwood
 ! f_i and how well it conducts c_i (ring_cond),
@@ -571,9 +915,13 @@ END FUNCTION ring_cond
 ! change, and that ring keeps the weight f_i, so a very small e in
 ! ring_cond cannot make every weight 0.
 !
-! MDK, 31/10/26
+! With earlywood and latewood (l_nsc_ring_earlywood), c_i also carries the
+! factor F_i of ring_earlywood_factor; l_no_seasonal_rise takes that factor
+! without its seasonal rise.
+!
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
-SUBROUTINE ring_sums( l, pft, l_rel, sw, swl, swf )
+SUBROUTINE ring_sums( l, pft, l_rel, sw, swl, swf, l_no_seasonal_rise )
 
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 
@@ -583,11 +931,18 @@ INTEGER, INTENT(IN) :: l, pft
 LOGICAL, INTENT(IN) :: l_rel
 ! The sums.
 REAL(KIND=real_jlslsm), INTENT(OUT) :: sw, swl, swf
+! The earlywood factor without its seasonal rise.
+LOGICAL, INTENT(IN), OPTIONAL :: l_no_seasonal_rise
 
 ! Ring counter, a ring's age and the reference age.
 INTEGER :: i, age, a0
 ! A ring's weight.
 REAL(KIND=real_jlslsm) :: w
+! The earlywood factor is taken without its seasonal rise.
+LOGICAL :: l_mat
+
+l_mat = .FALSE.
+IF (PRESENT(l_no_seasonal_rise)) l_mat = l_no_seasonal_rise
 
 a0 = 0
 IF (l_rel) THEN
@@ -608,7 +963,10 @@ swl = 0.0
 swf = 0.0
 DO i = 1, nsc_n_ring
   IF (ximpair_ring_frac(l,pft,i) <= 0.0) CYCLE
-  w = ximpair_ring_frac(l,pft,i) * ring_cond(pft, ring_age(l, pft, i), a0)
+  age = ring_age(l, pft, i)
+  w = ximpair_ring_frac(l,pft,i) * ring_cond(pft, age, a0)
+  IF (ximpair_ring_earlywood_on(pft))                                          &
+    w = w * ring_earlywood_factor(l, pft, i, age, l_mat)
   sw  = sw  + w
   swl = swl + w * ximpair_ring_loss(l,pft,i)
   swf = swf + w * (1.0 - ximpair_ring_loss(l,pft,i))
@@ -692,6 +1050,56 @@ END IF
 END SUBROUTINE ring_hit
 
 ! ---------------------------------------------------------------------
+! Take intact wood m (kg C m-2) out of ring i at point l, the reverse of
+! ring_add_intact: wood given back that the ring took as new wood. With x
+! the ring's carbon before and w = x / (x - m), the damaged wood stays
+! and the intact wood leaves the less damaged part,
+!
+!   L <- MIN(w * L, 1),   d <- MIN(w * d, 1),
+!   L_lo <- MIN(L_lo * (1 - d) * x / ((1 - d) * x - m), 1),
+!
+! with d and L the values before. A ring whose less damaged part is no
+! larger than m becomes one part (d = 1, L_lo = L). The wood given back is
+! taken to be intact.
+!
+! MDK, 16/11/26
+! ---------------------------------------------------------------------
+SUBROUTINE ring_remove_intact( l, pft, i, x, m )
+
+! Land point, PFT and ring.
+INTEGER, INTENT(IN) :: l, pft, i
+! The ring's carbon before (kg C m-2) and the intact wood taken out of it.
+REAL(KIND=real_jlslsm), INTENT(IN) :: x, m
+
+! The less damaged part's carbon before and after (kg C m-2).
+REAL(KIND=real_jlslsm) :: c_lo, c_lo_new
+! The ring's carbon after (kg C m-2).
+REAL(KIND=real_jlslsm) :: x_new
+
+x_new = x - m
+
+IF (x_new > 0.0 .AND. m > 0.0) THEN
+  c_lo     = (1.0 - ximpair_ring_dmg(l,pft,i)) * x
+  c_lo_new = c_lo - m
+
+  IF (c_lo_new > 0.0) THEN
+    ximpair_ring_loss_lo(l,pft,i) = MIN(ximpair_ring_loss_lo(l,pft,i)         &
+                                        * c_lo / c_lo_new, 1.0)
+    ximpair_ring_dmg(l,pft,i) = MIN(ximpair_ring_dmg(l,pft,i) * x / x_new,     &
+                                    1.0)
+    ximpair_ring_loss(l,pft,i) = MIN(ximpair_ring_loss(l,pft,i) * x / x_new,   &
+                                     1.0)
+  ELSE
+    ximpair_ring_loss(l,pft,i)    = MIN(ximpair_ring_loss(l,pft,i) * x / x_new,&
+                                        1.0)
+    ximpair_ring_dmg(l,pft,i)     = 1.0
+    ximpair_ring_loss_lo(l,pft,i) = ximpair_ring_loss(l,pft,i)
+  END IF
+END IF
+
+END SUBROUTINE ring_remove_intact
+
+! ---------------------------------------------------------------------
 ! Mix intact wood into ring i at point l, so the ring's old wood keeps
 ! the share w (0-1) of it: new wood joining the youngest ring, or new
 ! cover joining the stand. The intact wood joins the less damaged part,
@@ -739,14 +1147,20 @@ END SUBROUTINE ring_add_intact
 ! vessels conduct, holds sapwood), L is the mean of the older rings'
 ! losses weighted by f_i alone, or 0 if they hold no sapwood.
 !
-! MDK, 05/11/26
+! With earlywood and latewood (l_nsc_ring_earlywood), c_i also carries the
+! earlywood factor F_i of ring_earlywood_factor, with its seasonal rise unless
+! l_no_seasonal_rise.
+!
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
-FUNCTION ximpair_ring_loss_mean( l, pft ) RESULT( loss )
+FUNCTION ximpair_ring_loss_mean( l, pft, l_no_seasonal_rise ) RESULT( loss )
 
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, pft
+! The earlywood factor without its seasonal rise.
+LOGICAL, INTENT(IN), OPTIONAL :: l_no_seasonal_rise
 ! Loss of conductance (0-1).
 REAL(KIND=real_jlslsm) :: loss
 
@@ -755,7 +1169,7 @@ INTEGER :: i
 ! The sums, and the plain sums of shares and share-weighted losses.
 REAL(KIND=real_jlslsm) :: sw, swl, swf, sum_f, sum_fl
 
-CALL ring_sums(l, pft, .TRUE., sw, swl, swf)
+CALL ring_sums(l, pft, .TRUE., sw, swl, swf, l_no_seasonal_rise)
 loss = 0.0
 IF (sw > 0.0) THEN
   loss = swl / sw
@@ -780,10 +1194,11 @@ END FUNCTION ximpair_ring_loss_mean
 !   SUM_i f_i * c_i,
 !
 ! where f_i is ring i's share of the sapwood and c_i how well it conducts
-! on this day (ring_cond). With X_s the sapwood carbon and X_i = f_i * X_s
+! on this day (ring_cond, with the earlywood factor of ring_earlywood_factor
+! under l_nsc_ring_earlywood). With X_s the sapwood carbon and X_i = f_i * X_s
 ! that of ring i, SUM_i X_i * c_i is X_s times this value.
 !
-! MDK, 05/11/26
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ximpair_ring_cond_mean( l, pft ) RESULT( share )
 
@@ -807,9 +1222,11 @@ END FUNCTION ximpair_ring_cond_mean
 !
 !   X_f / X_s = SUM_i f_i * (1 - L_i) * c_i,
 !
-! where X_f is the conducting sapwood and X_s all the sapwood.
+! where X_f is the conducting sapwood and X_s all the sapwood. With
+! l_nsc_ring_earlywood, c_i also carries the earlywood factor of
+! ring_earlywood_factor.
 !
-! MDK, 05/11/26
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ximpair_ring_cond_intact( l, pft ) RESULT( share )
 
@@ -824,6 +1241,114 @@ REAL(KIND=real_jlslsm) :: sw, swl
 CALL ring_sums(l, pft, .FALSE., sw, swl, share)
 
 END FUNCTION ximpair_ring_cond_intact
+
+! ---------------------------------------------------------------------
+! Return the index of this year's ring at point l, the ring of age 0
+! (ring_age), for output: ring 1 from 1 January, and ring 2 from the end
+! of the ring year (when ring 1 is a new ring that grows next year) to 31
+! December. 0 if there is none.
+!
+! MDK, 16/11/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_current( l, pft ) RESULT( i_cur )
+
+USE jules_vegetation_mod, ONLY: nsc_n_ring
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! Index of this year's ring.
+INTEGER :: i_cur
+
+! Ring counter.
+INTEGER :: i
+
+i_cur = 0
+
+DO i = 1, MIN(2, nsc_n_ring)
+  IF (ring_age(l, pft, i) == 0) THEN
+    i_cur = i
+    EXIT
+  END IF
+END DO
+
+END FUNCTION ximpair_ring_current
+
+! ---------------------------------------------------------------------
+! Return this year's ring's share of the sapwood's conductance (0-1), for
+! output, to compare with sap-flow data on the flow in the outer ring,
+!
+!   w = f_k * c_k * F_k / SUM_i f_i * c_i * F_i,
+!
+! where k is this year's ring (ximpair_ring_current), f_i each ring's
+! share of the sapwood, c_i how well it conducts (ring_cond) and F_i the
+! earlywood factor (ring_earlywood_factor; 1 without l_nsc_ring_earlywood).
+! Damage is not counted. 0 if no ring conducts.
+!
+! MDK, 17/11/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_w( l, pft ) RESULT( w )
+
+
+! Land point and PFT.
+INTEGER, INTENT(IN) :: l, pft
+! This year's ring's share of the conductance (0-1).
+REAL(KIND=real_jlslsm) :: w
+
+! This year's ring.
+INTEGER :: k
+! The rings' sums.
+REAL(KIND=real_jlslsm) :: sw, swl, swf
+! This year's ring's weight.
+REAL(KIND=real_jlslsm) :: w_k
+
+w = 0.0
+k = ximpair_ring_current(l, pft)
+IF (k < 1) RETURN
+
+CALL ring_sums(l, pft, .FALSE., sw, swl, swf)
+IF (sw <= 0.0) RETURN
+
+w_k = MAX(ximpair_ring_frac(l,pft,k), 0.0) * ring_cond(pft, 0, 0)
+IF (ximpair_ring_earlywood_on(pft))                                            &
+  w_k = w_k * ring_earlywood_factor(l, pft, k, 0, .FALSE.)
+w = w_k / sw
+
+END FUNCTION ximpair_ring_w
+
+! ---------------------------------------------------------------------
+! Xylem impairment, memory model: the day of the year on which the ring's
+! growing season starts, in the ring's own calendar year: nsc_season_start,
+! or 1 January if it is not set or if the leaf flush window
+! (nsc_flush_start_doy, nsc_flush_days) crosses the year end, since the
+! window is then open on 1 January. The store's earlywood loan and the
+! youngest ring of the reference stand (ximpair_ring_cond_ref) both start
+! here.
+!
+! MDK, 17/11/26
+! ---------------------------------------------------------------------
+FUNCTION ximpair_ring_season_doy( pft ) RESULT( doy_start )
+
+USE pftparm, ONLY: is_set, nsc_season_start, nsc_flush_start_doy,              &
+                   nsc_flush_days
+USE model_time_mod, ONLY: current_time
+USE datetime_utils_mod, ONLY: days_in_year
+USE time_info_mod, ONLY: l_360, l_leap
+
+! PFT.
+INTEGER, INTENT(IN) :: pft
+! Day of the year (1 = 1 January).
+REAL(KIND=real_jlslsm) :: doy_start
+
+doy_start = 1.0
+IF (is_set(nsc_season_start(pft))) doy_start = nsc_season_start(pft)
+
+IF (is_set(nsc_flush_start_doy(pft))) THEN
+  IF (nsc_flush_start_doy(pft) + nsc_flush_days(pft)                           &
+      > REAL(days_in_year(current_time%year, l_360, l_leap)) + 1.0)            &
+    doy_start = 1.0
+END IF
+
+END FUNCTION ximpair_ring_season_doy
 
 ! ---------------------------------------------------------------------
 ! Return the mean ability to conduct water (0-1) of the sapwood of a
@@ -842,11 +1367,35 @@ END FUNCTION ximpair_ring_cond_intact
 ! SUM_i X_i * c_i = X_t * c_ref on any date, whether its heartwood forms at
 ! nsc_heartwood_rate or faster under the pipe heartwood rule.
 !
-! MDK, 05/11/26
+! With earlywood and latewood (l_nsc_ring_earlywood) the reference is the
+! same steady stand with a complete youngest ring from the start of the
+! growing season (ximpair_ring_season_doy; q = 1 at once without
+! nsc_season_start): q = 1, which
+! in the units of ring_steady is one year's new wood (k_h + g_t) * X_t, the
+! expected full ring of ximpair_ring_grow. With nsc_earlywood_mature_days > 0
+! q rises linearly from 0 on that day to 1 over
+! that many days, so f_A has no step at the start of the season; with 0
+! days q is 1 from the first day of the season. Before the start of the
+! season the youngest ring is empty (q = 0), as in the point's rings,
+! whether or not nsc_grow_end_doy is set. Every older ring holds a full
+! earlywood, so c(a_j) carries the factor F of ring_earlywood_factor,
+! 1 - kappa + kappa * s for a ring of age 1 or more,
+!
+!   c_ref = [ c(a_1) + SUM_{j>1} s_j * c(a_j) * F_j ] / (1 + SUM_{j>1} s_j),
+!
+! with turnover in the older rings' shares s_j as above. kmax is then the
+! conductance of a stand at its target with a complete new ring. A stand
+! whose new ring is not yet complete has less conductance than the
+! reference, so f_A is below 1 in spring until the new earlywood conducts.
+! With kappa = phi and s = 1 (no split) F = 1.
+!
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ximpair_ring_cond_ref( l, pft ) RESULT( c_ref )
 
 USE jules_vegetation_mod, ONLY: nsc_n_ring
+USE pftparm, ONLY: is_set, nsc_season_start, nsc_earlywood_cond_frac,          &
+                   nsc_earlywood_winter_frac, nsc_earlywood_mature_days
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, pft
@@ -857,14 +1406,53 @@ REAL(KIND=real_jlslsm) :: c_ref
 INTEGER :: j, a1
 ! The steady stand's ring shares and their sum.
 REAL(KIND=real_jlslsm) :: s(nsc_n_ring), sum_s
+! The youngest ring's share.
+REAL(KIND=real_jlslsm) :: q
+! The earlywood factor of a ring of age 1 or more.
+REAL(KIND=real_jlslsm) :: f_ew
+! Day of the year and the day the growing season starts.
+REAL(KIND=real_jlslsm) :: doy, doy_start
 
 a1 = ring_age(l, pft, 1)
-CALL ring_steady(l, pft, ring_q(l, pft), s)
+q  = ring_q(l, pft)
+
+! With earlywood the youngest ring of the reference is empty before the
+! start of the growing season and complete from it.
+f_ew = 1.0
+
+IF (ximpair_ring_earlywood_on(pft)) THEN
+  f_ew = 1.0 - nsc_earlywood_cond_frac(pft)                                    &
+         + nsc_earlywood_cond_frac(pft) * nsc_earlywood_winter_frac(pft)
+
+  IF (a1 == 0) THEN
+    IF (is_set(nsc_season_start(pft))) THEN
+      doy       = ring_day()
+      doy_start = ximpair_ring_season_doy(pft)
+
+      IF (doy < doy_start) THEN
+        q = 0.0
+      ELSE IF (nsc_earlywood_mature_days(pft) > 0.0) THEN
+        q = MIN(1.0, (doy - doy_start) / nsc_earlywood_mature_days(pft))
+      ELSE
+        q = 1.0
+      END IF
+    ELSE
+      q = 1.0
+    END IF
+  END IF
+END IF
+
+CALL ring_steady(l, pft, q, s)
 c_ref = 0.0
 sum_s = 0.0
 DO j = 1, nsc_n_ring
   IF (s(j) <= 0.0) CYCLE
-  c_ref = c_ref + s(j) * ring_cond(pft, a1 + j - 1, 0)
+
+  IF (ximpair_ring_earlywood_on(pft) .AND. a1 + j - 1 > 0) THEN
+    c_ref = c_ref + s(j) * ring_cond(pft, a1 + j - 1, 0) * f_ew
+  ELSE
+    c_ref = c_ref + s(j) * ring_cond(pft, a1 + j - 1, 0)
+  END IF
   sum_s = sum_s + s(j)
 END DO
 IF (sum_s > 0.0) c_ref = c_ref / sum_s
@@ -876,15 +1464,20 @@ END FUNCTION ximpair_ring_cond_ref
 ! one TRIFFID step (l_nsc_sapwood_rings).
 !
 ! 1. The step's new wood dg (kg C m-2) joins the youngest ring
-!    undamaged, which dilutes that ring's loss of conductance.
+!    undamaged, which dilutes that ring's loss of conductance. A negative
+!    dg is wood given back (the store's earlywood loan, with
+!    l_nsc_ring_earlywood): it leaves the youngest ring, its earlywood
+!    first, as intact wood (ring_remove_intact), so the damaged wood keeps
+!    its carbon and the ring's loss rises back.
 ! 2. Sapwood turns to heartwood, oldest rings first. The amount is
 !
 !      x_turn * (1 - EXP(-f_heart)),
 !
 !    where x_turn (kg C m-2) is the sapwood before the step, after
 !    TRIFFID's turnover (taken from all rings alike), and f_heart is the
-!    heartwood rate times the step length. The sapwood pool loses the
-!    same amount in total.
+!    heartwood rate times the step length. With the store's earlywood
+!    loan x_turn leaves the loan out (sapwood_heart), as the
+!    sapwood pool does, so the rings and the pool lose the same amount.
 ! 3. At the end of the ring year (l_shift), the two oldest rings merge
 !    and a new, empty youngest ring starts, to grow in calendar year
 !    g_year. With only one ring, that ring carries on.
@@ -896,14 +1489,42 @@ END FUNCTION ximpair_ring_cond_ref
 !    with X the sapwood after the step and c_1 how well the youngest ring
 !    conducts on this day: the part of the stem's loss the new wood
 !    dilutes (0 for a ring-porous tree's new ring before its vessels
-!    conduct).
+!    conduct). With l_nsc_ring_earlywood the weights carry the earlywood
+!    factor F (ring_earlywood_factor), w_new = (dg / X) * c_1 * F_1 /
+!    SUM_i f_i * c_i * F_i.
 !
-! MDK, 12/11/26
+! With earlywood and latewood (l_nsc_ring_earlywood), the youngest ring's
+! new wood is earlywood until the ring holds phi * x_exp of it, and
+! latewood after that,
+!
+!   E_1 -> E_1 + MIN(dg, MAX(phi * x_exp - E_1, 0)),
+!
+! where E_1 = e_1 * X_1 is the ring's earlywood carbon (kg C m-2), phi =
+! nsc_earlywood_carbon_frac and x_exp the expected full ring (kg C m-2, from the
+! caller). The earlywood grows only while the ring holds no latewood
+! (ximpair_ring_earlywood_forming). The first step that lays earlywood down sets
+! ximpair_earlywood_start_doy, the day its vessels start to mature, to
+! doy_start, or to the step's day when that is absent. Wood added while the
+! youngest ring has not yet started (age < 0, from the end of the ring year,
+! nsc_grow_end_doy, to 31 December) is latewood: it grows after the growing
+! season, when a tree lays down latewood. As earlywood it would start next
+! year's earlywood in the autumn, with a start day from the year before. So
+! an earlywood only starts in its ring's own calendar year. Turnover and
+! heartwood take earlywood and latewood alike, so e_i does not change. When
+! a new ring starts, the merged oldest rings take the carbon-weighted mean
+! of e.
+!
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_ring_grow( l, pft, sapwood_after_turn, dg, f_heart,         &
-                              l_shift, g_year, w_new )
+                              l_shift, g_year, x_exp, w_new, sapwood_heart,    &
+                              doy_start )
 
 USE jules_vegetation_mod, ONLY: nsc_n_ring
+USE pftparm, ONLY: nsc_earlywood_carbon_frac
+USE model_time_mod, ONLY: current_time
+USE datetime_utils_mod, ONLY: day_of_year
+USE time_info_mod, ONLY: l_360, l_leap
 
 ! Land point and PFT.
 INTEGER, INTENT(IN) :: l, pft
@@ -917,8 +1538,16 @@ REAL(KIND=real_jlslsm), INTENT(IN) :: f_heart
 LOGICAL, INTENT(IN) :: l_shift
 ! The calendar year in which a ring started at this step grows.
 INTEGER, INTENT(IN) :: g_year
+! The expected full ring (kg C m-2; used with l_nsc_ring_earlywood).
+REAL(KIND=real_jlslsm), INTENT(IN) :: x_exp
 ! The new wood's share of the conductance weight (0-1).
 REAL(KIND=real_jlslsm), INTENT(OUT), OPTIONAL :: w_new
+! The sapwood the heartwood forms from (kg C m-2), after turnover, when it
+! leaves out the store's loan; sapwood_after_turn when absent.
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: sapwood_heart
+! The day of year recorded as the day the earlywood started (the step's own
+! day when absent).
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL :: doy_start
 
 ! Ring counter and the number of rings.
 INTEGER :: i, n
@@ -942,9 +1571,46 @@ REAL(KIND=real_jlslsm) :: f_hi
 REAL(KIND=real_jlslsm) :: f_lo
 ! Merged rings: the less damaged part's loss (0-1).
 REAL(KIND=real_jlslsm) :: lo_new
+! The youngest ring's earlywood carbon (kg C m-2).
+REAL(KIND=real_jlslsm) :: e1
+! The earlywood added at this step (kg C m-2).
+REAL(KIND=real_jlslsm) :: e_add
+! Merged rings: the earlywood share of the oldest ring and of the next.
+REAL(KIND=real_jlslsm) :: e_old, e_new
 
 n = nsc_n_ring
 ring_c(:) = MAX(ximpair_ring_frac(l,pft,:), 0.0) * sapwood_after_turn
+
+! Earlywood: while the youngest ring holds no latewood, its new wood is
+! earlywood up to phi * x_exp; after that it is latewood. A ring not yet
+! started (age < 0) takes latewood only.
+IF (ximpair_ring_earlywood_on(pft)) THEN
+  e1 = MAX(ximpair_ring_earlywood_frac(l,pft,1), 0.0) * ring_c(1)
+
+  ! The earlywood grows while the ring holds no latewood.
+  IF (dg > 0.0 .AND. ximpair_ring_earlywood_forming(l, pft)) THEN
+    e_add = MIN(dg, MAX(nsc_earlywood_carbon_frac(pft) * x_exp - e1, 0.0))
+    e1    = e1 + e_add
+
+    IF (e_add > 0.0 .AND.                                                      &
+        ximpair_earlywood_start_doy(l,pft) >= earlywood_start_none) THEN
+      ximpair_earlywood_start_doy(l,pft) = REAL(day_of_year(current_time%year, &
+                                                    current_time%month,        &
+                                                    current_time%day,          &
+                                                    l_360, l_leap))
+      IF (PRESENT(doy_start)) ximpair_earlywood_start_doy(l,pft) = doy_start
+    END IF
+  END IF
+
+  ! Wood given back comes off the earlywood.
+  IF (dg < 0.0) e1 = MAX(e1 + dg, 0.0)
+
+  IF (ring_c(1) + dg > 0.0) THEN
+    ximpair_ring_earlywood_frac(l,pft,1) = e1 / (ring_c(1) + dg)
+  ELSE
+    ximpair_ring_earlywood_frac(l,pft,1) = 0.0
+  END IF
+END IF
 
 ! The new wood is intact: it dilutes the youngest ring's loss, and joins
 ! its less damaged part.
@@ -952,10 +1618,15 @@ IF (dg > 0.0) THEN
   x1_new = ring_c(1) + dg
   CALL ring_add_intact(l, pft, 1, ring_c(1) / x1_new)
   ring_c(1) = x1_new
+ELSE IF (dg < 0.0) THEN
+  CALL ring_remove_intact(l, pft, 1, ring_c(1), -dg)
+  ring_c(1) = MAX(ring_c(1) + dg, 0.0)
 END IF
 
 ! Heartwood from the oldest rings first.
 heartwood_left = sapwood_after_turn * (1.0 - EXP(-f_heart))
+IF (PRESENT(sapwood_heart))                                                    &
+  heartwood_left = sapwood_heart * (1.0 - EXP(-f_heart))
 DO i = n, 1, -1
   IF (heartwood_left <= 0.0) EXIT
   take = MIN(ring_c(i), heartwood_left)
@@ -972,6 +1643,9 @@ IF (PRESENT(w_new)) THEN
     CALL ring_sums(l, pft, .FALSE., sw, swl, swf)
     IF (sw > 0.0) w_new = MIN(dg / ring_c_tot, 1.0) * ring_cond(pft,           &
                           ring_age(l, pft, 1), 0) / sw
+    IF (ximpair_ring_earlywood_on(pft) .AND. sw > 0.0)                         &
+      w_new = w_new * ring_earlywood_factor(l, pft, 1, ring_age(l, pft, 1),    &
+                                            .FALSE.)
   END IF
 END IF
 
@@ -1000,6 +1674,26 @@ IF (l_shift) THEN
       ximpair_ring_dmg(l,pft,n)     = MIN(MAX(f_hi / f_old, 0.0), 1.0)
       ximpair_ring_loss_lo(l,pft,n) = lo_new
     END IF
+
+    ! The merged rings take their carbon-weighted earlywood share.
+    IF (ximpair_ring_earlywood_on(pft)) THEN
+      IF (f_old > 0.0) THEN
+        e_old = MAX(ximpair_ring_earlywood_frac(l,pft,n), 0.0)
+        e_new = MAX(ximpair_ring_earlywood_frac(l,pft,n-1), 0.0)
+
+        ximpair_ring_earlywood_frac(l,pft,n) =                                 &
+          (ximpair_ring_frac(l,pft,n) * e_old                                  &
+           + ximpair_ring_frac(l,pft,n-1) * e_new) / f_old
+      END IF
+
+      DO i = n - 1, 2, -1
+        ximpair_ring_earlywood_frac(l,pft,i) =                                 &
+          ximpair_ring_earlywood_frac(l,pft,i-1)
+      END DO
+      ximpair_ring_earlywood_frac(l,pft,1)   = 0.0
+      ximpair_earlywood_start_doy(l,pft) = earlywood_start_none
+    END IF
+
     ximpair_ring_frac(l,pft,n) = f_old
     DO i = n - 1, 2, -1
       ximpair_ring_frac(l,pft,i)    = ximpair_ring_frac(l,pft,i-1)
@@ -1037,9 +1731,12 @@ END SUBROUTINE ximpair_ring_grow
 !
 ! at least L_p (L_p in every ring when r = D). No ring changes size, so the
 ! sapwood keeps its age structure and a ring conducts at most as well as it
-! did undamaged. r is returned; r_max - r is claimed but not used.
+! did undamaged. r is returned; r_max - r is claimed but not used. With
+! l_nsc_ring_earlywood, c_i also carries the earlywood factor F_i
+! (ring_earlywood_factor), so the carbon is costed by the conductance restored;
+! the rings' earlywood shares do not change.
 !
-! MDK, 12/11/26
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ximpair_ring_repair( l, pft, sapwood_c, r_max, repair_c )
 
@@ -1066,6 +1763,8 @@ REAL(KIND=real_jlslsm) :: k_restore_tot
 REAL(KIND=real_jlslsm) :: l_old
 ! The factor a ring's loss above L_p is cut by.
 REAL(KIND=real_jlslsm) :: phi
+! A ring's conductivity.
+REAL(KIND=real_jlslsm) :: c_i
 
 repair_c = 0.0
 IF (sapwood_c <= 0.0 .OR. r_max <= 0.0) RETURN
@@ -1073,7 +1772,10 @@ IF (ximpair_ring_frac(l,pft,1) < 0.0) RETURN
 
 ring_c(:) = MAX(ximpair_ring_frac(l,pft,:), 0.0) * sapwood_c
 DO i = 1, nsc_n_ring
-  k_restore(i) = ring_c(i) * ring_cond(pft, ring_age(l, pft, i), 0) *          &
+  c_i = ring_cond(pft, ring_age(l, pft, i), 0)
+  IF (ximpair_ring_earlywood_on(pft))                                          &
+    c_i = c_i * ring_earlywood_factor(l, pft, i, ring_age(l, pft, i), .FALSE.)
+  k_restore(i) = ring_c(i) * c_i *                                             &
          MAX(ximpair_ring_loss(l,pft,i) - ximpair_ring_peak(l,pft), 0.0)
 END DO
 k_restore_tot = SUM(k_restore)
@@ -1120,8 +1822,10 @@ END SUBROUTINE ximpair_ring_repair
 ! (ximpair_ring_peak): damage at or below L_p would come back at once
 ! while the drought lasts. Times the sapwood X_s it is the carbon that
 ! repair needs (ximpair_ring_repair). 0 where the rings are not yet set.
+! With l_nsc_ring_earlywood, c_i also carries the earlywood factor F_i
+! (ring_earlywood_factor).
 !
-! MDK, 05/11/26
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ximpair_ring_repairable( l, pft ) RESULT( share )
 
@@ -1134,13 +1838,18 @@ REAL(KIND=real_jlslsm) :: share
 
 ! Ring counter.
 INTEGER :: i
+! A ring's conductivity.
+REAL(KIND=real_jlslsm) :: c_i
 
 share = 0.0
 IF (.NOT. ALLOCATED(ximpair_ring_frac)) RETURN
 IF (ximpair_ring_frac(l,pft,1) < 0.0) RETURN
 DO i = 1, nsc_n_ring
+  c_i = ring_cond(pft, ring_age(l, pft, i), 0)
+  IF (ximpair_ring_earlywood_on(pft))                                          &
+    c_i = c_i * ring_earlywood_factor(l, pft, i, ring_age(l, pft, i), .FALSE.)
   share = share + MAX(ximpair_ring_frac(l,pft,i), 0.0)                         &
-                  * ring_cond(pft, ring_age(l, pft, i), 0)                     &
+                  * c_i                                                        &
                   * MAX(ximpair_ring_loss(l,pft,i) - ximpair_ring_peak(l,pft), &
                         0.0)
 END DO
@@ -1155,9 +1864,12 @@ END FUNCTION ximpair_ring_repairable
 !
 ! with L the stem's loss (ximpair_ring_loss_mean), f_i ring i's share of the
 ! sapwood, c_i how well it conducts (ring_cond) and L_i its loss of
-! conductance; -1 where the rings are not yet set.
+! conductance; -1 where the rings are not yet set. With earlywood and
+! latewood (l_nsc_ring_earlywood) the weights c_i carry the earlywood
+! factor without its seasonal rise, so the share follows the damage only:
+! the spring maturation of the new earlywood does not lower it.
 !
-! MDK, 05/11/26
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 FUNCTION ximpair_ring_working( l, pft ) RESULT( share )
 
@@ -1170,7 +1882,7 @@ share = -1.0
 IF (.NOT. ALLOCATED(ximpair_ring_frac)) RETURN
 IF (ximpair_ring_frac(l,pft,1) < 0.0 .OR. ximpair_ring_year(l,pft) < 0.0)     &
   RETURN
-share = 1.0 - ximpair_ring_loss_mean(l, pft)
+share = 1.0 - ximpair_ring_loss_mean(l, pft, .TRUE.)
 
 END FUNCTION ximpair_ring_working
 
@@ -1654,7 +2366,11 @@ END SUBROUTINE psi_leaf_impaired_memory
 ! is stored for TRIFFID and, with l_trif_hydmort, for hydraulic
 ! mortality.
 !
-! MDK, 12/11/26
+! With earlywood and latewood (l_nsc_ring_earlywood) the rings' weights in
+! the stem's loss carry the earlywood factor (ring_earlywood_factor); a dump
+! with the rings but not their earlywood sets it up here.
+!
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment_memory( n_land_pts, n_open_pts,             &
                                            open_index, pft, psi_leaf,          &
@@ -1798,6 +2514,14 @@ IF (l_nsc_sapwood_rings) THEN
       l_ring_year_warned = .TRUE.
       ximpair_ring_year(l,pft) = REAL(ximpair_ring_next_year(pft))
     END IF
+
+    ! The earlywood is set up once the rings' year is known (it sets the
+    ! rings' ages).
+    IF (ximpair_ring_earlywood_on(pft)) THEN
+      IF (ximpair_ring_earlywood_frac(l,pft,1) < 0.0)                          &
+        CALL ximpair_ring_earlywood_init(l, pft)
+    END IF
+
   END DO
 END IF
 
@@ -1987,9 +2711,12 @@ CONTAINS
 ! (ximpair_ring_peak).
 !
 ! A youngest ring that does not conduct yet (not grown, or a ring-porous
-! tree's new ring before its vessels conduct) is not damaged.
+! tree's new ring before its vessels conduct) is not damaged. With
+! l_nsc_ring_earlywood a youngest ring whose earlywood vessels have not
+! begun to mature (ring_earlywood_maturity is 0) is not damaged either: they
+! have not worked.
 !
-! MDK, 12/11/26
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE ring_damage( l, loss_imp )
 
@@ -2012,6 +2739,11 @@ i_first = 1
 IF (ring_age(l, pft, 1) < 0 .OR.                                               &
     ring_cond(pft, ring_age(l, pft, 1), 0) <= 0.0 .AND.                        &
     ring_age(l, pft, 1) == 0) i_first = 2
+
+IF (ximpair_ring_earlywood_on(pft) .AND. ring_age(l, pft, 1) == 0) THEN
+  IF (ring_earlywood_maturity(l, pft) <= 0.0) i_first = 2
+END IF
+
 DO i_r = i_first, nsc_n_ring
   CALL ring_hit(l, pft, i_r, MIN(loss_imp, loss_max))
 END DO

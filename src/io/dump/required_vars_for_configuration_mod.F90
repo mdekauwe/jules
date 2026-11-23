@@ -63,6 +63,8 @@ USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
   ! MDK, 24/10/26
 ! MDK, 01/11/26
 USE jules_vegetation_mod, ONLY: l_nsc_sink_feedback
+! MDK, 16/11/26
+USE jules_vegetation_mod, ONLY: l_nsc_ring_earlywood
 USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman
 USE jules_vegetation_mod, ONLY: nsc_heartwood_model, nsc_heartwood_pipe
 
@@ -478,6 +480,15 @@ IF ( l_triffid_nsc ) THEN
     CALL add_to_list( 'ximpair_ring_dmg', nvars, identifiers )
     CALL add_to_list( 'ximpair_ring_loss_lo', nvars, identifiers )
     CALL add_to_list( 'ximpair_ring_year', nvars, identifiers )
+    ! The rings' earlywood, the day the youngest ring's earlywood started
+    ! and the earlywood the store has paid and not yet repaid.
+    !
+    ! MDK, 17/11/26
+    IF ( l_nsc_ring_earlywood ) THEN
+      CALL add_to_list( 'ximpair_ring_earlywood_frac', nvars, identifiers )
+      CALL add_to_list( 'ximpair_earlywood_start_doy', nvars, identifiers )
+      CALL add_to_list( 'nsc_earlywood_loan', nvars, identifiers )
+    END IF
     ! The period's peak imposed loss and the last ring production, which
     ! limit the xylem repair.
     !

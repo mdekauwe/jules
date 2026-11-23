@@ -1336,6 +1336,39 @@ LOGICAL ::                                                                     &
       ! the stem's damage only. See triffid_nsc_mod.
       !
       ! MDK, 05/11/26
+  l_nsc_ring_earlywood = .FALSE.,                                              &
+      ! Ring cohorts (l_nsc_sapwood_rings) with earlywood and latewood, for
+      ! each PFT with nsc_earlywood_carbon_frac_io set (the others keep plain
+      ! rings): each ring's first nsc_earlywood_carbon_frac of its expected
+      ! carbon is earlywood, which carries nsc_earlywood_cond_frac of a full
+      ! ring's conductance once its vessels have matured
+      ! (nsc_earlywood_mature_days; nsc_ring_func_doy must be unset), keeps
+      ! nsc_earlywood_winter_frac of it after its first winter, and with
+      ! l_nsc_k_sapwood the reference stand has a new ring from the start of
+      ! the growing season. Needs at least three rings and the TRIFFID store
+      ! (l_triffid_nsc).
+      !
+      ! From the start of the growing season the store pays the youngest
+      ! ring's earlywood ahead of TRIFFID's wood growth, up to its
+      ! accessible store, so the earlywood can conduct early in spring. The
+      ! carbon is lent: TRIFFID's later wood growth repays it, so the ring
+      ! and the store end the ring year as without the loan (no new carbon
+      ! sink). A low store gives a small or late earlywood. Output
+      ! nsc_earlywood_loan (the earlywood paid and not yet repaid). See
+      ! triffid_nsc_mod.
+      !
+      ! MDK, 17/11/26
+  l_ximpair_leafless_root_psi = .FALSE.,                                       &
+      ! Xylem impairment of a dormant PFT: while a PFT with the budburst
+      ! gate (phen_bb_doy or phen_bb_gdd set) is dormant (phen_dormant: from
+      ! the step the cold leaf drop takes its canopy to the phenology floor
+      ! after budburst to the next budburst), the root water potential
+      ! drives the impairment in place of the leaf and stem. PFTs without the
+      ! gate, and PFTs whose canopy never falls to the floor, are never
+      ! dormant, and leaves shed by drought or heat do not make a PFT
+      ! dormant. See update_xylem_impairment.
+      !
+      ! MDK, 16/11/26
   l_nsc_pipe_target = .FALSE.,                                                 &
       ! Sapwood pool (l_nsc_sapwood_pool) with a pipe-model target: the
       ! target sapwood X_t is the pipe model on last ring year's peak LAI
@@ -1575,6 +1608,7 @@ NAMELIST  / jules_vegetation/                                                  &
     l_nsc_wmax_norm, l_trif_hydmort,                                           &
     l_nsc_sapwood_pool, l_nsc_ring_additive, l_nsc_sapwood_rings,              &
     l_nsc_pipe_target, l_nsc_k_sapwood, l_nsc_sapwood_n,                       &
+    l_nsc_ring_earlywood, l_ximpair_leafless_root_psi,                         &
     nsc_heartwood_model, nsc_damage_response,                                  &
     nsc_n_ring,                                                                &
     l_nsc_sink_feedback,                                                       &
@@ -2920,6 +2954,56 @@ IF ( nsc_n_ring < 2 .OR. nsc_n_ring > 200 ) THEN
   CALL ereport("check_jules_vegetation", errcode,                              &
                'nsc_n_ring (number of ring cohorts) must be 2 to 200')
 END IF
+! The earlywood and latewood of the rings need the ring cohorts, and at
+! least three of them: with two, the ring shift merges this year's ring
+! with all the old wood, and the old earlywood then conducts as a new
+! ring's until 31 December.
+!
+! MDK, 17/11/26
+IF ( l_nsc_ring_earlywood .AND. .NOT. l_nsc_sapwood_rings ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_ring_earlywood needs the ring cohorts '              //  &
+               '(l_nsc_sapwood_rings=T)')
+END IF
+IF ( l_nsc_ring_earlywood .AND. nsc_n_ring < 3 ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_ring_earlywood needs nsc_n_ring >= 3: with fewer, '  //  &
+               'this year''s ring merges with the old wood at the ring '   //  &
+               'shift')
+END IF
+! The store pays the earlywood, so it needs the TRIFFID store.
+!
+! MDK, 17/11/26
+IF ( l_nsc_ring_earlywood .AND. .NOT. l_triffid_nsc ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_nsc_ring_earlywood needs the TRIFFID store '             //  &
+               '(l_triffid_nsc=T)')
+END IF
+! The dormant PFT's impairment follows the budburst gate of TRIFFID
+! phenology.
+!
+! MDK, 16/11/26
+IF ( l_ximpair_leafless_root_psi .AND. .NOT. l_phenol ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_ximpair_leafless_root_psi needs l_phenol=T '           //  &
+               '(dormancy is '                                             //  &
+               'the budburst gate of TRIFFID phenology)')
+END IF
+! A dormant PFT's root water potential falls steeply when the soil freezes,
+! so the memory model needs its frozen-soil hold.
+!
+! MDK, 16/11/26
+IF ( l_ximpair_leafless_root_psi .AND. .NOT. l_ximpair_frozen_hold ) THEN
+  errcode = 101
+  CALL ereport("check_jules_vegetation", errcode,                              &
+               'l_ximpair_leafless_root_psi needs '                        //  &
+               'l_ximpair_frozen_hold=T (a frozen root zone must not '     //  &
+               'damage a dormant PFT)')
+END IF
 IF ( l_phen_psi .AND. .NOT. l_phenol ) THEN
   errcode = 101
   CALL ereport("check_jules_vegetation", errcode,                              &
@@ -3203,6 +3287,11 @@ WRITE(lineBuffer,*) ' l_nsc_sapwood_rings = ', l_nsc_sapwood_rings
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' nsc_n_ring = ', nsc_n_ring
 CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_nsc_ring_earlywood = ', l_nsc_ring_earlywood
+CALL jules_print('jules_vegetation_mod',lineBuffer)
+WRITE(lineBuffer,*) ' l_ximpair_leafless_root_psi = ',                         &
+                    l_ximpair_leafless_root_psi
+CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_pipe_target = ', l_nsc_pipe_target
 CALL jules_print('jules_vegetation_mod',lineBuffer)
 WRITE(lineBuffer,*) ' l_nsc_k_sapwood = ', l_nsc_k_sapwood
@@ -3361,11 +3450,11 @@ INTEGER, PARAMETER :: n_int = 31
 INTEGER, PARAMETER :: n_real = 25 + (n_photo_coef * 5)
                                   ! The REAL items: 25 scalars and the five
                                   ! coefficient arrays (n_photo_coef each).
-INTEGER, PARAMETER :: n_log = 68 + npft_max
-                                  ! The LOGICAL items: 68 scalars and
+INTEGER, PARAMETER :: n_log = 70 + npft_max
+                                  ! The LOGICAL items: 70 scalars and
                                   ! l_vegdrag_pft (npft_max).
                                   !
-                                  ! MDK, 09/11/26
+                                  ! MDK, 16/11/26
 
 TYPE :: my_namelist
   SEQUENCE
@@ -3464,6 +3553,8 @@ TYPE :: my_namelist
   LOGICAL :: l_nsc_ring_additive   ! MDK, 29/10/26
   LOGICAL :: l_nsc_sink_feedback   ! MDK, 30/10/26
   LOGICAL :: l_nsc_sapwood_rings   ! MDK, 30/10/26
+  LOGICAL :: l_nsc_ring_earlywood   ! MDK, 17/11/26
+  LOGICAL :: l_ximpair_leafless_root_psi   ! MDK, 17/11/26
   LOGICAL :: l_nsc_pipe_target   ! MDK, 30/10/26
   LOGICAL :: l_nsc_k_sapwood   ! MDK, 31/10/26
   LOGICAL :: l_nsc_sapwood_n   ! MDK, 04/11/26
@@ -3610,6 +3701,8 @@ IF (mype == 0) THEN
   my_nml % l_nsc_ring_additive = l_nsc_ring_additive   ! MDK, 29/10/26
   my_nml % l_nsc_sink_feedback = l_nsc_sink_feedback   ! MDK, 30/10/26
   my_nml % l_nsc_sapwood_rings = l_nsc_sapwood_rings   ! MDK, 30/10/26
+  my_nml % l_nsc_ring_earlywood = l_nsc_ring_earlywood   ! MDK, 17/11/26
+  my_nml % l_ximpair_leafless_root_psi = l_ximpair_leafless_root_psi   ! MDK, 17/11/26
   my_nml % l_nsc_pipe_target = l_nsc_pipe_target   ! MDK, 30/10/26
   my_nml % l_nsc_k_sapwood = l_nsc_k_sapwood   ! MDK, 31/10/26
   my_nml % l_nsc_sapwood_n = l_nsc_sapwood_n   ! MDK, 04/11/26
@@ -3746,6 +3839,8 @@ IF (mype /= 0) THEN
   l_nsc_ring_additive = my_nml % l_nsc_ring_additive   ! MDK, 29/10/26
   l_nsc_sink_feedback = my_nml % l_nsc_sink_feedback   ! MDK, 30/10/26
   l_nsc_sapwood_rings = my_nml % l_nsc_sapwood_rings   ! MDK, 30/10/26
+  l_nsc_ring_earlywood = my_nml % l_nsc_ring_earlywood   ! MDK, 17/11/26
+  l_ximpair_leafless_root_psi = my_nml % l_ximpair_leafless_root_psi   ! MDK, 17/11/26
   l_nsc_pipe_target = my_nml % l_nsc_pipe_target   ! MDK, 30/10/26
   l_nsc_k_sapwood = my_nml % l_nsc_k_sapwood   ! MDK, 31/10/26
   l_nsc_sapwood_n = my_nml % l_nsc_sapwood_n   ! MDK, 04/11/26

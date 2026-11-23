@@ -49,6 +49,7 @@ USE triffid_nsc_mod, ONLY: nsc_xylem_prod_pft, nsc_xylem_renew_pft
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE triffid_nsc_mod, ONLY: nsc_heartwood, nsc_sapwood_target
+USE triffid_nsc_mod, ONLY: nsc_earlywood_loan   ! MDK, 17/11/26
 USE triffid_nsc_mod, ONLY: nsc_lai_peak, nsc_lai_peak_prev
 USE triffid_nsc_mod, ONLY: nsc_k_area_frac
 USE triffid_nsc_mod, ONLY: nsc_k_area_raw, nsc_lai_sap_cap,                    &
@@ -63,6 +64,13 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_ring_dmg, ximpair_ring_loss_lo
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
 USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_cond_intact
+! The rings' earlywood and this year's ring.
+!
+! MDK, 17/11/26
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_frac,           &
+                                       ximpair_earlywood_start_doy,            &
+                                       ximpair_ring_current, ximpair_ring_w,   &
+                                       earlywood_start_none
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
 USE canopy_diag_mod, ONLY: gc_stomatal_pft, gsoil_pft, t_can_air_pft,          &
@@ -78,7 +86,8 @@ USE xylem_hydraulics_CW_jls_mod, ONLY: xylem_f
 USE xylem_impairment_mod, ONLY: leaf_conductance_impaired_jls
 USE jules_vegetation_mod, ONLY: xylem_impairment_none
 USE pftparm, ONLY: conductance_b_pft, conductance_c_pft
-USE pftparm, ONLY: kmax_pft, kcrit, pft_xylem_impairment_model
+USE pftparm, ONLY: kmax_pft, kcrit, pft_xylem_impairment_model,                &
+                   ximpair_lai_min
 
 !Use variables
 !Science variables
@@ -215,7 +224,8 @@ REAL, ALLOCATABLE :: workspace_ring(:,:,:)
     ! MDK, 30/10/26
 REAL :: kmax_ref_plc(land_pts), kcrit_plc(land_pts), kx_plc(land_pts)
 REAL :: b_plc(land_pts), c_plc(land_pts)
-REAL :: g_stem, g_leaf, psi_s
+REAL :: g_stem, g_leaf, psi_s, psi_l_plc(land_pts)
+LOGICAL :: gate_plc(land_pts)
                                 ! PLC_pft with xylem impairment: unimpaired
                                 ! kmax_pft and kcrit, the PFT's curve, and
                                 ! the impaired xylem conductance at psi_leaf.
@@ -4357,6 +4367,82 @@ CASE ( 'ximpair_ring_func' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
+! This year's ring (the ring of age 0): its share of the sapwood's
+! conductance, its carbon (kg C m-2) and, with l_nsc_ring_earlywood, its
+! earlywood carbon (-1 = not yet set, or without the rings or the
+! earlywood).
+!
+! MDK, 17/11/26
+CASE ( 'ximpair_ring_w' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(ximpair_ring_frac) ) THEN
+    DO n = 1,npft
+      DO l = 1,land_pts
+        IF ( ximpair_ring_frac(l,n,1) >= 0.0 .AND.                             &
+             ximpair_ring_year(l,n) >= 0.0 )                                   &
+          workspace_pft(l,n) = ximpair_ring_w(l, n)
+      END DO
+    END DO
+  END IF
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+CASE ( 'ximpair_ring_new_c', 'ximpair_ring_new_earlywood_c' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(ximpair_ring_frac) .AND. ALLOCATED(nsc_sapwood) ) THEN
+    DO n = 1,npft
+      DO l = 1,land_pts
+        IF ( ximpair_ring_frac(l,n,1) < 0.0 .OR.                               &
+             ximpair_ring_year(l,n) < 0.0 .OR. nsc_sapwood(l,n) < 0.0 ) CYCLE
+        k = ximpair_ring_current(l, n)
+        IF ( k < 1 ) CYCLE
+        IF ( get_string_identifier(var_id) == 'ximpair_ring_new_c' ) THEN
+          workspace_pft(l,n) = ximpair_ring_frac(l,n,k) * nsc_sapwood(l,n)
+        ELSE IF ( ALLOCATED(ximpair_ring_earlywood_frac) ) THEN
+          IF ( ximpair_ring_earlywood_frac(l,n,1) >= 0.0 )                     &
+            workspace_pft(l,n) = ximpair_ring_earlywood_frac(l,n,k)            &
+                                 * ximpair_ring_frac(l,n,k) * nsc_sapwood(l,n)
+        END IF
+      END DO
+    END DO
+  END IF
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! The earlywood the store has paid and TRIFFID's wood has not yet repaid
+! (0 without l_nsc_ring_earlywood).
+!
+! MDK, 17/11/26
+CASE ( 'nsc_earlywood_loan' )
+  workspace_pft(:,:) = 0.0
+  IF ( ALLOCATED(nsc_earlywood_loan) ) workspace_pft(:,:) = nsc_earlywood_loan
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! The day of year the youngest ring's earlywood started (-1 = not yet).
+!
+! MDK, 17/11/26
+CASE ( 'ximpair_earlywood_start_doy' )
+  workspace_pft(:,:) = -1.0
+  IF ( ALLOCATED(ximpair_earlywood_start_doy) )                                &
+    workspace_pft(:,:) = MERGE(-1.0, ximpair_earlywood_start_doy,              &
+                               ximpair_earlywood_start_doy                     &
+                               >= earlywood_start_none)
+  cube_land = cube_from_array(workspace_pft)
+  cube = map_from_land(cube_land)
+
+! Each ring's earlywood share of its carbon (-1 = not set, or without
+! l_nsc_ring_earlywood).
+!
+! MDK, 17/11/26
+CASE ( 'ximpair_ring_earlywood_frac' )
+  ALLOCATE(workspace_ring(land_pts, npft, nsc_n_ring))
+  workspace_ring(:,:,:) = -1.0
+  IF ( ALLOCATED(ximpair_ring_earlywood_frac) )                                &
+    workspace_ring(:,:,:) = ximpair_ring_earlywood_frac
+  cube_land = cube_from_array(workspace_ring)
+  cube = map_from_land(cube_land)
+
 ! The sapwood-area factor on kmax (l_nsc_k_sapwood; 1 without it).
 !
 ! MDK, 31/10/26
@@ -4525,12 +4611,24 @@ CASE ('PLC_pft', 'PLC_canopy_pft')
   ! No impairment model: the PFT vulnerability curve. With one: the point's
   ! impaired curve (leaf_conductance_impaired_jls, as the damage update).
   !
-  ! MDK, 04/11/26
+  ! With ximpair_lai_min, a point whose leaf area index is below it reports
+  ! the loss at the root zone water potential (no canopy to hold a leaf
+  ! potential).
+  !
+  ! MDK, 23/11/26
   DO i = 1, npft
+    psi_l_plc(:) = psparms%psi_leaf_pft(:,i)
+    gate_plc(:) = .FALSE.
+    IF ( ximpair_lai_min(i) > 0.0 ) THEN
+      DO l = 1, land_pts
+        gate_plc(l) = progs%lai_pft(l,i) < ximpair_lai_min(i)
+        IF ( gate_plc(l) ) psi_l_plc(l) = psparms%psi_root_zone_pft(l,i)
+      END DO
+    END IF
     IF ( pft_xylem_impairment_model(i) == xylem_impairment_none ) THEN
       DO l = 1, land_pts
         workspace_pft(l,i) = 100.0                                             &
-                             * (1.0 - xylem_f(i, psparms%psi_leaf_pft(l,i)))
+                             * (1.0 - xylem_f(i, psi_l_plc(l)))
       END DO
     ELSE
       kmax_ref_plc(:)  = kmax_pft(i)
@@ -4538,7 +4636,7 @@ CASE ('PLC_pft', 'PLC_canopy_pft')
       b_plc(:)         = conductance_b_pft(i)
       c_plc(:)         = conductance_c_pft(i)
       CALL leaf_conductance_impaired_jls( i, land_pts,                         &
-                                          psparms%psi_leaf_pft(:,i),           &
+                                          psi_l_plc(:),                        &
                                           kmax_ref_plc,                        &
                                           psparms%kmax_impaired_pft(:,i),      &
                                           kcrit_plc,                           &
@@ -4552,11 +4650,12 @@ CASE ('PLC_pft', 'PLC_canopy_pft')
         ! its own curve under its own cap, relative to the intact pair. With
         ! one cap and psi_stem = psi_leaf this is the expression above.
         DO l = 1, land_pts
-          psi_s = psparms%psi_leaf_pft(l,i)
-          IF ( ALLOCATED(ximpair_psi_stem) ) psi_s = ximpair_psi_stem(l,i)
+          psi_s = psi_l_plc(l)
+          IF ( ALLOCATED(ximpair_psi_stem) .AND. .NOT. gate_plc(l) )           &
+            psi_s = ximpair_psi_stem(l,i)
           g_stem = MIN( seg_rel_k(i, 2, psi_s),                                &
                         psparms%kmax_impaired_pft(l,i) / kmax_pft(i) )
-          g_leaf = MIN( seg_rel_k(i, 3, psparms%psi_leaf_pft(l,i)),            &
+          g_leaf = MIN( seg_rel_k(i, 3, psi_l_plc(l)),                 &
                         ximpair_kcap_leaf(l,i) )
           g_stem = MAX(g_stem, 1.0e-12)
           g_leaf = MAX(g_leaf, 1.0e-12)

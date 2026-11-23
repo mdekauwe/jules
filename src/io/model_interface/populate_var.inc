@@ -38,6 +38,7 @@ USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE triffid_nsc_mod, ONLY: nsc_xylem_prod_pft   ! MDK, 09/11/26
 USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
+USE triffid_nsc_mod, ONLY: nsc_earlywood_loan   ! MDK, 17/11/26
 USE triffid_nsc_mod, ONLY: nsc_cmax_pft, nsc_wpot_pft, nsc_resp_pft,          &
                            nsc_tseas_acc
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
@@ -47,6 +48,12 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_dmg, ximpair_ring_loss_lo
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
 USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
+! The rings' earlywood.
+!
+! MDK, 17/11/26
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_frac,           &
+                                       ximpair_earlywood_start_doy
+USE jules_vegetation_mod, ONLY: l_nsc_ring_earlywood
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
@@ -2468,6 +2475,33 @@ CASE ( 'ximpair_hw_rate_mean' )
     ximpair_hw_rate_mean(:,:) = const_val
   END IF
 
+! The rings' earlywood, which exists only with it.
+!
+! MDK, 17/11/26
+CASE ( 'ximpair_ring_earlywood_frac' )
+  IF ( .NOT. l_nsc_ring_earlywood )                                            &
+    CALL log_fatal("populate_var",                                             &
+                   "ximpair_ring_earlywood_frac needs l_nsc_ring_earlywood=T")
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_ring_earlywood_frac(:,:,:))
+  ELSE
+    ximpair_ring_earlywood_frac(:,:,:) = const_val
+  END IF
+
+CASE ( 'ximpair_earlywood_start_doy' )
+  IF ( .NOT. l_nsc_ring_earlywood )                                            &
+    CALL log_fatal("populate_var",                                             &
+                   "ximpair_earlywood_start_doy needs l_nsc_ring_earlywood=T")
+  CALL ximpair_memory_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, ximpair_earlywood_start_doy(:,:))
+  ELSE
+    ximpair_earlywood_start_doy(:,:) = const_val
+  END IF
+
 CASE ( 'phen_nlow' )
   CALL leaf_shed_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
@@ -2576,6 +2610,18 @@ CASE ( 'phen_dormant' )
     CALL cube_get_data(cube_land, phen_dormant(:,:))
   ELSE
     phen_dormant(:,:) = const_val
+  END IF
+
+! The store's earlywood loan.
+!
+! MDK, 17/11/26
+CASE ( 'nsc_earlywood_loan' )
+  CALL triffid_nsc_alloc( land_pts )
+  IF ( PRESENT(cube) ) THEN
+    cube_land = map_to_land(cube)
+    CALL cube_get_data(cube_land, nsc_earlywood_loan(:,:))
+  ELSE
+    nsc_earlywood_loan(:,:) = const_val
   END IF
 
 CASE ( 'nsc_regrow_acc' )

@@ -587,6 +587,15 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  ! NOTE: This value is not directly input by the user, instead
                  !        it is calculated from the kcrit and the conductance
                  !        model in ptftparm_io_mod.F90.
+,ximpair_lai_min(:)                                                           &
+                 ! Xylem impairment (memory model): leaf area index below
+                 !  which the PFT's canopy is taken to be absent. While the
+                 !  leaf area index is below it, the root water potential
+                 !  drives the damage in place of the leaf and stem, and
+                 !  PLC_pft is the loss at the root water potential. <= 0:
+                 !  off.
+                 !
+                 ! MDK, 23/11/26
 ,ximpair_tau_leaf(:)                                                          &
                  ! Per-segment memory (l_ximpair_seg_memory): e-folding time
                  !  (years of calendar time) of the leaf (leaf and twig)
@@ -837,7 +846,7 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  = all rings conduct alike.
                  !
                  !  MDK, 05/11/26
-,nsc_ring_func_doy(:)
+,nsc_ring_func_doy(:)                                                          &
                  ! Ring cohorts, ring-porous stem: the day of year (1-366,
                  !  calendar) from which the youngest ring (the year's
                  !  earlywood) conducts; before it the flow goes through the
@@ -848,8 +857,47 @@ REAL(KIND=real_jlslsm), ALLOCATABLE ::                                         &
                  !  growth: the youngest ring holds the wood TRIFFID grows
                  !  from the start of the growing season. Unset (< -1e29) =
                  !  not ring-porous (the youngest ring always conducts).
+                 !  Not used with l_nsc_ring_earlywood.
                  !
-                 !  MDK, 31/10/26
+                 !  MDK, 17/11/26
+,nsc_earlywood_carbon_frac(:)                                                  &
+                 ! Earlywood and latewood (l_nsc_ring_earlywood): the
+                 !  earlywood's share of a full ring's carbon (0-1, both
+                 !  ends excluded): its share of the basal-area increment
+                 !  (0.37 in Quercus petraea, Fernandez-de-Una et al. 2026)
+                 !  weighted by its wood density relative to the ring's.
+                 !  The PFT has earlywood and latewood when this is set;
+                 !  unset (default): plain rings.
+                 !
+                 !  MDK, 17/11/26
+,nsc_earlywood_cond_frac(:)                                                    &
+                 ! Earlywood and latewood (l_nsc_ring_earlywood): the
+                 !  earlywood's share of a full new ring's hydraulic
+                 !  conductance (0-1); 0.91 in Quercus petraea
+                 !  (Fernandez-de-Una et al. 2026). Set it equal to
+                 !  nsc_earlywood_carbon_frac for diffuse-porous wood and
+                 !  conifers, where earlywood and latewood conduct alike
+                 !  per unit carbon. Needed where nsc_earlywood_carbon_frac is
+                 !  set.
+                 !
+                 !  MDK, 17/11/26
+,nsc_earlywood_winter_frac(:)                                                  &
+                 ! Earlywood and latewood (l_nsc_ring_earlywood): the share
+                 !  of the earlywood's conductance kept after its ring's
+                 !  first winter (0-1); about 0 in ring-porous wood, whose
+                 !  wide earlywood vessels embolise in freeze-thaw (Cochard
+                 !  and Tyree 1990), 1 in diffuse-porous wood and conifers.
+                 !  Default 1.
+                 !
+                 !  MDK, 17/11/26
+,nsc_earlywood_mature_days(:)
+                 ! Earlywood and latewood (l_nsc_ring_earlywood): days over
+                 !  which the new earlywood's vessels mature, from the day
+                 !  the earlywood starts; its conductance above that of
+                 !  latewood rises linearly over them. 0: the earlywood
+                 !  conducts at once (default).
+                 !
+                 !  MDK, 17/11/26
 
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName='PFTPARM'
 
@@ -1274,6 +1322,7 @@ ALLOCATE( cap_stem(npft))
 ALLOCATE( conductance_b_seg(npft,3))
 ALLOCATE( conductance_c_seg(npft,3))
 ALLOCATE( ximpair_tau_leaf(npft))
+ALLOCATE( ximpair_lai_min(npft))
 ! MDK, 17/10/26
 ALLOCATE( nsc_flush(npft))
 ALLOCATE( nsc_kc(npft))
@@ -1304,6 +1353,10 @@ ALLOCATE( nsc_sink_days(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_sink_beta_min(npft))   ! MDK, 31/10/26
 ALLOCATE( nsc_ring_cond_efold(npft))   ! MDK, 30/10/26
 ALLOCATE( nsc_ring_func_doy(npft))   ! MDK, 31/10/26
+ALLOCATE( nsc_earlywood_carbon_frac(npft))   ! MDK, 17/11/26
+ALLOCATE( nsc_earlywood_cond_frac(npft))   ! MDK, 17/11/26
+ALLOCATE( nsc_earlywood_winter_frac(npft))   ! MDK, 17/11/26
+ALLOCATE( nsc_earlywood_mature_days(npft))   ! MDK, 17/11/26
 ALLOCATE( phen_psi_tlp(npft))
 ALLOCATE( phen_dfbleaf(npft))
 ALLOCATE( phen_ndays(npft))
@@ -1353,6 +1406,7 @@ cap_stem(:) = 3000.0e-9
 conductance_b_seg(:,:) = 1.0
 conductance_c_seg(:,:) = 1.0
 ximpair_tau_leaf(:) = 0.0
+ximpair_lai_min(:) = 0.0
 ! MDK, 17/10/26
 nsc_flush(:) = 2.0
 nsc_kc(:) = 0.02
@@ -1383,6 +1437,10 @@ nsc_sink_days(:) = 240.0   ! MDK, 31/10/26
 nsc_sink_beta_min(:) = 0.8   ! MDK, 31/10/26
 nsc_ring_cond_efold(:) = -1.0e30   ! MDK, 30/10/26
 nsc_ring_func_doy(:) = -1.0e30   ! MDK, 31/10/26
+nsc_earlywood_carbon_frac(:) = -1.0e30   ! MDK, 17/11/26
+nsc_earlywood_cond_frac(:) = -1.0e30   ! MDK, 17/11/26
+nsc_earlywood_winter_frac(:) = 1.0   ! MDK, 17/11/26
+nsc_earlywood_mature_days(:) = 0.0   ! MDK, 17/11/26
 phen_psi_tlp(:) = -1.0e30
 phen_dfbleaf(:) = 0.05
 phen_ndays(:) = 10.0
@@ -1712,6 +1770,8 @@ WRITE(lineBuffer,*)' pft_xylem_impairment_model = ',pft_xylem_impairment_model
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' ximpair_tau_leaf = ',ximpair_tau_leaf
 CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' ximpair_lai_min = ',ximpair_lai_min
+CALL jules_print('pftparm',lineBuffer)
 ! MDK, 17/10/26
 WRITE(lineBuffer,*)' nsc_flush = ',nsc_flush
 CALL jules_print('pftparm',lineBuffer)
@@ -1770,6 +1830,14 @@ CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_ring_cond_efold = ',nsc_ring_cond_efold
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' nsc_ring_func_doy = ',nsc_ring_func_doy
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_earlywood_carbon_frac = ',nsc_earlywood_carbon_frac
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_earlywood_cond_frac = ',nsc_earlywood_cond_frac
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_earlywood_winter_frac = ',nsc_earlywood_winter_frac
+CALL jules_print('pftparm',lineBuffer)
+WRITE(lineBuffer,*)' nsc_earlywood_mature_days = ',nsc_earlywood_mature_days
 CALL jules_print('pftparm',lineBuffer)
 WRITE(lineBuffer,*)' phen_psi_tlp = ',phen_psi_tlp
 CALL jules_print('pftparm',lineBuffer)

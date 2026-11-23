@@ -150,7 +150,7 @@ IF ( is_master_task() ) THEN
         IF ( dim_ids(j) < 0 ) THEN
           SELECT CASE ( identifiers(i) )
           CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_dmg', &
-                 'ximpair_ring_loss_lo' )
+                 'ximpair_ring_loss_lo', 'ximpair_ring_earlywood_frac' )
             CYCLE
           END SELECT
           CALL log_fatal("read_dump_shared",                                   &
@@ -346,6 +346,24 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump: each ring " //      &
              "starts as one part (restart not exact).")
+        CASE ( 'ximpair_ring_earlywood_frac', 'ximpair_earlywood_start_doy' )
+          ! The rings' earlywood: dumps written without it start it at the
+          ! first update or ring step as in a steady stand: every older ring
+          ! with a full earlywood, the youngest ring's as far as the season
+          ! has gone.
+          !
+          ! MDK, 17/11/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump: the rings' " //     &
+             "earlywood starts as in a steady stand.")
+        CASE ( 'nsc_earlywood_loan' )
+          ! The store's earlywood loan: dumps written without it start
+          ! with none (a restart is then not exact within a ring year).
+          !
+          ! MDK, 17/11/26
+          CALL log_warn("read_dump_shared",                                    &
+             TRIM(identifiers(i)) // " is not in the dump so starts at 0 " //  &
+             "(restart not exact within a ring year).")
         CASE ( 'ximpair_psi_stem', 'ximpair_area_w' )
           ! Dumps written without them: the stem psi of the PLC output is
           ! unset until the first update, and the area dilution of the

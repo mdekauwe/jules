@@ -33,6 +33,8 @@ USE jules_vegetation_mod, ONLY: l_nitrogen,                                    &
                                 ! TEMP RED
                                 l_red
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_regrow_acc
+USE triffid_nsc_mod, ONLY: nsc_earlywood_loan                  ! MDK, 17/11/26
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_on   ! MDK, 17/11/26
 USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_lai_sap_cap
 USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman,       &
                                 l_shed_regrow_flush
@@ -291,6 +293,13 @@ DO j = 1,veg_pts
         IF (nsc_cmax(n) > 0.0) c_max_l = nsc_cmax(n)
         c_free  = MAX(nsc_pft(l,n) - nsc_reserve_frac(n) * c_max_l             &
                       - nsc_regrow_acc(l,n), 0.0)
+        ! With the earlywood loan the store's earlywood loan is not free
+        ! for regrowth: the store step pays regrowth from the store less
+        ! the loan.
+        !
+        ! MDK, 17/11/26
+        IF (ximpair_ring_earlywood_on(n) .AND. ALLOCATED(nsc_earlywood_loan))  &
+          c_free = MAX(c_free - nsc_earlywood_loan(l,n), 0.0)
         IF (leafc_b > 0.0) THEN
           ! The free part of the regrowth goes ahead; the paid part only as
           ! far as the store allows.

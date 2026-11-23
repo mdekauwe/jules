@@ -52,6 +52,15 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_dmg, ximpair_ring_loss_lo
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
 USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
+! The rings' earlywood.
+!
+! MDK, 17/11/26
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_frac,           &
+                                       ximpair_earlywood_start_doy
+! The store's earlywood loan.
+!
+! MDK, 17/11/26
+USE triffid_nsc_mod, ONLY: nsc_earlywood_loan
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
@@ -725,6 +734,16 @@ DO i = 1,nvars
       CALL gather_land_field(phen_dormant(:,n), global_data_2d(:,n))
     END DO
 
+  ! The store's earlywood loan.
+  !
+  ! MDK, 17/11/26
+  CASE ( 'nsc_earlywood_loan' )
+    CALL triffid_nsc_alloc( land_pts )
+
+    DO n = 1,npft
+      CALL gather_land_field(nsc_earlywood_loan(:,n), global_data_2d(:,n))
+    END DO
+
   CASE ( 'nsc_regrow_acc' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
@@ -829,6 +848,27 @@ DO i = 1,nvars
     DO n = 1,npft
       DO m = 1,nsc_n_ring
         CALL gather_land_field(ximpair_ring_loss_lo(:,n,m),                    &
+                               global_data_3d(:,n,m))
+      END DO
+    END DO
+
+  ! The rings' earlywood.
+  !
+  ! MDK, 17/11/26
+  CASE ( 'ximpair_earlywood_start_doy' )
+    CALL ximpair_memory_alloc( land_pts )
+
+    DO n = 1,npft
+      CALL gather_land_field(ximpair_earlywood_start_doy(:,n),                 &
+                             global_data_2d(:,n))
+    END DO
+
+  CASE ( 'ximpair_ring_earlywood_frac' )
+    CALL ximpair_memory_alloc( land_pts )
+
+    DO n = 1,npft
+      DO m = 1,nsc_n_ring
+        CALL gather_land_field(ximpair_ring_earlywood_frac(:,n,m),             &
                                global_data_3d(:,n,m))
       END DO
     END DO
@@ -1523,6 +1563,7 @@ DO i = 1,nvars
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
            'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
+           'ximpair_earlywood_start_doy', 'nsc_earlywood_loan',                &
            'nsc_xylem_prod',                                                   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'shed_f_psi', 'shed_nup', 'shed_psi_pd', 'shed_psi_md',             &
@@ -1594,6 +1635,7 @@ DO i = 1,nvars
     !
     ! MDK, 30/10/26
     CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_dmg',       &
+           'ximpair_ring_earlywood_frac',                                      &
            'ximpair_ring_loss_lo' )
       CALL file_write_var(FILE, var_ids(i),                                    &
                           global_data_3d(:,1:npft,1:nsc_n_ring))

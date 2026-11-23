@@ -11166,3 +11166,74 @@ DATA metadata(860) / var_metadata(                                             &
 ! Units
     "kg m-2 s-1"                                                               &
   ) /
+!-----------------------------------------------------------------------------
+! Metadata for the rings' earlywood (l_nsc_ring_earlywood) and this year's
+! ring
+!
+! MDK, 17/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(861) / var_metadata(                                             &
+! String identifier
+    'ximpair_ring_earlywood_frac',                                             &
+! Variable type
+    var_type_pft_ring,                                                         &
+! Long name
+    "Rings' earlywood: each ring's earlywood share of its carbon",             &
+! Units
+    "1"                                                                        &
+  ) /
+DATA metadata(862) / var_metadata(                                             &
+! String identifier
+    'ximpair_earlywood_start_doy',                                             &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Rings' earlywood: day of year the new earlywood began to conduct",        &
+! Units
+    "day"                                                                      &
+  ) /
+DATA metadata(863) / var_metadata(                                             &
+! String identifier
+    'ximpair_ring_w',                                                          &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ring cohorts: this year's ring's share of the sapwood conductance",       &
+! Units
+    "1"                                                                        &
+  ) /
+DATA metadata(864) / var_metadata(                                             &
+! String identifier
+    'ximpair_ring_new_c',                                                      &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Ring cohorts: carbon in this year's ring",                                &
+! Units
+    "kg m-2"                                                                   &
+  ) /
+DATA metadata(865) / var_metadata(                                             &
+! String identifier
+    'ximpair_ring_new_earlywood_c',                                            &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Rings' earlywood: earlywood carbon in this year's ring",                  &
+! Units
+    "kg m-2"                                                                   &
+  ) /
+!-----------------------------------------------------------------------------
+! Metadata for nsc_earlywood_loan (the store's earlywood loan)
+!
+! MDK, 17/11/26
+!-----------------------------------------------------------------------------
+DATA metadata(866) / var_metadata(                                             &
+! String identifier
+    'nsc_earlywood_loan',                                                      &
+! Variable type
+    var_type_pft,                                                              &
+! Long name
+    "Earlywood paid by the store, not yet repaid by wood growth",              &
+! Units
+    "kg m-2"                                                                   &
+  ) /

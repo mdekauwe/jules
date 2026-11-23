@@ -177,6 +177,7 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
            'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
+           'ximpair_earlywood_start_doy', 'nsc_earlywood_loan',                &
            'nsc_xylem_prod',                                                   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'shed_f_psi', 'shed_nup', 'shed_psi_pd', 'shed_psi_md',             &
@@ -199,7 +200,7 @@ CASE ( 'plantNumDensity' )
 !
 ! MDK, 30/10/26
 CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_dmg',           &
-       'ximpair_ring_loss_lo' )
+       'ximpair_ring_loss_lo', 'ximpair_ring_earlywood_frac' )
   ndims = 3
   dim_names(1:ndims) = [ land_dim_name, pft_dim_name, ring_dim_name ]
   dim_sizes(1:ndims) = [ global_land_pts, npft, nsc_n_ring ]

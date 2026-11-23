@@ -7333,7 +7333,9 @@ SUBROUTINE nsc_sink_factor( ft, land_pts, veg_pts, veg_index, psi_rz, beta )
 ! turgor limit open (kg C m-2 per 360 days): the cold and season limits
 ! still apply, so outside the growing season, or in the cold, W_pot is 0
 ! and so is the feedback. R = C_max - store is the room left in the store
-! (kg C m-2). X is the share of that room the held-back carbon would fill
+! (kg C m-2); with the earlywood loan (l_nsc_ring_earlywood) the store
+! here leaves out the earlywood loan nsc_earlywood_loan, as the store step
+! does. X is the share of that room the held-back carbon would fill
 ! in t days, so the feedback is 63 % of its full size at X = 1. In wet soil
 ! (f_turg = 1) there is no feedback however full the store is. In a long
 ! drought the room shrinks and the feedback grows. Capacity falls by at
@@ -7343,9 +7345,11 @@ SUBROUTINE nsc_sink_factor( ft, land_pts, veg_pts, veg_index, psi_rz, beta )
 ! routine leaves beta unchanged without the turgor limit
 ! (nsc_psi_turg_zero not set) or before the store first exists.
 !
-! MDK, 12/11/26
+! MDK, 17/11/26
 
-USE triffid_nsc_mod, ONLY: nsc_pft, nsc_cmax_pft, nsc_wpot_pft
+USE triffid_nsc_mod, ONLY: nsc_pft, nsc_cmax_pft, nsc_wpot_pft,                &
+                           nsc_earlywood_loan
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_on
 USE pftparm, ONLY: is_set, nsc_psi_turg_zero, nsc_psi_turg_full,              &
                    nsc_sink_days, nsc_sink_beta_min
 
@@ -7394,7 +7398,14 @@ IF ( ALLOCATED(nsc_pft) .AND. ALLOCATED(nsc_cmax_pft) .AND.                    &
     ! days) against the room left in the store.
     c_held_back = nsc_wpot_pft(l,ft) * (1.0 - f_turg) * nsc_sink_days(ft) /    &
                   360.0
-    store_room = MAX(nsc_cmax_pft(l,ft) - nsc_pft(l,ft), room_min)
+    IF ( ximpair_ring_earlywood_on(ft) .AND.                                   &
+         ALLOCATED(nsc_earlywood_loan) ) THEN
+      store_room = MAX(nsc_cmax_pft(l,ft)                                      &
+                       - (nsc_pft(l,ft) - nsc_earlywood_loan(l,ft)),           &
+                       room_min)
+    ELSE
+      store_room = MAX(nsc_cmax_pft(l,ft) - nsc_pft(l,ft), room_min)
+    END IF
     room_fill_ratio = c_held_back / store_room
 
     beta(l) = nsc_sink_beta_min(ft) + (1.0 - nsc_sink_beta_min(ft))            &

@@ -507,7 +507,25 @@ END SUBROUTINE psi_leaf_impaired_jls
 ! or with no impairment model. The shape of the vulnerability curve is
 ! chosen elsewhere.
 !
-! MDK, 04/11/26
+! With l_ximpair_leafless_root_psi, a PFT with the budburst gate (phen_bb_doy
+! or phen_bb_gdd set) is dormant (phen_dormant = 1) from the step the cold
+! leaf drop takes its canopy to the phenology floor, after this year's
+! budburst, until the next budburst. While it is dormant the root water
+! potential drives both models, and the leaf classes of the two-leaf
+! canopy, in place of the leaf and stem, so a leafless tree does not
+! embolise from the potential of the few leaves left at the floor. A
+! dormant PFT on a frozen root zone takes no damage, as any other, from
+! the frozen-soil hold of the memory model (l_ximpair_frozen_hold, which
+! l_ximpair_leafless_root_psi needs). The whole trunk model has no frozen test:
+! with it the dormant root water potential replaces the leaf potential only
+! and its root extreme is unchanged. Recovery is not affected.
+! The gate alone does not make a PFT dormant, a PFT whose canopy never
+! falls to the floor is never dormant, and leaves shed by drought or heat
+! do not make a PFT dormant. The stem water potential kept for output
+! (ximpair_psi_stem, psi_stem_pft and the per-segment PLC) is the stem's
+! own, also while dormant.
+!
+! MDK, 17/11/26
 ! ---------------------------------------------------------------------
 SUBROUTINE update_xylem_impairment ( n_land_pts                                &
 ,                                    n_open_pts                                &
@@ -530,7 +548,10 @@ USE model_time_mod, ONLY: is_spinup
 USE jules_vegetation_mod, ONLY: xylem_impairment_none,                         &
                                 xylem_impairment_whole_trunk,                  &
                                 xylem_impairment_memory
-USE pftparm, ONLY: pft_xylem_impairment_model
+USE pftparm, ONLY: pft_xylem_impairment_model, ximpair_lai_min
+USE jules_vegetation_mod, ONLY: l_ximpair_leafless_root_psi
+USE phen_budburst_mod, ONLY: phen_bb_on, phen_dormant
+USE xylem_impairment_seg_state_mod, ONLY: ximpair_psi_stem
 
 USE xylem_impairment_whole_trunk_mod, ONLY: update_xylem_impairment_whole_trunk
 USE xylem_impairment_memory_mod, ONLY: update_xylem_impairment_memory
@@ -551,7 +572,7 @@ INTEGER, INTENT(IN) ::                                                         &
 , pft
                             ! Plant functional type
 
-REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
+REAL(KIND=real_jlslsm), INTENT(IN), TARGET ::                                  &
   psi_leaf(n_land_pts)                                                         &
                             ! Leaf water potential (Pa)
 , psi_root(n_land_pts)                                                         &
@@ -574,9 +595,10 @@ REAL(KIND=real_jlslsm), INTENT(IN) ::                                          &
                             ! Canopy height (m)
 , anetc(n_land_pts)
                             ! Canopy net photosynthesis (mol CO2 m-2 s-1)
-                            ! (lai, canht and anetc are not used.)
+                            ! (canht and anetc are not used; lai only with
+                            ! ximpair_lai_min.)
 
-REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
+REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL, TARGET ::                        &
   psi_leaf_cls(n_land_pts,2)                                                   &
                             ! Leaf water potential of the sunlit (1) and
                             ! shaded (2) leaves of the two-leaf canopy (Pa;
@@ -585,6 +607,23 @@ REAL(KIND=real_jlslsm), INTENT(IN), OPTIONAL ::                                &
                             ! Their shares of the leaf area (sum 1)
 
 INTEGER :: errcode
+
+! Open point counter and land point.
+INTEGER :: j, l
+
+! The water potentials that drive the impairment (Pa). They point to the
+! arguments, or to copies holding the root water potential while the PFT
+! is dormant.
+REAL(KIND=real_jlslsm), POINTER :: psi_leaf_d(:), psi_stem_d(:), psi_cls_d(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, TARGET :: leaf_dormant(:),                &
+                                               stem_dormant(:),                &
+                                               cls_dormant(:,:)
+
+! This PFT's xylem is at the root water potential while dormant.
+LOGICAL :: l_dormant_root
+
+! The PFT has a leaf area threshold, and this point is leafless.
+LOGICAL :: l_lai_gate, l_leafless
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -599,6 +638,56 @@ IF (is_spinup) THEN
   RETURN
 END IF
 
+! A dormant PFT (l_ximpair_leafless_root_psi, budburst gate, canopy fallen to
+! the floor): its xylem is taken to be at the root water potential.
+l_dormant_root = l_ximpair_leafless_root_psi .AND. phen_bb_on(pft)
+IF (l_dormant_root) l_dormant_root = ALLOCATED(phen_dormant)
+
+! A PFT with too little leaf area (ximpair_lai_min) is treated the same.
+l_lai_gate = ximpair_lai_min(pft) > 0.0
+l_dormant_root = l_dormant_root .OR. l_lai_gate
+
+NULLIFY(psi_cls_d)
+
+IF (l_dormant_root) THEN
+  ALLOCATE(leaf_dormant(n_land_pts), stem_dormant(n_land_pts))
+  leaf_dormant(:) = psi_leaf(:)
+  stem_dormant(:) = psi_stem(:)
+
+  IF (PRESENT(psi_leaf_cls)) THEN
+    ALLOCATE(cls_dormant(n_land_pts,2))
+    cls_dormant(:,:) = psi_leaf_cls(:,:)
+  END IF
+
+  DO j = 1,n_open_pts
+    l = open_index(j)
+
+    l_leafless = l_lai_gate
+    IF (l_leafless) l_leafless = lai(l) < ximpair_lai_min(pft)
+    IF (.NOT. l_leafless .AND. ALLOCATED(phen_dormant) .AND.                   &
+        l_ximpair_leafless_root_psi .AND. phen_bb_on(pft))                     &
+      l_leafless = phen_dormant(l,pft) > 0.5
+
+    IF (l_leafless) THEN
+      leaf_dormant(l) = psi_root(l)
+      stem_dormant(l) = psi_root(l)
+
+      IF (ALLOCATED(cls_dormant)) cls_dormant(l,:) = psi_root(l)
+    END IF
+
+  END DO
+
+  psi_leaf_d => leaf_dormant
+  psi_stem_d => stem_dormant
+
+  IF (ALLOCATED(cls_dormant)) psi_cls_d => cls_dormant
+ELSE
+  psi_leaf_d => psi_leaf
+  psi_stem_d => psi_stem
+
+  IF (PRESENT(psi_leaf_cls)) psi_cls_d => psi_leaf_cls
+END IF
+
 SELECT CASE (pft_xylem_impairment_model(pft))
   CASE(xylem_impairment_none)
     ! No xylem impairment
@@ -608,24 +697,41 @@ SELECT CASE (pft_xylem_impairment_model(pft))
                                               n_open_pts,                      &
                                               open_index,                      &
                                               pft,                             &
-                                              psi_leaf,                        &
+                                              psi_leaf_d,                      &
                                               psi_root,                        &
                                               psi_leaf_extreme,                &
                                               psi_root_extreme                 &
                                             )
 
   CASE(xylem_impairment_memory)
-    CALL update_xylem_impairment_memory( n_land_pts,                           &
-                                         n_open_pts,                           &
-                                         open_index,                           &
-                                         pft,                                  &
-                                         psi_leaf,                             &
-                                         psi_root,                             &
-                                         psi_stem,                             &
-                                         impaired_k_max,                       &
-                                         psi_leaf_cls = psi_leaf_cls,          &
-                                         w_cls = w_cls                         &
-                                       )
+    IF (PRESENT(psi_leaf_cls)) THEN
+      CALL update_xylem_impairment_memory( n_land_pts,                         &
+                                           n_open_pts,                         &
+                                           open_index,                         &
+                                           pft,                                &
+                                           psi_leaf_d,                         &
+                                           psi_root,                           &
+                                           psi_stem_d,                         &
+                                           impaired_k_max,                     &
+                                           psi_leaf_cls = psi_cls_d,           &
+                                           w_cls = w_cls                       &
+                                         )
+    ELSE
+      CALL update_xylem_impairment_memory( n_land_pts,                         &
+                                           n_open_pts,                         &
+                                           open_index,                         &
+                                           pft,                                &
+                                           psi_leaf_d,                         &
+                                           psi_root,                           &
+                                           psi_stem_d,                         &
+                                           impaired_k_max,                     &
+                                           w_cls = w_cls                       &
+                                         )
+    END IF
+
+    ! The stem water potential kept for output is the stem's own.
+    IF (l_dormant_root .AND. ALLOCATED(ximpair_psi_stem))                      &
+      ximpair_psi_stem(:,pft) = psi_stem(:)
 
   CASE DEFAULT
     errcode = 1

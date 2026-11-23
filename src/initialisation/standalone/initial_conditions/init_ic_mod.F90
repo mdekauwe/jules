@@ -879,6 +879,8 @@ USE lake_mod,        ONLY: lake_fetch_0, lake_h_mxl_0, lake_shape_0,           &
 
 USE metstats_mod,    ONLY: metstats_inis
 
+USE xylem_impairment_memory_mod, ONLY: earlywood_start_none   ! MDK, 17/11/26
+
 IMPLICIT NONE
 
 !-----------------------------------------------------------------------------
@@ -1082,6 +1084,21 @@ DO i = 1, nvars_required
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
   CASE ( 'ximpair_ring_loss_lo' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  CASE ( 'nsc_earlywood_loan' )
+    ! The store's earlywood loan: none at the start.
+    !
+    ! MDK, 17/11/26
+    CALL dict_set(defaults_dict, identifiers(i), 0.0)
+  CASE ( 'ximpair_ring_earlywood_frac' )
+    ! The rings' earlywood: not yet set, so the first update sets it.
+    !
+    ! MDK, 17/11/26
+    CALL dict_set(defaults_dict, identifiers(i), -1.0)
+  CASE ( 'ximpair_earlywood_start_doy' )
+    ! The day the youngest ring's earlywood started: none yet.
+    !
+    ! MDK, 17/11/26
+    CALL dict_set(defaults_dict, identifiers(i), earlywood_start_none)
   ! The xylem repair's peak imposed loss: none yet.
   !
   ! MDK, 04/11/26

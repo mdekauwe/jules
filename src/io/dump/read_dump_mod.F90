@@ -48,6 +48,16 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_dmg, ximpair_ring_loss_lo
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
 USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
+! The rings' earlywood.
+!
+! MDK, 17/11/26
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_frac,           &
+                                       ximpair_earlywood_start_doy,            &
+                                       earlywood_start_none
+! The store's earlywood loan.
+!
+! MDK, 17/11/26
+USE triffid_nsc_mod, ONLY: nsc_earlywood_loan
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings, nsc_n_ring
 USE xylem_impairment_seg_state_mod, ONLY: ximpair_seg_state_alloc,             &
     ximpair_kcap_leaf, ximpair_psi_stem
@@ -274,6 +284,7 @@ DO i = 1,nvars
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
            'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
+           'ximpair_earlywood_start_doy', 'nsc_earlywood_loan',                &
            'nsc_xylem_prod',                                                   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
            'shed_f_psi', 'shed_nup', 'shed_psi_pd', 'shed_psi_md',             &
@@ -299,6 +310,11 @@ DO i = 1,nvars
                'phen_bb_day' )
           ! sf_stom state: -1 = not yet set.
           global_data_2d(:,1:npft) = -1.0
+        ! Day the youngest ring's earlywood started: none yet.
+        !
+        ! MDK, 17/11/26
+        CASE ( 'ximpair_earlywood_start_doy' )
+          global_data_2d(:,1:npft) = earlywood_start_none
         ! Hydraulic mortality: not set (the damage at the first TRIFFID
         ! step).
         CASE ( 'hydmort_pref', 'hydmort_plc_peak' )
@@ -338,11 +354,12 @@ DO i = 1,nvars
     !
     ! MDK, 30/10/26
     CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_dmg',       &
-           'ximpair_ring_loss_lo' )
+           'ximpair_ring_loss_lo', 'ximpair_ring_earlywood_frac' )
       IF ( var_ids(i) > 0 ) THEN
         CALL file_read_var(FILE, var_ids(i),                                   &
                            global_data_3d(:,1:npft,1:nsc_n_ring))
-      ELSE IF ( identifiers(i) == 'ximpair_ring_frac' ) THEN
+      ELSE IF ( identifiers(i) == 'ximpair_ring_frac' .OR.                     &
+                identifiers(i) == 'ximpair_ring_earlywood_frac' ) THEN
         global_data_3d(:,1:npft,1:nsc_n_ring) = -1.0
       ELSE IF ( identifiers(i) == 'ximpair_ring_dmg' ) THEN
         ! The rings' two parts: one part, as the old rings were.
@@ -1066,6 +1083,16 @@ DO i = 1,nvars
       CALL scatter_land_field(global_data_2d(:,n), phen_dormant(:,n))
     END DO
 
+  ! The store's earlywood loan.
+  !
+  ! MDK, 17/11/26
+  CASE ( 'nsc_earlywood_loan' )
+    CALL triffid_nsc_alloc( land_pts )
+
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n), nsc_earlywood_loan(:,n))
+    END DO
+
   CASE ( 'nsc_regrow_acc' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
@@ -1122,6 +1149,7 @@ DO i = 1,nvars
   ! MDK, 30/10/26
   CASE ( 'ximpair_ring_frac' )
     CALL ximpair_memory_alloc( land_pts )
+
     DO n = 1,npft
       DO m = 1,nsc_n_ring
         CALL scatter_land_field(global_data_3d(:,n,m),                         &
@@ -1156,6 +1184,26 @@ DO i = 1,nvars
       DO m = 1,nsc_n_ring
         CALL scatter_land_field(global_data_3d(:,n,m),                         &
                                 ximpair_ring_loss_lo(:,n,m))
+      END DO
+    END DO
+
+  ! The rings' earlywood.
+  !
+  ! MDK, 17/11/26
+  CASE ( 'ximpair_earlywood_start_doy' )
+    CALL ximpair_memory_alloc( land_pts )
+
+    DO n = 1,npft
+      CALL scatter_land_field(global_data_2d(:,n),                             &
+                              ximpair_earlywood_start_doy(:,n))
+    END DO
+
+  CASE ( 'ximpair_ring_earlywood_frac' )
+    CALL ximpair_memory_alloc( land_pts )
+    DO n = 1,npft
+      DO m = 1,nsc_n_ring
+        CALL scatter_land_field(global_data_3d(:,n,m),                         &
+                                ximpair_ring_earlywood_frac(:,n,m))
       END DO
     END DO
 
