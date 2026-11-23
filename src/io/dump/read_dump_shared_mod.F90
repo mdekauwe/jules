@@ -149,8 +149,9 @@ IF ( is_master_task() ) THEN
         ! MDK, 30/10/26
         IF ( dim_ids(j) < 0 ) THEN
           SELECT CASE ( identifiers(i) )
-          CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_dmg', &
-                 'ximpair_ring_loss_lo', 'ximpair_ring_earlywood_frac' )
+          CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss',                     &
+              'ximpair_ring_damaged_share',                                    &
+                 'ximpair_ring_loss_low', 'ximpair_ring_earlywood_c_frac' )
             CYCLE
           END SELECT
           CALL log_fatal("read_dump_shared",                                   &
@@ -250,7 +251,8 @@ IF ( is_master_task() ) THEN
              TRIM(identifiers(i)) // " is not in the dump so starts " //       &
              "'not yet set' (restart not exact).")
         CASE ( 'nsc_store', 'nsc_npp_mean', 'nsc_npp_wt', 'nsc_npp_day',      &
-               'nsc_turg_acc', 'nsc_tseas_acc', 'nsc_t_run', 'nsc_ft_mean',    &
+               'nsc_turg_acc', 'nsc_season_factor_acc', 'nsc_t_run',           &
+                   'nsc_ft_mean',                                              &
                'ximpair_repair_pend',                                          &
                'phen_nlow', 'phen_nhigh', 'phen_fbleaf',                       &
                'shed_f_psi', 'shed_nup', 'shed_psi_pd', 'shed_psi_md',         &
@@ -265,7 +267,7 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts from " //  &
              "its 'not yet set' value (store filled at the first step).")
-        CASE ( 'nsc_cmax', 'nsc_wpot', 'nsc_resp' )
+        CASE ( 'nsc_store_capacity', 'nsc_release_potential', 'nsc_resp' )
           ! Store step values: dumps written without them start with no
           ! sink feedback and no overflow respiration until the first store
           ! step (restart not exact).
@@ -304,7 +306,7 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump so starts " //       &
              "'not yet set' (restart not exact).")
-        CASE ( 'ximpair_hw_rate_mean' )
+        CASE ( 'ximpair_heartwood_rate_mean' )
           ! The stand's mean heartwood rate: dumps written without it
           ! start it at nsc_heartwood_rate (restart not exact).
           !
@@ -338,7 +340,7 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump: the rings " //      &
              "start at the first update with the stem's loss.")
-        CASE ( 'ximpair_ring_dmg', 'ximpair_ring_loss_lo' )
+        CASE ( 'ximpair_ring_damaged_share', 'ximpair_ring_loss_low' )
           ! The rings' two parts: dumps written without them start each
           ! ring as one part with its loss (restart not exact).
           !
@@ -346,7 +348,8 @@ IF ( is_master_task() ) THEN
           CALL log_warn("read_dump_shared",                                    &
              TRIM(identifiers(i)) // " is not in the dump: each ring " //      &
              "starts as one part (restart not exact).")
-        CASE ( 'ximpair_ring_earlywood_frac', 'ximpair_earlywood_start_doy' )
+        CASE ( 'ximpair_ring_earlywood_c_frac',                           &
+            'ximpair_earlywood_start_doy' )
           ! The rings' earlywood: dumps written without it start it at the
           ! first update or ring step as in a steady stand: every older ring
           ! with a full earlywood, the youngest ring's as far as the season

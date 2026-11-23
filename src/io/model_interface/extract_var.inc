@@ -40,7 +40,7 @@ USE triffid_hydmort_mod, ONLY: hydmort_g_pft, hydmort_m_pft,                   &
 USE triffid_nsc_mod, ONLY: nsc_pft, nsc_npp_mean, nsc_npp_wt, nsc_load_pft,    &
                            nsc_starv_pft, nsc_turg_acc,                        &
                            nsc_resp_pft, nsc_t_run, nsc_ft_mean, nsc_npp_day,  &
-                           nsc_cmax_pft, nsc_wpot_pft, nsc_tseas_acc,          &
+                           nsc_cmax_pft, nsc_wpot_pft, nsc_season_factor_acc,  &
                            nsc_regrow_acc
 USE leaf_shed_mod, ONLY: phen_nlow, phen_nhigh, phen_fbleaf, shed_f_psi,      &
     shed_nup, shed_psi_pd, shed_psi_md, shed_psi_plant, heat_dam_pft,          &
@@ -51,25 +51,27 @@ USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE triffid_nsc_mod, ONLY: nsc_heartwood, nsc_sapwood_target
 USE triffid_nsc_mod, ONLY: nsc_earlywood_loan   ! MDK, 17/11/26
 USE triffid_nsc_mod, ONLY: nsc_lai_peak, nsc_lai_peak_prev
-USE triffid_nsc_mod, ONLY: nsc_k_area_frac
-USE triffid_nsc_mod, ONLY: nsc_k_area_raw, nsc_lai_sap_cap,                    &
-                           nsc_xylem_renew_cw, nsc_heartwood_factor,           &
-                           nsc_xt_cap_count, nsc_xylem_repair_pft,          &
+USE triffid_nsc_mod, ONLY: nsc_sapwood_area_factor_pft
+USE triffid_nsc_mod, ONLY: nsc_sapwood_area_factor_raw, nsc_lai_sap_cap,       &
+                           nsc_xylem_renew_cond_weight, nsc_heartwood_factor,  &
+                           nsc_target_cap_count, nsc_xylem_repair_pft,         &
                            nsc_repair_claim
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 ! The rings' two parts.
 !
 ! MDK, 05/11/26
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_dmg, ximpair_ring_loss_lo
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_damaged_share,             &
+    ximpair_ring_loss_low
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
-USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
+USE xylem_impairment_memory_mod, ONLY: ximpair_heartwood_rate_mean
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_cond_intact
 ! The rings' earlywood and this year's ring.
 !
 ! MDK, 17/11/26
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_frac,           &
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_c_frac,     &
                                        ximpair_earlywood_start_doy,            &
-                                       ximpair_ring_current, ximpair_ring_w,   &
+                                       ximpair_ring_current,                   &
+                                           ximpair_ring_new_cond_share,        &
                                        earlywood_start_none
 USE jules_vegetation_mod, ONLY: nsc_n_ring
 USE leaf_c13_discrim_mod, ONLY: d13c_disc_pft
@@ -3942,13 +3944,13 @@ CASE ( 'nsc_store' )
 ! The TRIFFID store's values at its last step.
 !
 ! MDK, 01/11/26
-CASE ( 'nsc_cmax' )
+CASE ( 'nsc_store_capacity' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(nsc_cmax_pft) ) workspace_pft(:,:) = nsc_cmax_pft
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-CASE ( 'nsc_wpot' )
+CASE ( 'nsc_release_potential' )
   workspace_pft(:,:) = 0.0
   IF ( ALLOCATED(nsc_wpot_pft) ) workspace_pft(:,:) = nsc_wpot_pft
   cube_land = cube_from_array(workspace_pft)
@@ -3957,9 +3959,10 @@ CASE ( 'nsc_wpot' )
 ! The TRIFFID store's values at its last step.
 !
 ! MDK, 01/11/26
-CASE ( 'nsc_tseas_acc' )
+CASE ( 'nsc_season_factor_acc' )
   workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(nsc_tseas_acc) ) workspace_pft(:,:) = nsc_tseas_acc
+  IF ( ALLOCATED(nsc_season_factor_acc) ) workspace_pft(:,:)                   &
+      = nsc_season_factor_acc
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
@@ -4336,10 +4339,10 @@ CASE ( 'ximpair_ring_peak' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-CASE ( 'ximpair_hw_rate_mean' )
+CASE ( 'ximpair_heartwood_rate_mean' )
   workspace_pft(:,:) = -1.0
-  IF ( ALLOCATED(ximpair_hw_rate_mean) )                                       &
-    workspace_pft(:,:) = ximpair_hw_rate_mean
+  IF ( ALLOCATED(ximpair_heartwood_rate_mean) )                                &
+    workspace_pft(:,:) = ximpair_heartwood_rate_mean
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
@@ -4373,21 +4376,21 @@ CASE ( 'ximpair_ring_func' )
 ! earlywood).
 !
 ! MDK, 17/11/26
-CASE ( 'ximpair_ring_w' )
+CASE ( 'ximpair_ring_new_cond_share' )
   workspace_pft(:,:) = -1.0
   IF ( ALLOCATED(ximpair_ring_frac) ) THEN
     DO n = 1,npft
       DO l = 1,land_pts
         IF ( ximpair_ring_frac(l,n,1) >= 0.0 .AND.                             &
              ximpair_ring_year(l,n) >= 0.0 )                                   &
-          workspace_pft(l,n) = ximpair_ring_w(l, n)
+          workspace_pft(l,n) = ximpair_ring_new_cond_share(l, n)
       END DO
     END DO
   END IF
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-CASE ( 'ximpair_ring_new_c', 'ximpair_ring_new_earlywood_c' )
+CASE ( 'ximpair_ring_new_carbon', 'ximpair_ring_new_earlywood_c' )
   workspace_pft(:,:) = -1.0
   IF ( ALLOCATED(ximpair_ring_frac) .AND. ALLOCATED(nsc_sapwood) ) THEN
     DO n = 1,npft
@@ -4396,11 +4399,11 @@ CASE ( 'ximpair_ring_new_c', 'ximpair_ring_new_earlywood_c' )
              ximpair_ring_year(l,n) < 0.0 .OR. nsc_sapwood(l,n) < 0.0 ) CYCLE
         k = ximpair_ring_current(l, n)
         IF ( k < 1 ) CYCLE
-        IF ( get_string_identifier(var_id) == 'ximpair_ring_new_c' ) THEN
+        IF ( get_string_identifier(var_id) == 'ximpair_ring_new_carbon' ) THEN
           workspace_pft(l,n) = ximpair_ring_frac(l,n,k) * nsc_sapwood(l,n)
-        ELSE IF ( ALLOCATED(ximpair_ring_earlywood_frac) ) THEN
-          IF ( ximpair_ring_earlywood_frac(l,n,1) >= 0.0 )                     &
-            workspace_pft(l,n) = ximpair_ring_earlywood_frac(l,n,k)            &
+        ELSE IF ( ALLOCATED(ximpair_ring_earlywood_c_frac) ) THEN
+          IF ( ximpair_ring_earlywood_c_frac(l,n,1) >= 0.0 )              &
+            workspace_pft(l,n) = ximpair_ring_earlywood_c_frac(l,n,k)     &
                                  * ximpair_ring_frac(l,n,k) * nsc_sapwood(l,n)
         END IF
       END DO
@@ -4435,20 +4438,21 @@ CASE ( 'ximpair_earlywood_start_doy' )
 ! l_nsc_ring_earlywood).
 !
 ! MDK, 17/11/26
-CASE ( 'ximpair_ring_earlywood_frac' )
+CASE ( 'ximpair_ring_earlywood_c_frac' )
   ALLOCATE(workspace_ring(land_pts, npft, nsc_n_ring))
   workspace_ring(:,:,:) = -1.0
-  IF ( ALLOCATED(ximpair_ring_earlywood_frac) )                                &
-    workspace_ring(:,:,:) = ximpair_ring_earlywood_frac
+  IF ( ALLOCATED(ximpair_ring_earlywood_c_frac) )                         &
+    workspace_ring(:,:,:) = ximpair_ring_earlywood_c_frac
   cube_land = cube_from_array(workspace_ring)
   cube = map_from_land(cube_land)
 
 ! The sapwood-area factor on kmax (l_nsc_k_sapwood; 1 without it).
 !
 ! MDK, 31/10/26
-CASE ( 'nsc_k_area_frac' )
+CASE ( 'nsc_sapwood_area_factor' )
   workspace_pft(:,:) = 1.0
-  IF ( ALLOCATED(nsc_k_area_frac) ) workspace_pft(:,:) = nsc_k_area_frac
+  IF ( ALLOCATED(nsc_sapwood_area_factor_pft) ) workspace_pft(:,:)             &
+      = nsc_sapwood_area_factor_pft
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
@@ -4464,9 +4468,10 @@ CASE ( 'nsc_sapwood_target' )
 ! target caps.
 !
 ! MDK, 05/11/26
-CASE ( 'nsc_k_area_raw' )
+CASE ( 'nsc_sapwood_area_factor_raw' )
   workspace_pft(:,:) = 1.0
-  IF ( ALLOCATED(nsc_k_area_raw) ) workspace_pft(:,:) = nsc_k_area_raw
+  IF ( ALLOCATED(nsc_sapwood_area_factor_raw) ) workspace_pft(:,:)             &
+      = nsc_sapwood_area_factor_raw
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
@@ -4490,9 +4495,10 @@ CASE ( 'nsc_repair_claim' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-CASE ( 'nsc_xylem_renew_cw' )
+CASE ( 'nsc_xylem_renew_cond_weight' )
   workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(nsc_xylem_renew_cw) ) workspace_pft(:,:) = nsc_xylem_renew_cw
+  IF ( ALLOCATED(nsc_xylem_renew_cond_weight) ) workspace_pft(:,:)             &
+      = nsc_xylem_renew_cond_weight
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
@@ -4503,9 +4509,10 @@ CASE ( 'nsc_heartwood_factor' )
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
-CASE ( 'nsc_xt_cap_count' )
+CASE ( 'nsc_target_cap_count' )
   workspace_pft(:,:) = 0.0
-  IF ( ALLOCATED(nsc_xt_cap_count) ) workspace_pft(:,:) = nsc_xt_cap_count
+  IF ( ALLOCATED(nsc_target_cap_count) ) workspace_pft(:,:)                    &
+      = nsc_target_cap_count
   cube_land = cube_from_array(workspace_pft)
   cube = map_from_land(cube_land)
 
@@ -4530,18 +4537,19 @@ CASE ( 'ximpair_ring_loss' )
 ! rest (1 and 0 without the rings).
 !
 ! MDK, 05/11/26
-CASE ( 'ximpair_ring_dmg' )
+CASE ( 'ximpair_ring_damaged_share' )
   ALLOCATE(workspace_ring(land_pts, npft, nsc_n_ring))
   workspace_ring(:,:,:) = 1.0
-  IF ( ALLOCATED(ximpair_ring_dmg) ) workspace_ring(:,:,:) = ximpair_ring_dmg
+  IF ( ALLOCATED(ximpair_ring_damaged_share) ) workspace_ring(:,:,:)           &
+      = ximpair_ring_damaged_share
   cube_land = cube_from_array(workspace_ring)
   cube = map_from_land(cube_land)
 
-CASE ( 'ximpair_ring_loss_lo' )
+CASE ( 'ximpair_ring_loss_low' )
   ALLOCATE(workspace_ring(land_pts, npft, nsc_n_ring))
   workspace_ring(:,:,:) = 0.0
-  IF ( ALLOCATED(ximpair_ring_loss_lo) )                                       &
-    workspace_ring(:,:,:) = ximpair_ring_loss_lo
+  IF ( ALLOCATED(ximpair_ring_loss_low) )                                      &
+    workspace_ring(:,:,:) = ximpair_ring_loss_low
   cube_land = cube_from_array(workspace_ring)
   cube = map_from_land(cube_land)
 

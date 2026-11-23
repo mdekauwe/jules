@@ -1386,7 +1386,7 @@ LOGICAL ::                                                                     &
       ! the rings in equilibrium; without the rings f_A = MIN(1, X_s / X_t)),
       ! on the stem segment with the plant segments, otherwise on the whole
       ! plant. The damage (the impairment memory) is not in f_A. Output as
-      ! nsc_k_area_frac.
+      ! nsc_sapwood_area_factor_pft.
       !
       ! MDK, 31/10/26
   l_nsc_sapwood_n = .FALSE.,                                                   &

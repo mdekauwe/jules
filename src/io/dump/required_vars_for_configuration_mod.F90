@@ -434,8 +434,8 @@ IF ( l_triffid_nsc ) THEN
   ! MDK, 01/11/26
   CALL add_to_list( 'nsc_resp', nvars, identifiers )
   IF ( l_nsc_sink_feedback ) THEN
-    CALL add_to_list( 'nsc_cmax', nvars, identifiers )
-    CALL add_to_list( 'nsc_wpot', nvars, identifiers )
+    CALL add_to_list( 'nsc_store_capacity', nvars, identifiers )
+    CALL add_to_list( 'nsc_release_potential', nvars, identifiers )
   END IF
   ! The turgor factor so far over the store period (turgor-limited sink;
   ! nsc_limits_on, the same test as the store).
@@ -445,7 +445,7 @@ IF ( l_triffid_nsc ) THEN
   !
   ! MDK, 01/11/26
   IF ( ANY( [ (nsc_limits_on(i), i = 1, npft) ] ) .AND. l_nsc_sink_feedback )  &
-    CALL add_to_list( 'nsc_tseas_acc', nvars, identifiers )
+    CALL add_to_list( 'nsc_season_factor_acc', nvars, identifiers )
   ! The daily running mean air temperature of the cold limit.
   IF ( ANY(is_set(nsc_t_grow_zero(:))) )                                       &
     CALL add_to_list( 'nsc_t_run', nvars, identifiers )
@@ -477,15 +477,16 @@ IF ( l_triffid_nsc ) THEN
   IF ( l_nsc_sapwood_rings ) THEN
     CALL add_to_list( 'ximpair_ring_frac', nvars, identifiers )
     CALL add_to_list( 'ximpair_ring_loss', nvars, identifiers )
-    CALL add_to_list( 'ximpair_ring_dmg', nvars, identifiers )
-    CALL add_to_list( 'ximpair_ring_loss_lo', nvars, identifiers )
+    CALL add_to_list( 'ximpair_ring_damaged_share', nvars, identifiers )
+    CALL add_to_list( 'ximpair_ring_loss_low', nvars, identifiers )
     CALL add_to_list( 'ximpair_ring_year', nvars, identifiers )
     ! The rings' earlywood, the day the youngest ring's earlywood started
     ! and the earlywood the store has paid and not yet repaid.
     !
     ! MDK, 17/11/26
     IF ( l_nsc_ring_earlywood ) THEN
-      CALL add_to_list( 'ximpair_ring_earlywood_frac', nvars, identifiers )
+      CALL add_to_list( 'ximpair_ring_earlywood_c_frac', nvars,           &
+          identifiers )
       CALL add_to_list( 'ximpair_earlywood_start_doy', nvars, identifiers )
       CALL add_to_list( 'nsc_earlywood_loan', nvars, identifiers )
     END IF
@@ -502,7 +503,7 @@ IF ( l_triffid_nsc ) THEN
     ! MDK, 04/11/26
     IF ( l_nsc_pipe_target .AND.                                               &
          nsc_heartwood_model == nsc_heartwood_pipe )                           &
-      CALL add_to_list( 'ximpair_hw_rate_mean', nvars, identifiers )
+      CALL add_to_list( 'ximpair_heartwood_rate_mean', nvars, identifiers )
   END IF
 END IF
 ! Drought leaf shedding: the counts of dry and wet days and the leaf factor.

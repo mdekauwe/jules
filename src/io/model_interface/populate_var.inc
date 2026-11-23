@@ -40,18 +40,19 @@ USE triffid_nsc_mod, ONLY: nsc_xylem_prod_pft   ! MDK, 09/11/26
 USE triffid_nsc_mod, ONLY: nsc_sapwood_target, nsc_lai_peak, nsc_lai_peak_prev
 USE triffid_nsc_mod, ONLY: nsc_earlywood_loan   ! MDK, 17/11/26
 USE triffid_nsc_mod, ONLY: nsc_cmax_pft, nsc_wpot_pft, nsc_resp_pft,          &
-                           nsc_tseas_acc
+                           nsc_season_factor_acc
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 ! The rings' two parts.
 !
 ! MDK, 05/11/26
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_dmg, ximpair_ring_loss_lo
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_damaged_share,             &
+    ximpair_ring_loss_low
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
-USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
+USE xylem_impairment_memory_mod, ONLY: ximpair_heartwood_rate_mean
 ! The rings' earlywood.
 !
 ! MDK, 17/11/26
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_frac,           &
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_c_frac,     &
                                        ximpair_earlywood_start_doy
 USE jules_vegetation_mod, ONLY: l_nsc_ring_earlywood
 USE jules_vegetation_mod, ONLY: l_nsc_sapwood_rings
@@ -1610,28 +1611,28 @@ CASE ( 'ximpair_ring_loss' )
 ! The rings' two parts.
 !
 ! MDK, 05/11/26
-CASE ( 'ximpair_ring_dmg' )
+CASE ( 'ximpair_ring_damaged_share' )
   IF ( .NOT. l_nsc_sapwood_rings )                                             &
     CALL log_fatal("populate_var",                                             &
-                   "ximpair_ring_dmg needs l_nsc_sapwood_rings=T")
+                   "ximpair_ring_damaged_share needs l_nsc_sapwood_rings=T")
   CALL ximpair_memory_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, ximpair_ring_dmg(:,:,:))
+    CALL cube_get_data(cube_land, ximpair_ring_damaged_share(:,:,:))
   ELSE
-    ximpair_ring_dmg(:,:,:) = const_val
+    ximpair_ring_damaged_share(:,:,:) = const_val
   END IF
 
-CASE ( 'ximpair_ring_loss_lo' )
+CASE ( 'ximpair_ring_loss_low' )
   IF ( .NOT. l_nsc_sapwood_rings )                                             &
     CALL log_fatal("populate_var",                                             &
-                   "ximpair_ring_loss_lo needs l_nsc_sapwood_rings=T")
+                   "ximpair_ring_loss_low needs l_nsc_sapwood_rings=T")
   CALL ximpair_memory_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, ximpair_ring_loss_lo(:,:,:))
+    CALL cube_get_data(cube_land, ximpair_ring_loss_low(:,:,:))
   ELSE
-    ximpair_ring_loss_lo(:,:,:) = const_val
+    ximpair_ring_loss_low(:,:,:) = const_val
   END IF
 
 CASE ( 'ns' )
@@ -2309,7 +2310,7 @@ CASE ( 'cpl_ra_ca' )
 ! The TRIFFID store's values at its last step, for the dump.
 !
 ! MDK, 01/11/26
-CASE ( 'nsc_cmax' )
+CASE ( 'nsc_store_capacity' )
   CALL triffid_nsc_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
@@ -2318,7 +2319,7 @@ CASE ( 'nsc_cmax' )
     nsc_cmax_pft(:,:) = const_val
   END IF
 
-CASE ( 'nsc_wpot' )
+CASE ( 'nsc_release_potential' )
   CALL triffid_nsc_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
@@ -2339,13 +2340,13 @@ CASE ( 'nsc_resp' )
 ! The TRIFFID store's values at its last step, for the dump.
 !
 ! MDK, 01/11/26
-CASE ( 'nsc_tseas_acc' )
+CASE ( 'nsc_season_factor_acc' )
   CALL triffid_nsc_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, nsc_tseas_acc(:,:))
+    CALL cube_get_data(cube_land, nsc_season_factor_acc(:,:))
   ELSE
-    nsc_tseas_acc(:,:) = const_val
+    nsc_season_factor_acc(:,:) = const_val
   END IF
 
 CASE ( 'nsc_t_run' )
@@ -2463,31 +2464,32 @@ CASE ( 'ximpair_ring_peak' )
     ximpair_ring_peak(:,:) = const_val
   END IF
 
-CASE ( 'ximpair_hw_rate_mean' )
+CASE ( 'ximpair_heartwood_rate_mean' )
   IF ( .NOT. l_nsc_sapwood_rings )                                             &
     CALL log_fatal("populate_var",                                             &
-                   "ximpair_hw_rate_mean needs l_nsc_sapwood_rings=T")
+                   "ximpair_heartwood_rate_mean needs l_nsc_sapwood_rings=T")
   CALL ximpair_memory_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, ximpair_hw_rate_mean(:,:))
+    CALL cube_get_data(cube_land, ximpair_heartwood_rate_mean(:,:))
   ELSE
-    ximpair_hw_rate_mean(:,:) = const_val
+    ximpair_heartwood_rate_mean(:,:) = const_val
   END IF
 
 ! The rings' earlywood, which exists only with it.
 !
 ! MDK, 17/11/26
-CASE ( 'ximpair_ring_earlywood_frac' )
+CASE ( 'ximpair_ring_earlywood_c_frac' )
   IF ( .NOT. l_nsc_ring_earlywood )                                            &
     CALL log_fatal("populate_var",                                             &
-                   "ximpair_ring_earlywood_frac needs l_nsc_ring_earlywood=T")
+                   "ximpair_ring_earlywood_c_frac needs " //              &
+                   "l_nsc_ring_earlywood=T")
   CALL ximpair_memory_alloc( land_pts )
   IF ( PRESENT(cube) ) THEN
     cube_land = map_to_land(cube)
-    CALL cube_get_data(cube_land, ximpair_ring_earlywood_frac(:,:,:))
+    CALL cube_get_data(cube_land, ximpair_ring_earlywood_c_frac(:,:,:))
   ELSE
-    ximpair_ring_earlywood_frac(:,:,:) = const_val
+    ximpair_ring_earlywood_c_frac(:,:,:) = const_val
   END IF
 
 CASE ( 'ximpair_earlywood_start_doy' )

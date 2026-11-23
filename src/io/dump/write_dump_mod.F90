@@ -40,7 +40,7 @@ USE leaf_shed_mod, ONLY: leaf_shed_alloc, phen_nlow, phen_nhigh, phen_fbleaf,  &
     shed_f_psi, shed_nup, shed_psi_pd, shed_psi_md, heat_dam_pft,              &
     phen_shed_debt   ! MDK, 09/11/26
 USE triffid_nsc_mod, ONLY: nsc_cmax_pft, nsc_wpot_pft, nsc_resp_pft,          &
-                           nsc_tseas_acc
+                           nsc_season_factor_acc
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE triffid_nsc_mod, ONLY: nsc_xylem_prod_pft   ! MDK, 09/11/26
@@ -49,13 +49,14 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 ! The rings' two parts.
 !
 ! MDK, 05/11/26
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_dmg, ximpair_ring_loss_lo
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_damaged_share,             &
+    ximpair_ring_loss_low
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
-USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
+USE xylem_impairment_memory_mod, ONLY: ximpair_heartwood_rate_mean
 ! The rings' earlywood.
 !
 ! MDK, 17/11/26
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_frac,           &
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_c_frac,     &
                                        ximpair_earlywood_start_doy
 ! The store's earlywood loan.
 !
@@ -458,13 +459,13 @@ DO i = 1,nvars
   ! feedback) and its overflow respiration.
   !
   ! MDK, 01/11/26
-  CASE ( 'nsc_cmax' )
+  CASE ( 'nsc_store_capacity' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(nsc_cmax_pft(:,n), global_data_2d(:,n))
     END DO
 
-  CASE ( 'nsc_wpot' )
+  CASE ( 'nsc_release_potential' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL gather_land_field(nsc_wpot_pft(:,n), global_data_2d(:,n))
@@ -476,10 +477,10 @@ DO i = 1,nvars
       CALL gather_land_field(nsc_resp_pft(:,n), global_data_2d(:,n))
     END DO
 
-  CASE ( 'nsc_tseas_acc' )
+  CASE ( 'nsc_season_factor_acc' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
-      CALL gather_land_field(nsc_tseas_acc(:,n), global_data_2d(:,n))
+      CALL gather_land_field(nsc_season_factor_acc(:,n), global_data_2d(:,n))
     END DO
 
   ! Plant capacitance store (plant_water_store_mod; > 0 = not yet set).
@@ -654,10 +655,11 @@ DO i = 1,nvars
     DO n = 1,npft
       CALL gather_land_field(ximpair_ring_peak(:,n), global_data_2d(:,n))
     END DO
-  CASE ( 'ximpair_hw_rate_mean' )
+  CASE ( 'ximpair_heartwood_rate_mean' )
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
-      CALL gather_land_field(ximpair_hw_rate_mean(:,n), global_data_2d(:,n))
+      CALL gather_land_field(ximpair_heartwood_rate_mean(:,n),                 &
+          global_data_2d(:,n))
     END DO
 
   CASE ( 'phen_nlow' )
@@ -835,19 +837,20 @@ DO i = 1,nvars
   ! The rings' two parts.
   !
   ! MDK, 05/11/26
-  CASE ( 'ximpair_ring_dmg' )
+  CASE ( 'ximpair_ring_damaged_share' )
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
       DO m = 1,nsc_n_ring
-        CALL gather_land_field(ximpair_ring_dmg(:,n,m), global_data_3d(:,n,m))
+        CALL gather_land_field(ximpair_ring_damaged_share(:,n,m),              &
+            global_data_3d(:,n,m))
       END DO
     END DO
 
-  CASE ( 'ximpair_ring_loss_lo' )
+  CASE ( 'ximpair_ring_loss_low' )
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
       DO m = 1,nsc_n_ring
-        CALL gather_land_field(ximpair_ring_loss_lo(:,n,m),                    &
+        CALL gather_land_field(ximpair_ring_loss_low(:,n,m),                   &
                                global_data_3d(:,n,m))
       END DO
     END DO
@@ -863,12 +866,12 @@ DO i = 1,nvars
                              global_data_2d(:,n))
     END DO
 
-  CASE ( 'ximpair_ring_earlywood_frac' )
+  CASE ( 'ximpair_ring_earlywood_c_frac' )
     CALL ximpair_memory_alloc( land_pts )
 
     DO n = 1,npft
       DO m = 1,nsc_n_ring
-        CALL gather_land_field(ximpair_ring_earlywood_frac(:,n,m),             &
+        CALL gather_land_field(ximpair_ring_earlywood_c_frac(:,n,m),      &
                                global_data_3d(:,n,m))
       END DO
     END DO
@@ -1557,12 +1560,13 @@ DO i = 1,nvars
            'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',      &
            'cpl_gbw_shd', 'cpl_ra_ca',                                         &
            'nsc_turg_acc', 'nsc_t_run',                                        &
-           'nsc_cmax', 'nsc_wpot', 'nsc_resp',                                 &
-           'nsc_tseas_acc',                                                    &
+           'nsc_store_capacity', 'nsc_release_potential', 'nsc_resp',          &
+           'nsc_season_factor_acc',                                            &
            'nsc_ft_mean', 'phen_nlow', 'phen_nhigh',                           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
-           'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
+           'ximpair_ring_year', 'ximpair_ring_peak',                           &
+               'ximpair_heartwood_rate_mean',                                  &
            'ximpair_earlywood_start_doy', 'nsc_earlywood_loan',                &
            'nsc_xylem_prod',                                                   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
@@ -1634,9 +1638,10 @@ DO i = 1,nvars
     ! The sapwood's ring cohorts.
     !
     ! MDK, 30/10/26
-    CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_dmg',       &
-           'ximpair_ring_earlywood_frac',                                      &
-           'ximpair_ring_loss_lo' )
+    CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss',                           &
+        'ximpair_ring_damaged_share',                                          &
+           'ximpair_ring_earlywood_c_frac',                               &
+           'ximpair_ring_loss_low' )
       CALL file_write_var(FILE, var_ids(i),                                    &
                           global_data_3d(:,1:npft,1:nsc_n_ring))
 

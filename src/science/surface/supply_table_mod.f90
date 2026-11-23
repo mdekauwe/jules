@@ -73,8 +73,8 @@ INTEGER, PARAMETER, PRIVATE :: n_lut_max = 16 * (n_lut - 1) + 1
 ! Bottom of the Weibull table (f falls fast).
 REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: lut_f_floor = 1.0e-6
 ! Smallest sapwood-area factor on kmax (and on the stem with the Trugman
-! response), so the plant keeps a conducting path. It sets the depth of
-! the segment tables with l_nsc_k_sapwood; triffid_nsc_mod (nsc_k_area)
+! response), so the plant keeps a conducting path. It sets the depth of the
+! segment tables with l_nsc_k_sapwood; triffid_nsc_mod (nsc_sapwood_area_factor)
 ! and sf_stom take it from here.
 REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: nsc_f_a_min = 0.01
 ! Bottom of the SOX table, as a fraction of kcrit/kmax (f has a power-law tail,

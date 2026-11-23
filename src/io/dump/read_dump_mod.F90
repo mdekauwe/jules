@@ -36,7 +36,7 @@ USE leaf_shed_mod, ONLY: leaf_shed_alloc, phen_nlow, phen_nhigh, phen_fbleaf,  &
     shed_f_psi, shed_nup, shed_psi_pd, shed_psi_md, heat_dam_pft,              &
     phen_shed_debt   ! MDK, 09/11/26
 USE triffid_nsc_mod, ONLY: nsc_cmax_pft, nsc_wpot_pft, nsc_resp_pft,          &
-                           nsc_tseas_acc
+                           nsc_season_factor_acc
 USE triffid_nsc_mod, ONLY: nsc_wood_lost, nsc_sapwood
 USE triffid_nsc_mod, ONLY: nsc_net_wood_growth
 USE triffid_nsc_mod, ONLY: nsc_xylem_prod_pft   ! MDK, 09/11/26
@@ -45,13 +45,14 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_ring_frac, ximpair_ring_loss
 ! The rings' two parts.
 !
 ! MDK, 05/11/26
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_dmg, ximpair_ring_loss_lo
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_damaged_share,             &
+    ximpair_ring_loss_low
 USE xylem_impairment_memory_mod, ONLY: ximpair_ring_year, ximpair_ring_peak
-USE xylem_impairment_memory_mod, ONLY: ximpair_hw_rate_mean
+USE xylem_impairment_memory_mod, ONLY: ximpair_heartwood_rate_mean
 ! The rings' earlywood.
 !
 ! MDK, 17/11/26
-USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_frac,           &
+USE xylem_impairment_memory_mod, ONLY: ximpair_ring_earlywood_c_frac,     &
                                        ximpair_earlywood_start_doy,            &
                                        earlywood_start_none
 ! The store's earlywood loan.
@@ -278,12 +279,13 @@ DO i = 1,nvars
            'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',      &
            'cpl_gbw_shd', 'cpl_ra_ca',                                         &
            'nsc_turg_acc', 'nsc_t_run',                                        &
-           'nsc_cmax', 'nsc_wpot', 'nsc_resp',                                 &
-           'nsc_tseas_acc',                                                    &
+           'nsc_store_capacity', 'nsc_release_potential', 'nsc_resp',          &
+           'nsc_season_factor_acc',                                            &
            'nsc_ft_mean', 'phen_nlow', 'phen_nhigh',                           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
-           'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
+           'ximpair_ring_year', 'ximpair_ring_peak',                           &
+               'ximpair_heartwood_rate_mean',                                  &
            'ximpair_earlywood_start_doy', 'nsc_earlywood_loan',                &
            'nsc_xylem_prod',                                                   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
@@ -304,7 +306,7 @@ DO i = 1,nvars
         SELECT CASE ( identifiers(i) )
         CASE ( 'nsc_store', 'nsc_t_run', 'nsc_ft_mean', 'nsc_sapwood',         &
                'nsc_lai_peak_prev', 'ximpair_ring_year',                       &
-               'ximpair_hw_rate_mean',                                         &
+               'ximpair_heartwood_rate_mean',                                  &
                'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd',                 &
                'cpl_gbw_sun', 'cpl_gbw_shd', 'cpl_ra_ca',                      &
                'phen_bb_day' )
@@ -319,13 +321,13 @@ DO i = 1,nvars
         ! step).
         CASE ( 'hydmort_pref', 'hydmort_plc_peak' )
           global_data_2d(:,1:npft) = -1.0
-        CASE ( 'nsc_turg_acc', 'nsc_tseas_acc' )
+        CASE ( 'nsc_turg_acc', 'nsc_season_factor_acc' )
           global_data_2d(:,1:npft) = -1.0e30
         ! The store's capacity at the last store step: not yet set, so no
         ! sink feedback until the first store step.
         !
         ! MDK, 01/11/26
-        CASE ( 'nsc_cmax' )
+        CASE ( 'nsc_store_capacity' )
           global_data_2d(:,1:npft) = -1.0
         CASE ( 'phen_fbleaf', 'ximpair_area_w', 'shed_f_psi' )
           global_data_2d(:,1:npft) = 1.0
@@ -353,15 +355,16 @@ DO i = 1,nvars
     ! the first update or TRIFFID step sets them from the stem's loss.
     !
     ! MDK, 30/10/26
-    CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_dmg',       &
-           'ximpair_ring_loss_lo', 'ximpair_ring_earlywood_frac' )
+    CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss',                           &
+        'ximpair_ring_damaged_share',                                          &
+           'ximpair_ring_loss_low', 'ximpair_ring_earlywood_c_frac' )
       IF ( var_ids(i) > 0 ) THEN
         CALL file_read_var(FILE, var_ids(i),                                   &
                            global_data_3d(:,1:npft,1:nsc_n_ring))
       ELSE IF ( identifiers(i) == 'ximpair_ring_frac' .OR.                     &
-                identifiers(i) == 'ximpair_ring_earlywood_frac' ) THEN
+                identifiers(i) == 'ximpair_ring_earlywood_c_frac' ) THEN
         global_data_3d(:,1:npft,1:nsc_n_ring) = -1.0
-      ELSE IF ( identifiers(i) == 'ximpair_ring_dmg' ) THEN
+      ELSE IF ( identifiers(i) == 'ximpair_ring_damaged_share' ) THEN
         ! The rings' two parts: one part, as the old rings were.
         !
         ! MDK, 05/11/26
@@ -806,13 +809,13 @@ DO i = 1,nvars
   ! feedback) and its overflow respiration.
   !
   ! MDK, 01/11/26
-  CASE ( 'nsc_cmax' )
+  CASE ( 'nsc_store_capacity' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), nsc_cmax_pft(:,n))
     END DO
 
-  CASE ( 'nsc_wpot' )
+  CASE ( 'nsc_release_potential' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), nsc_wpot_pft(:,n))
@@ -824,10 +827,10 @@ DO i = 1,nvars
       CALL scatter_land_field(global_data_2d(:,n), nsc_resp_pft(:,n))
     END DO
 
-  CASE ( 'nsc_tseas_acc' )
+  CASE ( 'nsc_season_factor_acc' )
     CALL triffid_nsc_alloc( land_pts )
     DO n = 1,npft
-      CALL scatter_land_field(global_data_2d(:,n), nsc_tseas_acc(:,n))
+      CALL scatter_land_field(global_data_2d(:,n), nsc_season_factor_acc(:,n))
     END DO
 
   ! sf_stom state (sf_stom_state_mod).
@@ -1003,10 +1006,11 @@ DO i = 1,nvars
     DO n = 1,npft
       CALL scatter_land_field(global_data_2d(:,n), ximpair_ring_peak(:,n))
     END DO
-  CASE ( 'ximpair_hw_rate_mean' )
+  CASE ( 'ximpair_heartwood_rate_mean' )
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
-      CALL scatter_land_field(global_data_2d(:,n), ximpair_hw_rate_mean(:,n))
+      CALL scatter_land_field(global_data_2d(:,n),                             &
+          ximpair_heartwood_rate_mean(:,n))
     END DO
 
   CASE ( 'phen_nlow' )
@@ -1169,21 +1173,21 @@ DO i = 1,nvars
   ! The rings' two parts.
   !
   ! MDK, 05/11/26
-  CASE ( 'ximpair_ring_dmg' )
+  CASE ( 'ximpair_ring_damaged_share' )
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
       DO m = 1,nsc_n_ring
         CALL scatter_land_field(global_data_3d(:,n,m),                         &
-                                ximpair_ring_dmg(:,n,m))
+                                ximpair_ring_damaged_share(:,n,m))
       END DO
     END DO
 
-  CASE ( 'ximpair_ring_loss_lo' )
+  CASE ( 'ximpair_ring_loss_low' )
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
       DO m = 1,nsc_n_ring
         CALL scatter_land_field(global_data_3d(:,n,m),                         &
-                                ximpair_ring_loss_lo(:,n,m))
+                                ximpair_ring_loss_low(:,n,m))
       END DO
     END DO
 
@@ -1198,12 +1202,12 @@ DO i = 1,nvars
                               ximpair_earlywood_start_doy(:,n))
     END DO
 
-  CASE ( 'ximpair_ring_earlywood_frac' )
+  CASE ( 'ximpair_ring_earlywood_c_frac' )
     CALL ximpair_memory_alloc( land_pts )
     DO n = 1,npft
       DO m = 1,nsc_n_ring
         CALL scatter_land_field(global_data_3d(:,n,m),                         &
-                                ximpair_ring_earlywood_frac(:,n,m))
+                                ximpair_ring_earlywood_c_frac(:,n,m))
       END DO
     END DO
 

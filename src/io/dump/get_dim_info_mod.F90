@@ -171,12 +171,13 @@ CASE ( 'canht', 'lai', 'years_since_harvest', 'f_nsc',                         &
            'fvcmax_psi_state', 'cpl_gl_sun', 'cpl_gl_shd', 'cpl_gbw_sun',      &
            'cpl_gbw_shd', 'cpl_ra_ca',                                         &
            'nsc_turg_acc', 'nsc_t_run',                                        &
-           'nsc_cmax', 'nsc_wpot', 'nsc_resp',                                 &
-           'nsc_tseas_acc',                                                    &
+           'nsc_store_capacity', 'nsc_release_potential', 'nsc_resp',          &
+           'nsc_season_factor_acc',                                            &
            'nsc_ft_mean', 'phen_nlow', 'phen_nhigh',                           &
            'nsc_wood_lost', 'nsc_sapwood', 'nsc_net_wood_growth',              &
            'nsc_sapwood_target', 'nsc_lai_peak', 'nsc_lai_peak_prev',          &
-           'ximpair_ring_year', 'ximpair_ring_peak', 'ximpair_hw_rate_mean',   &
+           'ximpair_ring_year', 'ximpair_ring_peak',                           &
+               'ximpair_heartwood_rate_mean',                                  &
            'ximpair_earlywood_start_doy', 'nsc_earlywood_loan',                &
            'nsc_xylem_prod',                                                   &
            'phen_fbleaf', 'nsc_regrow_acc',                                    &
@@ -199,8 +200,8 @@ CASE ( 'plantNumDensity' )
 ! The sapwood's ring cohorts.
 !
 ! MDK, 30/10/26
-CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_dmg',           &
-       'ximpair_ring_loss_lo', 'ximpair_ring_earlywood_frac' )
+CASE ( 'ximpair_ring_frac', 'ximpair_ring_loss', 'ximpair_ring_damaged_share', &
+       'ximpair_ring_loss_low', 'ximpair_ring_earlywood_c_frac' )
   ndims = 3
   dim_names(1:ndims) = [ land_dim_name, pft_dim_name, ring_dim_name ]
   dim_sizes(1:ndims) = [ global_land_pts, npft, nsc_n_ring ]

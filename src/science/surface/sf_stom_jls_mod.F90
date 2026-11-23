@@ -227,11 +227,13 @@ USE xylem_impairment_memory_mod, ONLY: ximpair_lock
 USE pftparm, ONLY: wood_density, xyl_lumen_frac
                             ! MDK, 12/11/26
                             ! MDK, 04/11/26
-USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_k_area, nsc_k_area_frac
+USE triffid_nsc_mod, ONLY: triffid_nsc_alloc, nsc_sapwood_area_factor,         &
+    nsc_sapwood_area_factor_pft
                            ! MDK, 31/10/26
 USE jules_vegetation_mod, ONLY: nsc_damage_response, nsc_damage_trugman,       &
                                 k_ground_ratio_max
-USE triffid_nsc_mod, ONLY: nsc_k_area_raw, nsc_lai_sapwood, nsc_f_a_min
+USE triffid_nsc_mod, ONLY: nsc_sapwood_area_factor_raw, nsc_lai_sapwood,       &
+    nsc_f_a_min
                            ! MDK, 04/11/26
 USE plant_hydraulic_path_mod, ONLY: set_store_q_path, clear_store_q_path,      &
                                     psi_leaf_segments_jls
@@ -2197,7 +2199,7 @@ END IF
 ! LAI, L_A / LAI, held between nsc_f_a_min and k_ground_ratio_max (the
 ! ground basis's bound as LAI -> 0), so the stem's conductance per unit
 ! ground area follows its sapwood and shedding leaves raises the supply
-! per unit leaf area; nsc_k_area_frac is then that factor.
+! per unit leaf area; nsc_sapwood_area_factor_pft is then that factor.
 !
 ! MDK, 04/11/26
 IF ( l_nsc_k_sapwood ) THEN
@@ -2208,7 +2210,7 @@ IF ( l_nsc_k_sapwood ) THEN
   IF ( .NOT. is_spinup ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
-      k_area(l) = nsc_k_area(l, ft, k_raw(l))
+      k_area(l) = nsc_sapwood_area_factor(l, ft, k_raw(l))
       IF ( nsc_damage_response == nsc_damage_trugman ) THEN
         lai_sw = nsc_lai_sapwood(l, ft, ht(l))
         IF ( lai_sw >= 0.0 )                                                   &
@@ -2217,12 +2219,12 @@ IF ( l_nsc_k_sapwood ) THEN
       END IF
     END DO
   END IF
-  nsc_k_area_frac(:,ft) = k_area(:)
-  nsc_k_area_raw(:,ft)  = k_raw(:)
+  nsc_sapwood_area_factor_pft(:,ft) = k_area(:)
+  nsc_sapwood_area_factor_raw(:,ft)  = k_raw(:)
   IF ( nsc_damage_response == nsc_damage_trugman ) THEN
     DO m = 1,veg_pts
       l = veg_index(m)
-      IF ( r_stem(l) > 0.0 ) nsc_k_area_frac(l,ft) = r_stem(l)
+      IF ( r_stem(l) > 0.0 ) nsc_sapwood_area_factor_pft(l,ft) = r_stem(l)
     END DO
     CALL set_k_ground_basis( ft, land_pts, veg_pts, veg_index, lai,           &
                              lai_ref_kg, k_area, r_stem )

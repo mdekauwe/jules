@@ -10673,7 +10673,7 @@ DATA metadata(822) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 DATA metadata(847) / var_metadata(                                             &
 ! String identifier
-    'ximpair_ring_dmg',                                                        &
+    'ximpair_ring_damaged_share',                                              &
 ! Variable type
     var_type_pft_ring,                                                         &
 ! Long name
@@ -10683,7 +10683,7 @@ DATA metadata(847) / var_metadata(                                             &
   ) /
 DATA metadata(848) / var_metadata(                                             &
 ! String identifier
-    'ximpair_ring_loss_lo',                                                    &
+    'ximpair_ring_loss_low',                                                   &
 ! Variable type
     var_type_pft_ring,                                                         &
 ! Long name
@@ -10728,7 +10728,7 @@ DATA metadata(825) / var_metadata(                                             &
   ) /
 DATA metadata(826) / var_metadata(                                             &
 ! String identifier
-    'nsc_k_area_frac',                                                         &
+    'nsc_sapwood_area_factor',                                                 &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
@@ -10781,7 +10781,7 @@ DATA metadata(829) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 DATA metadata(830) / var_metadata(                                             &
 ! String identifier
-    'nsc_k_area_raw',                                                          &
+    'nsc_sapwood_area_factor_raw',                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
@@ -10801,7 +10801,7 @@ DATA metadata(831) / var_metadata(                                             &
   ) /
 DATA metadata(832) / var_metadata(                                             &
 ! String identifier
-    'nsc_xylem_renew_cw',                                                      &
+    'nsc_xylem_renew_cond_weight',                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
@@ -10821,7 +10821,7 @@ DATA metadata(833) / var_metadata(                                             &
   ) /
 DATA metadata(834) / var_metadata(                                             &
 ! String identifier
-    'nsc_xt_cap_count',                                                        &
+    'nsc_target_cap_count',                                                    &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
@@ -10836,7 +10836,7 @@ DATA metadata(834) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 DATA metadata(835) / var_metadata(                                             &
 ! String identifier
-    'nsc_cmax',                                                                &
+    'nsc_store_capacity',                                                      &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
@@ -10845,13 +10845,13 @@ DATA metadata(835) / var_metadata(                                             &
     "kg m-2"                                                                   &
   ) /
 !-----------------------------------------------------------------------------
-! Metadata for nsc_wpot
+! Metadata for nsc_release_potential
 !
 ! MDK, 01/11/26
 !-----------------------------------------------------------------------------
 DATA metadata(836) / var_metadata(                                             &
 ! String identifier
-    'nsc_wpot',                                                                &
+    'nsc_release_potential',                                                   &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
@@ -10860,13 +10860,13 @@ DATA metadata(836) / var_metadata(                                             &
     "kg m-2 per 360days"                                                       &
   ) /
 !-----------------------------------------------------------------------------
-! Metadata for nsc_tseas_acc
+! Metadata for nsc_season_factor_acc
 !
 ! MDK, 01/11/26
 !-----------------------------------------------------------------------------
 DATA metadata(837) / var_metadata(                                             &
 ! String identifier
-    'nsc_tseas_acc',                                                           &
+    'nsc_season_factor_acc',                                                   &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
@@ -10960,13 +10960,13 @@ DATA metadata(844) / var_metadata(                                             &
     "mol m-2 s-1"                                                              &
   ) /
 !-----------------------------------------------------------------------------
-! Metadata for ximpair_hw_rate_mean
+! Metadata for ximpair_heartwood_rate_mean
 !
 ! MDK, 04/11/26
 !-----------------------------------------------------------------------------
 DATA metadata(845) / var_metadata(                                             &
 ! String identifier
-    'ximpair_hw_rate_mean',                                                    &
+    'ximpair_heartwood_rate_mean',                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
@@ -11174,7 +11174,7 @@ DATA metadata(860) / var_metadata(                                             &
 !-----------------------------------------------------------------------------
 DATA metadata(861) / var_metadata(                                             &
 ! String identifier
-    'ximpair_ring_earlywood_frac',                                             &
+    'ximpair_ring_earlywood_c_frac',                                      &
 ! Variable type
     var_type_pft_ring,                                                         &
 ! Long name
@@ -11194,7 +11194,7 @@ DATA metadata(862) / var_metadata(                                             &
   ) /
 DATA metadata(863) / var_metadata(                                             &
 ! String identifier
-    'ximpair_ring_w',                                                          &
+    'ximpair_ring_new_cond_share',                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
@@ -11204,7 +11204,7 @@ DATA metadata(863) / var_metadata(                                             &
   ) /
 DATA metadata(864) / var_metadata(                                             &
 ! String identifier
-    'ximpair_ring_new_c',                                                      &
+    'ximpair_ring_new_carbon',                                                 &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name

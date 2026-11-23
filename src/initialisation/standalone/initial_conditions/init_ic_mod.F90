@@ -1080,16 +1080,16 @@ DO i = 1, nvars_required
   ! The rings' two parts: each ring one part.
   !
   ! MDK, 05/11/26
-  CASE ( 'ximpair_ring_dmg' )
+  CASE ( 'ximpair_ring_damaged_share' )
     CALL dict_set(defaults_dict, identifiers(i), 1.0)
-  CASE ( 'ximpair_ring_loss_lo' )
+  CASE ( 'ximpair_ring_loss_low' )
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
   CASE ( 'nsc_earlywood_loan' )
     ! The store's earlywood loan: none at the start.
     !
     ! MDK, 17/11/26
     CALL dict_set(defaults_dict, identifiers(i), 0.0)
-  CASE ( 'ximpair_ring_earlywood_frac' )
+  CASE ( 'ximpair_ring_earlywood_c_frac' )
     ! The rings' earlywood: not yet set, so the first update sets it.
     !
     ! MDK, 17/11/26
@@ -1113,7 +1113,7 @@ DO i = 1, nvars_required
   ! The stand's mean heartwood rate: not set (nsc_heartwood_rate).
   !
   ! MDK, 04/11/26
-  CASE ( 'ximpair_hw_rate_mean' )
+  CASE ( 'ximpair_heartwood_rate_mean' )
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
   ! TRIFFID's timer at the start of a run (as init_time) and empty sums.
   !
@@ -1139,7 +1139,7 @@ DO i = 1, nvars_required
   CASE ( 'nsc_store' )
     ! TRIFFID store: -1 = filled to its capacity at the first TRIFFID step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
-  CASE ( 'nsc_turg_acc', 'nsc_tseas_acc' )
+  CASE ( 'nsc_turg_acc', 'nsc_season_factor_acc' )
     ! Not yet accumulating: no turgor limit at the first store step (and
     ! for the sink feedback no cold or season limit).
     !
@@ -1148,13 +1148,13 @@ DO i = 1, nvars_required
   CASE ( 'nsc_t_run' )
     ! Not yet set: the air temperature at the first step.
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
-  CASE ( 'nsc_cmax' )
+  CASE ( 'nsc_store_capacity' )
     ! The store's capacity at the last store step: not yet set, so no sink
     ! feedback until the first store step.
     !
     ! MDK, 01/11/26
     CALL dict_set(defaults_dict, identifiers(i), -1.0)
-  CASE ( 'nsc_wpot', 'nsc_resp' )
+  CASE ( 'nsc_release_potential', 'nsc_resp' )
     ! The store's release for growth and overflow respiration at the last
     ! store step: none before the first.
     !

@@ -32,7 +32,8 @@ PUBLIC :: ximpair_ring_init, ximpair_ring_loss_mean, ximpair_ring_grow,        &
           ximpair_ring_repair, ximpair_ring_cond_intact,                       &
           ximpair_ring_repairable, ximpair_ring_working,                       &
           ximpair_ring_cond_mean, ximpair_ring_cond_ref, ximpair_ring_next_year
-PUBLIC :: ximpair_ring_earlywood_init, ximpair_ring_current, ximpair_ring_w,   &
+PUBLIC :: ximpair_ring_earlywood_init, ximpair_ring_current,                   &
+    ximpair_ring_new_cond_share,                                               &
           ximpair_ring_hw_rate, ximpair_ring_season_doy,                       &
           ximpair_ring_earlywood_forming, ximpair_ring_earlywood_on,           &
           ximpair_ring_step_set
@@ -89,11 +90,13 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_year(:,:)
 !
 !   L = d * L_hi + (1 - d) * L_lo   (ximpair_ring_loss).
 !
-! ximpair_ring_dmg holds d (1 = one part, as for a ring set up with one
-! loss) and ximpair_ring_loss_lo holds L_lo; L_hi follows from L
-! (ring_hi). In dumps; allocated with the rings.
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_dmg(:,:,:)
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_loss_lo(:,:,:)
+! ximpair_ring_damaged_share holds d (1 = one part, as for a ring set up with
+! one loss) and ximpair_ring_loss_low holds L_lo; L_hi follows from L (ring_hi).
+! In dumps; allocated with the rings.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE,                                     &
+    PUBLIC :: ximpair_ring_damaged_share(:,:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE,                                     &
+    PUBLIC :: ximpair_ring_loss_low(:,:,:)
 
 ! Ring cohorts: the highest loss of conductance (0-1) that the water
 ! potential has imposed on the rings since the last TRIFFID step, the
@@ -109,7 +112,8 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_ring_peak(:,:)
 ! holds the sapwood at its target, and ring_steady builds the reference
 ! stand with it. < 0 = not set (nsc_heartwood_rate is used). In dumps
 ! with the rule; allocated with the rings.
-REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_hw_rate_mean(:,:)
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE,                                     &
+    PUBLIC :: ximpair_heartwood_rate_mean(:,:)
 
 ! Ring cohorts with earlywood and latewood (l_nsc_ring_earlywood). Each
 ! ring's carbon X_i is split into earlywood, the first part of the ring
@@ -128,16 +132,16 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC :: ximpair_hw_rate_mean(:,:)
 ! from the day the earlywood started. After its ring's first winter the
 ! earlywood keeps the share s = nsc_earlywood_winter_frac of r_E.
 !
-! ximpair_ring_earlywood_frac holds each ring's earlywood share e_i of its
-! carbon (< 0 in ring 1 = not yet set). It does not depend on damage: drought
-! damage, new cover and repair in place change a ring's loss, not its e_i.
-! ximpair_earlywood_start_doy holds the day of year on which the youngest ring's
-! earlywood started to be laid down and to mature (earlywood_start_none = the
-! ring has none yet; a day before 1 January for an earlywood already mature
-! when it was set up). In dumps; allocated only with the switch, with
-! nsc_n_ring rings.
+! ximpair_ring_earlywood_c_frac holds each ring's earlywood share e_i of
+! its carbon (< 0 in ring 1 = not yet set). It does not depend on damage:
+! drought damage, new cover and repair in place change a ring's loss, not its
+! e_i. ximpair_earlywood_start_doy holds the day of year on which the youngest
+! ring's earlywood started to be laid down and to mature (earlywood_start_none =
+! the ring has none yet; a day before 1 January for an earlywood already mature
+! when it was set up). In dumps; allocated only with the switch, with nsc_n_ring
+! rings.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE, PUBLIC ::                           &
-  ximpair_ring_earlywood_frac(:,:,:), ximpair_earlywood_start_doy(:,:)
+  ximpair_ring_earlywood_c_frac(:,:,:), ximpair_earlywood_start_doy(:,:)
 ! The value of ximpair_earlywood_start_doy for a ring whose earlywood has not
 ! started (any value from here up).
 REAL(KIND=real_jlslsm), PARAMETER, PUBLIC :: earlywood_start_none = 1.0e30
@@ -309,24 +313,24 @@ IF (l_nsc_sapwood_rings .AND. .NOT. ALLOCATED(ximpair_ring_frac)) THEN
   ALLOCATE(ximpair_ring_loss(n_land_pts, npft, nsc_n_ring))
   ALLOCATE(ximpair_ring_year(n_land_pts, npft))
   ALLOCATE(ximpair_ring_peak(n_land_pts, npft))
-  ALLOCATE(ximpair_hw_rate_mean(n_land_pts, npft))
-  ALLOCATE(ximpair_ring_dmg(n_land_pts, npft, nsc_n_ring))
-  ALLOCATE(ximpair_ring_loss_lo(n_land_pts, npft, nsc_n_ring))
-  ximpair_ring_dmg(:,:,:)     = 1.0
-  ximpair_ring_loss_lo(:,:,:) = 0.0
+  ALLOCATE(ximpair_heartwood_rate_mean(n_land_pts, npft))
+  ALLOCATE(ximpair_ring_damaged_share(n_land_pts, npft, nsc_n_ring))
+  ALLOCATE(ximpair_ring_loss_low(n_land_pts, npft, nsc_n_ring))
+  ximpair_ring_damaged_share(:,:,:)     = 1.0
+  ximpair_ring_loss_low(:,:,:) = 0.0
   ximpair_ring_frac(:,:,:) = -1.0
   ximpair_ring_loss(:,:,:) = 0.0
   ximpair_ring_year(:,:)   = -1.0
   ximpair_ring_peak(:,:)   = 0.0
-  ximpair_hw_rate_mean(:,:) = -1.0
+  ximpair_heartwood_rate_mean(:,:) = -1.0
 END IF
 
 ! The rings' earlywood, only with it, not yet set.
 IF (l_nsc_ring_earlywood .AND.                                                 &
-    .NOT. ALLOCATED(ximpair_ring_earlywood_frac)) THEN
-  ALLOCATE(ximpair_ring_earlywood_frac(n_land_pts, npft, nsc_n_ring))
+    .NOT. ALLOCATED(ximpair_ring_earlywood_c_frac)) THEN
+  ALLOCATE(ximpair_ring_earlywood_c_frac(n_land_pts, npft, nsc_n_ring))
   ALLOCATE(ximpair_earlywood_start_doy(n_land_pts, npft))
-  ximpair_ring_earlywood_frac(:,:,:)   = -1.0
+  ximpair_ring_earlywood_c_frac(:,:,:)   = -1.0
   ximpair_earlywood_start_doy(:,:) = earlywood_start_none
 END IF
 
@@ -365,8 +369,8 @@ ximpair_ring_year(l,pft) = REAL(ximpair_ring_next_year(pft))
 CALL ring_steady(l, pft, ring_q(l, pft), s)
 ximpair_ring_frac(l,pft,:) = s(:) / SUM(s)
 ximpair_ring_loss(l,pft,:) = loss0
-ximpair_ring_dmg(l,pft,:)     = 1.0
-ximpair_ring_loss_lo(l,pft,:) = 0.0
+ximpair_ring_damaged_share(l,pft,:)     = 1.0
+ximpair_ring_loss_low(l,pft,:) = 0.0
 IF (ximpair_ring_earlywood_on(pft)) CALL ximpair_ring_earlywood_init(l, pft)
 
 END SUBROUTINE ximpair_ring_init
@@ -412,13 +416,14 @@ q   = ring_q(l, pft)
 doy = REAL(day_of_year(current_time%year, current_time%month,                  &
                        current_time%day, l_360, l_leap))
 
-ximpair_ring_earlywood_frac(l,pft,:)   = nsc_earlywood_carbon_frac(pft)
+ximpair_ring_earlywood_c_frac(l,pft,:)   = nsc_earlywood_carbon_frac(pft)
 ximpair_earlywood_start_doy(l,pft) = earlywood_start_none
 
 IF (ring_age(l, pft, 1) < 0 .OR. q <= 0.0) THEN
-  ximpair_ring_earlywood_frac(l,pft,1) = 0.0
+  ximpair_ring_earlywood_c_frac(l,pft,1) = 0.0
 ELSE
-  ximpair_ring_earlywood_frac(l,pft,1) = MIN(q, nsc_earlywood_carbon_frac(pft))&
+  ximpair_ring_earlywood_c_frac(l,pft,1) = MIN(q,                         &
+      nsc_earlywood_carbon_frac(pft))                                          &
                                          / q
   ximpair_earlywood_start_doy(l,pft) = doy
 
@@ -432,7 +437,7 @@ END SUBROUTINE ximpair_ring_earlywood_init
 ! Return the stand's heartwood rate (per 360 days) at point l, which sets
 ! the ring shares of the steady stand (ring_steady) and the expected full
 ! ring of the earlywood: nsc_heartwood_rate, or with the pipe heartwood
-! rule the point's running mean ximpair_hw_rate_mean, which is higher
+! rule the point's running mean ximpair_heartwood_rate_mean, which is higher
 ! where the rule holds the sapwood at its target.
 !
 ! MDK, 17/11/26
@@ -448,9 +453,9 @@ REAL(KIND=real_jlslsm) :: heartwood_rate
 
 heartwood_rate = nsc_heartwood_rate(pft)
 
-IF (ALLOCATED(ximpair_hw_rate_mean)) THEN
-  IF (ximpair_hw_rate_mean(l,pft) >= 0.0) heartwood_rate =                     &
-                                     ximpair_hw_rate_mean(l,pft)
+IF (ALLOCATED(ximpair_heartwood_rate_mean)) THEN
+  IF (ximpair_heartwood_rate_mean(l,pft) >= 0.0) heartwood_rate =              &
+                                     ximpair_heartwood_rate_mean(l,pft)
 END IF
 
 END FUNCTION ximpair_ring_hw_rate
@@ -464,7 +469,7 @@ END FUNCTION ximpair_ring_hw_rate
 ! wood turnover g_t (g_wood, per 360 days) takes from all rings alike,
 ! and heartwood forms from the oldest rings at k_h * X_s, with k_h the
 ! stand's mean heartwood rate: nsc_heartwood_rate, or with the pipe
-! heartwood rule the point's running mean ximpair_hw_rate_mean, which is
+! heartwood rule the point's running mean ximpair_heartwood_rate_mean, which is
 ! higher where the rule holds the sapwood at its target. A ring that grew
 ! m years ago then holds G EXP(-g_t m), and the sapwood holds
 !
@@ -781,7 +786,7 @@ forming = .FALSE.
 
 IF (ring_age(l, pft, 1) >= 0)                                                  &
   forming = ximpair_ring_frac(l,pft,1) <= 0.0 .OR.                             &
-            ximpair_ring_earlywood_frac(l,pft,1) >= ew_all
+            ximpair_ring_earlywood_c_frac(l,pft,1) >= ew_all
 
 END FUNCTION ximpair_ring_earlywood_forming
 
@@ -881,7 +886,7 @@ r_e = nsc_earlywood_cond_frac(pft) / nsc_earlywood_carbon_frac(pft)
 r_l = (1.0 - nsc_earlywood_cond_frac(pft))                                     &
       / (1.0 - nsc_earlywood_carbon_frac(pft))
 
-e = ximpair_ring_earlywood_frac(l,pft,i)
+e = ximpair_ring_earlywood_c_frac(l,pft,i)
 IF (e < 0.0) e = nsc_earlywood_carbon_frac(pft)
 
 s_a = 1.0
@@ -974,7 +979,7 @@ END SUBROUTINE ring_sums
 
 ! ---------------------------------------------------------------------
 ! Return the loss of conductance (0-1) of the more damaged part of ring
-! i at point l (ximpair_ring_dmg),
+! i at point l (ximpair_ring_damaged_share),
 !
 !   L_hi = (L - (1 - d) * L_lo) / d,
 !
@@ -993,13 +998,13 @@ REAL(KIND=real_jlslsm) :: l_hi
 ! The part's share.
 REAL(KIND=real_jlslsm) :: d
 
-d = ximpair_ring_dmg(l,pft,i)
+d = ximpair_ring_damaged_share(l,pft,i)
 IF (d > 1.0e-6) THEN
   l_hi = (ximpair_ring_loss(l,pft,i)                                           &
-          - (1.0 - d) * ximpair_ring_loss_lo(l,pft,i)) / d
-  l_hi = MIN(MAX(l_hi, ximpair_ring_loss_lo(l,pft,i)), 1.0)
+          - (1.0 - d) * ximpair_ring_loss_low(l,pft,i)) / d
+  l_hi = MIN(MAX(l_hi, ximpair_ring_loss_low(l,pft,i)), 1.0)
 ELSE
-  l_hi = ximpair_ring_loss_lo(l,pft,i)
+  l_hi = ximpair_ring_loss_low(l,pft,i)
 END IF
 
 END FUNCTION ring_hi
@@ -1031,18 +1036,18 @@ REAL(KIND=real_jlslsm) :: l_lo
 ! The more damaged part's share of the ring.
 REAL(KIND=real_jlslsm) :: dmg_share
 
-dmg_share = ximpair_ring_dmg(l,pft,i)
+dmg_share = ximpair_ring_damaged_share(l,pft,i)
 l_hi      = MAX(ring_hi(l, pft, i), loss_imp)
-l_lo      = MAX(ximpair_ring_loss_lo(l,pft,i), loss_imp)
+l_lo      = MAX(ximpair_ring_loss_low(l,pft,i), loss_imp)
 IF (dmg_share >= 1.0) THEN
   ximpair_ring_loss(l,pft,i) = MAX(ximpair_ring_loss(l,pft,i), loss_imp)
 ELSE IF (l_lo >= l_hi) THEN
   ximpair_ring_loss(l,pft,i)    = l_lo
-  ximpair_ring_dmg(l,pft,i)     = 1.0
-  ximpair_ring_loss_lo(l,pft,i) = 0.0
+  ximpair_ring_damaged_share(l,pft,i)     = 1.0
+  ximpair_ring_loss_low(l,pft,i) = 0.0
 ELSE
   ximpair_ring_loss(l,pft,i)    = dmg_share * l_hi + (1.0 - dmg_share) * l_lo
-  ximpair_ring_loss_lo(l,pft,i) = l_lo
+  ximpair_ring_loss_low(l,pft,i) = l_lo
 END IF
 
 END SUBROUTINE ring_hit
@@ -1077,21 +1082,22 @@ REAL(KIND=real_jlslsm) :: x_new
 x_new = x - m
 
 IF (x_new > 0.0 .AND. m > 0.0) THEN
-  c_lo     = (1.0 - ximpair_ring_dmg(l,pft,i)) * x
+  c_lo     = (1.0 - ximpair_ring_damaged_share(l,pft,i)) * x
   c_lo_new = c_lo - m
 
   IF (c_lo_new > 0.0) THEN
-    ximpair_ring_loss_lo(l,pft,i) = MIN(ximpair_ring_loss_lo(l,pft,i)         &
+    ximpair_ring_loss_low(l,pft,i) = MIN(ximpair_ring_loss_low(l,pft,i)        &
                                         * c_lo / c_lo_new, 1.0)
-    ximpair_ring_dmg(l,pft,i) = MIN(ximpair_ring_dmg(l,pft,i) * x / x_new,     &
+    ximpair_ring_damaged_share(l,pft,i)                                        &
+        = MIN(ximpair_ring_damaged_share(l,pft,i) * x / x_new,                 &
                                     1.0)
     ximpair_ring_loss(l,pft,i) = MIN(ximpair_ring_loss(l,pft,i) * x / x_new,   &
                                      1.0)
   ELSE
     ximpair_ring_loss(l,pft,i)    = MIN(ximpair_ring_loss(l,pft,i) * x / x_new,&
                                         1.0)
-    ximpair_ring_dmg(l,pft,i)     = 1.0
-    ximpair_ring_loss_lo(l,pft,i) = ximpair_ring_loss(l,pft,i)
+    ximpair_ring_damaged_share(l,pft,i)     = 1.0
+    ximpair_ring_loss_low(l,pft,i) = ximpair_ring_loss(l,pft,i)
   END IF
 END IF
 
@@ -1121,15 +1127,15 @@ REAL(KIND=real_jlslsm) :: f_lo
 ! The less damaged part after the mixing (share of the ring).
 REAL(KIND=real_jlslsm) :: f_new
 
-f_lo  = w * (1.0 - ximpair_ring_dmg(l,pft,i))
+f_lo  = w * (1.0 - ximpair_ring_damaged_share(l,pft,i))
 f_new = f_lo + 1.0 - w
 IF (f_new > 0.0) THEN
-  ximpair_ring_loss_lo(l,pft,i) = ximpair_ring_loss_lo(l,pft,i) * f_lo / f_new
+  ximpair_ring_loss_low(l,pft,i) = ximpair_ring_loss_low(l,pft,i) * f_lo / f_new
 ELSE
-  ximpair_ring_loss_lo(l,pft,i) = 0.0
+  ximpair_ring_loss_low(l,pft,i) = 0.0
 END IF
 ximpair_ring_loss(l,pft,i) = ximpair_ring_loss(l,pft,i) * w
-ximpair_ring_dmg(l,pft,i)  = ximpair_ring_dmg(l,pft,i) * w
+ximpair_ring_damaged_share(l,pft,i)  = ximpair_ring_damaged_share(l,pft,i) * w
 
 END SUBROUTINE ring_add_intact
 
@@ -1187,7 +1193,7 @@ END FUNCTION ximpair_ring_loss_mean
 ! ---------------------------------------------------------------------
 ! Return the sapwood's mean ability to conduct water compared with new
 ! wood (0-1), which scales the plant's conductance with its sapwood
-! (nsc_k_area),
+! (nsc_sapwood_area_factor),
 !
 !   SUM_i f_i * c_i,
 !
@@ -1284,7 +1290,7 @@ END FUNCTION ximpair_ring_current
 !
 ! MDK, 17/11/26
 ! ---------------------------------------------------------------------
-FUNCTION ximpair_ring_w( l, pft ) RESULT( w )
+FUNCTION ximpair_ring_new_cond_share( l, pft ) RESULT( w )
 
 
 ! Land point and PFT.
@@ -1311,7 +1317,7 @@ IF (ximpair_ring_earlywood_on(pft))                                            &
   w_k = w_k * ring_earlywood_factor(l, pft, k, 0, .FALSE.)
 w = w_k / sw
 
-END FUNCTION ximpair_ring_w
+END FUNCTION ximpair_ring_new_cond_share
 
 ! ---------------------------------------------------------------------
 ! Xylem impairment, memory model: the day of the year on which the ring's
@@ -1349,9 +1355,9 @@ END IF
 END FUNCTION ximpair_ring_season_doy
 
 ! ---------------------------------------------------------------------
-! Return the mean ability to conduct water (0-1) of the sapwood of a
-! stand in steady state on the same day, which nsc_k_area compares with
-! the point's own rings to scale the plant's conductance.
+! Return the mean ability to conduct water (0-1) of the sapwood of a stand in
+! steady state on the same day, which nsc_sapwood_area_factor compares with the
+! point's own rings to scale the plant's conductance.
 !
 ! The steady stand has the ring shares s_j of ring_steady (the ring
 ! dynamics with TRIFFID's wood turnover and the stand's mean heartwood
@@ -1578,7 +1584,7 @@ ring_c(:) = MAX(ximpair_ring_frac(l,pft,:), 0.0) * sapwood_after_turn
 ! earlywood up to phi * x_exp; after that it is latewood. A ring not yet
 ! started (age < 0) takes latewood only.
 IF (ximpair_ring_earlywood_on(pft)) THEN
-  e1 = MAX(ximpair_ring_earlywood_frac(l,pft,1), 0.0) * ring_c(1)
+  e1 = MAX(ximpair_ring_earlywood_c_frac(l,pft,1), 0.0) * ring_c(1)
 
   ! The earlywood grows while the ring holds no latewood.
   IF (dg > 0.0 .AND. ximpair_ring_earlywood_forming(l, pft)) THEN
@@ -1599,9 +1605,9 @@ IF (ximpair_ring_earlywood_on(pft)) THEN
   IF (dg < 0.0) e1 = MAX(e1 + dg, 0.0)
 
   IF (ring_c(1) + dg > 0.0) THEN
-    ximpair_ring_earlywood_frac(l,pft,1) = e1 / (ring_c(1) + dg)
+    ximpair_ring_earlywood_c_frac(l,pft,1) = e1 / (ring_c(1) + dg)
   ELSE
-    ximpair_ring_earlywood_frac(l,pft,1) = 0.0
+    ximpair_ring_earlywood_c_frac(l,pft,1) = 0.0
   END IF
 END IF
 
@@ -1649,41 +1655,42 @@ IF (l_shift) THEN
     IF (f_old > 0.0) THEN
       ! The merged ring's parts: the more damaged parts together, and the
       ! rest together, each weighted by its carbon.
-      f_hi = ximpair_ring_frac(l,pft,n) * ximpair_ring_dmg(l,pft,n)            &
-             + ximpair_ring_frac(l,pft,n-1) * ximpair_ring_dmg(l,pft,n-1)
+      f_hi = ximpair_ring_frac(l,pft,n) * ximpair_ring_damaged_share(l,pft,n)  &
+             + ximpair_ring_frac(l,pft,n-1)                                    &
+                 * ximpair_ring_damaged_share(l,pft,n-1)
       f_lo = f_old - f_hi
       lo_new = 0.0
       IF (f_lo > 0.0)                                                          &
         lo_new = (ximpair_ring_frac(l,pft,n)                                   &
-                  * (1.0 - ximpair_ring_dmg(l,pft,n))                          &
-                  * ximpair_ring_loss_lo(l,pft,n)                              &
+                  * (1.0 - ximpair_ring_damaged_share(l,pft,n))                &
+                  * ximpair_ring_loss_low(l,pft,n)                             &
                   + ximpair_ring_frac(l,pft,n-1)                               &
-                  * (1.0 - ximpair_ring_dmg(l,pft,n-1))                        &
-                  * ximpair_ring_loss_lo(l,pft,n-1)) / f_lo
+                  * (1.0 - ximpair_ring_damaged_share(l,pft,n-1))              &
+                  * ximpair_ring_loss_low(l,pft,n-1)) / f_lo
       ximpair_ring_loss(l,pft,n) = (ximpair_ring_frac(l,pft,n)                 &
                                     * ximpair_ring_loss(l,pft,n)               &
                                     + ximpair_ring_frac(l,pft,n-1)             &
                                     * ximpair_ring_loss(l,pft,n-1)) / f_old
-      ximpair_ring_dmg(l,pft,n)     = MIN(MAX(f_hi / f_old, 0.0), 1.0)
-      ximpair_ring_loss_lo(l,pft,n) = lo_new
+      ximpair_ring_damaged_share(l,pft,n)     = MIN(MAX(f_hi / f_old, 0.0), 1.0)
+      ximpair_ring_loss_low(l,pft,n) = lo_new
     END IF
 
     ! The merged rings take their carbon-weighted earlywood share.
     IF (ximpair_ring_earlywood_on(pft)) THEN
       IF (f_old > 0.0) THEN
-        e_old = MAX(ximpair_ring_earlywood_frac(l,pft,n), 0.0)
-        e_new = MAX(ximpair_ring_earlywood_frac(l,pft,n-1), 0.0)
+        e_old = MAX(ximpair_ring_earlywood_c_frac(l,pft,n), 0.0)
+        e_new = MAX(ximpair_ring_earlywood_c_frac(l,pft,n-1), 0.0)
 
-        ximpair_ring_earlywood_frac(l,pft,n) =                                 &
+        ximpair_ring_earlywood_c_frac(l,pft,n) =                          &
           (ximpair_ring_frac(l,pft,n) * e_old                                  &
            + ximpair_ring_frac(l,pft,n-1) * e_new) / f_old
       END IF
 
       DO i = n - 1, 2, -1
-        ximpair_ring_earlywood_frac(l,pft,i) =                                 &
-          ximpair_ring_earlywood_frac(l,pft,i-1)
+        ximpair_ring_earlywood_c_frac(l,pft,i) =                          &
+          ximpair_ring_earlywood_c_frac(l,pft,i-1)
       END DO
-      ximpair_ring_earlywood_frac(l,pft,1)   = 0.0
+      ximpair_ring_earlywood_c_frac(l,pft,1)   = 0.0
       ximpair_earlywood_start_doy(l,pft) = earlywood_start_none
     END IF
 
@@ -1691,13 +1698,14 @@ IF (l_shift) THEN
     DO i = n - 1, 2, -1
       ximpair_ring_frac(l,pft,i)    = ximpair_ring_frac(l,pft,i-1)
       ximpair_ring_loss(l,pft,i)    = ximpair_ring_loss(l,pft,i-1)
-      ximpair_ring_dmg(l,pft,i)     = ximpair_ring_dmg(l,pft,i-1)
-      ximpair_ring_loss_lo(l,pft,i) = ximpair_ring_loss_lo(l,pft,i-1)
+      ximpair_ring_damaged_share(l,pft,i)                                      &
+          = ximpair_ring_damaged_share(l,pft,i-1)
+      ximpair_ring_loss_low(l,pft,i) = ximpair_ring_loss_low(l,pft,i-1)
     END DO
     ximpair_ring_frac(l,pft,1)    = 0.0
     ximpair_ring_loss(l,pft,1)    = 0.0
-    ximpair_ring_dmg(l,pft,1)     = 1.0
-    ximpair_ring_loss_lo(l,pft,1) = 0.0
+    ximpair_ring_damaged_share(l,pft,1)     = 1.0
+    ximpair_ring_loss_low(l,pft,1) = 0.0
   END IF
   ximpair_ring_year(l,pft) = REAL(g_year)
 END IF
@@ -1787,16 +1795,16 @@ DO i = 1, nsc_n_ring
                                        ximpair_ring_peak(l,pft)) /             &
                                        k_restore_tot,                          &
                                        ximpair_ring_peak(l,pft)), 1.0)
-  IF (ximpair_ring_dmg(l,pft,i) < 1.0) THEN
+  IF (ximpair_ring_damaged_share(l,pft,i) < 1.0) THEN
     phi = (ximpair_ring_loss(l,pft,i) - ximpair_ring_peak(l,pft))              &
           / (l_old - ximpair_ring_peak(l,pft))
-    IF (ximpair_ring_loss_lo(l,pft,i) > ximpair_ring_peak(l,pft))              &
-      ximpair_ring_loss_lo(l,pft,i) = ximpair_ring_peak(l,pft)                 &
-                                      + phi * (ximpair_ring_loss_lo(l,pft,i)   &
+    IF (ximpair_ring_loss_low(l,pft,i) > ximpair_ring_peak(l,pft))             &
+      ximpair_ring_loss_low(l,pft,i) = ximpair_ring_peak(l,pft)                &
+                                      + phi * (ximpair_ring_loss_low(l,pft,i)  &
                                       - ximpair_ring_peak(l,pft))
-    IF (ring_hi(l, pft, i) <= ximpair_ring_loss_lo(l,pft,i)) THEN
-      ximpair_ring_dmg(l,pft,i)     = 1.0
-      ximpair_ring_loss_lo(l,pft,i) = 0.0
+    IF (ring_hi(l, pft, i) <= ximpair_ring_loss_low(l,pft,i)) THEN
+      ximpair_ring_damaged_share(l,pft,i)     = 1.0
+      ximpair_ring_loss_low(l,pft,i) = 0.0
     END IF
   END IF
 END DO
@@ -2519,7 +2527,7 @@ IF (l_nsc_sapwood_rings) THEN
     ! The earlywood is set up once the rings' year is known (it sets the
     ! rings' ages).
     IF (ximpair_ring_earlywood_on(pft)) THEN
-      IF (ximpair_ring_earlywood_frac(l,pft,1) < 0.0)                          &
+      IF (ximpair_ring_earlywood_c_frac(l,pft,1) < 0.0)                   &
         CALL ximpair_ring_earlywood_init(l, pft)
     END IF
 
