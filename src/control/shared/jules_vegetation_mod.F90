@@ -219,20 +219,17 @@ INTEGER, PARAMETER ::                                                          &
   xylem_impairment_none = 0,                                                   &
     ! No xylem imparement model is used.
   xylem_impairment_kmax = 1,                                                   &
-    ! RETIRED: reduced kmax with refitted b, c. The number is kept; setting
-    ! it stops the run.
+    ! kmax-impaired: the plant's kmax falls with the conductance at the leaf
+    ! and in the root zone, and b and c are refitted to the lowered kmax (the
+    ! corrected refit c' = c * (b' / b)^c). Damage is not recovered.
   xylem_impairment_whole_trunk = 2,                                            &
-    ! Conductance along the xylem limited by the historic minimum water
-    ! potential profile.
-  xylem_impairment_memory = 3,                                                 &
-    ! Embolism memory with recovery: the vulnerability curve is capped at
-    ! kmax * (1 - PLC_mem), where PLC_mem is the loss of conductivity at the
-    ! most negative damage-driving water potential experienced, relaxing
-    ! back when the plant rehydrates.
-  xylem_impairment_kmax_refit = 4
-    ! RETIRED: a Weibull refitted to the memory model's capped curve (Mackay
-    ! et al. 2015 / TREES), an approximation of model 3, which uses the
-    ! capped curve exactly. The number is kept; setting it stops the run.
+    ! Trunk-impaired: conductance along the xylem limited by the historic
+    ! minimum water potential profile.
+  xylem_impairment_memory = 3
+    ! Memory-impaired: embolism memory with recovery: the vulnerability
+    ! curve is capped at kmax * (1 - PLC_mem), where PLC_mem is the loss of
+    ! conductivity at the most negative damage-driving water potential
+    ! experienced, relaxing back when the plant rehydrates.
 
 ! Water potential driving embolism in the memory impairment model
 ! (ximpair_psi_driver).

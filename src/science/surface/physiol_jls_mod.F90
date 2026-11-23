@@ -122,8 +122,10 @@ USE jules_vegetation_mod, ONLY:                                                &
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                        &
   l_leaf_temp, l_root_mass_fixed, root_mass_min, l_trait_phys, l_red,          &
   l_som_rhizo_series, l_som_capacitance_on, l_ximpair_frozen_hold,           &
-  xylem_impairment_memory
+  xylem_impairment_memory, xylem_impairment_kmax
   ! MDK, 06/11/26
+USE model_time_mod, ONLY: is_spinup   ! MDK, 21/11/26
+USE xylem_impairment_kmax_mod, ONLY: xylem_kmax_refit_curve   ! MDK, 21/11/26
 USE xylem_impairment_memory_mod, ONLY: ximpair_root_frozen
   ! Frozen share of the root zone's soil water (l_ximpair_frozen_hold).
   ! MDK, 06/11/26
@@ -718,9 +720,10 @@ INTEGER ::                                                                     &
       ! Loop indices.
 
 ! The PFT's vulnerability curve on land points, for sf_stom (b in Pa).
-! Every impairment model uses it unchanged.
+! The memory and whole-trunk impairment models use it unchanged; the
+! kmax-impaired model refits it to the point's impaired kmax.
 !
-! MDK, 24/10/26
+! MDK, 21/11/26
 REAL(KIND=real_jlslsm) :: cond_b_pts(land_pts), cond_c_pts(land_pts)
 
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -1637,6 +1640,11 @@ DO n = 1,npft
   fsun_tmp(:,:) = fsun(:,n,:)
   cond_b_pts(:) = conductance_b_pft(n)
   cond_c_pts(:) = conductance_c_pft(n)
+  IF ( .NOT. is_spinup .AND.                                                   &
+       pft_xylem_impairment_model(n) == xylem_impairment_kmax ) THEN
+    CALL xylem_kmax_refit_curve( n, land_pts, k_max_impaired_pft(:,n),         &
+                                 cond_b_pts, cond_c_pts )
+  END IF
 
   ! Xylem impairment, memory model (l_ximpair_frozen_hold): the frozen share
   ! of this PFT's root-zone soil water, sum over layers of
@@ -1712,7 +1720,12 @@ DO n = 1,npft
   !
   ! at the actual root water potential
   !
-  !   psi_root = psi_root_zone - E / K_s,   K_s = sum_i k_i
+  !   psi_root = psi_root_zone - E / Ksr
+  !
+  ! with Ksr the soil-to-root conductance summed over the layers, the
+  ! optimiser's ksr (mol m-2 s-1 Pa-1),
+  !
+  !   Ksr = sum_i k_i / (rho_water * g * m_h2o)
   !
   ! where
   !   psi_root_zone  conductance-weighted soil psi from smc_ext (Pa)
@@ -1727,10 +1740,16 @@ DO n = 1,npft
   !
   !   wt_ext_i = q_i / sum_i q_i
   !
-  ! Layers drier than the root give nothing (no hydraulic redistribution).
-  ! This replaces the smc_ext weights, which assume a fixed root_psi_crit.
+  ! Layers drier than the root give nothing to the uptake. With
+  ! l_som_hydraulic_redistribution the roots also move water from the wetter
+  ! layers into those layers. That flow is set in redistribute_soil_water,
+  ! which is called after this block and recomputes the weights above: it
+  ! takes each layer's potential less the weight of the water above it
+  ! (rho_water * g * soil_z_mid), and puts the layer's root link in series
+  ! with its soil link. These weights replace the smc_ext weights, which
+  ! under profit max are the soil-to-root conductances alone (no flow).
   !
-  ! MDK, 23/10/26
+  ! MDK, 20/11/26
   !-----------------------------------------------------------------------
   ! Hydraulic redistribution: this PFT's flows start at zero (set below
   ! for the PFTs on the soil-to-root link). The arrays and the layers'
@@ -1769,15 +1788,16 @@ DO n = 1,npft
     DO j = 1,surft_pts(n)
       l = surft_index(j,n)
 
-      ! Total soil-to-root conductance, K_s (kg m-3 s-1, per m of head).
+      ! Total soil-to-root conductance, sum_i k_i (ksum_rs; kg m-3 s-1, per
+      ! m of head), which is Ksr * rho_water * g * m_h2o.
       ! Skip points with no conducting roots: the smc_ext weights stay.
       ksum_rs = SUM(MAX(soil_root_k_soilt(l,m,:), 0.0))
       IF ( ksum_rs <= TINY(1.0_real_jlslsm) ) CYCLE
 
-      ! Root water potential (Pa): the drop E / K_s across the soil-to-root
-      ! path. E (mol m-2 s-1) x m_h2o_rs (kg mol-1) is a mass flux (kg m-2
-      ! s-1); dividing by K_s gives metres of head, and rho_water * g turns
-      ! head into Pa.
+      ! Root water potential (Pa): the drop E / Ksr across the soil-to-root
+      ! path. E (mol m-2 s-1) * m_h2o_rs (kg mol-1) is a mass flux (kg m-2
+      ! s-1); dividing by ksum_rs gives metres of head, and rho_water * g
+      ! turns head into Pa.
       !
       ! With the plant capacitance the roots carry the soil-to-store flow,
       !
@@ -1805,6 +1825,8 @@ DO n = 1,npft
       !
       ! in kg m-3 s-1 x Pa. Only the relative sizes matter, so the units
       ! cancel in the weights. Layers drier than the root are set to zero.
+      ! With l_som_hydraulic_redistribution, redistribute_soil_water (below)
+      ! recomputes these weights and sets the water moved into the dry layers.
       q_rs(:) = MAX(soil_root_k_soilt(l,m,:)                                   &
                     * (soil_wp_soilt(l,m,:) - psi_root_rs), 0.0)
 

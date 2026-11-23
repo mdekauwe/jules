@@ -27,6 +27,15 @@ SUBROUTINE smc_ext (npnts,nshyd,surft_pts,surft_index,ft                       &
 !     Calculates the soil moisture availability factor and
 !     the fraction of the transpiration which is extracted from each
 !     soil layer.
+!     With the stomatal optimisation (profit max, l_som_rhizo_series) and
+!     fsmc_mod = 2, the weights wt_ext returned here are the normalised
+!     soil-to-root conductances, the shares when no water flows. They give
+!     psi_root_zone = sum(wt_ext * psi), the source potential for the
+!     optimiser. After the stomatal solve physiol replaces them with
+!     k_i * (psi_i - psi_root) at the root potential for the chosen
+!     transpiration (and with l_som_hydraulic_redistribution recomputes
+!     them again in redistribute_soil_water). The soil-to-root conductance
+!     is only calculated for PFTs with fsmc_mod = 2.
 
 ! Documentation : UM Documentation Paper 25
 !---------------------------------------------------------------------
@@ -112,13 +121,18 @@ REAL(KIND=real_jlslsm), INTENT(IN OUT) ::                                      &
 ,soil_k(npnts,nshyd)                                                           &
 !                     ! Soil layer conductivity (kg m-2 s-1)
 ,soil_to_root_k(npnts,nshyd)
-!                     ! Soil to root conductance (kg m-2 s-1)
+!                     ! Soil to root conductance per m2 of ground, per metre
+!                     !    of head (kg m-3 s-1); physiol divides it by
+!                     !    rho_water * g * m_h2o for ksr (mol m-2 s-1 Pa-1).
+!                     ! MDK, 20/11/26
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
  wt_ext(npnts,nshyd)
-!                     ! Cumulative fraction of transpiration
-!                     !    extracted from each soil layer
-!                     !    (kg/m2/s).
+!                     ! Normalised weights (no units; they sum to 1 over the
+!                     !    layers, or are 0 where no layer has weight): the
+!                     !    fraction of the transpiration extracted from each
+!                     !    soil layer.
+!                     ! MDK, 20/11/26
 
 REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
  psi_root_zone(npnts)                                                          &
@@ -918,7 +932,8 @@ END DO
 
 ! To convert root conductance in each layer from per unit root length to per
 ! unit soil area we need to multiply by root length per unit area of soil
-! (m m-2).
+! (m m-2). The result is the conductance per m2 of ground per metre of head
+! (kg m-3 s-1).
 rootc_per_unit_length = rootc_density_pft(ft) * pi * root_radi_pft(ft)**2
 DO n = 1,nshyd
   DO j = 1,surft_pts
