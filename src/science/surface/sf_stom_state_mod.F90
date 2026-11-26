@@ -24,8 +24,9 @@ MODULE sf_stom_state_mod
 !     cpl_ra_ca).
 !
 ! The module also holds what sf_stom hands to the surface flux step within
-! a timestep (e_flux_tile, gc_cap_tile) and physiol's root extraction
-! weights (wt_root_tile). These are set each timestep and are not in the
+! a timestep (e_flux_tile, gc_cap_tile) and, from physiol, the root
+! extraction weights (wt_root_tile) and each layer's part in the soil water
+! supply (smc_wt_tile). These are set each timestep and are not in the
 ! dump.
 !
 ! f_vcmax_psi_state and cpl_state are negative until first set, meaning
@@ -40,7 +41,8 @@ IMPLICIT NONE
 PRIVATE
 PUBLIC :: f_vcmax_psi_state, cpl_state, sf_stom_state_alloc, n_cpl_state,      &
           shared_e_shd_prev, shared_amax_shd_prev, store_e_prev,           &
-          e_flux_tile, gc_cap_tile, wt_root_tile, sf_stom_flux_alloc
+          e_flux_tile, gc_cap_tile, wt_root_tile, smc_wt_tile,            &
+          sf_stom_flux_alloc
 
 ! gl_sun, gl_shd, gbw_sun, gbw_shd, the flux step's resistance
 INTEGER, PARAMETER :: n_cpl_state = 5
@@ -76,6 +78,11 @@ REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: gc_cap_tile(:,:)
 ! (land_pts, sm_levels, npft) The root extraction weights of the
 ! transpiration, before soil_evap adds the soil evaporation to layer 1.
 REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: wt_root_tile(:,:,:)
+! (land_pts, sm_levels, npft) What a unit of a tile's extraction weight in
+! a layer adds to the gridbox soil water supply smc_soilt (mm), for the
+! flux step to update the supply with the new weights; 0 where smc_soilt
+! is not built from them.
+REAL(KIND=real_jlslsm), ALLOCATABLE, SAVE :: smc_wt_tile(:,:,:)
 
 CONTAINS
 
@@ -117,6 +124,8 @@ INTEGER, INTENT(IN) :: n_land_pts, n_levels
 IF ( .NOT. ALLOCATED(e_flux_tile) ) THEN
   ALLOCATE( gc_cap_tile(n_land_pts, npft) )
   ALLOCATE( wt_root_tile(n_land_pts, n_levels, npft) )
+  ALLOCATE( smc_wt_tile(n_land_pts, n_levels, npft) )
+  smc_wt_tile(:,:,:)  = 0.0
   gc_cap_tile(:,:)    = 0.0
   wt_root_tile(:,:,:) = 0.0
   ALLOCATE( e_flux_tile(n_land_pts, npft) )

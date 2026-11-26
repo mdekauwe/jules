@@ -48,6 +48,12 @@ INTEGER, PARAMETER, PRIVATE :: max_lt_clamp_warn = 20
 PRIVATE
 PUBLIC sf_stom
 
+! A canopy conductance so large that it is no resistance (m s-1), used
+! where som_gl_max <= 0 sets no cap.
+!
+! MDK, 26/11/26
+REAL(KIND=real_jlslsm), PARAMETER, PRIVATE :: gc_flux_no_cap = 1.0e3
+
 CONTAINS
 
 ! *********************************************************************
@@ -5279,9 +5285,12 @@ IF ( leaf_flux_mod == leaf_flux_stom_opt .AND.                                 &
      ( .NOT. l_leaf_temp .OR. l_leaf_temp_gc_eq ) ) THEN
   DO m = 1,veg_pts
     l = veg_index(m)
+
     IF ( el(l) > 0.0 .AND. gc(l) > 0.0 ) THEN
       e_flux_tile(l,ft) = el(l) * Water_kg_per_mol
-      gc_cap_tile(l,ft) = MAX(som_gl_max * lai(l), gc(l))
+      gc_cap_tile(l,ft) = gc_flux_no_cap
+      IF ( som_gl_max > 0.0 )                                                  &
+        gc_cap_tile(l,ft) = MAX(som_gl_max * lai(l), gc(l))
     END IF
   END DO
 END IF
@@ -6826,9 +6835,12 @@ CHARACTER(LEN=300) :: clamp_msg
   h_leaf_pft(lp,ft)      = h_leaf_pts(lp)
   le_leaf_pft(lp,ft)     = le_leaf_pts(lp)
 
-  ! The surface energy balance applies gc with qs(tstar) - q1 through
-  ! ra. Return the gc that gives the transpiration the optimisation
-  ! chose (el, at the leaf temperatures) there,
+  ! Express the transpiration chosen by the optimisation as a canopy
+  ! conductance at qs(tstar) - q1 through ra, the form the rest of sf_stom
+  ! (the cuticular leak and its limit) works in; the surface flux step sets
+  ! the conductance it uses from the final transpiration. Return the gc
+  ! that gives the transpiration the optimisation chose (el, at the leaf
+  ! temperatures) there,
   !
   !   rho * (qs(tstar) - q1) / (ra + 1/gc) = el * m_h2o,
   !
@@ -6850,6 +6862,10 @@ CHARACTER(LEN=300) :: clamp_msg
     dq_eq  = qs(lp) - q1(lp)
     cap_eq = gc_eq_cap
     IF ( cap_eq <= 0.0 ) cap_eq = som_gl_max * lai(lp)
+    ! som_gl_max <= 0: no cap.
+    !
+    ! MDK, 26/11/26
+    IF ( cap_eq <= 0.0 ) cap_eq = gc_flux_no_cap
     IF ( el(lp) * m_h2o_lt > TINY(1.0) .AND. dq_eq > 1.0e-4 ) THEN
       r_eq_gc = pstar(lp) / ( r * tstar(lp) ) * dq_eq / ( el(lp) * m_h2o_lt )  &
              - ra(lp)

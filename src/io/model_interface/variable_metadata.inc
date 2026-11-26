@@ -10122,7 +10122,7 @@ DATA metadata(780) / var_metadata(                                             &
 ! Variable type
     var_type_pft,                                                              &
 ! Long name
-    "Last canopy air resistance (coupled E first guess)",                      &
+    "Aerodynamic resistance 1/(ch*|V|) of the last surface flux step",         &
 ! Units
     "s m-1"                                                                     &
   ) /

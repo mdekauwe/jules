@@ -119,7 +119,8 @@ USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 
 ! MDK, 26/11/26
 USE sf_stom_state_mod, ONLY: cpl_state, sf_stom_state_alloc,                   &
-                             sf_stom_flux_alloc, e_flux_tile, wt_root_tile
+                             sf_stom_flux_alloc, e_flux_tile, wt_root_tile,   &
+                             smc_wt_tile
 USE jules_vegetation_mod, ONLY: leaf_flux_stom_opt
 
 USE jules_vegetation_mod, ONLY:                                                &
@@ -2760,6 +2761,27 @@ DO m = 1, nsoilt
   END DO
 !$OMP END PARALLEL DO
 END DO
+
+! Each layer's part in smc_soilt per unit of a PFT tile's extraction
+! weight, as summed above (one soil tile, l_use_pft_psi), for the surface
+! flux step, which sets the weights again for the conductance it uses.
+!
+! MDK, 26/11/26
+IF ( leaf_flux_mod == leaf_flux_stom_opt .AND. l_use_pft_psi                   &
+     .AND. nsoilt == 1 ) THEN
+  DO n = 1,npft
+    DO k = 1,sm_levels
+      DO l = 1,land_pts
+        smc_wt_tile(l,k,n) = 0.0
+        IF ( non_irrig_frac(l) > EPSILON(0.0) )                                &
+          smc_wt_tile(l,k,n) = (1.0 - fsoil_tot(l)) * frac(l,n)                &
+            * rho_water * dzsoil(k)                                            &
+            * ( sthu_surft(l,1,k) * smvcst_soilt(l,1,k) - v_close_pft(l,k,n) ) &
+            / non_irrig_frac(l)
+      END DO
+    END DO
+  END DO
+END IF
 
 ! Or soil evaporation: water in layer 1 above half the wilting point, the
 ! CABLE limit on soil evaporation (applied in sf_evap)

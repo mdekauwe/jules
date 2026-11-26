@@ -166,7 +166,7 @@ USE tilepts_mod,                ONLY: tilepts
 USE timestep_mod,               ONLY: timestep
 ! MDK, 26/11/26
 USE sf_stom_state_mod,          ONLY: cpl_state, e_flux_tile, gc_cap_tile,     &
-                                      wt_root_tile
+                                      wt_root_tile, smc_wt_tile
 USE jules_vegetation_mod,       ONLY: leaf_flux_stom_opt
 USE urban_param_mod,            ONLY: z0m_mat
 USE urbanz0_mod,                ONLY: urbanz0
@@ -1102,15 +1102,18 @@ INTEGER :: n_diag
 INTEGER :: errcode
 CHARACTER(LEN=errormessagelength) :: cmessage
 
-! Delivering the stomatal optimisation's transpiration: the humidity
-! deficit of the explicit flux (kg kg-1), ch * |V| (m s-1), the soil's and
-! the stomatal conductance (m s-1), the transpiration over its value at an
-! unlimited stomatal conductance, and the tile conductance (m s-1).
-!
-! MDK, 26/11/26
-REAL(KIND=real_jlslsm) :: d_flux, cu_flux, g_soil_t, g_stom_old, g_stom_new,   &
-                          k_flux, g_tile_new
+REAL(KIND=real_jlslsm) ::                                                      &
+  cu_flux, g_soil_t, g_stom_old, g_stom_new, g_tile_new,                       &
+  f_wet, w_soil, res_new, res_den, e_dry, a_flux, wt_new, smc_new,             &
+  dq_zero_evap(land_pts), k_evap(land_pts)
+      ! Delivering the stomatal optimisation's transpiration: ch * |V|
+      ! (m s-1), the soil's, the old and new stomatal and the new tile
+      ! conductance (m s-1), the wet fraction, g_s / (ch * |V|), the new
+      ! resfs and its denominator, the transpiration to deliver
+      ! (kg m-2 s-1), rhokh, a new extraction weight, the new soil water
+      ! supply (mm), and sf_flux's coefficients of the moisture flux.
 INTEGER :: kl
+LOGICAL :: l_deliver(land_pts), l_any_deliver
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -1358,17 +1361,6 @@ IF ( .NOT. l_aggregate .AND. can_model == 4) THEN
       END DO
 !$OMP END PARALLEL DO
     END IF
-  END DO
-END IF
-
-!----------------------------------------------------------------------
-! Canopy stomatal conductance of each PFT, before soil evaporation is
-! added to the tile conductance (output gc_stom_pft).
-!----------------------------------------------------------------------
-gc_stom_pft(:,:) = 0.0
-IF ( .NOT. l_aggregate ) THEN
-  DO n = 1,npft
-    gc_stom_pft(:,n) = gc_stom_surft(:,n)
   END DO
 END IF
 
@@ -2682,73 +2674,6 @@ DO n = 1,nsurft
   END DO
 !$OMP END PARALLEL DO
 
-  !-----------------------------------------------------------------------
-  ! The transpiration of the stomatal optimisation, delivered with the
-  ! exchange coefficient and deficit of this flux. With D the deficit,
-  ! cu = ch * |V| and g_s the soil's conductance, the transpiration of the
-  ! tile's dry canopy (sf_resist) is
-  !
-  !   E = rho * D * cu * g / (g + g_s + cu),
-  !
-  ! with g the canopy stomatal conductance. So with k = E / (rho * D * cu),
-  !
-  !   g = k * (g_s + cu) / (1 - k),   no more than gc_cap_tile.
-  !
-  ! sf_stom's own g and E are related through the resistance it was given
-  ! (raero's with leaf temperatures, otherwise the last timestep's 1 / cu),
-  ! so g is set again here. The tile keeps sf_stom's g where the deficit is
-  ! below 1e-4 kg kg-1, under snow on the canopy, with aggregated tiles and
-  ! with irrigation.
-  !
-  ! The root extraction weights are shared again between the transpiration
-  ! (the root weights w_r) and the soil evaporation (layer 1), as in
-  ! soil_evap, for the new g:
-  !
-  !   w = (w_old * (g_old + g_s) + (g - g_old) * w_r) / (g + g_s).
-  !
-  ! 1 / cu is kept for the next timestep's stomatal optimisation.
-  !
-  ! MDK, 26/11/26
-  !-----------------------------------------------------------------------
-  IF ( leaf_flux_mod == leaf_flux_stom_opt .AND. n <= npft .AND.               &
-       ALLOCATED(e_flux_tile) .AND. .NOT. l_aggregate ) THEN
-    DO k = 1,surft_pts(n)
-      l = surft_index(k,n)
-      j = (land_index(l) - 1) / t_i_length + 1
-      i = land_index(l) - (j-1) * t_i_length
-      d_flux  = qstar_surft(l,n) - qw_1(i,j)
-      cu_flux = ch_surft(l,n) * vshr_land(i,j)
-      IF ( cu_flux > 0.0 ) cpl_state(l,n,5) = 1.0 / cu_flux
-
-      IF ( e_flux_tile(l,n) >= 0.0 .AND. d_flux > 1.0e-4 .AND.                 &
-           cu_flux > 0.0 .AND. snow_surft(l,n) <= 0.0 .AND.                    &
-           .NOT. l_irrig_dmd ) THEN
-        g_stom_old = gc_stom_surft(l,n)
-        g_soil_t   = MAX(gc_surft(l,n) - g_stom_old, 0.0)
-        k_flux     = e_flux_tile(l,n) / ( rhostar(i,j) * d_flux * cu_flux )
-        g_stom_new = gc_cap_tile(l,n)
-        IF ( k_flux < 1.0 ) THEN
-          g_stom_new = MIN(k_flux * (g_soil_t + cu_flux) / (1.0 - k_flux),     &
-                           gc_cap_tile(l,n))
-        END IF
-        g_tile_new = g_stom_new + g_soil_t
-
-        IF ( g_tile_new > 0.0 ) THEN
-          DO kl = 1,sm_levels
-            wt_ext_surft(l,kl,n) = ( wt_ext_surft(l,kl,n) * gc_surft(l,n)      &
-                                     + (g_stom_new - g_stom_old)               &
-                                       * wt_root_tile(l,kl,n) ) / g_tile_new
-          END DO
-          gc_surft(l,n)      = g_tile_new
-          gc_stom_surft(l,n) = g_stom_new
-        END IF
-      END IF
-
-      ! Used once.
-      e_flux_tile(l,n) = -1.0
-    END DO
-  END IF
-
   ! We should only attempt to access sf_diag%resfs_stom(:,n) if it has
   ! been fully allocated.
   IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR. l_soil_evap_or .OR. &
@@ -2766,6 +2691,149 @@ DO n = 1,nsurft
    sf_diag%resfs_stom(:,n_diag),                                               &
    sf_diag%l_et_stom .OR. l_soil_evap_or .OR. l_som_capacitance_on,            &
    sf_diag%l_et_stom_surft)
+
+  !-----------------------------------------------------------------------
+  ! The transpiration of the stomatal optimisation, E (sf_stom's final
+  ! value, with the cuticular leak and its limit), delivered by this flux.
+  ! sf_stom relates its conductance and E through its own resistance
+  ! (raero's with leaf temperatures, otherwise the flux step's of the last
+  ! timestep), so the canopy stomatal conductance g is set again here.
+  !
+  ! A first call of sf_flux gives the moisture flux, with this step's change
+  ! in surface temperature, as a function of resft:
+  !
+  !   fqw = rhokh * Dn * resft / (1 + k * resft),
+  !
+  ! with Dn the deficit left with no moisture flux (dq_zero_evap) and k its
+  ! lowering by evaporative cooling (k_evap). From sf_resist, with f the wet
+  ! fraction (fracaero), cu = ch * |V|, g_s the soil's conductance and
+  ! x = resfs = (g + g_s) / (g + g_s + cu),
+  !
+  !   resft = f + (1 - f) * x,
+  !
+  ! and the transpiration is the stomatal share of the dry part of fqw,
+  ! (1 - f) * g / (g + g_s + cu) = (1 - f) * (x * (1 + w) - w), with
+  ! w = g_s / cu. The dry canopy's transpiration is to be E, so the tile's
+  ! is (1 - f) * E, and
+  !
+  !   x = (E * (1 + k * f) + rhokh * Dn * w)
+  !       / (rhokh * Dn * (1 + w) - E * k * (1 - f)),
+  !   g = cu * x / (1 - x) - g_s,
+  !
+  ! with g no more than gc_cap_tile, which it takes where no g gives E
+  ! (x >= 1). The tile keeps sf_stom's g where no moisture would leave the
+  ! surface (Dn <= 0), where the tile is all wet, where part of it
+  ! sublimates (fracaero_s > 0, which changes the latent heat with resft),
+  ! with snow on a canopy of the canopy snow scheme, with aggregated tiles
+  ! and with irrigation.
+  !
+  ! The root extraction weights are shared again between the transpiration
+  ! (the root weights w_r) and the soil evaporation (layer 1), as in
+  ! soil_evap, for the new g,
+  !
+  !   w = (w_old * (g_old + g_s) + (g - g_old) * w_r) / (g + g_s),
+  !
+  ! and the soil water supply smc_soilt with them. 1 / cu is kept for the
+  ! next timestep's stomatal optimisation.
+  !
+  ! MDK, 26/11/26
+  !-----------------------------------------------------------------------
+  IF ( leaf_flux_mod == leaf_flux_stom_opt .AND. n <= npft .AND.               &
+       ALLOCATED(e_flux_tile) .AND. .NOT. l_aggregate ) THEN
+    l_any_deliver = .FALSE.
+    DO k = 1,surft_pts(n)
+      l = surft_index(k,n)
+      j = (land_index(l) - 1) / t_i_length + 1
+      i = land_index(l) - (j-1) * t_i_length
+      cu_flux = ch_surft(l,n) * vshr_land(i,j)
+      IF ( cu_flux > 0.0 ) cpl_state(l,n,5) = 1.0 / cu_flux
+
+      l_deliver(l) = e_flux_tile(l,n) >= 0.0 .AND. cu_flux > 0.0               &
+                     .AND. fracaero_t(l,n) < 1.0                               &
+                     .AND. fracaero_s(l,n) <= 0.0                              &
+                     .AND. .NOT. l_irrig_dmd
+      IF ( can_model == 4 .AND. cansnowtile(n) ) THEN
+        IF ( snow_surft(l,n) > 0.0 ) l_deliver(l) = .FALSE.
+      END IF
+      l_any_deliver = l_any_deliver .OR. l_deliver(l)
+    END DO
+
+    IF ( l_any_deliver ) THEN
+      CALL sf_flux (                                                           &
+       land_pts,surft_pts(n),                                                  &
+       land_index,surft_index(:,n),                                            &
+       nsnow_surft(:,n),n,canhc_surf(:,n),dzsurf(:,n),hcons_surf(:,n),         &
+       ashtf_surft(:,n),qstar_surft(:,n),q_elev(:,n),                          &
+       radnet_surft(:,n),resft(:,n),fracaero_s(:,n),rhokh_surft(:,n),          &
+       l_soil_point,snowdepth_surft(:,n),timestep,t_elev(:,n),tsurf(:,n),      &
+       tstar_surft(:,n),vfrac_surft(:,n),rhokh_can(:,n),z0h_surft(:,n),        &
+       z0m_eff_surft(:,n),zdt_surft(:,n),z1_tq,lh0,emis_surft(:,n),emis_soil,  &
+       1.0,anthrop_heat_surft(:,n),scaling_urban(:,n),l_vegdrag_surft(n),      &
+       alpha1(:,n),ashtf_prime_surft(:,n),fqw_surft(:,n),                      &
+       epot_surft(:,n),ftl_surft(:,n),dtstar_surft(:,n),sea_point,             &
+       dq_zero_evap=dq_zero_evap,k_evap=k_evap                                 &
+     )
+
+      DO k = 1,surft_pts(n)
+        l = surft_index(k,n)
+        IF ( .NOT. l_deliver(l) ) CYCLE
+        IF ( dq_zero_evap(l) <= 0.0 ) CYCLE
+        j = (land_index(l) - 1) / t_i_length + 1
+        i = land_index(l) - (j-1) * t_i_length
+        cu_flux    = ch_surft(l,n) * vshr_land(i,j)
+        g_stom_old = gc_stom_surft(l,n)
+        g_soil_t   = MAX(gc_surft(l,n) - g_stom_old, 0.0)
+        f_wet      = fracaero_t(l,n)
+        w_soil     = g_soil_t / cu_flux
+        e_dry      = e_flux_tile(l,n)
+        a_flux     = rhokh_surft(l,n) * dq_zero_evap(l)
+        res_den    = a_flux * (1.0 + w_soil)                                   &
+                     - e_dry * k_evap(l) * (1.0 - f_wet)
+
+        g_stom_new = gc_cap_tile(l,n)
+        IF ( res_den > 0.0 ) THEN
+          res_new = ( e_dry * (1.0 + k_evap(l) * f_wet) + a_flux * w_soil )    &
+                    / res_den
+          IF ( res_new < 1.0 ) THEN
+            g_stom_new = MIN(MAX(cu_flux * res_new / (1.0 - res_new)           &
+                                 - g_soil_t, 0.0), gc_cap_tile(l,n))
+          END IF
+        END IF
+        g_tile_new = g_stom_new + g_soil_t
+
+        IF ( g_tile_new > 0.0 ) THEN
+          smc_new = 0.0
+          DO kl = 1,sm_levels
+            wt_new = ( wt_ext_surft(l,kl,n) * gc_surft(l,n)                    &
+                       + (g_stom_new - g_stom_old) * wt_root_tile(l,kl,n) )    &
+                     / g_tile_new
+            smc_new = smc_new                                                  &
+                      + MAX(0.0, wt_new * smc_wt_tile(l,kl,n))                 &
+                      - MAX(0.0, wt_ext_surft(l,kl,n) * smc_wt_tile(l,kl,n))
+            wt_ext_surft(l,kl,n) = wt_new
+          END DO
+          IF ( nsoilt == 1 ) smc_soilt(l,1) = MAX(smc_soilt(l,1) + smc_new, 0.0)
+          gc_surft(l,n)      = g_tile_new
+          gc_stom_surft(l,n) = g_stom_new
+        END IF
+
+      END DO
+
+      CALL sf_resist (                                                         &
+       land_pts,surft_pts(n),land_index,surft_index(:,n),cansnowtile(n),       &
+       canopy(:,n),catch(:,n),ch_surft(:,n),dq(:,n),epdt,flake(:,n),           &
+       gc_surft(:,n),gc_stom_surft(:,n),snowdep_surft(:,n),snow_surft(:,n),    &
+       vshr_land,tstar_surft(:,n),fracaero_t(:,n),fracaero_s(:,n),resfs(:,n),  &
+       resft(:,n),sf_diag%resfs_stom(:,n_diag),                                &
+       sf_diag%l_et_stom .OR. l_soil_evap_or .OR. l_som_capacitance_on,        &
+       sf_diag%l_et_stom_surft)
+    END IF
+
+    ! Used once.
+    DO k = 1,surft_pts(n)
+      e_flux_tile(surft_index(k,n),n) = -1.0
+    END DO
+  END IF
 
   CALL sf_flux (                                                               &
    land_pts,surft_pts(n),                                                      &
@@ -2811,6 +2879,17 @@ DO n = 1,nsurft
 !$OMP END PARALLEL DO
 
 END DO
+
+!----------------------------------------------------------------------
+! Canopy stomatal conductance of each PFT, without the soil evaporation
+! of the tile conductance (output gc_stom_pft), as the fluxes used it.
+!----------------------------------------------------------------------
+gc_stom_pft(:,:) = 0.0
+IF ( .NOT. l_aggregate ) THEN
+  DO n = 1,npft
+    gc_stom_pft(:,n) = gc_stom_surft(:,n)
+  END DO
+END IF
 
 ! Calculate surface momentum flux
 IF (sf_diag%l_tau_surft) THEN

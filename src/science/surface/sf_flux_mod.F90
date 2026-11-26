@@ -19,7 +19,8 @@ SUBROUTINE sf_flux (                                                           &
  t_elev,ts1_elev,tstar,vfrac,rhokh_can,                                        &
  z0h,z0m_eff,zdt,z1_tq,lh0,emis_surft,emis_soil,                               &
  salinityfactor,anthrop_heat,scaling_urban,l_vegdrag,                          &
- alpha1,ashtf_prime,fqw_1,epot,ftl_1,dtstar,sea_point                          &
+ alpha1,ashtf_prime,fqw_1,epot,ftl_1,dtstar,sea_point,                         &
+ dq_zero_evap,k_evap                                                           &
  )
 
 USE atm_fields_bounds_mod, ONLY: tdims
@@ -156,6 +157,22 @@ REAL(KIND=real_jlslsm), INTENT(OUT) ::                                         &
 REAL(KIND=real_jlslsm) ::                                                      &
  sea_point                 ! =1.0 IF SEA POINT, =0.0 OTHERWISE
 
+! The moisture flux, with the change in surface temperature, as a function
+! of resft alone:
+!
+!   fqw = rhokh_1 * dq_zero_evap * resft / (1 + k_evap * resft)
+!
+! (without fracs, which changes the latent heat with resft under snow).
+!
+! MDK, 26/11/26
+REAL(KIND=real_jlslsm), INTENT(IN OUT), OPTIONAL ::                            &
+ dq_zero_evap(points)                                                          &
+                           ! OUT The humidity deficit of the surface after
+                           !     the change in tstar with no moisture flux
+                           !     (kg per kg air).
+,k_evap(points)            ! OUT How strongly the cooling by the moisture
+                           !     flux lowers it.
+
 
 ! Workspace
 REAL(KIND=real_jlslsm) ::                                                      &
@@ -253,6 +270,21 @@ DO k = 1,surft_pts
                          lh * fqw_1(l) - surf_ht_flux)  /                      &
                ( rhokh_1(l) * (cp + lh * alpha1(l) * resft(l)) +               &
                     ashtf_prime(l) )
+
+  ! Before the correction below, so ftl_1 is that of the old tstar. From
+  ! dtstar above, fqw = resft * rhokh_1 * (D + alpha1 * dtstar) is the
+  ! function of resft declared above, with D = qstar - q.
+  !
+  ! MDK, 26/11/26
+  IF (PRESENT(dq_zero_evap) .AND. PRESENT(k_evap)) THEN
+    dq_zero_evap(l) = salinityfactor * qstar(l) - q_elev(l)                    &
+                      + (1.0 - sea_point) * alpha1(l)                          &
+                      * (radnet(l) + anthrop_heat(l) - cp * ftl_1(l)           &
+                         - surf_ht_flux)                                       &
+                      / (rhokh_1(l) * cp + ashtf_prime(l))
+    k_evap(l) = (1.0 - sea_point) * lh * alpha1(l) * rhokh_1(l)                &
+                / (rhokh_1(l) * cp + ashtf_prime(l))
+  END IF
 
   ! Correction to surface fluxes due to change in surface temperature
   ftl_1(l) = ftl_1(l) + rhokh_1(l) * dtstar(l) * (1.0 - sea_point)
