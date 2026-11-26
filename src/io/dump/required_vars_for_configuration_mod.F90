@@ -46,6 +46,8 @@ USE jules_vegetation_mod, ONLY: l_ximpair_cav_water
 USE jules_vegetation_mod, ONLY: leaf_resp_model, leaf_resp_globresp
   ! MDK, 04/11/26
 USE jules_vegetation_mod, ONLY: xylem_impairment_memory
+! MDK, 26/11/26
+USE jules_vegetation_mod, ONLY: leaf_flux_mod, leaf_flux_stom_opt
 USE jules_vegetation_mod, ONLY: can_model, can_rad_mod,                        &
                                 l_triffid, l_phenol, l_veg_compete,            &
                                 l_crop, l_landuse,                             &
@@ -302,6 +304,14 @@ IF ( l_som_coupled_e .AND. can_rad_mod == 7 ) THEN
   CALL add_to_list( 'cpl_gl_shd', nvars, identifiers )
   CALL add_to_list( 'cpl_gbw_sun', nvars, identifiers )
   CALL add_to_list( 'cpl_gbw_shd', nvars, identifiers )
+END IF
+! The surface flux step's aerodynamic resistance of the last timestep: the
+! stomatal optimisation's without leaf temperatures. With the two-leaf
+! coupled state it is kept either way.
+!
+! MDK, 26/11/26
+IF ( ( l_som_coupled_e .AND. can_rad_mod == 7 ) .OR.                           &
+     ( leaf_flux_mod == leaf_flux_stom_opt .AND. .NOT. l_leaf_temp ) ) THEN
   CALL add_to_list( 'cpl_ra_ca', nvars, identifiers )
 END IF
 ! The leaf temperatures of the last timestep, the first guess of the leaf

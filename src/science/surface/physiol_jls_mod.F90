@@ -117,6 +117,11 @@ USE plant_water_store_mod, ONLY: store_q, store_wt_root, store_w_soil,         &
 USE jules_soil_mod, ONLY: dzsoil
 USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 
+! MDK, 26/11/26
+USE sf_stom_state_mod, ONLY: cpl_state, sf_stom_state_alloc,                   &
+                             sf_stom_flux_alloc, e_flux_tile, wt_root_tile
+USE jules_vegetation_mod, ONLY: leaf_flux_stom_opt
+
 USE jules_vegetation_mod, ONLY:                                                &
   ! imported variables
   l_crop, l_use_pft_psi, l_triffid, l_som_supply_limit,                        &
@@ -1451,6 +1456,25 @@ DO n = 1,npft
 
   CALL raero (land_pts,land_index,surft_pts(n),surft_index(:,n)                &
 ,             rib,vshr,z0,z0,z1_uv_ij,ra)
+
+  ! The stomatal optimisation without leaf temperatures evaluates the
+  ! transpiration of each stomatal conductance through the resistance to
+  ! the first atmospheric level, so it is given the surface flux step's,
+  ! 1 / (ch * |V|), of the last timestep (raero's until there is one).
+  !
+  ! MDK, 26/11/26
+  IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
+    CALL sf_stom_state_alloc( land_pts )
+    CALL sf_stom_flux_alloc( land_pts, sm_levels )
+    IF ( n <= npft ) THEN
+      DO j = 1,surft_pts(n)
+        l = surft_index(j,n)
+        e_flux_tile(l,n) = -1.0
+        IF ( .NOT. l_leaf_temp .AND. cpl_state(l,n,5) > 0.0 )                  &
+          ra(l) = cpl_state(l,n,5)
+      END DO
+    END IF
+  END IF
   !-----------------------------------------------------------------------
   ! Calculate light absorption by the plant canopy
   !-----------------------------------------------------------------------
@@ -1864,7 +1888,8 @@ DO n = 1,npft
   ! MDK, 04/11/26
   !-----------------------------------------------------------------------
   IF (sf_diag%l_et_stom .OR. sf_diag%l_et_stom_surft .OR. l_soil_evap_or       &
-      .OR. l_som_capacitance_on) THEN
+      .OR. l_som_capacitance_on                                                &
+      .OR. leaf_flux_mod == leaf_flux_stom_opt) THEN
     IF (l_aggregate) THEN
       DO l = 1,land_pts
         gc_stom_surft(l,1) = gs_type(l,1)
@@ -1941,6 +1966,17 @@ DO n = 1,npft
                                              * smvcst_soilt(l,m,k)             &
                                              - v_close_pft(l,k,n))
       END DO
+    END DO
+  END IF
+
+  ! The root weights, for the surface flux step to share the extraction
+  ! between the transpiration and the soil evaporation.
+  !
+  ! MDK, 26/11/26
+  IF ( leaf_flux_mod == leaf_flux_stom_opt .AND. n <= npft ) THEN
+    DO j = 1,surft_pts(n)
+      l = surft_index(j,n)
+      wt_root_tile(l,:,n) = wt_ext_type(l,:,n)
     END DO
   END IF
 

@@ -9,6 +9,7 @@
 MODULE sf_stom_mod
 
 USE um_types, ONLY: real_jlslsm
+USE sf_stom_state_mod, ONLY: e_flux_tile, gc_cap_tile
 USE sf_stom_state_mod, ONLY: f_vcmax_psi_state, cpl_state, sf_stom_state_alloc
                             ! f_vcmax_psi_state (l_som_vcmax_psi) and cpl_state
                             ! (l_som_coupled_e, two-leaf) are in
@@ -4297,7 +4298,7 @@ CASE ( 7 )
 
   IF ( l_som_coupled_e ) CALL cpl_state_save( ft, land_pts, veg_pts, veg_index,&
                                               gl_sun, gl_shd, gbw_sun_lt,      &
-                                              gbw_shd_lt, ra_ca_lt )
+                                              gbw_shd_lt )
 
   ! The canopy's stomatal transpiration for the next step's first pass.
   !
@@ -5260,6 +5261,29 @@ IF ( l_fapar_diag ) THEN
                  'can_rad_mod should be 1, 4, 5, 6 or 7 (l_fapar_diag)')
   END SELECT
   apar_diag(:) = fapar_diag(:) * ipar(:)
+END IF
+
+! The stomatal optimisation's transpiration for the surface flux step.
+!
+! Within sf_stom the canopy conductance gc and the transpiration el are
+! related through the aerodynamic resistance ra (raero's with leaf
+! temperatures, otherwise the flux step's of the last timestep). The flux
+! step has this timestep's exchange coefficient, so it is given el, the
+! final value (with the cuticular leak and its limit), and sets the
+! conductance that delivers it (jules_land_sf_explicit). With l_leaf_temp and
+! l_leaf_temp_gc_eq = .FALSE. the flux step keeps the sum of the leaves'
+! stomatal conductances.
+!
+! MDK, 26/11/26
+IF ( leaf_flux_mod == leaf_flux_stom_opt .AND.                                 &
+     ( .NOT. l_leaf_temp .OR. l_leaf_temp_gc_eq ) ) THEN
+  DO m = 1,veg_pts
+    l = veg_index(m)
+    IF ( el(l) > 0.0 .AND. gc(l) > 0.0 ) THEN
+      e_flux_tile(l,ft) = el(l) * Water_kg_per_mol
+      gc_cap_tile(l,ft) = MAX(som_gl_max * lai(l), gc(l))
+    END IF
+  END DO
 END IF
 
 ! The gravity drop at the root-stem node is this timestep's only.
@@ -8043,10 +8067,9 @@ END SUBROUTINE coupled_inputs
 ! last timestep, they are its stomatal and boundary layer conductances of
 ! the sunlit and shaded leaves. Before that, the canopy conductance gc is
 ! shared between sunlit and shaded leaves by leaf area, and the boundary
-! layer conductances are 0. (The saved canopy air resistance, slot 5 of
-! cpl_state, is kept in the dump but not read.)
+! layer conductances are 0.
 !
-! MDK, 04/11/26
+! MDK, 26/11/26
 !#############################################################################
 SUBROUTINE cpl_state_load( ft, land_pts, veg_pts, veg_index, lai, lai_sun,     &
                            lai_shd, gc, gl_sun, gl_shd, gbw_sun, gbw_shd )
@@ -8098,14 +8121,14 @@ END SUBROUTINE cpl_state_load
 
 !#############################################################################
 ! Keep this timestep's stomatal and boundary layer conductances of the
-! sunlit and shaded leaves and the canopy air resistance (no lower than
-! 0), so the coupled transpiration (l_som_coupled_e) of the two-leaf
-! canopy can start from them next timestep (cpl_state_load).
+! sunlit and shaded leaves (no lower than 0), so the coupled
+! transpiration (l_som_coupled_e) of the two-leaf canopy can start from
+! them next timestep (cpl_state_load).
 !
-! MDK, 24/10/26
+! MDK, 26/11/26
 !#############################################################################
 SUBROUTINE cpl_state_save( ft, land_pts, veg_pts, veg_index, gl_sun, gl_shd,   &
-                           gbw_sun, gbw_shd, ra_ca )
+                           gbw_sun, gbw_shd )
 
 USE parkind1, ONLY: jprb, jpim
 USE yomhook, ONLY: lhook, dr_hook
@@ -8113,8 +8136,7 @@ IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: ft, land_pts, veg_pts, veg_index(land_pts)
 REAL(KIND=real_jlslsm), INTENT(IN) :: gl_sun(land_pts), gl_shd(land_pts),      &
-                                      gbw_sun(land_pts), gbw_shd(land_pts),    &
-                                      ra_ca(land_pts)
+                                      gbw_sun(land_pts), gbw_shd(land_pts)
 INTEGER :: l, m
 
 
@@ -8131,7 +8153,6 @@ DO m = 1,veg_pts
   cpl_state(l,ft,2) = MAX(gl_shd(l), 0.0)
   cpl_state(l,ft,3) = MAX(gbw_sun(l), 0.0)
   cpl_state(l,ft,4) = MAX(gbw_shd(l), 0.0)
-  cpl_state(l,ft,5) = MAX(ra_ca(l), 0.0)
 END DO
 
 IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)

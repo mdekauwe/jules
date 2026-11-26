@@ -164,6 +164,10 @@ USE stochastic_physics_run_mod, ONLY: l_rp2, i_rp_scheme, i_rp2b, rp_idx,      &
 USE theta_field_sizes,          ONLY: t_i_length,t_j_length
 USE tilepts_mod,                ONLY: tilepts
 USE timestep_mod,               ONLY: timestep
+! MDK, 26/11/26
+USE sf_stom_state_mod,          ONLY: cpl_state, e_flux_tile, gc_cap_tile,     &
+                                      wt_root_tile
+USE jules_vegetation_mod,       ONLY: leaf_flux_stom_opt
 USE urban_param_mod,            ONLY: z0m_mat
 USE urbanz0_mod,                ONLY: urbanz0
 USE veg_param,                  ONLY: secs_per_360days
@@ -1097,6 +1101,16 @@ INTEGER :: n_diag
 
 INTEGER :: errcode
 CHARACTER(LEN=errormessagelength) :: cmessage
+
+! Delivering the stomatal optimisation's transpiration: the humidity
+! deficit of the explicit flux (kg kg-1), ch * |V| (m s-1), the soil's and
+! the stomatal conductance (m s-1), the transpiration over its value at an
+! unlimited stomatal conductance, and the tile conductance (m s-1).
+!
+! MDK, 26/11/26
+REAL(KIND=real_jlslsm) :: d_flux, cu_flux, g_soil_t, g_stom_old, g_stom_new,   &
+                          k_flux, g_tile_new
+INTEGER :: kl
 
 INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
 INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -2667,6 +2681,73 @@ DO n = 1,nsurft
       *dq(l,n) * timestep
   END DO
 !$OMP END PARALLEL DO
+
+  !-----------------------------------------------------------------------
+  ! The transpiration of the stomatal optimisation, delivered with the
+  ! exchange coefficient and deficit of this flux. With D the deficit,
+  ! cu = ch * |V| and g_s the soil's conductance, the transpiration of the
+  ! tile's dry canopy (sf_resist) is
+  !
+  !   E = rho * D * cu * g / (g + g_s + cu),
+  !
+  ! with g the canopy stomatal conductance. So with k = E / (rho * D * cu),
+  !
+  !   g = k * (g_s + cu) / (1 - k),   no more than gc_cap_tile.
+  !
+  ! sf_stom's own g and E are related through the resistance it was given
+  ! (raero's with leaf temperatures, otherwise the last timestep's 1 / cu),
+  ! so g is set again here. The tile keeps sf_stom's g where the deficit is
+  ! below 1e-4 kg kg-1, under snow on the canopy, with aggregated tiles and
+  ! with irrigation.
+  !
+  ! The root extraction weights are shared again between the transpiration
+  ! (the root weights w_r) and the soil evaporation (layer 1), as in
+  ! soil_evap, for the new g:
+  !
+  !   w = (w_old * (g_old + g_s) + (g - g_old) * w_r) / (g + g_s).
+  !
+  ! 1 / cu is kept for the next timestep's stomatal optimisation.
+  !
+  ! MDK, 26/11/26
+  !-----------------------------------------------------------------------
+  IF ( leaf_flux_mod == leaf_flux_stom_opt .AND. n <= npft .AND.               &
+       ALLOCATED(e_flux_tile) .AND. .NOT. l_aggregate ) THEN
+    DO k = 1,surft_pts(n)
+      l = surft_index(k,n)
+      j = (land_index(l) - 1) / t_i_length + 1
+      i = land_index(l) - (j-1) * t_i_length
+      d_flux  = qstar_surft(l,n) - qw_1(i,j)
+      cu_flux = ch_surft(l,n) * vshr_land(i,j)
+      IF ( cu_flux > 0.0 ) cpl_state(l,n,5) = 1.0 / cu_flux
+
+      IF ( e_flux_tile(l,n) >= 0.0 .AND. d_flux > 1.0e-4 .AND.                 &
+           cu_flux > 0.0 .AND. snow_surft(l,n) <= 0.0 .AND.                    &
+           .NOT. l_irrig_dmd ) THEN
+        g_stom_old = gc_stom_surft(l,n)
+        g_soil_t   = MAX(gc_surft(l,n) - g_stom_old, 0.0)
+        k_flux     = e_flux_tile(l,n) / ( rhostar(i,j) * d_flux * cu_flux )
+        g_stom_new = gc_cap_tile(l,n)
+        IF ( k_flux < 1.0 ) THEN
+          g_stom_new = MIN(k_flux * (g_soil_t + cu_flux) / (1.0 - k_flux),     &
+                           gc_cap_tile(l,n))
+        END IF
+        g_tile_new = g_stom_new + g_soil_t
+
+        IF ( g_tile_new > 0.0 ) THEN
+          DO kl = 1,sm_levels
+            wt_ext_surft(l,kl,n) = ( wt_ext_surft(l,kl,n) * gc_surft(l,n)      &
+                                     + (g_stom_new - g_stom_old)               &
+                                       * wt_root_tile(l,kl,n) ) / g_tile_new
+          END DO
+          gc_surft(l,n)      = g_tile_new
+          gc_stom_surft(l,n) = g_stom_new
+        END IF
+      END IF
+
+      ! Used once.
+      e_flux_tile(l,n) = -1.0
+    END DO
+  END IF
 
   ! We should only attempt to access sf_diag%resfs_stom(:,n) if it has
   ! been fully allocated.
