@@ -118,8 +118,7 @@ USE jules_soil_mod, ONLY: dzsoil
 USE jules_surface_mod, ONLY: l_aggregate, l_flake_model
 
 ! MDK, 26/11/26
-USE sf_stom_state_mod, ONLY: cpl_state, sf_stom_state_alloc,                   &
-                             sf_stom_flux_alloc, e_flux_tile, wt_root_tile,   &
+USE sf_stom_state_mod, ONLY: sf_stom_flux_alloc, e_flux_tile, wt_root_tile,    &
                              smc_wt_tile
 USE jules_vegetation_mod, ONLY: leaf_flux_stom_opt
 
@@ -1458,21 +1457,16 @@ DO n = 1,npft
   CALL raero (land_pts,land_index,surft_pts(n),surft_index(:,n)                &
 ,             rib,vshr,z0,z0,z1_uv_ij,ra)
 
-  ! The stomatal optimisation without leaf temperatures evaluates the
-  ! transpiration of each stomatal conductance through the resistance to
-  ! the first atmospheric level, so it is given the surface flux step's,
-  ! 1 / (ch * |V|), of the last timestep (raero's until there is one).
+  ! No transpiration yet for the surface flux step this timestep
+  ! (e_flux_tile, set by sf_stom).
   !
   ! MDK, 26/11/26
   IF ( leaf_flux_mod == leaf_flux_stom_opt ) THEN
-    CALL sf_stom_state_alloc( land_pts )
     CALL sf_stom_flux_alloc( land_pts, sm_levels )
+
     IF ( n <= npft ) THEN
       DO j = 1,surft_pts(n)
-        l = surft_index(j,n)
-        e_flux_tile(l,n) = -1.0
-        IF ( .NOT. l_leaf_temp .AND. cpl_state(l,n,5) > 0.0 )                  &
-          ra(l) = cpl_state(l,n,5)
+        e_flux_tile(surft_index(j,n),n) = -1.0
       END DO
     END IF
   END IF

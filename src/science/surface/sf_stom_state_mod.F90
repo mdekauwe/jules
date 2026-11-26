@@ -15,13 +15,10 @@ MODULE sf_stom_state_mod
 !     wets up again (0 to 1; dump name fvcmax_psi_state).
 !   - cpl_state: with coupled transpiration (l_som_coupled_e) and the
 !     two-leaf canopy, the last stomatal and leaf boundary layer
-!     conductances of the sunlit and shaded leaves (m/s), the first guess
-!     on the first pass of the next timestep (dump names cpl_gl_sun,
-!     cpl_gl_shd, cpl_gbw_sun, cpl_gbw_shd). Its fifth slot is the
-!     aerodynamic resistance 1 / (ch * |V|) of the last surface flux step
-!     (s/m), which without leaf temperatures is the stomatal
-!     optimisation's resistance to the first atmospheric level (dump name
-!     cpl_ra_ca).
+!     conductances of the sunlit and shaded leaves (m/s) and the canopy
+!     air resistance (s/m). They are the first guess on the first pass of
+!     the next timestep (dump names cpl_gl_sun, cpl_gl_shd, cpl_gbw_sun,
+!     cpl_gbw_shd, cpl_ra_ca).
 !
 ! The module also holds what sf_stom hands to the surface flux step within
 ! a timestep (e_flux_tile, gc_cap_tile) and, from physiol, the root
@@ -44,7 +41,7 @@ PUBLIC :: f_vcmax_psi_state, cpl_state, sf_stom_state_alloc, n_cpl_state,      &
           e_flux_tile, gc_cap_tile, wt_root_tile, smc_wt_tile,            &
           sf_stom_flux_alloc
 
-! gl_sun, gl_shd, gbw_sun, gbw_shd, the flux step's resistance
+! gl_sun, gl_shd, gbw_sun, gbw_shd, ra_ca
 INTEGER, PARAMETER :: n_cpl_state = 5
 
 ! (land_pts, npft)

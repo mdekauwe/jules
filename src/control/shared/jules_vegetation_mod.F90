@@ -781,9 +781,8 @@ LOGICAL ::                                                                     &
       ! class's leaf temperature; otherwise tstar) to the level-1 air q1;
       ! r_bl the leaf boundary layer (two-leaf with l_leaf_temp, from the
       ! leaf energy balance's gb; 0 otherwise); r_ca the canopy air to
-      ! level 1 (the surface flux step's 1 / (ch * |V|) of the last
-      ! timestep, raero's on the first; 0 with l_leaf_temp, the leaves
-      ! being in the level-1 air); g'_other the other leaf class and the soil
+      ! level 1 (JULES's ra; 0 with l_leaf_temp, the leaves being in the
+      ! level-1 air); g'_other the other leaf class and the soil
       ! evaporation beneath the canopy (soil_evap's conductance, which
       ! shares the same path; with l_leaf_temp at qs(tstar), which adds
       ! r_ca * g_soil (qs(T_leaf) - qs(tstar)) to D). The fixed-D_c

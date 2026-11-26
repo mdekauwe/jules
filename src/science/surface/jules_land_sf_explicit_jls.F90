@@ -165,8 +165,8 @@ USE theta_field_sizes,          ONLY: t_i_length,t_j_length
 USE tilepts_mod,                ONLY: tilepts
 USE timestep_mod,               ONLY: timestep
 ! MDK, 26/11/26
-USE sf_stom_state_mod,          ONLY: cpl_state, e_flux_tile, gc_cap_tile,     &
-                                      wt_root_tile, smc_wt_tile
+USE sf_stom_state_mod,          ONLY: e_flux_tile, gc_cap_tile, wt_root_tile,  &
+                                      smc_wt_tile
 USE jules_vegetation_mod,       ONLY: leaf_flux_stom_opt
 USE urban_param_mod,            ONLY: z0m_mat
 USE urbanz0_mod,                ONLY: urbanz0
@@ -2695,9 +2695,9 @@ DO n = 1,nsurft
   !-----------------------------------------------------------------------
   ! The transpiration of the stomatal optimisation, E (sf_stom's final
   ! value, with the cuticular leak and its limit), delivered by this flux.
-  ! sf_stom relates its conductance and E through its own resistance
-  ! (raero's with leaf temperatures, otherwise the flux step's of the last
-  ! timestep), so the canopy stomatal conductance g is set again here.
+  ! sf_stom relates its conductance and E through raero's resistance, which
+  ! is not this flux's, so the canopy stomatal conductance g is set again
+  ! here.
   !
   ! A first call of sf_flux gives the moisture flux, with this step's change
   ! in surface temperature, as a function of resft:
@@ -2733,8 +2733,7 @@ DO n = 1,nsurft
   !
   !   w = (w_old * (g_old + g_s) + (g - g_old) * w_r) / (g + g_s),
   !
-  ! and the soil water supply smc_soilt with them. 1 / cu is kept for the
-  ! next timestep's stomatal optimisation.
+  ! and the soil water supply smc_soilt with them.
   !
   ! MDK, 26/11/26
   !-----------------------------------------------------------------------
@@ -2746,7 +2745,6 @@ DO n = 1,nsurft
       j = (land_index(l) - 1) / t_i_length + 1
       i = land_index(l) - (j-1) * t_i_length
       cu_flux = ch_surft(l,n) * vshr_land(i,j)
-      IF ( cu_flux > 0.0 ) cpl_state(l,n,5) = 1.0 / cu_flux
 
       l_deliver(l) = e_flux_tile(l,n) >= 0.0 .AND. cu_flux > 0.0               &
                      .AND. fracaero_t(l,n) < 1.0                               &
