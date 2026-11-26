@@ -220,6 +220,8 @@ USE jules_sea_seaice_mod, ONLY: l_ctile, charnock, ip_ss_solid
 
 USE jules_urban_mod, ONLY: l_moruses_rough_surft, l_moruses_storage
 
+! MDK, 26/11/26
+USE jules_science_fixes_mod, ONLY: l_fix_neg_snow
 USE jules_science_fixes_mod, ONLY: ctile_orog_fix, correct_sea_adjust_land,    &
                                    l_fix_wind_snow, l_accurate_rho,            &
                                    l_fix_moruses_roof_rad_coupling
@@ -2723,7 +2725,7 @@ DO n = 1,nsurft
   ! with g no more than gc_cap_tile, which it takes where no g gives E
   ! (x >= 1). The tile keeps sf_stom's g where no moisture would leave the
   ! surface (Dn <= 0), where the tile is all wet, where part of it
-  ! sublimates (fracaero_s > 0, which changes the latent heat with resft),
+  ! sublimates (which changes the latent heat, with resft or to ls),
   ! with snow on a canopy of the canopy snow scheme, with aggregated tiles
   ! and with irrigation.
   !
@@ -2748,8 +2750,16 @@ DO n = 1,nsurft
 
       l_deliver(l) = e_flux_tile(l,n) >= 0.0 .AND. cu_flux > 0.0               &
                      .AND. fracaero_t(l,n) < 1.0                               &
-                     .AND. fracaero_s(l,n) <= 0.0                              &
                      .AND. .NOT. l_irrig_dmd
+      ! Sublimation, as sf_flux sets the latent heat: fracaero_s with
+      ! l_fix_neg_snow (sf_resist sets it only then), otherwise snow lying
+      ! on the tile.
+      IF ( l_fix_neg_snow ) THEN
+        IF ( fracaero_s(l,n) > 0.0 ) l_deliver(l) = .FALSE.
+      ELSE
+        IF ( snowdepth_surft(l,n) > 0.0 .OR. snowdep_surft(l,n) > 0.0 )        &
+          l_deliver(l) = .FALSE.
+      END IF
       IF ( can_model == 4 .AND. cansnowtile(n) ) THEN
         IF ( snow_surft(l,n) > 0.0 ) l_deliver(l) = .FALSE.
       END IF
